@@ -925,8 +925,8 @@ mutex_self_lock(struct pthread_mutex *m, const struct timespec *abstime)
 				ret = ETIMEDOUT;
 			}
 		} else {
-			ts1.tv_sec = 30;
-			ts1.tv_nsec = 0;
+			ts1.tv_sec = 1;
+			ts1.tv_nsec = 666;
 			for (;;)
 				__sys_nanosleep(&ts1, NULL);
 		}
