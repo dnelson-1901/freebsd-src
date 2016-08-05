@@ -1046,7 +1046,7 @@ open_interface(const char *device, netdissect_options *ndo, char *ebuf)
 			error("%s: Can't set monitor mode: %s",
 			    device, pcap_statustostr(status));
 	}
-	status = pcap_set_timeout(pc, 1000);
+	status = pcap_set_timeout(pc, 100);
 	if (status != 0)
 		error("%s: pcap_set_timeout failed: %s",
 		    device, pcap_statustostr(status));
@@ -1116,7 +1116,7 @@ open_interface(const char *device, netdissect_options *ndo, char *ebuf)
 #endif /* HAVE_PCAP_SETDIRECTION */
 #else /* HAVE_PCAP_CREATE */
 	*ebuf = '\0';
-	pc = pcap_open_live(device, ndo->ndo_snaplen, !pflag, 1000, ebuf);
+	pc = pcap_open_live(device, ndo->ndo_snaplen, !pflag, 100, ebuf);
 	if (pc == NULL) {
 		/*
 		 * If this failed with "No such device", that means
