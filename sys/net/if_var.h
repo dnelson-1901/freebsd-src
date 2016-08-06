@@ -76,6 +76,8 @@ struct	debugnet_methods;
 #include <sys/mbuf.h>		/* ifqueue only? */
 #include <sys/buf_ring.h>
 #include <net/vnet.h>
+#else
+#include <stdbool.h>
 #endif /* _KERNEL */
 #include <sys/ck.h>
 #include <sys/counter.h>
@@ -346,6 +348,7 @@ struct ifnet {
 	struct	vnet *if_home_vnet;	/* where this ifnet originates from */
 	struct  ifvlantrunk *if_vlantrunk; /* pointer to 802.1q data */
 	struct	bpf_if *if_bpf;		/* packet filter structure */
+	bool	if_nativevlan;		/* native vlan interface on trunk */
 	int	if_pcount;		/* number of promiscuous listeners */
 	void	*if_bridge;		/* bridge glue */
 	void	*if_lagg;		/* lagg glue */

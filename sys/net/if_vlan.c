@@ -1378,9 +1378,11 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t vid,
 	/*
 	 * Don't let the caller set up a VLAN VID with
 	 * anything except VLID bits.
-	 * VID numbers 0x0 and 0xFFF are reserved.
+	 * VID numbers 0x0 and 0xFFF are reserved, so
+	 * we accept 0 to mean untagged frames - the
+	 * "native" vlan.
 	 */
-	if (vid == 0 || vid == 0xFFF || (vid & ~EVL_VLID_MASK))
+	if (vid == 0xFFF || (vid & ~EVL_VLID_MASK))
 		return (EINVAL);
 	if (ifv->ifv_trunk)
 		return (EBUSY);
@@ -1406,7 +1408,7 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t vid,
 	if (error)
 		goto done;
 	ifv->ifv_proto = proto;
-	ifv->ifv_encaplen = ETHER_VLAN_ENCAP_LEN;
+	ifv->ifv_encaplen = vid ? ETHER_VLAN_ENCAP_LEN : 0;
 	ifv->ifv_mintu = ETHERMIN;
 	ifv->ifv_pflags = 0;
 	ifv->ifv_capenable = -1;
@@ -1487,6 +1489,13 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, uint16_t vid,
 		taskqueue_enqueue(taskqueue_thread, &ifv->lladdr_task);
 	}
 
+	/*
+	 * If the native vlan is being configured, let the parent interface
+	 * know to forward untagged frames here.
+	 */
+	if (vid == 0)
+		p->if_nativevlan = true;
+
 	/* We are ready for operation now. */
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 
@@ -1533,6 +1542,13 @@ vlan_unconfig_locked(struct ifnet *ifp, int departing)
 
 	if (trunk != NULL) {
 		parent = trunk->parent;
+
+		/*
+		 * If the native vlan is being removed, let the parent
+		 * interface know it must process untagged frames itself.
+		 */
+		if (ifv->ifv_vid == 0)
+			parent->if_nativevlan = false;
 
 		/*
 		 * Since the interface is being unconfigured, we need to
