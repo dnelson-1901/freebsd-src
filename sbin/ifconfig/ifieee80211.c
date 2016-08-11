@@ -3018,6 +3018,34 @@ printapchanrep(const char *tag, const u_int8_t *ie, size_t ielen, int maxlen)
 	}
 }
 
+static void
+printextcap(const char *tag, const u_int8_t *ie, size_t ielen, int maxlen)
+{
+	printf("%s", tag);
+	if (verbose) {
+		if (ie[2]) printb(",B1", ie[2], "\20\00120/40\2Odb\3ECS\4WAVE\5PSMP\7S-PSMP\010Event");
+		if (ie[3]) printb(",B2", ie[3], "\20\1Diag\2MDiag\3LocTrk\4FMS\5PxARP\6CIR\7cLoc\010gLoc");
+		if (ie[4]) printb(",B3", ie[4], "\20\1TFS\2WNM\3TIM\4BSS\5QoS\6AC\7mBSSID\010Timing");
+		if (ie[5]) printb(",B4", ie[5], "\20\1Usage\2SSID\3DMS\4UTC\5TDLS\6TDLS\7TDLS\10Inter");
+		if (ie[6]) printb(",B5", ie[6], "\20\1QoS\2EBR\3SSPN\5MSGCF\6TDLS\7TDLS\10TDLS");
+		if (ie[7]) printb(",B6", ie[7], "\20\1Reject\2SIG1\3SIG2\4SIG3\5ID\6U-APSD\7WNM");
+		if (ie[8]) printb(",B7", ie[8], "\20\1UTF8");
+		if (ie[9]) printb(",B8", ie[9], "\20\6TDLS\7OMN\10MSDU");
+	}
+}
+
+static void
+printobsp(const char *tag, const u_int8_t *ie, size_t ielen, int maxlen)
+{
+	printf("%s", tag);
+	if (verbose) {
+		printf("<dwell[p %u a %u] interval %u total[p %u a %u] delay %u thresh %u>",
+			LE_READ_2(ie+2), LE_READ_2(ie+4), LE_READ_2(ie+6),
+			LE_READ_2(ie+8), LE_READ_2(ie+10), LE_READ_2(ie+12),
+			LE_READ_2(ie+14));
+	}
+}
+
 static const char *
 wpa_cipher(const u_int8_t *sel)
 {
@@ -3676,6 +3704,12 @@ printies(const u_int8_t *vp, int ielen, int maxcols)
 			break;
 		case IEEE80211_ELEMID_APCHANREP:
 			printapchanrep(" APCHANREP", vp, 2+vp[1], maxcols);
+			break;
+		case IEEE80211_ELEMID_EXTCAP:
+			printextcap(" EXTCAP", vp, 2+vp[1], maxcols);
+			break;
+		case IEEE80211_ELEMID_OVERLAP_BSS_SCAN_PARAM:
+			printobsp(" OBSP", vp, 2+vp[1], maxcols);
 			break;
 		default:
 			if (verbose)
