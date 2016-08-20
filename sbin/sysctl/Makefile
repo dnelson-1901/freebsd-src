@@ -7,4 +7,6 @@ PROG=	sysctl
 WARNS?=	3
 MAN=	sysctl.8
 
+NO_SHARED?=	YES
+
 .include <bsd.prog.mk>

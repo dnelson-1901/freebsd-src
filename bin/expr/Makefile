@@ -6,6 +6,7 @@ PACKAGE=runtime
 PROG=	expr
 SRCS=	expr.y
 YFLAGS=
+NO_SHARED?=	YES
 
 # expr relies on signed integer wrapping
 CFLAGS+= -fwrapv

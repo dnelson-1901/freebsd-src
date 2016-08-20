@@ -33,6 +33,7 @@ CFLAGS+=	-I${_LIBARCHIVEDIR}/tar -I${_LIBARCHIVEDIR}/libarchive
 CFLAGS+=	-I${_LIBARCHIVEDIR}/libarchive_fe
 SYMLINKS=	bsdtar ${BINDIR}/tar
 MLINKS=	bsdtar.1 tar.1
+NO_SHARED?=	YES
 
 HAS_TESTS=
 SUBDIR.${MK_TESTS}+= tests

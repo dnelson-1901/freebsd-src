@@ -9,6 +9,8 @@ SRCS=	find.c function.c ls.c main.c misc.c operator.c option.c \
 YFLAGS=
 CFLAGS.clang+=	-Werror=undef
 
+NO_SHARED?=	YES
+
 NO_WMISSING_VARIABLE_DECLARATIONS=
 
 HAS_TESTS=

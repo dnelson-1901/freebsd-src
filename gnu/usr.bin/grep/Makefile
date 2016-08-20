@@ -4,6 +4,8 @@
 
 GREP_LIBZ=YES
 
+NO_SHARED?=	YES
+
 .if ${MK_BSD_GREP} != "yes"
 PROG=	grep
 .else

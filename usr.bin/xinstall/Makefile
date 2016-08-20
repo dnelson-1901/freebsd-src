@@ -7,6 +7,7 @@ PROG=		xinstall
 PROGNAME=	install
 SRCS=		xinstall.c getid.c
 MAN=		install.1
+NO_SHARED?=	YES
 
 .PATH:		${SRCTOP}/contrib/mtree
 CFLAGS+=	-I${SRCTOP}/contrib/mtree

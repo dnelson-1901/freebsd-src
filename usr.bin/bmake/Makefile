@@ -5,6 +5,8 @@
 
 SRCTOP?= ${.CURDIR:H:H}
 
+NO_SHARED?=	YES
+
 # look here first for config.h
 CFLAGS+= -I${.CURDIR}
 

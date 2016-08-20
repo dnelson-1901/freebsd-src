@@ -12,6 +12,7 @@ ROOTNAME_dot.profile=	.profile
 PACKAGE=runtime
 PROG=	sh
 INSTALLFLAGS= -S
+NO_SHARED?=	YES
 SHSRCS=	alias.c arith_yacc.c arith_yylex.c cd.c echo.c error.c eval.c \
 	exec.c expand.c \
 	histedit.c input.c jobs.c kill.c mail.c main.c memalloc.c miscbltin.c \
