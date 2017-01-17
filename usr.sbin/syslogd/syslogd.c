@@ -2402,7 +2402,7 @@ readconfigfile(FILE *cf, int allow_includes)
 	struct filed *f;
 	struct dirent **ent;
 	char cline[LINE_MAX];
-	char host[MAXHOSTNAMELEN];
+	char host[LINE_MAX];
 	char prog[LINE_MAX];
 	char file[MAXPATHLEN];
 	char pfilter[LINE_MAX];
@@ -2478,7 +2478,7 @@ readconfigfile(FILE *cf, int allow_includes)
 			}
 			if (*p == '@')
 				p = LocalHostName;
-			for (i = 1; i < MAXHOSTNAMELEN - 1; i++) {
+			for (i = 1; i < LINE_MAX - 1; i++) {
 				if (!isalnum(*p) && *p != '.' && *p != '-'
 				    && *p != ',' && *p != ':' && *p != '%')
 					break;
