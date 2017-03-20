@@ -616,10 +616,12 @@ print_entry(struct sockaddr_dl *sdl,
 		if ((sdl->sdl_type == IFT_ETHER ||
 		    sdl->sdl_type == IFT_L2VLAN ||
 		    sdl->sdl_type == IFT_BRIDGE) &&
-		    sdl->sdl_alen == ETHER_ADDR_LEN)
-			xo_emit("{:mac-address/%s}",
-			    ether_ntoa((struct ether_addr *)LLADDR(sdl)));
-		else {
+		    sdl->sdl_alen == ETHER_ADDR_LEN) {
+			char ether_host[MAXHOSTNAMELEN];
+			if (nflag || ether_ntohost(ether_host, (struct ether_addr *)LLADDR(sdl)))
+				strcpy(ether_host, "?");
+			xo_emit(":ether-hostname/%s (:mac-address/%s)", ether_host, ether_ntoa((struct ether_addr *)LLADDR(sdl)));
+		} else {
 			int n = sdl->sdl_nlen > 0 ? sdl->sdl_nlen + 1 : 0;
 
 			xo_emit("{:mac-address/%s}", link_ntoa(sdl) + n);
