@@ -90,7 +90,10 @@ vlan_status(int s)
 
 	if (getvlan(s, &ifr, &vreq) == -1)
 		return;
-	printf("\tvlan: %d", vreq.vlr_tag);
+	if (vreq.vlr_tag == 0)
+		printf("\tvlan: native");
+	else
+		printf("\tvlan: %d", vreq.vlr_tag);
 	printf(" vlanproto: ");
 	switch (vreq.vlr_proto) {
 		case ETHERTYPE_VLAN:
@@ -191,8 +194,12 @@ DECL_CMD_FUNC(setvlantag, val, d)
 	char *endp;
 
 	ul = strtoul(val, &endp, 0);
-	if (*endp != '\0')
-		errx(1, "invalid value for vlan");
+	if (*endp != '\0') {
+		if (strcmp(val, "native") == 0)
+			ul = 0;
+		else
+			errx(1, "invalid value %s for vlan", val);
+	}
 	params.vlr_tag = ul;
 	/* check if the value can be represented in vlr_tag */
 	if (params.vlr_tag != ul)
