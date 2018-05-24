@@ -14,6 +14,62 @@ ident           TL-WDR4300
 # Override hints with board values
 hints           "TL-WDR4300.hints"
 
+#nomakeoptions	DEBUG
+# clear any modules set to build by default
+nomakeoptions	MODULES_OVERRIDE
+makeoptions	MODULES_OVERRIDE+=""
+makeoptions	MODULES_OVERRIDE+="opensolaris zfs acl_nfs4"
+#options ZFS
+#makeoptions	MODULES_OVERRIDE+="nfscl nfslock nfssvc nfscommon"
+makeoptions	MODULES_OVERRIDE+="tmpfs"
+makeoptions	MODULES_OVERRIDE+="iscsi"
+makeoptions	MODULES_OVERRIDE+="dtrace"
+makeoptions	MODULES_OVERRIDE+="hwpmc_mips74k"
+
+#makeoptions	ARCH_FLAGS="-mabi=32 -march=24kc -msoft-float"
+
+#options 	SOFTUPDATES		# Enable FFS soft updates support
+#nooptions	NO_FFS_SNAPSHOT		# that ain't right.
+#nooptions	NO_SYSCTL_DESCR		# we like docs
+#nooptions 	SCSI_NO_SENSE_STRINGS	# we like docs
+#nooptions 	SCSI_NO_OP_STRINGS	# we like docs
+options 	INCLUDE_CONFIG_FILE     # Include this file in kernel
+options		KTRACE
+options		STACK
+options 	KDB_TRACE		# Print a stack trace for a panic.
+options 	KDTRACE_FRAME		# Ensure frames are compiled in
+options 	KDTRACE_HOOKS		# Kernel DTrace hooks
+makeoptions	WITH_CTF=1              # Run ctfconvert(1) for DTrace support
+#options 	INVARIANTS
+#options 	INVARIANT_SUPPORT
+device		pass
+options		BOOTVERBOSE=1
+#options 	TMPFS			#Efficient memory filesystem
+options 	NFSCL			#Network Filesystem Client
+options 	NFSLOCKD		#Network Lock Manager
+#options	HWPMC_HOOKS
+#options	HWPMC_MIPS_BACKTRACE
+#device		hwpmc
+#device		hwpmc_mips74k
+options 	SYSVSHM
+options 	SYSVSEM
+options 	SYSVMSG
+options		FILEMON
+#device		vt		# virtual terminal console driver
+#device		fbd		# framebuffer device?
+#device		videomode	# video mode setting?
+#device		udl		# DisplayLink DL-120 / DL-160 USB display devices
+device		vlan
+device		if_bridge
+options		IPFIREWALL
+options		IPFIREWALL_DEFAULT_TO_ACCEPT
+options		IPDIVERT
+options		LIBALIAS # in-kernel NAT
+options		IPFIREWALL_NAT
+options		DUMMYNET
+options		COMPAT_FREEBSD11 # Enable FreeBSD11 compatibility syscalls
+options		COMPAT_FREEBSD12 # Enable FreeBSD12 compatibility syscalls
+
 # Force the board memory - the base DB120 has 128MB RAM
 options         AR71XX_REALMEM=(128*1024*1024)
 
@@ -23,8 +79,13 @@ options         AR71XX_REALMEM=(128*1024*1024)
 #device		iicbus
 #device		iic
 
+# This is required for the 2GHz LNAs on the AR9340 SoC.
+# Without this the 2GHz radio is Quite Deaf.
+device		gpio
+device		gpioled
+
 # Options required for miiproxy and mdiobus
-options 	ARGE_DEBUG
+#options 	ARGE_DEBUG
 options 	ARGE_MDIO	# Export an MDIO bus separate from arge
 device		miiproxy	# MDIO bus <-> MII PHY rendezvous
 
@@ -32,7 +93,7 @@ device		etherswitch
 device		arswitch
 
 # read MSDOS formatted disks - USB
-options 	MSDOSFS
+#options 	MSDOSFS
 
 # Enable the uboot environment stuff rather then the
 # redboot stuff.
@@ -45,17 +106,35 @@ options 	GEOM_UZIP
 # Used for the static uboot partition map
 device          geom_map
 
+
+# ath(4)
+device		ath             # Atheros network device
+device		ath_rate_sample
+device		ath_ahb         # Atheros host bus glue
+#options	ATH_DEBUG
+
+device		ath_ar9300              # AR9330 HAL; no need for the others
+#option		AH_DEBUG
+
 # Yes, this board has a PCI connected atheros device
-options 	AR71XX_ATH_EEPROM
-device		firmware		# Used by the above
-options 	ATH_EEPROM_FIRMWARE
+device		ath_pci
+
+# Wireless NIC cards
+device         wlan            # 802.11 support
+device         wlan_wep        # 802.11 WEP support
+device         wlan_ccmp       # 802.11 CCMP support
+device         wlan_tkip       # 802.11 TKIP support
+device         wlan_xauth      # 802.11 hostap support
 
 options 	ATH_DEBUG_ALQ
 
-# Boot off of the rootfs, as defined in the geom_map setup.
-options 	ROOTDEVNAME=\"ufs:map/rootfs.uzip\"
+# Try booting off a USB stick, with fallback to rootfs as defined in the
+# geom_map setup.
+options 	ROOTDEVNAME=\"ufs:da0s1a\nufs:map/rootfs.uzip\"
 
-# This is required for the 2GHz LNAs on the AR9340 SoC.
-# Without this the 2GHz radio is Quite Deaf.
-device		gpio
-device		gpioled
+# Use a memory disk, which means we can tftp the kernel from uboot and boot
+# a system without accessing flash.
+#options         MD_ROOT                 # MD is a potential root devive
+#options         MD_ROOT_READONLY        # disallow mounting root writeable
+#makeoptions     MFS_IMAGE=/usr/tmp/cvs/freebsd-wifi2-build/tftpboot/mfsroot-tl-wdr4300.img.ulzma
+#options         ROOTDEVNAME=\"ufs:md0.uzip\"
