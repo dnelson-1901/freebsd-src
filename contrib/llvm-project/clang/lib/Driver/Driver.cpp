@@ -1093,7 +1093,7 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
     // clang-cl targets MSVC-style Win32.
     llvm::Triple T(TargetTriple);
     T.setOS(llvm::Triple::Win32);
-    T.setVendor(llvm::Triple::PC);
+    T.setVendor(llvm::Triple::V_PC);
     T.setEnvironment(llvm::Triple::MSVC);
     T.setObjectFormat(llvm::Triple::COFF);
     TargetTriple = T.str();

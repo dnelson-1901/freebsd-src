@@ -2024,9 +2024,9 @@ struct APInt::mu {
   unsigned s; ///< shift amount
 };
 
-inline bool operator==(uint64_t V1, const APInt &V2) { return V2 == V1; }
+inline bool operator==(uint64_t tmp_V1, const APInt &tmp_V2) { return tmp_V2 == tmp_V1; }
 
-inline bool operator!=(uint64_t V1, const APInt &V2) { return V2 != V1; }
+inline bool operator!=(uint64_t tmp_V1, const APInt &tmp_V2) { return tmp_V2 != tmp_V1; }
 
 /// Unary bitwise complement operator.
 ///
