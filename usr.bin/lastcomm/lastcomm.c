@@ -161,7 +161,7 @@ main(int argc, char *argv[])
 		(void)printf("%-*.*s %-7s %-*s %-8s",
 			     AC_COMM_LEN, AC_COMM_LEN, ab.ac_comm,
 			     flagbits(ab.ac_flagx),
-			     MAXLOGNAME - 1, user_from_uid(ab.ac_uid, 0),
+			     8, user_from_uid(ab.ac_uid, 0),
 			     getdev(ab.ac_tty));
 		
 		
