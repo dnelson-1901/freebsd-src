@@ -167,18 +167,18 @@ main(int argc, char *argv[])
 		
 		/* user + system time */
 		if (flags & AC_CTIME) {
-			(void)printf(" %6.3f secs", 
+			(void)printf(" %7.4f secs", 
 			    (ab.ac_utime + ab.ac_stime) / 1000000);
 		}
 		
 		/* usr time */
 		if (flags & AC_UTIME) {
-			(void)printf(" %6.3f us", ab.ac_utime / 1000000);
+			(void)printf(" %7.4f us", ab.ac_utime / 1000000);
 		}
 		
 		/* system time */
 		if (flags & AC_STIME) {
-			(void)printf(" %6.3f sy", ab.ac_stime / 1000000);
+			(void)printf(" %7.4f sy", ab.ac_stime / 1000000);
 		}
 		
 		/* elapsed time */
@@ -193,7 +193,7 @@ main(int argc, char *argv[])
 				    localtime(&ab.ac_btime));
 				(void)printf(" %s", buf);
 			} else
-				(void)printf(" %.16s", ctime(&ab.ac_btime));
+				(void)printf(" %.19s", ctime(&ab.ac_btime));
 		}
 		
 		/* exit time (starting time + elapsed time )*/
@@ -205,7 +205,7 @@ main(int argc, char *argv[])
 				    localtime(&t));
 				(void)printf(" %s", buf);
 			} else
-				(void)printf(" %.16s", ctime(&t));
+				(void)printf(" %.19s", ctime(&t));
 		}
 		printf("\n");
  	}
