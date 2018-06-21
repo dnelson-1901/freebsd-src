@@ -332,8 +332,17 @@ test-system-${_t}: .PHONY
     make(toolchain) || make(_cross-tools))
 .if ${USING_SYSTEM_COMPILER} == "yes"
 .info SYSTEM_COMPILER: Determined that CC=${CC} matches the source tree.  Not bootstrapping a cross-compiler.
-.elif ${MK_CLANG_BOOTSTRAP} == "yes"
+.else
+.info SYSTEM_COMPILER: ${.newline}\
+Determined that CC=${CC} does NOT match the source tree. ${.newline}\
+Bootstrapping a cross-compiler. ${.newline}\
+MK_SYSTEM_COMPILER(yes) -> ${MK_SYSTEM_COMPILER} ${.newline}\
+TARGET_ARCH==MACHINE_ARCH -> ${TARGET_ARCH} == ${MACHINE_ARCH} ${.newline}\
+COMPILER_VERSION==WANT_COMPILER_VERSION -> ${COMPILER_VERSION} == ${WANT_COMPILER_VERSION} ${.newline}\
+COMPILER_FREEBSD_VERSION==WANT_COMPILER_FREEBSD_VERSION -> ${COMPILER_FREEBSD_VERSION} == ${WANT_COMPILER_FREEBSD_VERSION}
+.if ${MK_CLANG_BOOTSTRAP} == "yes"
 .info SYSTEM_COMPILER: libclang will be built for bootstrapping a cross-compiler.
+.endif
 .endif
 .if ${USING_SYSTEM_LINKER} == "yes"
 .info SYSTEM_LINKER: Determined that LD=${LD} matches the source tree.  Not bootstrapping a cross-linker.
