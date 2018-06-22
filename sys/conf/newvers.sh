@@ -246,7 +246,7 @@ fi
 if findvcs .hg; then
 	for dir in /usr/bin /usr/local/bin; do
 		if [ -x "${dir}/hg" ] ; then
-			hg_cmd="${dir}/hg -R ${VCSDIR}"
+			hg_cmd="${dir}/hg -R ${VCSDIR%/.hg}"
 			break
 		fi
 	done
@@ -310,8 +310,7 @@ fi
 
 if [ -n "$hg_cmd" ] ; then
 	hg=$($hg_cmd id 2>/dev/null)
-	hgsvn=$($hg_cmd svn info 2>/dev/null | \
-		awk -F': ' '/Revision/ { print $2 }')
+	hgsvn=$($hg_cmd id --template "{svnrev}" -r 'max(::. & fromsvn())' 2>/dev/null)
 	if [ -n "$hgsvn" ] ; then
 		svn=" r${hgsvn}"
 	fi
