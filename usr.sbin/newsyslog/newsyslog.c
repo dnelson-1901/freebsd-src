@@ -1718,13 +1718,18 @@ static const char *
 get_logfile_suffix(const char *logfile)
 {
 	struct stat st;
-	char zfile[MAXPATHLEN];
+	char *zfile;
+	int rval;
 	int c;
 
 	for (c = 0; c < COMPRESS_TYPES; c++) {
-		(void) strlcpy(zfile, logfile, MAXPATHLEN);
-		(void) strlcat(zfile, compress_type[c].suffix, MAXPATHLEN);
-		if (lstat(zfile, &st) == 0)
+		asprintf(&zfile, "%s%s", logfile, compress_type[c].suffix);
+		if (zfile == NULL)
+			err(1, "asprintf");
+
+		rval = lstat(zfile, &st);
+		free(zfile);
+		if (rval == 0)
 			return (compress_type[c].suffix);
 	}
 	return (NULL);
