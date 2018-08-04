@@ -362,6 +362,9 @@ main(int argc, char **argv)
 			ztmp = SLIST_FIRST(&zwhead);
 			do_zipwork(ztmp);
 			SLIST_REMOVE_HEAD(&zwhead, zw_nextp);
+			if (ztmp->zw_conf != NULL &&
+			    ztmp->zw_conf->r_reason != NULL)
+				free(ztmp->zw_conf->r_reason);
 			free(ztmp);
 		}
 	}
