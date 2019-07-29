@@ -2288,7 +2288,7 @@ Parse_include_file(char *file, Boolean isSystem, Boolean depinc, int silent)
     fd = open(fullname, O_RDONLY);
     if (fd == -1) {
 	if (!silent)
-	    Parse_Error(PARSE_FATAL, "Cannot open %s", fullname);
+	    Parse_Error(PARSE_FATAL, "Cannot open %s: %s", fullname, strerror(errno));
 	free(fullname);
 	return;
     }
