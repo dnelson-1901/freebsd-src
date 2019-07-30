@@ -65,6 +65,17 @@ CFLAGS+= -I. -I${srcdir} ${XDEFS} -DMAKE_NATIVE
 CFLAGS+= ${COPTS.${.ALLSRC:M*.c:T:u}}
 COPTS.main.c+= "-DMAKE_VERSION=\"${_MAKE_VERSION}\""
 
+.if ${COMPILER_TYPE} == "clang" && exists(/usr/bin/llvm-objcopy) && ${MACHINE_CPUARCH} != "mips"
+# Build make with LTO
+CFLAGS+=	-flto=thin
+CXXFLAGS+=	-flto=thin
+LDFLAGS+=	-fuse-ld=lld
+# force objcopy and strip so we don't use binutils versions
+OBJCOPY=	llvm-objcopy
+STRIPBIN=	llvm-strip
+.export STRIPBIN
+.endif
+
 # meta mode can be useful even without filemon
 # should be set by now
 USE_FILEMON ?= no
