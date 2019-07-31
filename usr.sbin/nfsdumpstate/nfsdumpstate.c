@@ -51,6 +51,7 @@ __FBSDID("$FreeBSD$");
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <vis.h>
 
 #define	DUMPSIZE	10000
 
@@ -163,8 +164,12 @@ dump_openstate(void)
 			break;
 #endif
 		}
-		for (i = 0; i < dp[cnt].ndcl_clid.nclid_idlen; i++)
-			printf("%02x", dp[cnt].ndcl_clid.nclid_id[i]);
+		for (i = 0; i < dp[cnt].ndcl_clid.nclid_idlen; i++) {
+			int c = dp[cnt].ndcl_clid.nclid_id[i];
+			char buf[5];
+			vis(buf, c, 0, 0);
+			fputs(buf, stdout);
+		}
 		printf("\n");
 		cnt++;
 	}
