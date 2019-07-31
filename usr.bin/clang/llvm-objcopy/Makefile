@@ -56,4 +56,6 @@ LIBADD+=	ncursesw
 LIBADD+=	pthread
 LIBADD+=	z
 
+LINKS+=		${BINDIR}/llvm-objcopy ${BINDIR}/llvm-strip
+
 .include <bsd.prog.mk>
