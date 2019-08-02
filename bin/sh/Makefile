@@ -28,6 +28,15 @@ SRCS= ${SHSRCS} ${GENSRCS} ${GENHDRS}
 
 LIBADD=	edit
 
+.if ${COMPILER_TYPE} == "clang" && !defined(RESCUE) && ${MACHINE_CPUARCH} != "mips"
+# Build with LTO, force objcopy and strip to avoid ports versions
+CFLAGS+=	-flto=thin
+LDFLAGS+=	-fuse-ld=lld
+OBJCOPY=	llvm-objcopy
+STRIPBIN=	llvm-strip
+.export STRIPBIN
+.endif
+
 CFLAGS+=-DSHELL -I. -I${.CURDIR}
 # for debug:
 # DEBUG_FLAGS+= -g -DDEBUG=2 -fno-inline
