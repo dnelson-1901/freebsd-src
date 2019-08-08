@@ -89,7 +89,7 @@ MipsSubtarget::MipsSubtarget(const Triple &TT, StringRef CPU, StringRef FS,
       TLInfo(MipsTargetLowering::create(TM, *this)) {
 
   if (MipsArchVersion == MipsDefault)
-    MipsArchVersion = Mips32;
+    MipsArchVersion = Mips2;
 
   // Don't even attempt to generate code for MIPS-I and MIPS-V. They have not
   // been tested and currently exist for the integrated assembler only.
