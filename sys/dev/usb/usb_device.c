@@ -2070,9 +2070,12 @@ config_done:
 	/* Symlink the ugen device name */
 	udev->ugen_symlink = usb_alloc_symlink(udev->ugen_name);
 
+	usb_devinfo(udev,  (char *)udev->scratch.data,
+	    sizeof(udev->scratch.data));
+
 	/* Announce device */
-	printf("%s: <%s %s> at %s\n", udev->ugen_name,
-	    usb_get_manufacturer(udev), usb_get_product(udev),
+	printf("%s: <%s> on %s\n", udev->ugen_name,
+	    (char *)udev->scratch.data,
 	    device_get_nameunit(udev->bus->bdev));
 #endif
 
