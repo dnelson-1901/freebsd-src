@@ -2284,7 +2284,7 @@ usb_free_device(struct usb_device *udev, uint8_t flag)
 
 #if USB_HAVE_UGEN
 	if (!rebooting) {
-		printf("%s: <%s %s> at %s (disconnected)\n", udev->ugen_name,
+		printf("%s: <%s %s> on %s (disconnected)\n", udev->ugen_name,
 		    usb_get_manufacturer(udev), usb_get_product(udev),
 		    device_get_nameunit(bus->bdev));
 	}
