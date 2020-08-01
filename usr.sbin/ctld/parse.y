@@ -55,7 +55,6 @@ static struct target *target = NULL;
 static struct lun *lun = NULL;
 
 extern void	yyerror(const char *);
-extern int	yylex(void);
 extern void	yyrestart(FILE *);
 
 %}
