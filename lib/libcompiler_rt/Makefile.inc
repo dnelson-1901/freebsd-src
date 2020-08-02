@@ -216,9 +216,11 @@ SRCF+=		comparesf2
 SRCF+=		stdatomic
 CFLAGS+=	-DEMIT_SYNC_ATOMICS
 .elif ${MACHINE_CPUARCH} == "mips"
-.PATH:		${SRCTOP}/sys/mips/mips
+#.PATH:		${SRCTOP}/sys/mips/mips
 
-SRCF+=		stdatomic
+#SRCF+=		stdatomic
+SRCS+=          atomic.c
+CFLAGS.atomic.c+=      -Wno-atomic-alignment
 .endif
 
 .for file in ${SRCF}
