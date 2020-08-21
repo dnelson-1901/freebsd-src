@@ -39,6 +39,10 @@ typedef struct BuildMon {
 } BuildMon;
 
 extern Boolean useMeta;
+extern char * oodateReason;
+
+#define SET_OODATE_REASON(...) \
+	if (!oodateReason) { asprintf(&oodateReason, __VA_ARGS__); }
 
 struct Job;				/* not defined yet */
 void meta_init(void);

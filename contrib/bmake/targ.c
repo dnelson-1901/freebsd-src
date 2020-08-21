@@ -388,16 +388,19 @@ Targ_PrintCmd(void *cmd, void *dummy MAKE_ATTR_UNUSED)
 }
 
 /* Format a modification time in some reasonable way and return it.
- * The time is placed in a static area, so it is overwritten with each call. */
+ *	The time is placed in a static area, so it is overwritten
+ *	after 4 calls.  Should be enough for debugging output. */
 char *
 Targ_FmtTime(time_t tm)
 {
+    static int		bufindex;
     struct tm	  	*parts;
-    static char	  	buf[128];
+    static char	  	buf[4][128];
 
     parts = localtime(&tm);
-    (void)strftime(buf, sizeof buf, "%k:%M:%S %b %d, %Y", parts);
-    return buf;
+    bufindex = (bufindex + 1) % 4;
+    (void)strftime(buf[bufindex], sizeof buf[bufindex], "%F %T", parts);
+    return buf[bufindex];
 }
 
 /* Print out a type field giving only those attributes the user can set. */

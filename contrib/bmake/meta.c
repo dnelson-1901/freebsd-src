@@ -59,6 +59,7 @@ static Lst metaBailiwick;		/* our scope of control */
 static char *metaBailiwickStr;		/* string storage for the list */
 static Lst metaIgnorePaths;		/* paths we deliberately ignore */
 static char *metaIgnorePathsStr;	/* string storage for the list */
+char *oodateReason;			/* why are we rebuilding the target? */
 
 #ifndef MAKE_META_IGNORE_PATHS
 #define MAKE_META_IGNORE_PATHS ".MAKE.META.IGNORE_PATHS"
@@ -530,6 +531,9 @@ meta_create(BuildMon *pbm, GNode *gn)
     if (cp && *cp) {
 	    fprintf(mf.fp, "OODATE %s\n", cp);
     }
+    fprintf(mf.fp, "REASON %s\n", oodateReason);
+    free(oodateReason);
+    oodateReason = NULL;
     if (metaEnv) {
 	for (ptr = environ; *ptr != NULL; ptr++)
 	    fprintf(mf.fp, "ENV %s\n", *ptr);
@@ -1052,6 +1056,7 @@ meta_ignore(GNode *gn, const char *p)
  */
 #define CHECK_VALID_META(p) if (!(p && *p)) { \
     warnx("%s: %d: malformed", fname, lineno); \
+    SET_OODATE_REASON("%s: %d: malformed", fname, lineno); \
     oodate = TRUE; \
     continue; \
     }
@@ -1091,8 +1096,10 @@ meta_oodate(GNode *gn, Boolean oodate)
     int i;
     int have_filemon = FALSE;
 
-    if (oodate)
+    if (oodate) {
+    	SET_OODATE_REASON("called meta_oodate with oodate already true")
 	return oodate;		/* we're done */
+    }
 
     i = 0;
 
@@ -1159,6 +1166,7 @@ meta_oodate(GNode *gn, Boolean oodate)
 		buf[x - 1] = '\0';
 	    else {
 		warnx("%s: %d: line truncated at %u", fname, lineno, x);
+		SET_OODATE_REASON("%s: %d: line truncated at %u", fname, lineno, x);
 		oodate = TRUE;
 		break;
 	    }
@@ -1471,7 +1479,8 @@ meta_oodate(GNode *gn, Boolean oodate)
 			    if (!S_ISDIR(mst.mst_mode) &&
 				mst.mst_mtime > gn->mtime) {
 				if (DEBUG(META))
-				    fprintf(debug_file, "%s: %d: file '%s' is newer than the target...\n", fname, lineno, p);
+				    fprintf(debug_file, "%s: %d: file '%s' is newer than the target (%s > %s)...\n", fname, lineno, p, Targ_FmtTime(mst.mst_mtime), Targ_FmtTime(gn->mtime));
+				SET_OODATE_REASON("%s: %d: file '%s' is newer than the target (%s > %s)...\n", fname, lineno, p, Targ_FmtTime(mst.mst_mtime), Targ_FmtTime(gn->mtime));
 				oodate = TRUE;
 			    } else if (S_ISDIR(mst.mst_mode)) {
 				/* Update the latest directory. */
@@ -1505,6 +1514,7 @@ meta_oodate(GNode *gn, Boolean oodate)
 		if (ln == NULL) {
 		    if (DEBUG(META))
 			fprintf(debug_file, "%s: %d: there were more build commands in the meta data file than there are now...\n", fname, lineno);
+			SET_OODATE_REASON("%s: %d: there were more build commands in the meta data file than there are now...\n", fname, lineno);
 		    oodate = TRUE;
 		} else {
 		    char *cmd = LstNode_Datum(ln);
@@ -1555,6 +1565,7 @@ meta_oodate(GNode *gn, Boolean oodate)
 			strcmp(p, cmd) != 0) {
 			if (DEBUG(META))
 			    fprintf(debug_file, "%s: %d: a build command has changed\n%s\nvs\n%s\n", fname, lineno, p, cmd);
+			SET_OODATE_REASON("%s: %d: a build command has changed\n%s\nvs\n%s\n", fname, lineno, p, cmd);
 			if (!metaIgnoreCMDs)
 			    oodate = TRUE;
 		    }
@@ -1569,12 +1580,14 @@ meta_oodate(GNode *gn, Boolean oodate)
 		if (!oodate && ln != NULL) {
 		    if (DEBUG(META))
 			fprintf(debug_file, "%s: %d: there are extra build commands now that weren't in the meta data file\n", fname, lineno);
+		    SET_OODATE_REASON("%s: %d: there are extra build commands now that weren't in the meta data file\n", fname, lineno);
 		    oodate = TRUE;
 		}
 		CHECK_VALID_META(p);
 		if (strcmp(p, cwd) != 0) {
 		    if (DEBUG(META))
 			fprintf(debug_file, "%s: %d: the current working directory has changed from '%s' to '%s'\n", fname, lineno, p, curdir);
+		    SET_OODATE_REASON("%s: %d: the current working directory has changed from '%s' to '%s'\n", fname, lineno, p, curdir);
 		    oodate = TRUE;
 		}
 	    }
@@ -1585,11 +1598,14 @@ meta_oodate(GNode *gn, Boolean oodate)
 	    if (DEBUG(META))
 		fprintf(debug_file, "%s: missing files: %s...\n",
 			fname, (char *)LstNode_Datum(Lst_First(missingFiles)));
+	    SET_OODATE_REASON("%s: missing files: %s...\n",
+			fname, (char *)LstNode_Datum(Lst_First(missingFiles)));
 	    oodate = TRUE;
 	}
 	if (!oodate && !have_filemon && filemonMissing) {
 	    if (DEBUG(META))
 		fprintf(debug_file, "%s: missing filemon data\n", fname);
+	    SET_OODATE_REASON("%s: missing filemon data\n", fname);
 	    oodate = TRUE;
 	}
     } else {
@@ -1605,6 +1621,7 @@ meta_oodate(GNode *gn, Boolean oodate)
 	    if (!cp) {
 		if (DEBUG(META))
 		    fprintf(debug_file, "%s: required but missing\n", fname);
+		SET_OODATE_REASON("%s: required but missing\n", fname);
 		oodate = TRUE;
 		needOODATE = TRUE;	/* assume the worst */
 	    }
@@ -1628,6 +1645,8 @@ meta_oodate(GNode *gn, Boolean oodate)
     for (i--; i >= 0; i--) {
 	bmake_free(pa[i]);
     }
+    if (oodate)
+    	SET_OODATE_REASON("returning true from meta_oodate with no reason!");
     return oodate;
 }
 

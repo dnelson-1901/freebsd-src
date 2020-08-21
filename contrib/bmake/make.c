@@ -303,6 +303,8 @@ Make_OODate(GNode *gn)
 	 */
 	oodate = (gn->mtime == 0 || Arch_LibOODate(gn) ||
 		  (gn->cmgn == NULL && (gn->type & OP_DOUBLEDEP)));
+	if (oodate)
+	    SET_OODATE_REASON("no chidren and :: target or nonexistent");
     } else if (gn->type & OP_JOIN) {
 	/*
 	 * A target with the .JOIN attribute is only considered
@@ -315,6 +317,8 @@ Make_OODate(GNode *gn)
 	    fprintf(debug_file, "source %smade...", gn->flags & CHILDMADE ? "" : "not ");
 	}
 	oodate = (gn->flags & CHILDMADE) ? TRUE : FALSE;
+	if (oodate)
+	    SET_OODATE_REASON(".JOIN mode and child out of date");
     } else if (gn->type & (OP_FORCE|OP_EXEC|OP_PHONY)) {
 	/*
 	 * A node which is the object of the force (!) operator or which has
@@ -328,6 +332,13 @@ Make_OODate(GNode *gn)
 	    } else {
 		fprintf(debug_file, ".EXEC node...");
 	    }
+	}
+	if (gn->type & OP_FORCE) {
+	    SET_OODATE_REASON("! operator");
+	} else if (gn->type & OP_PHONY) {
+	    SET_OODATE_REASON(".PHONY mode");
+	} else {
+	    SET_OODATE_REASON(".EXEC mode");
 	}
 	oodate = TRUE;
     } else if ((gn->cmgn != NULL && gn->mtime < gn->cmgn->mtime) ||
@@ -352,6 +363,15 @@ Make_OODate(GNode *gn)
 		fprintf(debug_file, ":: operator and no sources...");
 	    }
 	}
+	if (gn->cmgn != NULL && gn->mtime < gn->cmgn->mtime) {
+	    SET_OODATE_REASON("modified before source %s (%s > %s)...",
+	        gn->cmgn->path ? gn->cmgn->path : gn->cmgn->name,
+	        Targ_FmtTime(gn->cmgn->mtime), Targ_FmtTime(gn->mtime));
+	} else if (gn->mtime == 0) {
+	    SET_OODATE_REASON("non-existent and no sources...");
+	} else {
+	    SET_OODATE_REASON(":: operator and no sources...");
+	}
 	oodate = TRUE;
     } else {
 	/*
@@ -361,9 +381,11 @@ Make_OODate(GNode *gn)
 	 * timestamp as the timestamp just given to the non-existing child
 	 * after it was considered made.
 	 */
-	if (DEBUG(MAKE)) {
-	    if (gn->flags & FORCE)
+	if (gn->flags & FORCE) {
+	    if (DEBUG(MAKE)) {
 		fprintf(debug_file, "non existing child...");
+	    }
+	    SET_OODATE_REASON("non existing child...");
 	}
 	oodate = (gn->flags & FORCE) ? TRUE : FALSE;
     }
@@ -371,6 +393,8 @@ Make_OODate(GNode *gn)
 #ifdef USE_META
     if (useMeta) {
 	oodate = meta_oodate(gn, oodate);
+	if (oodate)
+	    SET_OODATE_REASON("meta_oodate returned true without setting a reason!");
     }
 #endif
 
