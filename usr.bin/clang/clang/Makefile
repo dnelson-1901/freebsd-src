@@ -11,7 +11,7 @@ SRCS+=		cc1gen_reproducer_main.cpp
 SRCS+=		driver.cpp
 
 .if ${MK_SHARED_TOOLCHAIN} == "no"
-NO_SHARED?= yes
+NO_SHARED=	yes
 
 .endif
 
