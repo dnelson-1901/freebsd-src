@@ -186,7 +186,7 @@ usbpf_clone_create(struct if_clone *ifc, char *name, size_t len, caddr_t params)
 	error = ifc_alloc_unit(ifc, &unit);
 	if (error) {
 		device_printf(ubus->parent, "usbpf: Could not allocate "
-		    "instance\n");
+		    "instance: %d\n", error);
 		return (error);
 	}
 	ifp = ubus->ifp = if_alloc(IFT_USB);
@@ -423,7 +423,8 @@ usbpf_xfertap(struct usb_xfer *xfer, int type)
 	 */
 	buf = ptr = malloc(totlen, M_TEMP, M_NOWAIT);
 	if (buf == NULL) {
-		device_printf(bus->parent, "usbpf: Out of memory\n");
+		device_printf(bus->parent, "usbpf: Out of memory allocating %d bytes\n",
+		    totlen);
 		return;
 	}
 
