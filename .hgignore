@@ -1,0 +1,10 @@
+syntax: regexp
+^.hgignore
+^.hgpull
+^.hgpush
+^.hgtip
+^update
+
+# editor backup files
+.*~$
+.orig$
