@@ -34,8 +34,6 @@
 #  totally clean, fresh trees.
 # Based on release/generate-release.sh written by Nathan Whitehorn
 #
-# $FreeBSD$
-#
 
 export PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin"
 
@@ -75,7 +73,7 @@ env_setup() {
 
 	# The default git checkout server, and branches for src/, doc/,
 	# and ports/.
-	GITROOT="https://cgit-beta.FreeBSD.org/"
+	GITROOT="https://git.FreeBSD.org/"
 	SRCBRANCH="main"
 	DOCBRANCH="main"
 	PORTBRANCH="main"
@@ -137,14 +135,15 @@ env_check() {
 	# Prefix the branches with the GITROOT for the full checkout URL.
 	SRC="${GITROOT}${GITSRC}"
 	DOC="${GITROOT}${GITDOC}"
-	PORT="${GITROOT}${GITPORTS}"
+	#PORT="${GITROOT}${GITPORTS}"
+	PORT="https://cgit-beta.freebsd.org/ports.git"
 
 	if [ -n "${EMBEDDEDBUILD}" ]; then
 		WITH_DVD=
 		WITH_COMPRESSED_IMAGES=
 		NODOC=yes
 		case ${EMBEDDED_TARGET}:${EMBEDDED_TARGET_ARCH} in
-			arm:arm*|arm64:aarch64)
+			arm:arm*|arm64:aarch64|riscv:riscv64*)
 				chroot_build_release_cmd="chroot_arm_build_release"
 				;;
 			*)
@@ -400,6 +399,9 @@ efi_boot_name()
 		amd64)
 			echo "bootx64.efi"
 			;;
+		riscv)
+			echo "bootriscv64.efi"
+			;;
 	esac
 }
 
@@ -407,7 +409,7 @@ efi_boot_name()
 chroot_arm_build_release() {
 	load_target_env
 	case ${EMBEDDED_TARGET} in
-		arm|arm64)
+		arm|arm64|riscv)
 			if [ -e "${RELENGDIR}/tools/arm.subr" ]; then
 				. "${RELENGDIR}/tools/arm.subr"
 			fi

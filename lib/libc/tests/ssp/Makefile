@@ -2,7 +2,7 @@
 
 .include <bsd.own.mk>
 
-NO_WERROR=
+MK_WERROR=	no
 WARNS?=	2
 
 CFLAGS.h_raw+=	-fstack-protector-all -Wstack-protector
@@ -33,7 +33,7 @@ PROGS+=		h_memset
 # probably needs to be fixed as it's currently hardcoded.
 #
 # sanitizer is not tested or supported for ARM right now. sbruno
-.if ${COMPILER_TYPE} == "clang" && !defined(_SKIP_BUILD) && \
+.if ${COMPILER_TYPE} == "clang" && ${CC} == "cc" && !defined(_SKIP_BUILD) && \
     (!defined(_RECURSING_PROGS) || ${PROG} == "h_raw")
 .if !defined(_CLANG_RESOURCE_DIR)
 _CLANG_RESOURCE_DIR!=	${CC:N${CCACHE_BIN}} -print-resource-dir

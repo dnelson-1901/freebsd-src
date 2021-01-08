@@ -600,7 +600,7 @@ tmpfs_read_pgcache(struct vop_read_pgcache_args *v)
 	int error;
 
 	vp = v->a_vp;
-	MPASS((vp->v_irflag & VIRF_PGREAD) != 0);
+	VNPASS((vn_irflag_read(vp) & VIRF_PGREAD) != 0, vp);
 
 	if (v->a_uio->uio_offset < 0)
 		return (EINVAL);
@@ -1210,7 +1210,7 @@ tmpfs_rename(struct vop_rename_args *v)
 	tmpfs_dir_attach(tdvp, de);
 
 	if (tmpfs_use_nc(fvp)) {
-		cache_rename(fdvp, fvp, tdvp, tvp, fcnp, tcnp);
+		cache_vop_rename(fdvp, fvp, tdvp, tvp, fcnp, tcnp);
 	}
 
 	error = 0;
@@ -1331,7 +1331,7 @@ tmpfs_rmdir(struct vop_rmdir_args *v)
 	TMPFS_NODE_UNLOCK(dnode);
 
 	if (tmpfs_use_nc(dvp)) {
-		cache_purge(vp);
+		cache_vop_rmdir(dvp, vp);
 	}
 
 	/* Free the directory entry we just deleted.  Note that the node

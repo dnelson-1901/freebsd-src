@@ -104,7 +104,7 @@ FORMAT_EXTENSIONS=	-fformat-extensions
 # Setting -mno-sse implies -mno-sse2, -mno-sse3, -mno-ssse3, -mno-sse41 and -mno-sse42
 #
 .if ${MACHINE_CPUARCH} == "i386"
-CFLAGS.gcc+=	-mno-align-long-strings -mpreferred-stack-boundary=2
+CFLAGS.gcc+=	-mpreferred-stack-boundary=2
 CFLAGS.clang+=	-mno-aes -mno-avx
 CFLAGS+=	-mno-mmx -mno-sse -msoft-float
 INLINE_LIMIT?=	8000
@@ -228,14 +228,21 @@ CFLAGS+=	-mretpoline
 .endif
 
 #
-# Add -gdwarf-2 when compiling -g. The default starting in clang v3.4
-# and gcc 4.8 is to generate DWARF version 4. However, our tools don't
-# cope well with DWARF 4, so force it to genereate DWARF2, which they
-# understand. Do this unconditionally as it is harmless when not needed,
-# but critical for these newer versions.
+# Initialize stack variables on function entry
 #
-.if ${CFLAGS:M-g} != "" && ${CFLAGS:M-gdwarf*} == ""
-CFLAGS+=	-gdwarf-2
+.if ${MK_INIT_ALL_ZERO} == "yes"
+.if ${COMPILER_FEATURES:Minit-all}
+CFLAGS+= -ftrivial-auto-var-init=zero \
+    -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
+.else
+.warning InitAll (zeros) requested but not support by compiler
+.endif
+.elif ${MK_INIT_ALL_PATTERN} == "yes"
+.if ${COMPILER_FEATURES:Minit-all}
+CFLAGS+= -ftrivial-auto-var-init=pattern
+.else
+.warning InitAll (pattern) requested but not support by compiler
+.endif
 .endif
 
 CFLAGS+= ${CWARNFLAGS:M*} ${CWARNFLAGS.${.IMPSRC:T}}

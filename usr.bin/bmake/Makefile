@@ -14,7 +14,7 @@ CFLAGS+= -I${.CURDIR}
 CLEANDIRS+= FreeBSD
 CLEANFILES+= bootstrap
 
-#	$Id: Makefile,v 1.112 2020/08/28 16:26:17 sjg Exp $
+#	$Id: Makefile,v 1.114 2020/11/13 21:47:25 sjg Exp $
 
 PROG?=	${.CURDIR:T}
 
@@ -36,7 +36,6 @@ SRCS= \
 	metachar.c \
 	parse.c \
 	str.c \
-	strlist.c \
 	suff.c \
 	targ.c \
 	trace.c \
@@ -64,6 +63,12 @@ CFLAGS+= -D_PATH_DEFSYSPATH=\"${DEFAULT_SYS_PATH}\"
 CFLAGS+= -I. -I${srcdir} ${XDEFS} -DMAKE_NATIVE
 CFLAGS+= ${COPTS.${.ALLSRC:M*.c:T:u}}
 COPTS.main.c+= "-DMAKE_VERSION=\"${_MAKE_VERSION}\""
+
+.for x in FORCE_MACHINE FORCE_MACHINE_ARCH
+.ifdef $x
+COPTS.main.c+= "-D$x=\"${$x}\""
+.endif
+.endfor
 
 .if ${COMPILER_TYPE} == "clang" && exists(/usr/bin/llvm-objcopy) && ${MACHINE_CPUARCH} != "mips"
 # Build make with LTO

@@ -388,7 +388,6 @@ dev/xen/pci/xen_acpi_pci.c	optional	xenhvm
 dev/xen/pci/xen_pci.c		optional	xenhvm
 isa/syscons_isa.c		optional	sc
 isa/vga_isa.c			optional	vga
-kern/kern_clocksource.c		standard
 kern/imgact_aout.c		optional compat_aout
 kern/link_elf_obj.c		standard
 #
@@ -406,12 +405,13 @@ compat/linsysfs/linsysfs.c	optional	linsysfs
 #
 # Linux/i386 binary support
 #
-amd64/linux32/linux32_dummy.c	optional	compat_linux32
+amd64/linux32/linux32_dummy_machdep.c	optional	compat_linux32
 amd64/linux32/linux32_machdep.c	optional	compat_linux32
 amd64/linux32/linux32_support.s	optional	compat_linux32		\
 	dependency 	"linux32_assym.h"
 amd64/linux32/linux32_sysent.c	optional	compat_linux32
 amd64/linux32/linux32_sysvec.c	optional	compat_linux32
+compat/linux/linux_dummy.c	optional	compat_linux32
 compat/linux/linux_emul.c	optional	compat_linux32
 compat/linux/linux_errno.c	optional	compat_linux32
 compat/linux/linux_file.c	optional	compat_linux32
@@ -435,6 +435,7 @@ compat/linux/linux_vdso.c	optional	compat_linux32
 compat/linux/linux_common.c	optional	compat_linux32
 compat/linux/linux_event.c	optional	compat_linux32
 compat/linux/linux.c		optional	compat_linux32
+x86/linux/linux_dummy_x86.c	optional	compat_linux32
 dev/amr/amr_linux.c		optional	compat_linux32 amr
 dev/mfi/mfi_linux.c		optional	compat_linux32 mfi
 compat/ndis/winx64_wrap.S	optional	ndisapi pci
@@ -443,11 +444,6 @@ compat/ndis/winx64_wrap.S	optional	ndisapi pci
 #
 compat/x86bios/x86bios.c	optional x86bios | dpms | pci | vesa
 contrib/x86emu/x86emu.c		optional x86bios | dpms | pci | vesa
-#
-# bvm console
-#
-dev/bvm/bvm_console.c		optional	bvmconsole
-dev/bvm/bvm_dbg.c		optional	bvmdebug
 # Common files where we currently configure the system differently, but perhaps shouldn't
 # config(8) doesn't have a way to force standard options, so we've been inconsistent
 # about marking non-optional things 'standard'.

@@ -60,8 +60,6 @@ __FBSDID("$FreeBSD$");
 #include "virtio_bus_if.h"
 #include "virtio_if.h"
 
-#define	PAGE_SHIFT	12
-
 struct vtmmio_virtqueue {
 	struct virtqueue	*vtv_vq;
 	int			 vtv_no_intr;
@@ -409,10 +407,10 @@ vtmmio_negotiate_features(device_t dev, uint64_t child_features)
 
 	vtmmio_describe_features(sc, "negotiated", features);
 
-	vtmmio_write_config_4(sc, VIRTIO_MMIO_HOST_FEATURES_SEL, 1);
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_FEATURES_SEL, 1);
 	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_FEATURES, features >> 32);
 
-	vtmmio_write_config_4(sc, VIRTIO_MMIO_HOST_FEATURES_SEL, 0);
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_FEATURES_SEL, 0);
 	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_FEATURES, features);
 
 	return (features);

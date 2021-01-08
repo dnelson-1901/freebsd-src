@@ -149,7 +149,7 @@ struct nameicap_tracker {
 };
 
 /* Zone for cap mode tracker elements used for dotdot capability checks. */
-static uma_zone_t nt_zone;
+MALLOC_DEFINE(M_NAMEITRACKER, "namei_tracker", "namei tracking for dotdot");
 
 static void
 nameiinit(void *dummy __unused)
@@ -157,8 +157,6 @@ nameiinit(void *dummy __unused)
 
 	namei_zone = uma_zcreate("NAMEI", MAXPATHLEN, NULL, NULL, NULL, NULL,
 	    UMA_ALIGN_PTR, 0);
-	nt_zone = uma_zcreate("rentr", sizeof(struct nameicap_tracker),
-	    NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
 	vfs_vector_op_register(&crossmp_vnodeops);
 	getnewvnode("crossmp", NULL, &crossmp_vnodeops, &vp_crossmp);
 }
@@ -190,7 +188,7 @@ nameicap_tracker_add(struct nameidata *ndp, struct vnode *dp)
 			return;
 		ndp->ni_lcf |= NI_LCF_BENEATH_LATCHED;
 	}
-	nt = uma_zalloc(nt_zone, M_WAITOK);
+	nt = malloc(sizeof(*nt), M_NAMEITRACKER, M_WAITOK);
 	vhold(dp);
 	nt->dp = dp;
 	TAILQ_INSERT_TAIL(&ndp->ni_cap_tracker, nt, nm_link);
@@ -206,7 +204,7 @@ nameicap_cleanup(struct nameidata *ndp, bool clean_latch)
 	TAILQ_FOREACH_SAFE(nt, &ndp->ni_cap_tracker, nm_link, nt1) {
 		TAILQ_REMOVE(&ndp->ni_cap_tracker, nt, nm_link);
 		vdrop(nt->dp);
-		uma_zfree(nt_zone, nt);
+		free(nt, M_NAMEITRACKER);
 	}
 	if (clean_latch && (ndp->ni_lcf & NI_LCF_LATCH) != 0) {
 		ndp->ni_lcf &= ~NI_LCF_LATCH;
@@ -466,6 +464,44 @@ namei_setup(struct nameidata *ndp, struct vnode **dpp, struct pwd **pwdp)
 	return (0);
 }
 
+static int
+namei_getpath(struct nameidata *ndp)
+{
+	struct componentname *cnp;
+	int error;
+
+	cnp = &ndp->ni_cnd;
+
+	/*
+	 * Get a buffer for the name to be translated, and copy the
+	 * name into the buffer.
+	 */
+	cnp->cn_pnbuf = uma_zalloc(namei_zone, M_WAITOK);
+	if (ndp->ni_segflg == UIO_SYSSPACE) {
+		error = copystr(ndp->ni_dirp, cnp->cn_pnbuf, MAXPATHLEN,
+		    &ndp->ni_pathlen);
+	} else {
+		error = copyinstr(ndp->ni_dirp, cnp->cn_pnbuf, MAXPATHLEN,
+		    &ndp->ni_pathlen);
+	}
+
+	if (__predict_false(error != 0)) {
+		namei_cleanup_cnp(cnp);
+		return (error);
+	}
+
+	/*
+	 * Don't allow empty pathnames.
+	 */
+	if (__predict_false(*cnp->cn_pnbuf == '\0')) {
+		namei_cleanup_cnp(cnp);
+		return (ENOENT);
+	}
+
+	cnp->cn_nameptr = cnp->cn_pnbuf;
+	return (0);
+}
+
 /*
  * Convert a pathname into a pointer to a locked vnode.
  *
@@ -502,6 +538,23 @@ namei(struct nameidata *ndp)
 	cnp = &ndp->ni_cnd;
 	td = cnp->cn_thread;
 #ifdef INVARIANTS
+	KASSERT((ndp->ni_debugflags & NAMEI_DBG_CALLED) == 0,
+	    ("%s: repeated call to namei without NDREINIT", __func__));
+	KASSERT(ndp->ni_debugflags == NAMEI_DBG_INITED,
+	    ("%s: bad debugflags %d", __func__, ndp->ni_debugflags));
+	ndp->ni_debugflags |= NAMEI_DBG_CALLED;
+	if (ndp->ni_startdir != NULL)
+		ndp->ni_debugflags |= NAMEI_DBG_HADSTARTDIR;
+	if (cnp->cn_flags & FAILIFEXISTS) {
+		KASSERT(cnp->cn_nameiop == CREATE,
+		    ("%s: FAILIFEXISTS passed for op %d", __func__, cnp->cn_nameiop));
+		/*
+		 * The limitation below is to restrict hairy corner cases.
+		 */
+		KASSERT((cnp->cn_flags & (LOCKPARENT | LOCKLEAF)) == LOCKPARENT,
+		    ("%s: FAILIFEXISTS must be passed with LOCKPARENT and without LOCKLEAF",
+		    __func__));
+	}
 	/*
 	 * For NDVALIDATE.
 	 *
@@ -526,29 +579,9 @@ namei(struct nameidata *ndp)
 	ndp->ni_lcf = 0;
 	ndp->ni_vp = NULL;
 
-	/*
-	 * Get a buffer for the name to be translated, and copy the
-	 * name into the buffer.
-	 */
-	cnp->cn_pnbuf = uma_zalloc(namei_zone, M_WAITOK);
-	if (ndp->ni_segflg == UIO_SYSSPACE)
-		error = copystr(ndp->ni_dirp, cnp->cn_pnbuf, MAXPATHLEN,
-		    &ndp->ni_pathlen);
-	else
-		error = copyinstr(ndp->ni_dirp, cnp->cn_pnbuf, MAXPATHLEN,
-		    &ndp->ni_pathlen);
-
+	error = namei_getpath(ndp);
 	if (__predict_false(error != 0)) {
-		namei_cleanup_cnp(cnp);
 		return (error);
-	}
-
-	/*
-	 * Don't allow empty pathnames.
-	 */
-	if (__predict_false(*cnp->cn_pnbuf == '\0')) {
-		namei_cleanup_cnp(cnp);
-		return (ENOENT);
 	}
 
 #ifdef KTRACE
@@ -558,8 +591,6 @@ namei(struct nameidata *ndp)
 		ktrnamei(cnp->cn_pnbuf);
 	}
 #endif
-
-	cnp->cn_nameptr = cnp->cn_pnbuf;
 
 	/*
 	 * First try looking up the target without locking any vnodes.
@@ -1274,8 +1305,11 @@ success:
 			goto bad2;
 		}
 	}
-	if (ndp->ni_vp != NULL && ndp->ni_vp->v_type == VDIR)
+	if (ndp->ni_vp != NULL) {
 		nameicap_tracker_add(ndp, ndp->ni_vp);
+		if ((cnp->cn_flags & (FAILIFEXISTS | ISSYMLINK)) == FAILIFEXISTS)
+			goto bad_eexist;
+	}
 	return (0);
 
 bad2:
@@ -1290,6 +1324,24 @@ bad:
 		vput(dp);
 	ndp->ni_vp = NULL;
 	return (error);
+bad_eexist:
+	/*
+	 * FAILIFEXISTS handling.
+	 *
+	 * XXX namei called with LOCKPARENT but not LOCKLEAF has the strange
+	 * behaviour of leaving the vnode unlocked if the target is the same
+	 * vnode as the parent.
+	 */
+	MPASS((cnp->cn_flags & ISSYMLINK) == 0);
+	if (ndp->ni_vp == ndp->ni_dvp)
+		vrele(ndp->ni_dvp);
+	else
+		vput(ndp->ni_dvp);
+	vrele(ndp->ni_vp);
+	ndp->ni_dvp = NULL;
+	ndp->ni_vp = NULL;
+	NDFREE(ndp, NDF_ONLY_PNBUF);
+	return (EEXIST);
 }
 
 /*
@@ -1300,7 +1352,6 @@ int
 relookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 {
 	struct vnode *dp = NULL;		/* the directory we are searching */
-	int wantparent;			/* 1 => wantparent or lockparent flag */
 	int rdonly;			/* lookup read-only flag bit */
 	int error = 0;
 
@@ -1309,8 +1360,8 @@ relookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 	/*
 	 * Setup: break out flag bits into variables.
 	 */
-	wantparent = cnp->cn_flags & (LOCKPARENT|WANTPARENT);
-	KASSERT(wantparent, ("relookup: parent not wanted."));
+	KASSERT((cnp->cn_flags & (LOCKPARENT | WANTPARENT)) != 0,
+	    ("relookup: parent not wanted"));
 	rdonly = cnp->cn_flags & RDONLY;
 	cnp->cn_flags &= ~ISSYMLINK;
 	dp = dvp;
@@ -1401,13 +1452,8 @@ relookup(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 	/*
 	 * Set the parent lock/ref state to the requested state.
 	 */
-	if ((cnp->cn_flags & LOCKPARENT) == 0 && dvp != dp) {
-		if (wantparent)
-			VOP_UNLOCK(dvp);
-		else
-			vput(dvp);
-	} else if (!wantparent)
-		vrele(dvp);
+	if ((cnp->cn_flags & LOCKPARENT) == 0 && dvp != dp)
+		VOP_UNLOCK(dvp);
 	/*
 	 * Check for symbolic link
 	 */

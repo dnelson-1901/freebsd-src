@@ -565,7 +565,7 @@ struct inpcblbgroup {
 	struct epoch_context il_epoch_ctx;
 	uint16_t	il_lport;			/* (c) */
 	u_char		il_vflag;			/* (c) */
-	u_char		il_pad;
+	u_int8_t		il_numa_domain;
 	uint32_t	il_pad2;
 	union in_dependaddr il_dependladdr;		/* (c) */
 #define	il_laddr	il_dependladdr.id46_addr.ia46_addr4
@@ -852,6 +852,7 @@ int	in_pcbinshash(struct inpcb *);
 int	in_pcbinshash_mbuf(struct inpcb *, struct mbuf *);
 int	in_pcbladdr(struct inpcb *, struct in_addr *, struct in_addr *,
 	    struct ucred *);
+int	in_pcblbgroup_numa(struct inpcb *, int arg);
 struct inpcb *
 	in_pcblookup_local(struct inpcbinfo *,
 	    struct in_addr, u_short, int, struct ucred *);
@@ -884,7 +885,7 @@ in_pcboutput_txrtlmt_locked(struct inpcb *, struct ifnet *,
 int	in_pcbattach_txrtlmt(struct inpcb *, struct ifnet *, uint32_t, uint32_t,
 	    uint32_t, struct m_snd_tag **);
 void	in_pcbdetach_txrtlmt(struct inpcb *);
-void    in_pcbdetach_tag(struct ifnet *ifp, struct m_snd_tag *mst);
+void    in_pcbdetach_tag(struct m_snd_tag *);
 int	in_pcbmodify_txrtlmt(struct inpcb *, uint32_t);
 int	in_pcbquery_txrtlmt(struct inpcb *, uint32_t *);
 int	in_pcbquery_txrlevel(struct inpcb *, uint32_t *);

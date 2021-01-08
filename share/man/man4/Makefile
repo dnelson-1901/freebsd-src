@@ -111,7 +111,6 @@ MAN=	aac.4 \
 	${_chvgpio.4} \
 	ciss.4 \
 	cloudabi.4 \
-	cmx.4 \
 	${_coretemp.4} \
 	cp2112.4 \
 	${_cpuctl.4} \
@@ -130,6 +129,7 @@ MAN=	aac.4 \
 	ddb.4 \
 	devctl.4 \
 	disc.4 \
+	disk.4 \
 	divert.4 \
 	${_dpms.4} \
 	ds1307.4 \
@@ -157,6 +157,7 @@ MAN=	aac.4 \
 	ffclock.4 \
 	filemon.4 \
 	firewire.4 \
+	${_ftwd.4} \
 	full.4 \
 	fwe.4 \
 	fwip.4 \
@@ -177,14 +178,24 @@ MAN=	aac.4 \
 	gpioths.4 \
 	gre.4 \
 	h_ertt.4 \
+	hconf.4 \
+	hcons.4 \
+	hgame.4 \
+	hidbus.4 \
+	hidquirk.4 \
+	hidraw.4 \
 	hifn.4 \
-	hme.4 \
+	hkbd.4 \
+	hms.4 \
+	hmt.4 \
+	hpen.4 \
 	hpet.4 \
 	${_hpt27xx.4} \
 	${_hptiop.4} \
 	${_hptmv.4} \
 	${_hptnr.4} \
 	${_hptrr.4} \
+	hsctrl.4 \
 	${_hv_kvp.4} \
 	${_hv_netvsc.4} \
 	${_hv_storvsc.4} \
@@ -208,6 +219,7 @@ MAN=	aac.4 \
 	iic_gpiomux.4 \
 	iicbb.4 \
 	iicbus.4 \
+	iichid.4 \
 	iicmux.4 \
 	iicsmb.4 \
 	iir.4 \
@@ -249,6 +261,7 @@ MAN=	aac.4 \
 	kld.4 \
 	ksyms.4 \
 	ksz8995ma.4 \
+	ktls.4 \
 	ktr.4 \
 	kue.4 \
 	lagg.4 \
@@ -284,7 +297,6 @@ MAN=	aac.4 \
 	meteor.4 \
 	mfi.4 \
 	miibus.4 \
-	mk48txx.4 \
 	mld.4 \
 	mlx.4 \
 	mlx4en.4 \
@@ -325,7 +337,6 @@ MAN=	aac.4 \
 	ng_atmllc.4 \
 	ng_bpf.4 \
 	ng_bridge.4 \
-	ng_bt3c.4 \
 	ng_btsocket.4 \
 	ng_car.4 \
 	ng_ccatm.4 \
@@ -353,6 +364,7 @@ MAN=	aac.4 \
 	ng_l2cap.4 \
 	ng_l2tp.4 \
 	ng_lmi.4 \
+	ng_macfilter.4 \
 	ng_mppc.4 \
 	ng_nat.4 \
 	ng_netflow.4 \
@@ -423,6 +435,7 @@ MAN=	aac.4 \
 	ppi.4 \
 	procdesc.4 \
 	proto.4 \
+	ps4dshock.4 \
 	psm.4 \
 	pst.4 \
 	pt.4 \
@@ -431,6 +444,7 @@ MAN=	aac.4 \
 	pty.4 \
 	puc.4 \
 	pwmc.4 \
+	${_qat.4} \
 	${_qlxge.4} \
 	${_qlxgb.4} \
 	${_qlxgbe.4} \
@@ -444,6 +458,7 @@ MAN=	aac.4 \
 	rl.4 \
 	rndtest.4 \
 	route.4 \
+	rtsx.4 \
 	rtwn.4 \
 	rtwnfw.4 \
 	rtwn_pci.4 \
@@ -565,7 +580,6 @@ MAN=	aac.4 \
 	${_vtnet.4} \
 	watchdog.4 \
 	${_wbwd.4} \
-	wi.4 \
 	witness.4 \
 	wlan.4 \
 	wlan_acl.4 \
@@ -577,6 +591,7 @@ MAN=	aac.4 \
 	wmt.4 \
 	${_wpi.4} \
 	wsp.4 \
+	xb360gp.4 \
 	${_xen.4} \
 	xhci.4 \
 	xl.4 \
@@ -659,7 +674,6 @@ MLINKS+=gpio.4 gpiobus.4
 MLINKS+=gpioths.4 dht11.4
 MLINKS+=gpioths.4 dht22.4
 MLINKS+=gre.4 if_gre.4
-MLINKS+=hme.4 if_hme.4
 MLINKS+=hpet.4 acpi_hpet.4
 MLINKS+=${_hptrr.4} ${_rr232x.4}
 MLINKS+=${_attimer.4} ${_i8254.4}
@@ -748,7 +762,6 @@ MLINKS+=vr.4 if_vr.4
 MLINKS+=vte.4 if_vte.4
 MLINKS+=${_vtnet.4} ${_if_vtnet.4}
 MLINKS+=watchdog.4 SW_WATCHDOG.4
-MLINKS+=wi.4 if_wi.4
 MLINKS+=${_wpi.4} ${_if_wpi.4}
 MLINKS+=xl.4 if_xl.4
 
@@ -781,6 +794,7 @@ _chvgpio.4=	chvgpio.4
 _coretemp.4=	coretemp.4
 _cpuctl.4=	cpuctl.4
 _dpms.4=	dpms.4
+_ftwd.4=	ftwd.4
 _hpt27xx.4=	hpt27xx.4
 _hptiop.4=	hptiop.4
 _hptmv.4=	hptmv.4
@@ -823,6 +837,7 @@ _nvram.4=	nvram.4
 _ossl.4=	ossl.4
 _padlock.4=	padlock.4
 _pchtherm.4=	pchtherm.4
+_qat.4=		qat.4
 _rr232x.4=	rr232x.4
 _speaker.4=	speaker.4
 _spkr.4=	spkr.4
@@ -1009,6 +1024,7 @@ MAN+=	\
 	usb.4 \
 	usb_quirk.4 \
 	usb_template.4 \
+	usbhid.4 \
 	usfs.4 \
 	uslcom.4 \
 	uvisor.4 \

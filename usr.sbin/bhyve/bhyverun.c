@@ -88,7 +88,6 @@ __FBSDID("$FreeBSD$");
 #include "atkbdc.h"
 #include "bootrom.h"
 #include "inout.h"
-#include "dbgport.h"
 #include "debug.h"
 #include "fwctl.h"
 #include "gdb.h"
@@ -237,9 +236,9 @@ usage(int code)
 {
 
         fprintf(stderr,
-		"Usage: %s [-abehuwxACDHPSWY]\n"
+		"Usage: %s [-aehuwxACDHPSWY]\n"
 		"       %*s [-c [[cpus=]numcpus][,sockets=n][,cores=n][,threads=n]]\n"
-		"       %*s [-g <gdb port>] [-l <lpc>]\n"
+		"       %*s [-l <lpc>]\n"
 		"       %*s [-m mem] [-p vcpu:hostcpu] [-s <pci>] [-U uuid] <vm>\n"
 		"       -a: local apic is in xAPIC mode (deprecated)\n"
 		"       -A: create ACPI tables\n"
@@ -247,7 +246,6 @@ usage(int code)
 		"       -C: include guest memory in core file\n"
 		"       -D: destroy on power-off\n"
 		"       -e: exit on unhandled I/O access\n"
-		"       -g: gdb port\n"
 		"       -h: help\n"
 		"       -H: vmexit from the guest on hlt\n"
 		"       -l: LPC device configuration\n"
@@ -766,7 +764,11 @@ vmexit_inst_emul(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
 		vie_restart(vie);
 		mode = vmexit->u.inst_emul.paging.cpu_mode;
 		cs_d = vmexit->u.inst_emul.cs_d;
-		(void)vmm_decode_instruction(mode, cs_d, vie);
+		if (vmm_decode_instruction(mode, cs_d, vie) != 0)
+			goto fail;
+		if (vm_set_register(ctx, *pvcpu, VM_REG_GUEST_RIP,
+		    vmexit->rip + vie->num_processed) != 0)
+			goto fail;
 	}
 
 	err = emulate_mem(ctx, *pvcpu, vmexit->u.inst_emul.gpa,
@@ -777,15 +779,17 @@ vmexit_inst_emul(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
 			EPRINTLN("Unhandled memory access to 0x%lx\n",
 			    vmexit->u.inst_emul.gpa);
 		}
-
-		fprintf(stderr, "Failed to emulate instruction sequence [ ");
-		for (i = 0; i < vie->num_valid; i++)
-			fprintf(stderr, "%02x", vie->inst[i]);
-		FPRINTLN(stderr, " ] at 0x%lx", vmexit->rip);
-		return (VMEXIT_ABORT);
+		goto fail;
 	}
 
 	return (VMEXIT_CONTINUE);
+
+fail:
+	fprintf(stderr, "Failed to emulate instruction sequence [ ");
+	for (i = 0; i < vie->num_valid; i++)
+		fprintf(stderr, "%02x", vie->inst[i]);
+	FPRINTLN(stderr, " ] at 0x%lx", vmexit->rip);
+	return (VMEXIT_ABORT);
 }
 
 static pthread_mutex_t resetcpu_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -1076,7 +1080,7 @@ spinup_vcpu(struct vmctx *ctx, int vcpu)
 int
 main(int argc, char *argv[])
 {
-	int c, error, dbg_port, err, bvmcons;
+	int c, error, err;
 	int max_vcpus, mptgen, memflags;
 	int rtc_localtime;
 	bool gdb_stop;
@@ -1092,9 +1096,7 @@ main(int argc, char *argv[])
 	restore_file = NULL;
 #endif
 
-	bvmcons = 0;
 	progname = basename(argv[0]);
-	dbg_port = 0;
 	gdb_stop = false;
 	guest_ncpus = 1;
 	sockets = cores = threads = 1;
@@ -1105,9 +1107,9 @@ main(int argc, char *argv[])
 	memflags = 0;
 
 #ifdef BHYVE_SNAPSHOT
-	optstr = "abehuwxACDHIPSWYp:g:G:c:s:m:l:U:r:";
+	optstr = "aehuwxACDHIPSWYp:G:c:s:m:l:U:r:";
 #else
-	optstr = "abehuwxACDHIPSWYp:g:G:c:s:m:l:U:";
+	optstr = "aehuwxACDHIPSWYp:G:c:s:m:l:U:";
 #endif
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
@@ -1116,9 +1118,6 @@ main(int argc, char *argv[])
 			break;
 		case 'A':
 			acpi = 1;
-			break;
-		case 'b':
-			bvmcons = 1;
 			break;
 		case 'D':
 			destroy_on_poweroff = 1;
@@ -1137,9 +1136,6 @@ main(int argc, char *argv[])
 			break;
 		case 'C':
 			memflags |= VM_MEM_F_INCORE;
-			break;
-		case 'g':
-			dbg_port = atoi(optarg);
 			break;
 		case 'G':
 			if (optarg[0] == 'w') {
@@ -1315,14 +1311,8 @@ main(int argc, char *argv[])
 	if (acpi)
 		vmgenc_init(ctx);
 
-	if (dbg_port != 0)
-		init_dbgport(dbg_port);
-
 	if (gdb_port != 0)
 		init_gdb(ctx, gdb_port, gdb_stop);
-
-	if (bvmcons)
-		init_bvmcons();
 
 	if (lpc_bootrom()) {
 		if (vm_set_capability(ctx, BSP, VM_CAP_UNRESTRICTED_GUEST, 1)) {

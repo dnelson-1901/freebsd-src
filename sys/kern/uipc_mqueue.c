@@ -1425,6 +1425,7 @@ mqfs_readdir(struct vop_readdir_args *ap)
 		if (!pn->mn_fileno)
 			mqfs_fileno_alloc(mi, pn);
 		entry.d_fileno = pn->mn_fileno;
+		entry.d_off = offset + entry.d_reclen;
 		for (i = 0; i < MQFS_NAMELEN - 1 && pn->mn_name[i] != '\0'; ++i)
 			entry.d_name[i] = pn->mn_name[i];
 		entry.d_namlen = i;
@@ -2011,7 +2012,7 @@ kern_kmq_open(struct thread *td, const char *upath, int flags, mode_t mode,
 {
 	char path[MQFS_NAMELEN + 1];
 	struct mqfs_node *pn;
-	struct filedesc *fdp;
+	struct pwddesc *pdp;
 	struct file *fp;
 	struct mqueue *mq;
 	int fd, error, len, cmode;
@@ -2019,8 +2020,8 @@ kern_kmq_open(struct thread *td, const char *upath, int flags, mode_t mode,
 	AUDIT_ARG_FFLAGS(flags);
 	AUDIT_ARG_MODE(mode);
 
-	fdp = td->td_proc->p_fd;
-	cmode = (((mode & ~fdp->fd_cmask) & ALLPERMS) & ~S_ISTXT);
+	pdp = td->td_proc->p_pd;
+	cmode = (((mode & ~pdp->pd_cmask) & ALLPERMS) & ~S_ISTXT);
 	mq = NULL;
 	if ((flags & O_CREAT) != 0 && attr != NULL) {
 		if (attr->mq_maxmsg <= 0 || attr->mq_maxmsg > maxmsg)

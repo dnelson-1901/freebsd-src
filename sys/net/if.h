@@ -250,6 +250,7 @@ struct if_data {
 #define	IFCAP_TXTLS6		0x10000000 /* can do TLS encryption and segmentation for TCP6 */
 #define	IFCAP_VXLAN_HWCSUM	0x20000000 /* can do IFCAN_HWCSUM on VXLANs */
 #define	IFCAP_VXLAN_HWTSO	0x40000000 /* can do IFCAP_TSO on VXLANs */
+#define	IFCAP_TXTLS_RTLMT	0x80000000 /* can do TLS with rate limiting */
 
 #define IFCAP_HWCSUM_IPV6	(IFCAP_RXCSUM_IPV6 | IFCAP_TXCSUM_IPV6)
 
@@ -392,7 +393,7 @@ struct ifreq_buffer {
  * definitions which begin with ifr_name.  The
  * remainder may be interface specific.
  */
-struct	ifreq {
+struct ifreq {
 	char	ifr_name[IFNAMSIZ];		/* if name, e.g. "en0" */
 	union {
 		struct	sockaddr ifru_addr;
@@ -466,11 +467,11 @@ struct ifmediareq {
 	int	*ifm_ulist;		/* media words */
 };
 
-struct  ifdrv {
-	char            ifd_name[IFNAMSIZ];     /* if name, e.g. "en0" */
-	unsigned long   ifd_cmd;
-	size_t          ifd_len;
-	void            *ifd_data;
+struct ifdrv {
+	char		ifd_name[IFNAMSIZ];	/* if name, e.g. "en0" */
+	unsigned long	ifd_cmd;
+	size_t		ifd_len;
+	void		*ifd_data;
 };
 
 /* 
@@ -492,7 +493,7 @@ struct ifstat {
  * for machine (useful for programs which
  * must know all networks accessible).
  */
-struct	ifconf {
+struct ifconf {
 	int	ifc_len;		/* size of associated buffer */
 	union {
 		caddr_t	ifcu_buf;

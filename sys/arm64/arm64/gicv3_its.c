@@ -513,7 +513,7 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 			    (nitspages - 1);
 
 			switch (page_size) {
-			case PAGE_SIZE:		/* 4KB */
+			case PAGE_SIZE_4K:	/* 4KB */
 				reg |=
 				    GITS_BASER_PSZ_4K << GITS_BASER_PSZ_SHIFT;
 				break;
@@ -544,7 +544,7 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 			    (reg & GITS_BASER_PSZ_MASK)) {
 				switch (page_size) {
 				case PAGE_SIZE_16K:
-					page_size = PAGE_SIZE;
+					page_size = PAGE_SIZE_4K;
 					continue;
 				case PAGE_SIZE_64K:
 					page_size = PAGE_SIZE_16K;
@@ -1418,7 +1418,9 @@ gicv3_its_release_msix(device_t dev, device_t child, struct intr_irqsrc *isrc)
 
 	sc = device_get_softc(dev);
 	girq = (struct gicv3_its_irqsrc *)isrc;
+	mtx_lock_spin(&sc->sc_its_dev_lock);
 	gicv3_its_release_irqsrc(sc, girq);
+	mtx_unlock_spin(&sc->sc_its_dev_lock);
 	its_dev->lpis.lpi_busy--;
 
 	if (its_dev->lpis.lpi_busy == 0)

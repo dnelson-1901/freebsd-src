@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2012 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Edward Tomasz Napierala under sponsorship
  * from the FreeBSD Foundation.
@@ -522,7 +521,7 @@ portal_group_pcp:	PCP STR
 			free($2);
 			return (1);
 		}
-		if (!((tmp >= 0) && (tmp <= 7))) {
+		if (tmp > 7) {
 			yyerror("invalid pcp value");
 			free($2);
 			return (1);

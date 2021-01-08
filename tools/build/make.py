@@ -81,14 +81,6 @@ def bootstrap_bmake(source_root, objdir_prefix):
         "--with-default-sys-path=" + str(bmake_install_dir / "share/mk"),
         "--with-machine=amd64",  # TODO? "--with-machine-arch=amd64",
         "--without-filemon", "--prefix=" + str(bmake_install_dir)]
-
-    if Path("/bin/sh").resolve().name == "dash":
-        # Note: we have to avoid using dash as the default shell since it
-        # filters out variables containing characters such as '-' and that
-        # breaks the bmake bootstrap tests.
-        # TODO: remove this when the bootstrap tests have been fixed.
-        configure_args.append("--with-defshell=/bin/bash")
-
     run(["sh", bmake_source_dir / "boot-strap"] + configure_args,
         cwd=str(bmake_build_dir), env=env)
 
@@ -123,6 +115,9 @@ def check_required_make_env_var(varname, binary_name, bindir):
                  " does not exist")
     new_env_vars[varname] = guess
     debug("Inferred", varname, "as", guess)
+    global parsed_args
+    if parsed_args.debug:
+        run([guess, "--version"])
 
 
 def default_cross_toolchain():
@@ -196,6 +191,9 @@ if __name__ == "__main__":
 
         if parsed_args.host_compiler_type == "gcc":
             default_cc, default_cxx, default_cpp = ("gcc", "g++", "cpp")
+        # FIXME: this should take values like `clang-9` and then look for
+        # clang-cpp-9, etc. Would alleviate the need to set the bindir on
+        # ubuntu/debian at least.
         elif parsed_args.host_compiler_type == "clang":
             default_cc, default_cxx, default_cpp = (
                 "clang", "clang++", "clang-cpp")
@@ -209,8 +207,8 @@ if __name__ == "__main__":
                                     parsed_args.host_bindir)
         # Using the default value for LD is fine (but not for XLD!)
 
-        use_cross_gcc = parsed_args.cross_compiler_type == "gcc"
         # On non-FreeBSD we need to explicitly pass XCC/XLD/X_COMPILER_TYPE
+        use_cross_gcc = parsed_args.cross_compiler_type == "gcc"
         check_required_make_env_var("XCC", "gcc" if use_cross_gcc else "clang",
                                     parsed_args.cross_bindir)
         check_required_make_env_var("XCXX",
@@ -221,6 +219,26 @@ if __name__ == "__main__":
                                     parsed_args.cross_bindir)
         check_required_make_env_var("XLD", "ld" if use_cross_gcc else "ld.lld",
                                     parsed_args.cross_bindir)
+
+        # We also need to set STRIPBIN if there is no working strip binary
+        # in $PATH.
+        if not shutil.which("strip"):
+            if sys.platform.startswith("darwin"):
+                # On macOS systems we have to use /usr/bin/strip.
+                sys.exit("Cannot find required tool 'strip'. Please install the"
+                         " host compiler and command line tools.")
+            if parsed_args.host_compiler_type == "clang":
+                strip_binary = "llvm-strip"
+            else:
+                strip_binary = "strip"
+            check_required_make_env_var("STRIPBIN", strip_binary,
+                                        parsed_args.cross_bindir)
+        if os.getenv("STRIPBIN") or "STRIPBIN" in new_env_vars:
+            # If we are setting STRIPBIN, we have to set XSTRIPBIN to the
+            # default if it is not set otherwise already.
+            if not os.getenv("XSTRIPBIN") and not is_make_var_set("XSTRIPBIN"):
+                # Use the bootstrapped elftoolchain strip:
+                new_env_vars["XSTRIPBIN"] = "strip"
 
     bmake_binary = bootstrap_bmake(source_root, objdir_prefix)
     # at -j1 cleandir+obj is unbearably slow. AUTO_OBJ helps a lot
@@ -243,7 +261,5 @@ if __name__ == "__main__":
         shlex.quote(s) for s in [str(bmake_binary)] + bmake_args)
     debug("Running `env ", env_cmd_str, " ", make_cmd_str, "`", sep="")
     os.environ.update(new_env_vars)
-    if parsed_args.debug:
-        input("Press enter to continue...")
     os.chdir(str(source_root))
     os.execv(str(bmake_binary), [str(bmake_binary)] + bmake_args)

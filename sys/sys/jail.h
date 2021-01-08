@@ -150,15 +150,17 @@ struct prison_racct;
  *
  * Lock key:
  *   (a) allprison_lock
- *   (p) locked by pr_mtx
+ *   (m) locked by pr_mtx
+ *   (p) locked by pr_mtx, and also at least shared allprison_lock required
+ *       to update
  *   (c) set only during creation before the structure is shared, no mutex
  *       required to read
  */
 struct prison {
 	TAILQ_ENTRY(prison) pr_list;			/* (a) all prisons */
 	int		 pr_id;				/* (c) prison id */
-	int		 pr_ref;			/* (p) refcount */
-	int		 pr_uref;			/* (p) user (alive) refcount */
+	int		 pr_ref;			/* (m) refcount */
+	int		 pr_uref;			/* (m) user (alive) refcount */
 	unsigned	 pr_flags;			/* (p) PR_* flags */
 	LIST_HEAD(, prison) pr_children;		/* (a) list of child jails */
 	LIST_ENTRY(prison) pr_sibling;			/* (a) next in parent's list */
@@ -232,9 +234,10 @@ struct prison_racct {
 #define	PR_ALLOW_MLOCK			0x00000080
 #define	PR_ALLOW_READ_MSGBUF		0x00000100
 #define	PR_ALLOW_UNPRIV_DEBUG		0x00000200
+#define	PR_ALLOW_SUSER			0x00000400
 #define	PR_ALLOW_RESERVED_PORTS		0x00008000
 #define	PR_ALLOW_KMEM_ACCESS		0x00010000	/* reserved, not used yet */
-#define	PR_ALLOW_ALL_STATIC		0x000183ff
+#define	PR_ALLOW_ALL_STATIC		0x000187ff
 
 /*
  * PR_ALLOW_DIFFERENCES determines which flags are able to be
@@ -402,6 +405,7 @@ void prison_hold(struct prison *pr);
 void prison_hold_locked(struct prison *pr);
 void prison_proc_hold(struct prison *);
 void prison_proc_free(struct prison *);
+void prison_set_allow(struct ucred *cred, unsigned flag, int enable);
 int prison_ischild(struct prison *, struct prison *);
 int prison_equal_ip4(struct prison *, struct prison *);
 int prison_get_ip4(struct ucred *cred, struct in_addr *ia);

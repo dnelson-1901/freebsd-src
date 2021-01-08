@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2012 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Edward Tomasz Napierala under sponsorship
  * from the FreeBSD Foundation.
@@ -151,6 +150,8 @@ resolve_addr(const struct connection *conn, const char *address,
 		log_errx(1, "getaddrinfo for %s failed: %s",
 		    address, gai_strerror(error));
 	}
+
+	free(addr);
 }
 
 static struct connection *
@@ -254,6 +255,10 @@ connection_new(int iscsi_fd, const struct iscsi_daemon_request *request)
 			    "using ICL kernel proxy: ISCSIDCONNECT", to_addr);
 		}
 
+		if (from_ai != NULL)
+			freeaddrinfo(from_ai);
+		freeaddrinfo(to_ai);
+
 		return (conn);
 	}
 #endif /* ICL_KERNEL_PROXY */
@@ -330,6 +335,10 @@ connection_new(int iscsi_fd, const struct iscsi_daemon_request *request)
 		fail(conn, strerror(errno));
 		log_err(1, "failed to connect to %s", to_addr);
 	}
+
+	if (from_ai != NULL)
+		freeaddrinfo(from_ai);
+	freeaddrinfo(to_ai);
 
 	return (conn);
 }

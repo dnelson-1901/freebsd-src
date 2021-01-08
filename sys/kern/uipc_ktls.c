@@ -34,6 +34,7 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
+#include <sys/domainset.h>
 #include <sys/ktls.h>
 #include <sys/lock.h>
 #include <sys/mbuf.h>
@@ -83,6 +84,12 @@ struct ktls_wq {
 	bool		running;
 } __aligned(CACHE_LINE_SIZE);
 
+struct ktls_domain_info {
+	int count;
+	int cpu[MAXCPU];
+};
+
+struct ktls_domain_info ktls_domains[MAXMEMDOM];
 static struct ktls_wq *ktls_wq;
 static struct proc *ktls_proc;
 LIST_HEAD(, ktls_crypto_backend) ktls_backends;
@@ -316,6 +323,9 @@ static u_int
 ktls_get_cpu(struct socket *so)
 {
 	struct inpcb *inp;
+#ifdef NUMA
+	struct ktls_domain_info *di;
+#endif
 	u_int cpuid;
 
 	inp = sotoinpcb(so);
@@ -330,7 +340,13 @@ ktls_get_cpu(struct socket *so)
 	 * serialization provided by having the same connection use
 	 * the same queue.
 	 */
-	cpuid = ktls_cpuid_lookup[inp->inp_flowid % ktls_number_threads];
+#ifdef NUMA
+	if (ktls_bind_threads > 1 && inp->inp_numa_domain != M_NODOM) {
+		di = &ktls_domains[inp->inp_numa_domain];
+		cpuid = di->cpu[inp->inp_flowid % di->count];
+	} else
+#endif
+		cpuid = ktls_cpuid_lookup[inp->inp_flowid % ktls_number_threads];
 	return (cpuid);
 }
 #endif
@@ -341,7 +357,7 @@ ktls_init(void *dummy __unused)
 	struct thread *td;
 	struct pcpu *pc;
 	cpuset_t mask;
-	int error, i;
+	int count, domain, error, i;
 
 	ktls_tasks_active = counter_u64_alloc(M_WAITOK);
 	ktls_cnt_tx_queued = counter_u64_alloc(M_WAITOK);
@@ -397,7 +413,11 @@ ktls_init(void *dummy __unused)
 		if (ktls_bind_threads) {
 			if (ktls_bind_threads > 1) {
 				pc = pcpu_find(i);
-				CPU_COPY(&cpuset_domain[pc->pc_domain], &mask);
+				domain = pc->pc_domain;
+				CPU_COPY(&cpuset_domain[domain], &mask);
+				count = ktls_domains[domain].count;
+				ktls_domains[domain].cpu[count] = i;
+				ktls_domains[domain].count++;
 			} else {
 				CPU_SETOF(i, &mask);
 			}
@@ -410,6 +430,18 @@ ktls_init(void *dummy __unused)
 		ktls_cpuid_lookup[ktls_number_threads] = i;
 		ktls_number_threads++;
 	}
+
+	/*
+	 * If we somehow have an empty domain, fall back to choosing
+	 * among all KTLS threads.
+	 */
+	for (i = 0; i < vm_ndomains; i++) {
+		if (ktls_domains[i].count == 0) {
+			ktls_bind_threads = 0;
+			break;
+		}
+	}
+
 	printf("KTLS: Initialized %d threads\n", ktls_number_threads);
 }
 SYSINIT(ktls, SI_SUB_SMP + 1, SI_ORDER_ANY, ktls_init, NULL);
@@ -814,18 +846,26 @@ ktls_alloc_snd_tag(struct inpcb *inp, struct ktls_session *tls, bool force,
 	ifp = nh->nh_ifp;
 	if_ref(ifp);
 
-	params.hdr.type = IF_SND_TAG_TYPE_TLS;
+	/*
+	 * Allocate a TLS + ratelimit tag if the connection has an
+	 * existing pacing rate.
+	 */
+	if (tp->t_pacing_rate != -1 &&
+	    (ifp->if_capenable & IFCAP_TXTLS_RTLMT) != 0) {
+		params.hdr.type = IF_SND_TAG_TYPE_TLS_RATE_LIMIT;
+		params.tls_rate_limit.inp = inp;
+		params.tls_rate_limit.tls = tls;
+		params.tls_rate_limit.max_rate = tp->t_pacing_rate;
+	} else {
+		params.hdr.type = IF_SND_TAG_TYPE_TLS;
+		params.tls.inp = inp;
+		params.tls.tls = tls;
+	}
 	params.hdr.flowid = inp->inp_flowid;
 	params.hdr.flowtype = inp->inp_flowtype;
 	params.hdr.numa_domain = inp->inp_numa_domain;
-	params.tls.inp = inp;
-	params.tls.tls = tls;
 	INP_RUNLOCK(inp);
 
-	if (ifp->if_snd_tag_alloc == NULL) {
-		error = EOPNOTSUPP;
-		goto out;
-	}
 	if ((ifp->if_capenable & IFCAP_NOMAP) == 0) {	
 		error = EOPNOTSUPP;
 		goto out;
@@ -841,7 +881,7 @@ ktls_alloc_snd_tag(struct inpcb *inp, struct ktls_session *tls, bool force,
 			goto out;
 		}
 	}
-	error = ifp->if_snd_tag_alloc(ifp, &params, mstp);
+	error = m_snd_tag_alloc(ifp, &params, mstp);
 out:
 	if_rele(ifp);
 	return (error);
@@ -1034,6 +1074,7 @@ int
 ktls_enable_tx(struct socket *so, struct tls_enable *en)
 {
 	struct ktls_session *tls;
+	struct inpcb *inp;
 	int error;
 
 	if (!ktls_offload_enable)
@@ -1086,12 +1127,20 @@ ktls_enable_tx(struct socket *so, struct tls_enable *en)
 		return (error);
 	}
 
+	/*
+	 * Write lock the INP when setting sb_tls_info so that
+	 * routines in tcp_ratelimit.c can read sb_tls_info while
+	 * holding the INP lock.
+	 */
+	inp = so->so_pcb;
+	INP_WLOCK(inp);
 	SOCKBUF_LOCK(&so->so_snd);
 	so->so_snd.sb_tls_seqno = be64dec(en->rec_seq);
 	so->so_snd.sb_tls_info = tls;
 	if (tls->mode != TCP_TLS_MODE_SW)
 		so->so_snd.sb_flags |= SB_TLS_IFNET;
 	SOCKBUF_UNLOCK(&so->so_snd);
+	INP_WUNLOCK(inp);
 	sbunlock(&so->so_snd);
 
 	counter_u64_add(ktls_offload_total, 1);
@@ -1344,6 +1393,42 @@ ktls_output_eagain(struct inpcb *inp, struct ktls_session *tls)
 	mtx_pool_unlock(mtxpool_sleep, tls);
 	return (ENOBUFS);
 }
+
+#ifdef RATELIMIT
+int
+ktls_modify_txrtlmt(struct ktls_session *tls, uint64_t max_pacing_rate)
+{
+	union if_snd_tag_modify_params params = {
+		.rate_limit.max_rate = max_pacing_rate,
+		.rate_limit.flags = M_NOWAIT,
+	};
+	struct m_snd_tag *mst;
+	struct ifnet *ifp;
+	int error;
+
+	/* Can't get to the inp, but it should be locked. */
+	/* INP_LOCK_ASSERT(inp); */
+
+	MPASS(tls->mode == TCP_TLS_MODE_IFNET);
+
+	if (tls->snd_tag == NULL) {
+		/*
+		 * Resetting send tag, ignore this change.  The
+		 * pending reset may or may not see this updated rate
+		 * in the tcpcb.  If it doesn't, we will just lose
+		 * this rate change.
+		 */
+		return (0);
+	}
+
+	MPASS(tls->snd_tag != NULL);
+	MPASS(tls->snd_tag->type == IF_SND_TAG_TYPE_TLS_RATE_LIMIT);
+
+	mst = tls->snd_tag;
+	ifp = mst->ifp;
+	return (ifp->if_snd_tag_modify(mst, &params));
+}
+#endif
 #endif
 
 void
@@ -2040,6 +2125,10 @@ ktls_work_thread(void *ctx)
 	STAILQ_HEAD(, mbuf) local_m_head;
 	STAILQ_HEAD(, socket) local_so_head;
 
+	if (ktls_bind_threads > 1) {
+		curthread->td_domain.dr_policy =
+			DOMAINSET_PREF(PCPU_GET(domain));
+	}
 #if defined(__aarch64__) || defined(__amd64__) || defined(__i386__)
 	fpu_kern_thread(0);
 #endif

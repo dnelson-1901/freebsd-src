@@ -91,7 +91,6 @@ SUBDIR=	\
 	cloudabi \
 	${_cloudabi32} \
 	${_cloudabi64} \
-	${_cmx} \
 	${_coretemp} \
 	${_cp} \
 	${_cpsw} \
@@ -121,6 +120,7 @@ SUBDIR=	\
 	filemon \
 	firewire \
 	firmware \
+	${_ftwd} \
 	fusefs \
 	${_fxp} \
 	gem \
@@ -128,8 +128,8 @@ SUBDIR=	\
 	${_glxiic} \
 	${_glxsb} \
 	gpio \
+	hid \
 	hifn \
-	hme \
 	${_hpt27xx} \
 	${_hptiop} \
 	${_hptmv} \
@@ -161,6 +161,7 @@ SUBDIR=	\
 	if_tuntap \
 	if_vlan \
 	if_vxlan \
+	if_wg \
 	iflib \
 	${_iir} \
 	imgact_binmisc \
@@ -300,6 +301,8 @@ SUBDIR=	\
 	pty  \
 	puc \
 	pwm \
+	${_qat} \
+	${_qatfw} \
 	${_qlxge} \
 	${_qlxgb} \
 	${_qlxgbe} \
@@ -314,6 +317,7 @@ SUBDIR=	\
 	re \
 	rl \
 	${_rockchip} \
+	rtsx \
 	rtwn \
 	rtwn_pci \
 	rtwn_usb \
@@ -380,7 +384,6 @@ SUBDIR=	\
 	vr \
 	vte \
 	${_wbwd} \
-	${_wi} \
 	wlan \
 	wlan_acl \
 	wlan_amrr \
@@ -501,6 +504,7 @@ _ibcore=	ibcore
 _ipoib=		ipoib
 _iser=		iser
 .endif
+_ipmi=		ipmi
 _mlx4=		mlx4
 _mlx5=		mlx5
 .if (${MK_INET_SUPPORT} != "no" && ${MK_INET6_SUPPORT} != "no") || \
@@ -513,6 +517,7 @@ _mthca=		mthca
 _mlx4ib=	mlx4ib
 _mlx5ib=	mlx5ib
 .endif
+_ossl=		ossl
 _vmware=	vmware
 .endif
 
@@ -615,6 +620,7 @@ _cpufreq=	cpufreq
 _dpms=		dpms
 _em=		em
 _et=		et
+_ftwd=		ftwd
 _exca=		exca
 _if_ndis=	if_ndis
 _io=		io
@@ -628,8 +634,9 @@ _nctgpio=	nctgpio
 _ndis=		ndis
 _ntb=		ntb
 _ocs_fc=	ocs_fc
-_ossl=		ossl
 _pccard=	pccard
+_qat=		qat
+_qatfw=		qatfw
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
 _rdma=		rdma
 .endif
@@ -638,7 +645,6 @@ _speaker=	speaker
 _splash=	splash
 _sppp=		sppp
 _wbwd=		wbwd
-_wi=		wi
 
 _aac=		aac
 _aacraid=	aacraid
@@ -659,7 +665,6 @@ _bytgpio=	bytgpio
 _chvgpio=	chvgpio
 _ciss=		ciss
 _chromebook_platform=	chromebook_platform
-_cmx=		cmx
 _coretemp=	coretemp
 .if ${MK_SOURCELESS_HOST} != "no" && empty(KCSAN_ENABLED)
 _hpt27xx=	hpt27xx
@@ -675,7 +680,6 @@ _ichwd=		ichwd
 _ida=		ida
 _iir=		iir
 _intelspi=	intelspi
-_ipmi=		ipmi
 _ips=		ips
 _isci=		isci
 _ipw=		ipw
@@ -750,7 +754,7 @@ _3dfx_linux=	3dfx_linux
 .if ${MK_SOURCELESS_HOST} != "no"
 _ce=		ce
 .endif
-.if ${MK_SOURCELESS_UCODE} != "no"
+.if ${MK_SOURCELESS_HOST} != "no"
 _cp=		cp
 .endif
 _glxiic=	glxiic
@@ -778,7 +782,6 @@ _ffec=		ffec
 _nvd=		nvd
 _nvme=		nvme
 _pccard=	pccard
-_wi=		wi
 _virtio=	virtio
 .endif
 

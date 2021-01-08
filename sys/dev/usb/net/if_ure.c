@@ -98,8 +98,10 @@ static const STRUCT_USB_HOST_ID ure_devs[] = {
 #define	URE_DEV(v,p,i)	{ USB_VPI(USB_VENDOR_##v, USB_PRODUCT_##v##_##p, i) }
 	URE_DEV(LENOVO, RTL8153, 0),
 	URE_DEV(LENOVO, TBT3LAN, 0),
+	URE_DEV(LENOVO, TBT3LANGEN2, 0),
 	URE_DEV(LENOVO, ONELINK, 0),
 	URE_DEV(LENOVO, USBCLAN, 0),
+	URE_DEV(LENOVO, USBCLANGEN2, 0),
 	URE_DEV(NVIDIA, RTL8153, 0),
 	URE_DEV(REALTEK, RTL8152, URE_FLAG_8152),
 	URE_DEV(REALTEK, RTL8153, 0),
@@ -711,7 +713,7 @@ ure_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 				goto tr_setup;
 			}
 
-			if (len != 0)
+			if (len >= (ETHER_HDR_LEN + ETHER_CRC_LEN))
 				m = ure_makembuf(pc, off, len - ETHER_CRC_LEN);
 			else
 				m = NULL;
@@ -959,8 +961,6 @@ static void
 ure_attach_post(struct usb_ether *ue)
 {
 	struct ure_softc *sc = uether_getsc(ue);
-	struct sysctl_ctx_list *sctx;
-	struct sysctl_oid *soid;
 
 	sc->sc_rxstarted = 0;
 	sc->sc_phyno = 0;
@@ -988,18 +988,13 @@ ure_attach_post(struct usb_ether *ue)
 		sc->sc_ue.ue_eaddr[0] &= ~0x01; /* unicast */
 		sc->sc_ue.ue_eaddr[0] |= 0x02;  /* locally administered */
 	}
-
-	sctx = device_get_sysctl_ctx(sc->sc_ue.ue_dev);
-	soid = device_get_sysctl_tree(sc->sc_ue.ue_dev);
-	SYSCTL_ADD_PROC(sctx, SYSCTL_CHILDREN(soid), OID_AUTO, "chipver",
-	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE, sc, 0,
-	    ure_sysctl_chipver, "A",
-	    "Return string with chip version.");
 }
 
 static int
 ure_attach_post_sub(struct usb_ether *ue)
 {
+	struct sysctl_ctx_list *sctx;
+	struct sysctl_oid *soid;	
 	struct ure_softc *sc;
 	struct ifnet *ifp;
 	int error;
@@ -1032,6 +1027,13 @@ ure_attach_post_sub(struct usb_ether *ue)
 	    uether_ifmedia_upd, ue->ue_methods->ue_mii_sts,
 	    BMSR_DEFCAPMASK, sc->sc_phyno, MII_OFFSET_ANY, 0);
 	mtx_unlock(&Giant);
+
+	sctx = device_get_sysctl_ctx(sc->sc_ue.ue_dev);
+	soid = device_get_sysctl_tree(sc->sc_ue.ue_dev);
+	SYSCTL_ADD_PROC(sctx, SYSCTL_CHILDREN(soid), OID_AUTO, "chipver",
+	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE, sc, 0,
+	    ure_sysctl_chipver, "A",
+	    "Return string with chip version.");
 
 	return (error);
 }
