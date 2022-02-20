@@ -96,8 +96,7 @@ cvt_time(time_t t, char *buf)
 		strcpy(buf, "no-entry");
 	} else {
 		tm = localtime(&t);
-		sprintf(buf, "%2d:%02d:%02d",
-			tm->tm_hour, tm->tm_min, tm->tm_sec);
+		strftime(buf, 100, "%F %T", tm);
 	}
 }
 
@@ -331,7 +330,7 @@ void print_kmsqheader(int option)
 	if (option & PID)
 		printf(" %12s %12s", "LSPID", "LRPID");
 	if (option & TIME)
-		printf(" %-8s %-8s %-8s", "STIME", "RTIME", "CTIME");
+		printf(" %-19s %-19s %-19s", "STIME", "RTIME", "CTIME");
 	printf("\n");
 }
 
@@ -370,7 +369,7 @@ print_kmsqptr(int i, int option, struct msqid_kernel *kmsqptr)
 		    kmsqptr->u.msg_lrpid);
 
 	if (option & TIME)
-		printf(" %s %s %s",
+		printf(" %-19s %-19s %-19s",
 		    stime_buf,
 		    rtime_buf,
 		    ctime_buf);
@@ -411,7 +410,7 @@ print_kshmheader(int option)
 	if (option & PID)
 		printf(" %12s %12s", "CPID", "LPID");
 	if (option & TIME)
-		printf(" %-8s %-8s %-8s", "ATIME", "DTIME", "CTIME");
+		printf(" %-19s %-19s %-19s", "ATIME", "DTIME", "CTIME");
 	printf("\n");
 }
 
@@ -450,7 +449,7 @@ print_kshmptr(int i, int option, struct shmid_kernel *kshmptr)
 		    kshmptr->u.shm_lpid);
 
 	if (option & TIME)
-		printf(" %s %s %s",
+		printf(" %-19s %-19s %-19s",
 		    atime_buf,
 		    dtime_buf,
 		    ctime_buf);
@@ -495,7 +494,7 @@ print_ksemheader(int option)
 	if (option & BIGGEST)
 		printf(" %12s", "NSEMS");
 	if (option & TIME)
-		printf(" %-8s %-8s", "OTIME", "CTIME");
+		printf(" %-19s %-19s", "OTIME", "CTIME");
 	printf("\n");
 }
 
@@ -524,7 +523,7 @@ print_ksemptr(int i, int option, struct semid_kernel *ksemaptr)
 		    ksemaptr->u.sem_nsems);
 
 	if (option & TIME)
-		printf(" %s %s",
+		printf(" %-19s %-19s",
 		    otime_buf,
 		    ctime_buf);
 
