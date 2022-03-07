@@ -1,6 +1,5 @@
 /*-
  * Copyright (c) 2015-2016 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Andrew Turner under
  * the sponsorship of the FreeBSD Foundation.
@@ -70,7 +69,9 @@ __FBSDID("$FreeBSD$");
 #include <dev/acpica/acpivar.h>
 #endif
 
+#include "gic_if.h"
 #include "pic_if.h"
+#include "msi_if.h"
 
 #include <arm/arm/gic_common.h>
 #include "gic_v3_reg.h"
@@ -78,6 +79,7 @@ __FBSDID("$FreeBSD$");
 
 static bus_get_domain_t gic_v3_get_domain;
 static bus_read_ivar_t gic_v3_read_ivar;
+static bus_write_ivar_t gic_v3_write_ivar;
 
 static pic_disable_intr_t gic_v3_disable_intr;
 static pic_enable_intr_t gic_v3_enable_intr;
@@ -94,6 +96,18 @@ static pic_ipi_send_t gic_v3_ipi_send;
 static pic_ipi_setup_t gic_v3_ipi_setup;
 #endif
 
+static gic_reserve_msi_range_t gic_v3_reserve_msi_range;
+static gic_alloc_msi_t gic_v3_gic_alloc_msi;
+static gic_release_msi_t gic_v3_gic_release_msi;
+static gic_alloc_msix_t gic_v3_gic_alloc_msix;
+static gic_release_msix_t gic_v3_gic_release_msix;
+
+static msi_alloc_msi_t gic_v3_alloc_msi;
+static msi_release_msi_t gic_v3_release_msi;
+static msi_alloc_msix_t gic_v3_alloc_msix;
+static msi_release_msix_t gic_v3_release_msix;
+static msi_map_msi_t gic_v3_map_msi;
+
 static u_int gic_irq_cpu;
 #ifdef SMP
 static u_int sgi_to_ipi[GIC_LAST_SGI - GIC_FIRST_SGI + 1];
@@ -107,6 +121,7 @@ static device_method_t gic_v3_methods[] = {
 	/* Bus interface */
 	DEVMETHOD(bus_get_domain,	gic_v3_get_domain),
 	DEVMETHOD(bus_read_ivar,	gic_v3_read_ivar),
+	DEVMETHOD(bus_write_ivar,	gic_v3_write_ivar),
 
 	/* Interrupt controller interface */
 	DEVMETHOD(pic_disable_intr,	gic_v3_disable_intr),
@@ -123,6 +138,20 @@ static device_method_t gic_v3_methods[] = {
 	DEVMETHOD(pic_ipi_send,		gic_v3_ipi_send),
 	DEVMETHOD(pic_ipi_setup,	gic_v3_ipi_setup),
 #endif
+
+	/* MSI/MSI-X */
+	DEVMETHOD(msi_alloc_msi,        gic_v3_alloc_msi),
+	DEVMETHOD(msi_release_msi,      gic_v3_release_msi),
+	DEVMETHOD(msi_alloc_msix,       gic_v3_alloc_msix),
+	DEVMETHOD(msi_release_msix,     gic_v3_release_msix),
+	DEVMETHOD(msi_map_msi,          gic_v3_map_msi),
+
+	/* GIC */
+	DEVMETHOD(gic_reserve_msi_range, gic_v3_reserve_msi_range),
+	DEVMETHOD(gic_alloc_msi,	gic_v3_gic_alloc_msi),
+	DEVMETHOD(gic_release_msi,	gic_v3_gic_release_msi),
+	DEVMETHOD(gic_alloc_msix,	gic_v3_gic_alloc_msix),
+	DEVMETHOD(gic_release_msix,	gic_v3_gic_release_msix),
 
 	/* End */
 	DEVMETHOD_END
@@ -150,6 +179,11 @@ struct gic_v3_irqsrc {
 	uint32_t		gi_irq;
 	enum intr_polarity	gi_pol;
 	enum intr_trigger	gi_trig;
+#define GI_FLAG_MSI		(1 << 1) /* This interrupt source should only */
+					 /* be used for MSI/MSI-X interrupts */
+#define GI_FLAG_MSI_USED	(1 << 2) /* This irq is already allocated */
+					 /* for a MSI/MSI-X interrupt */
+	u_int			gi_flags;
 };
 
 /* Helper routines starting with gic_v3_ */
@@ -222,6 +256,33 @@ gic_r_write_8(device_t dev, bus_size_t offset, uint64_t val)
 	sc = device_get_softc(dev);
 	rdist = &sc->gic_redists.pcpu[PCPU_GET(cpuid)]->res;
 	bus_write_8(rdist, offset, val);
+}
+
+static void
+gic_v3_reserve_msi_range(device_t dev, u_int start, u_int count)
+{
+	struct gic_v3_softc *sc;
+	int i;
+
+	sc = device_get_softc(dev);
+
+	KASSERT((start + count) < sc->gic_nirqs,
+	    ("%s: Trying to allocate too many MSI IRQs: %d + %d > %d", __func__,
+	    start, count, sc->gic_nirqs));
+	for (i = 0; i < count; i++) {
+		KASSERT(sc->gic_irqs[start + i].gi_isrc.isrc_handlers == 0,
+		    ("%s: MSI interrupt %d already has a handler", __func__,
+		    count + i));
+		KASSERT(sc->gic_irqs[start + i].gi_pol == INTR_POLARITY_CONFORM,
+		    ("%s: MSI interrupt %d already has a polarity", __func__,
+		    count + i));
+		KASSERT(sc->gic_irqs[start + i].gi_trig == INTR_TRIGGER_CONFORM,
+		    ("%s: MSI interrupt %d already has a trigger", __func__,
+		    count + i));
+		sc->gic_irqs[start + i].gi_pol = INTR_POLARITY_HIGH;
+		sc->gic_irqs[start + i].gi_trig = INTR_TRIGGER_EDGE;
+		sc->gic_irqs[start + i].gi_flags |= GI_FLAG_MSI;
+	}
 }
 
 /*
@@ -311,6 +372,17 @@ gic_v3_attach(device_t dev)
 			/* XXX call intr_isrc_deregister() */
 			free(sc->gic_irqs, M_DEVBUF);
 			return (err);
+		}
+	}
+
+	mtx_init(&sc->gic_mbi_mtx, "GICv3 mbi lock", NULL, MTX_DEF);
+	if (sc->gic_mbi_start > 0) {
+		gic_v3_reserve_msi_range(dev, sc->gic_mbi_start,
+		    sc->gic_mbi_end - sc->gic_mbi_start);
+
+		if (bootverbose) {
+			device_printf(dev, "using spi %u to %u\n", sc->gic_mbi_start,
+					sc->gic_mbi_end);
 		}
 	}
 
@@ -409,6 +481,20 @@ gic_v3_read_ivar(device_t dev, device_t child, int which, uintptr_t *result)
 		    ("gic_v3_read_ivar: Invalid bus type %u", sc->gic_bus));
 		*result = sc->gic_bus;
 		return (0);
+	}
+
+	return (ENOENT);
+}
+
+static int
+gic_v3_write_ivar(device_t dev, device_t child, int which, uintptr_t value)
+{
+	switch(which) {
+	case GICV3_IVAR_NIRQS:
+	case GICV3_IVAR_REDIST:
+	case GIC_IVAR_HW_REV:
+	case GIC_IVAR_BUS:
+		return (EINVAL);
 	}
 
 	return (ENOENT);
@@ -692,8 +778,11 @@ gic_v3_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 			return (0);
 	}
 
-	gi->gi_pol = pol;
-	gi->gi_trig = trig;
+	/* For MSI/MSI-X we should have already configured these */
+	if ((gi->gi_flags & GI_FLAG_MSI) == 0) {
+		gi->gi_pol = pol;
+		gi->gi_trig = trig;
+	}
 
 	/*
 	 * XXX - In case that per CPU interrupt is going to be enabled in time
@@ -742,7 +831,7 @@ gic_v3_teardown_intr(device_t dev, struct intr_irqsrc *isrc,
 {
 	struct gic_v3_irqsrc *gi = (struct gic_v3_irqsrc *)isrc;
 
-	if (isrc->isrc_handlers == 0) {
+	if (isrc->isrc_handlers == 0 && (gi->gi_flags & GI_FLAG_MSI) == 0) {
 		gi->gi_pol = INTR_POLARITY_CONFORM;
 		gi->gi_trig = INTR_TRIGGER_CONFORM;
 	}
@@ -844,7 +933,7 @@ gic_v3_bind_intr(device_t dev, struct intr_irqsrc *isrc)
 	if (CPU_EMPTY(&isrc->isrc_cpu)) {
 		gic_irq_cpu = intr_irq_next_cpu(gic_irq_cpu, &all_cpus);
 		CPU_SETOF(gic_irq_cpu, &isrc->isrc_cpu);
-		gic_d_write(sc, 4, GICD_IROUTER(gi->gi_irq),
+		gic_d_write(sc, 8, GICD_IROUTER(gi->gi_irq),
 		    CPU_AFFINITY(gic_irq_cpu));
 	} else {
 		/*
@@ -852,7 +941,7 @@ gic_v3_bind_intr(device_t dev, struct intr_irqsrc *isrc)
 		 * the first CPU found.
 		 */
 		cpu = CPU_FFS(&isrc->isrc_cpu) - 1;
-		gic_d_write(sc, 4, GICD_IROUTER(gi->gi_irq), CPU_AFFINITY(cpu));
+		gic_d_write(sc, 8, GICD_IROUTER(gi->gi_irq), CPU_AFFINITY(cpu));
 	}
 
 	return (0);
@@ -1114,7 +1203,7 @@ gic_v3_dist_init(struct gic_v3_softc *sc)
 	 */
 	aff = CPU_AFFINITY(0);
 	for (i = GIC_FIRST_SPI; i < sc->gic_nirqs; i++)
-		gic_d_write(sc, 4, GICD_IROUTER(i), aff);
+		gic_d_write(sc, 8, GICD_IROUTER(i), aff);
 
 	return (0);
 }
@@ -1267,6 +1356,210 @@ gic_v3_redist_init(struct gic_v3_softc *sc)
 	}
 
 	gic_v3_wait_for_rwp(sc, REDIST);
+
+	return (0);
+}
+
+/*
+ * SPI-mapped Message Based Interrupts -- a GICv3 MSI/MSI-X controller.
+ */
+
+static int
+gic_v3_gic_alloc_msi(device_t dev, u_int mbi_start, u_int mbi_count,
+    int count, int maxcount, struct intr_irqsrc **isrc)
+{
+	struct gic_v3_softc *sc;
+	int i, irq, end_irq;
+	bool found;
+
+	KASSERT(powerof2(count), ("%s: bad count", __func__));
+	KASSERT(powerof2(maxcount), ("%s: bad maxcount", __func__));
+
+	sc = device_get_softc(dev);
+
+	mtx_lock(&sc->gic_mbi_mtx);
+
+	found = false;
+	for (irq = mbi_start; irq < mbi_start + mbi_count; irq++) {
+		/* Start on an aligned interrupt */
+		if ((irq & (maxcount - 1)) != 0)
+			continue;
+
+		/* Assume we found a valid range until shown otherwise */
+		found = true;
+
+		/* Check this range is valid */
+		for (end_irq = irq; end_irq != irq + count; end_irq++) {
+			/* No free interrupts */
+			if (end_irq == mbi_start + mbi_count) {
+				found = false;
+				break;
+			}
+
+			KASSERT((sc->gic_irqs[end_irq].gi_flags & GI_FLAG_MSI)!= 0,
+			    ("%s: Non-MSI interrupt found", __func__));
+
+			/* This is already used */
+			if ((sc->gic_irqs[end_irq].gi_flags & GI_FLAG_MSI_USED) ==
+			    GI_FLAG_MSI_USED) {
+				found = false;
+				break;
+			}
+		}
+		if (found)
+			break;
+	}
+
+	/* Not enough interrupts were found */
+	if (!found || irq == mbi_start + mbi_count) {
+		mtx_unlock(&sc->gic_mbi_mtx);
+		return (ENXIO);
+	}
+
+	for (i = 0; i < count; i++) {
+		/* Mark the interrupt as used */
+		sc->gic_irqs[irq + i].gi_flags |= GI_FLAG_MSI_USED;
+	}
+	mtx_unlock(&sc->gic_mbi_mtx);
+
+	for (i = 0; i < count; i++)
+		isrc[i] = (struct intr_irqsrc *)&sc->gic_irqs[irq + i];
+
+	return (0);
+}
+
+static int
+gic_v3_gic_release_msi(device_t dev, int count, struct intr_irqsrc **isrc)
+{
+	struct gic_v3_softc *sc;
+	struct gic_v3_irqsrc *gi;
+	int i;
+
+	sc = device_get_softc(dev);
+
+	mtx_lock(&sc->gic_mbi_mtx);
+	for (i = 0; i < count; i++) {
+		gi = (struct gic_v3_irqsrc *)isrc[i];
+
+		KASSERT((gi->gi_flags & GI_FLAG_MSI_USED) == GI_FLAG_MSI_USED,
+		    ("%s: Trying to release an unused MSI-X interrupt",
+		    __func__));
+
+		gi->gi_flags &= ~GI_FLAG_MSI_USED;
+	}
+	mtx_unlock(&sc->gic_mbi_mtx);
+
+	return (0);
+}
+
+static int
+gic_v3_gic_alloc_msix(device_t dev, u_int mbi_start, u_int mbi_count,
+    struct intr_irqsrc **isrcp)
+{
+	struct gic_v3_softc *sc;
+	int irq;
+
+	sc = device_get_softc(dev);
+
+	mtx_lock(&sc->gic_mbi_mtx);
+	/* Find an unused interrupt */
+	for (irq = mbi_start; irq < mbi_start + mbi_count; irq++) {
+		KASSERT((sc->gic_irqs[irq].gi_flags & GI_FLAG_MSI) != 0,
+		    ("%s: Non-MSI interrupt found", __func__));
+		if ((sc->gic_irqs[irq].gi_flags & GI_FLAG_MSI_USED) == 0)
+			break;
+	}
+	/* No free interrupt was found */
+	if (irq == mbi_start + mbi_count) {
+		mtx_unlock(&sc->gic_mbi_mtx);
+		return (ENXIO);
+	}
+
+	/* Mark the interrupt as used */
+	sc->gic_irqs[irq].gi_flags |= GI_FLAG_MSI_USED;
+	mtx_unlock(&sc->gic_mbi_mtx);
+
+	*isrcp = (struct intr_irqsrc *)&sc->gic_irqs[irq];
+
+	return (0);
+}
+
+static int
+gic_v3_gic_release_msix(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct gic_v3_softc *sc;
+	struct gic_v3_irqsrc *gi;
+
+	sc = device_get_softc(dev);
+	gi = (struct gic_v3_irqsrc *)isrc;
+
+	KASSERT((gi->gi_flags & GI_FLAG_MSI_USED) == GI_FLAG_MSI_USED,
+	    ("%s: Trying to release an unused MSI-X interrupt", __func__));
+
+	mtx_lock(&sc->gic_mbi_mtx);
+	gi->gi_flags &= ~GI_FLAG_MSI_USED;
+	mtx_unlock(&sc->gic_mbi_mtx);
+
+	return (0);
+}
+
+static int
+gic_v3_alloc_msi(device_t dev, device_t child, int count, int maxcount,
+    device_t *pic, struct intr_irqsrc **isrc)
+{
+	struct gic_v3_softc *sc;
+	int error;
+
+	sc = device_get_softc(dev);
+	error = gic_v3_gic_alloc_msi(dev, sc->gic_mbi_start,
+	    sc->gic_mbi_end - sc->gic_mbi_start, count, maxcount, isrc);
+	if (error != 0)
+		return (error);
+
+	*pic = dev;
+	return (0);
+}
+
+static int
+gic_v3_release_msi(device_t dev, device_t child, int count,
+    struct intr_irqsrc **isrc)
+{
+	return (gic_v3_gic_release_msi(dev, count, isrc));
+}
+
+static int
+gic_v3_alloc_msix(device_t dev, device_t child, device_t *pic,
+    struct intr_irqsrc **isrc)
+{
+	struct gic_v3_softc *sc;
+	int error;
+
+	sc = device_get_softc(dev);
+	error = gic_v3_gic_alloc_msix(dev, sc->gic_mbi_start,
+	    sc->gic_mbi_end - sc->gic_mbi_start, isrc);
+	if (error != 0)
+		return (error);
+
+	*pic = dev;
+
+	return (0);
+}
+
+static int
+gic_v3_release_msix(device_t dev, device_t child, struct intr_irqsrc *isrc)
+{
+	return (gic_v3_gic_release_msix(dev, isrc));
+}
+
+static int
+gic_v3_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
+    uint64_t *addr, uint32_t *data)
+{
+	struct gic_v3_softc *sc = device_get_softc(dev);
+	struct gic_v3_irqsrc *gi = (struct gic_v3_irqsrc *)isrc;
+
+	*addr = vtophys(rman_get_virtual(sc->gic_dist)) + GICD_SETSPI_NSR;
+	*data = gi->gi_irq;
 
 	return (0);
 }

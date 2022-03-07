@@ -53,10 +53,12 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/asan.h>
 #include <sys/kdb.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
+#include <sys/msan.h>
 #include <sys/mutex.h>
 #include <sys/vmmeter.h>
 #include <sys/proc.h>
@@ -110,7 +112,7 @@ dtrace_malloc_probe_func_t __read_mostly	dtrace_malloc_probe;
 #define	MALLOC_DEBUG	1
 #endif
 
-#ifdef DEBUG_REDZONE
+#if defined(KASAN) || defined(DEBUG_REDZONE)
 #define	DEBUG_REDZONE_ARG_DEF	, unsigned long osize
 #define	DEBUG_REDZONE_ARG	, osize
 #else
@@ -537,7 +539,7 @@ malloc_dbg(caddr_t *vap, size_t *sizep, struct malloc_type *mtp,
 #ifdef EPOCH_TRACE
 			epoch_trace_list(curthread);
 #endif
-			KASSERT(1, 
+			KASSERT(0,
 			    ("malloc(M_WAITOK) with sleeping prohibited"));
 		}
 	}
@@ -583,31 +585,30 @@ malloc_large_size(uma_slab_t slab)
 }
 
 static caddr_t __noinline
-malloc_large(size_t *size, struct malloc_type *mtp, struct domainset *policy,
+malloc_large(size_t size, struct malloc_type *mtp, struct domainset *policy,
     int flags DEBUG_REDZONE_ARG_DEF)
 {
 	vm_offset_t kva;
 	caddr_t va;
-	size_t sz;
 
-	sz = roundup(*size, PAGE_SIZE);
-	kva = kmem_malloc_domainset(policy, sz, flags);
+	size = roundup(size, PAGE_SIZE);
+	kva = kmem_malloc_domainset(policy, size, flags);
 	if (kva != 0) {
 		/* The low bit is unused for slab pointers. */
-		vsetzoneslab(kva, NULL, (void *)((sz << 1) | 1));
-		uma_total_inc(sz);
-		*size = sz;
+		vsetzoneslab(kva, NULL, (void *)((size << 1) | 1));
+		uma_total_inc(size);
 	}
 	va = (caddr_t)kva;
-	malloc_type_allocated(mtp, va == NULL ? 0 : sz);
+	malloc_type_allocated(mtp, va == NULL ? 0 : size);
 	if (__predict_false(va == NULL)) {
 		KASSERT((flags & M_WAITOK) == 0,
 		    ("malloc(M_WAITOK) returned NULL"));
-	}
+	} else {
 #ifdef DEBUG_REDZONE
-	if (va != NULL)
 		va = redzone_setup(va, osize);
 #endif
+		kasan_mark((void *)va, osize, size, KASAN_MALLOC_REDZONE);
+	}
 	return (va);
 }
 
@@ -633,7 +634,7 @@ void *
 	int indx;
 	caddr_t va;
 	uma_zone_t zone;
-#ifdef DEBUG_REDZONE
+#if defined(DEBUG_REDZONE) || defined(KASAN)
 	unsigned long osize = size;
 #endif
 
@@ -646,7 +647,7 @@ void *
 #endif
 
 	if (__predict_false(size > kmem_zmax))
-		return (malloc_large(&size, mtp, DOMAINSET_RR(), flags
+		return (malloc_large(size, mtp, DOMAINSET_RR(), flags
 		    DEBUG_REDZONE_ARG));
 
 	if (size & KMEM_ZMASK)
@@ -654,8 +655,13 @@ void *
 	indx = kmemsize[size >> KMEM_ZSHIFT];
 	zone = kmemzones[indx].kz_zone[mtp_get_subzone(mtp)];
 	va = uma_zalloc(zone, flags);
-	if (va != NULL)
+	if (va != NULL) {
 		size = zone->uz_size;
+		if ((flags & M_ZERO) == 0) {
+			kmsan_mark(va, size, KMSAN_STATE_UNINIT);
+			kmsan_orig(va, size, KMSAN_TYPE_MALLOC, KMSAN_RET_ADDR);
+		}
+	}
 	malloc_type_zone_allocated(mtp, va == NULL ? 0 : size, indx);
 	if (__predict_false(va == NULL)) {
 		KASSERT((flags & M_WAITOK) == 0,
@@ -664,6 +670,10 @@ void *
 #ifdef DEBUG_REDZONE
 	if (va != NULL)
 		va = redzone_setup(va, osize);
+#endif
+#ifdef KASAN
+	if (va != NULL)
+		kasan_mark((void *)va, osize, size, KASAN_MALLOC_REDZONE);
 #endif
 	return ((void *) va);
 }
@@ -699,7 +709,7 @@ malloc_domainset(size_t size, struct malloc_type *mtp, struct domainset *ds,
 	caddr_t va;
 	int domain;
 	int indx;
-#ifdef DEBUG_REDZONE
+#if defined(KASAN) || defined(DEBUG_REDZONE)
 	unsigned long osize = size;
 #endif
 
@@ -712,7 +722,7 @@ malloc_domainset(size_t size, struct malloc_type *mtp, struct domainset *ds,
 #endif
 
 	if (__predict_false(size > kmem_zmax))
-		return (malloc_large(&size, mtp, DOMAINSET_RR(), flags
+		return (malloc_large(size, mtp, DOMAINSET_RR(), flags
 		    DEBUG_REDZONE_ARG));
 
 	vm_domainset_iter_policy_init(&di, ds, &domain, &flags);
@@ -727,6 +737,16 @@ malloc_domainset(size_t size, struct malloc_type *mtp, struct domainset *ds,
 #ifdef DEBUG_REDZONE
 	if (va != NULL)
 		va = redzone_setup(va, osize);
+#endif
+#ifdef KASAN
+	if (va != NULL)
+		kasan_mark((void *)va, osize, size, KASAN_MALLOC_REDZONE);
+#endif
+#ifdef KMSAN
+	if ((flags & M_ZERO) == 0) {
+		kmsan_mark(va, size, KMSAN_STATE_UNINIT);
+		kmsan_orig(va, size, KMSAN_TYPE_MALLOC, KMSAN_RET_ADDR);
+	}
 #endif
 	return (va);
 }
@@ -745,7 +765,7 @@ void *
 malloc_domainset_exec(size_t size, struct malloc_type *mtp, struct domainset *ds,
     int flags)
 {
-#ifdef DEBUG_REDZONE
+#if defined(DEBUG_REDZONE) || defined(KASAN)
 	unsigned long osize = size;
 #endif
 #ifdef MALLOC_DEBUG
@@ -760,7 +780,14 @@ malloc_domainset_exec(size_t size, struct malloc_type *mtp, struct domainset *ds
 		return (va);
 #endif
 
-	return (malloc_large(&size, mtp, ds, flags DEBUG_REDZONE_ARG));
+	return (malloc_large(size, mtp, ds, flags DEBUG_REDZONE_ARG));
+}
+
+void *
+malloc_aligned(size_t size, size_t align, struct malloc_type *type, int flags)
+{
+	return (malloc_domainset_aligned(size, align, type, DOMAINSET_RR(),
+	    flags));
 }
 
 void *
@@ -770,7 +797,7 @@ malloc_domainset_aligned(size_t size, size_t align,
 	void *res;
 	size_t asize;
 
-	KASSERT(align != 0 && powerof2(align),
+	KASSERT(powerof2(align),
 	    ("malloc_domainset_aligned: wrong align %#zx size %#zx",
 	    align, size));
 	KASSERT(align <= PAGE_SIZE,
@@ -785,6 +812,8 @@ malloc_domainset_aligned(size_t size, size_t align,
 	 * align, since malloc zones provide alignment equal to their
 	 * size.
 	 */
+	if (size == 0)
+		size = 1;
 	asize = size <= align ? align : 1UL << flsl(size - 1);
 
 	res = malloc_domainset(asize, mtp, ds, flags);
@@ -804,7 +833,18 @@ mallocarray(size_t nmemb, size_t size, struct malloc_type *type, int flags)
 	return (malloc(size * nmemb, type, flags));
 }
 
-#ifdef INVARIANTS
+void *
+mallocarray_domainset(size_t nmemb, size_t size, struct malloc_type *type,
+    struct domainset *ds, int flags)
+{
+
+	if (WOULD_OVERFLOW(nmemb, size))
+		panic("mallocarray_domainset: %zu * %zu overflowed", nmemb, size);
+
+	return (malloc_domainset(size * nmemb, type, ds, flags));
+}
+
+#if defined(INVARIANTS) && !defined(KASAN)
 static void
 free_save_type(void *addr, struct malloc_type *mtp, u_long size)
 {
@@ -885,7 +925,7 @@ free(void *addr, struct malloc_type *mtp)
 
 	if (__predict_true(!malloc_large_slab(slab))) {
 		size = zone->uz_size;
-#ifdef INVARIANTS
+#if defined(INVARIANTS) && !defined(KASAN)
 		free_save_type(addr, mtp, size);
 #endif
 		uma_zfree_arg(zone, addr, slab);
@@ -925,13 +965,15 @@ zfree(void *addr, struct malloc_type *mtp)
 
 	if (__predict_true(!malloc_large_slab(slab))) {
 		size = zone->uz_size;
-#ifdef INVARIANTS
+#if defined(INVARIANTS) && !defined(KASAN)
 		free_save_type(addr, mtp, size);
 #endif
+		kasan_mark(addr, size, size, 0);
 		explicit_bzero(addr, size);
 		uma_zfree_arg(zone, addr, slab);
 	} else {
 		size = malloc_large_size(slab);
+		kasan_mark(addr, size, size, 0);
 		explicit_bzero(addr, size);
 		free_large(addr, size);
 	}
@@ -986,16 +1028,22 @@ realloc(void *addr, size_t size, struct malloc_type *mtp, int flags)
 		alloc = malloc_large_size(slab);
 
 	/* Reuse the original block if appropriate */
-	if (size <= alloc
-	    && (size > (alloc >> REALLOC_FRACTION) || alloc == MINALLOCSIZE))
+	if (size <= alloc &&
+	    (size > (alloc >> REALLOC_FRACTION) || alloc == MINALLOCSIZE)) {
+		kasan_mark((void *)addr, size, alloc, KASAN_MALLOC_REDZONE);
 		return (addr);
+	}
 #endif /* !DEBUG_REDZONE */
 
 	/* Allocate a new, bigger (or smaller) block */
 	if ((newaddr = malloc(size, mtp, flags)) == NULL)
 		return (NULL);
 
-	/* Copy over original contents */
+	/*
+	 * Copy over original contents.  For KASAN, the redzone must be marked
+	 * valid before performing the copy.
+	 */
+	kasan_mark(addr, alloc, alloc, 0);
 	bcopy(addr, newaddr, min(size, alloc));
 	free(addr, mtp);
 	return (newaddr);
@@ -1064,6 +1112,13 @@ malloc_usable_size(const void *addr)
 	else
 		size = malloc_large_size(slab);
 #endif
+
+	/*
+	 * Unmark the redzone to avoid reports from consumers who are
+	 * (presumably) about to use the full allocation size.
+	 */
+	kasan_mark(addr, size, size, 0);
+
 	return (size);
 }
 
@@ -1140,6 +1195,18 @@ kmeminit(void)
 		vm_kmem_size = 2 * mem_size * PAGE_SIZE;
 
 	vm_kmem_size = round_page(vm_kmem_size);
+
+	/*
+	 * With KASAN or KMSAN enabled, dynamically allocated kernel memory is
+	 * shadowed.  Account for this when setting the UMA limit.
+	 */
+#if defined(KASAN)
+	vm_kmem_size = (vm_kmem_size * KASAN_SHADOW_SCALE) /
+	    (KASAN_SHADOW_SCALE + 1);
+#elif defined(KMSAN)
+	vm_kmem_size /= 3;
+#endif
+
 #ifdef DEBUG_MEMGUARD
 	tmp = memguard_fudge(vm_kmem_size, kernel_map);
 #else
@@ -1186,7 +1253,7 @@ mallocinit(void *dummy)
 		for (subzone = 0; subzone < numzones; subzone++) {
 			kmemzones[indx].kz_zone[subzone] =
 			    uma_zcreate(name, size,
-#ifdef INVARIANTS
+#if defined(INVARIANTS) && !defined(KASAN) && !defined(KMSAN)
 			    mtrash_ctor, mtrash_dtor, mtrash_init, mtrash_fini,
 #else
 			    NULL, NULL, NULL, NULL,

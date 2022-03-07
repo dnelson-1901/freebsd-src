@@ -20,7 +20,8 @@ INCS=	a.out.h ar.h assert.h bitstring.h complex.h cpio.h _ctype.h ctype.h \
 	netdb.h nl_types.h nlist.h nss.h nsswitch.h paths.h \
 	printf.h proc_service.h pthread.h \
 	pthread_np.h pwd.h ranlib.h readpassphrase.h regex.h \
-	res_update.h resolv.h runetype.h search.h semaphore.h setjmp.h \
+	res_update.h resolv.h runetype.h sched.h \
+	search.h semaphore.h setjmp.h \
 	signal.h spawn.h stab.h stdalign.h stdbool.h stddef.h \
 	stdnoreturn.h stdio.h stdlib.h string.h stringlist.h \
 	strings.h sysexits.h tar.h termios.h tgmath.h \
@@ -33,16 +34,15 @@ INCS+=	vis.h
 
 MHDRS=	float.h floatingpoint.h stdarg.h
 
-PHDRS=	sched.h _semaphore.h
+PHDRS=	_semaphore.h
 
 LHDRS=	aio.h errno.h fcntl.h linker_set.h poll.h stdatomic.h stdint.h \
 	syslog.h ucontext.h
 
-LDIRS=	bsm cam geom net net80211 netgraph netinet netinet6 \
+LDIRS=	geom net net80211 netgraph netinet netinet6 \
 	netipsec netsmb nfs nfsclient nfsserver sys vm
 
-LSUBDIRS=	cam/ata cam/mmc cam/nvme cam/scsi \
-	dev/acpica dev/agp dev/an dev/ciss dev/filemon dev/firewire \
+LSUBDIRS=	dev/acpica dev/agp dev/ciss dev/filemon dev/firewire \
 	dev/hwpmc dev/hyperv \
 	dev/ic dev/iicbus dev/io dev/mfi dev/mmc dev/nvme \
 	dev/ofw dev/pbio dev/pci ${_dev_powermac_nvram} dev/ppbus dev/pwm \
@@ -51,14 +51,13 @@ LSUBDIRS=	cam/ata cam/mmc cam/nvme cam/scsi \
 	fs/procfs fs/smbfs fs/udf fs/unionfs \
 	geom/cache geom/concat geom/eli geom/gate geom/journal geom/label \
 	geom/mirror geom/mountver geom/multipath geom/nop \
-	geom/raid geom/raid3 geom/shsec geom/stripe geom/virstor \
+	geom/raid geom/raid3 geom/shsec geom/stripe geom/union geom/virstor \
 	net/altq \
 	net/route \
 	netgraph/atm netgraph/netflow \
 	netinet/cc \
 	netinet/netdump \
 	netinet/tcp_stacks \
-	security/audit \
 	security/mac_biba security/mac_bsdextended security/mac_lomac \
 	security/mac_mls security/mac_partition \
 	security/mac_veriexec \
@@ -76,6 +75,72 @@ ACPICADIR=	${INCLUDEDIR}/dev/acpica
 AGP=		agpreg.h
 AGPDIR=		${INCLUDEDIR}/dev/agp
 
+.PATH: ${SRCTOP}/sys/bsm
+BSM=		audit.h \
+		audit_errno.h \
+		audit_internal.h \
+		audit_record.h \
+		audit_domain.h \
+		audit_fcntl.h \
+		audit_kevents.h \
+		audit_socket_type.h
+BSMPACKAGE=	libbsm
+BSMDIR=		${INCLUDEDIR}/bsm
+
+.PATH: ${SRCTOP}/sys/security/audit
+SECAUDIT=	audit.h \
+		audit_ioctl.h \
+		audit_private.h
+SECAUDITPACKAGE=	libbsm
+SECAUDITDIR=	${INCLUDEDIR}/security/audit
+
+.PATH:	${SRCTOP}/sys/cam
+CAM=	cam.h \
+	cam_ccb.h \
+	cam_compat.h \
+	cam_debug.h \
+	cam_iosched.h \
+	cam_periph.h \
+	cam_queue.h \
+	cam_sim.h \
+	cam_xpt.h \
+	cam_xpt_internal.h \
+	cam_xpt_periph.h \
+	cam_xpt_sim.h
+CAMDIR=	${INCLUDEDIR}/cam
+
+.PATH: ${SRCTOP}/sys/cam/ata
+CAMATA=		ata_all.h
+CAMATADIR=	${INCLUDEDIR}/cam/ata
+
+.PATH: ${SRCTOP}/sys/cam/mmc
+CAMMMC=		mmc.h \
+		mmc_bus.h \
+		mmc_all.h
+CAMMMCDIR=	${INCLUDEDIR}/cam/mmc
+
+.PATH: ${SRCTOP}/sys/cam/nvme
+CAMNVME=	nvme_all.h
+CAMNVMEDIR=	${INCLUDEDIR}/cam/nvme
+
+.PATH: ${SRCTOP}/sys/cam/scsi
+CAMSCSI=	scsi_all.h \
+		scsi_cd.h \
+		scsi_ch.h \
+		scsi_da.h \
+		scsi_enc.h \
+		scsi_enc_internal.h \
+		scsi_iu.h \
+		scsi_message.h \
+		scsi_pass.h \
+		scsi_pt.h \
+		scsi_sa.h \
+		scsi_ses.h \
+		scsi_sg.h \
+		scsi_targetio.h \
+		smp_all.h
+CAMSCSIDIR=	${INCLUDEDIR}/cam/scsi
+
 .PATH: ${SRCTOP}/sys/fs/cd9660
 FS9660=		cd9660_mount.h \
 		cd9660_node.h \
@@ -83,10 +148,6 @@ FS9660=		cd9660_mount.h \
 		iso.h \
 		iso_rrip.h
 FS9660DIR=	${INCLUDEDIR}/isofs/cd9660
-
-.PATH: ${SRCTOP}/sys/crypto
-CRYPTO=		rijndael/rijndael.h
-CRYPTODIR=	${INCLUDEDIR}/crypto
 
 .PATH: ${SRCTOP}/sys/dev/evdev
 EVDEV=		input.h \
@@ -105,18 +166,7 @@ HYPERV=		hv_snapshot.h \
 HYPERVDIR=	${INCLUDEDIR}/dev/hyperv
 
 .PATH: ${SRCTOP}/sys/opencrypto
-OPENCRYPTO=	_cryptodev.h \
-		cbc_mac.h \
-		cryptodev.h \
-		deflate.h \
-		gfmult.h \
-		gmac.h \
-		rmd160.h \
-		xform.h \
-		xform_auth.h \
-		xform_comp.h \
-		xform_enc.h \
-		xform_poly1305.h
+OPENCRYPTO=	cryptodev.h
 OPENCRYPTODIR=	${INCLUDEDIR}/crypto
 
 .PATH: ${SRCTOP}/sys/dev/pci
@@ -127,7 +177,7 @@ PCIDIR=		${INCLUDEDIR}/dev/pci
 VERIEXEC=	veriexec_ioctl.h
 VERIEXECDIR=	${INCLUDEDIR}/dev/veriexec
 
-.PATH: ${SRCTOP}/sys/contrib/ipfilter/netinet
+.PATH: ${SRCTOP}/sys/netpfil/ipfilter/netinet
 IPFILTER=	ip_auth.h \
 		ip_compat.h \
 		ip_dstlist.h \
@@ -174,6 +224,12 @@ MLX5DIR=	${INCLUDEDIR}/dev/mlx5
 INCSGROUPS=	INCS \
 		ACPICA \
 		AGP \
+		BSM \
+		CAM \
+		CAMATA \
+		CAMMMC \
+		CAMNVME \
+		CAMSCSI \
 		CRYPTO \
 		EVDEV \
 		FS9660 \
@@ -182,6 +238,7 @@ INCSGROUPS=	INCS \
 		OPENCRYPTO \
 		PCI \
 		RPC \
+		SECAUDIT \
 		TEKEN \
 		VERIEXEC
 
@@ -351,7 +408,7 @@ symlinks: .PHONY .META
 .endfor
 .if ${MK_IPFILTER} != "no"
 	cd ${SRCTOP}; ${INSTALL_SYMLINK} ${TAG_ARGS:D${TAG_ARGS},dev} \
-	    $$(printf '../../../%s ' sys/contrib/ipfilter/netinet/*.h) \
+	    $$(printf '../../../%s ' sys/netpfil/ipfilter/netinet/*.h) \
 	    ${SDESTDIR}${INCLUDEDIR}/netinet;
 .endif
 .if ${MK_PF} != "no"
@@ -359,10 +416,7 @@ symlinks: .PHONY .META
 	    $$(printf '../../../../%s ' sys/netpfil/pf/*.h) \
 	    ${SDESTDIR}${INCLUDEDIR}/netpfil/pf;
 .endif
-	${INSTALL_SYMLINK} ${TAG_ARGS:D${TAG_ARGS},dev} ../../../sys/crypto/rijndael/rijndael.h \
-	    ${SDESTDIR}${INCLUDEDIR}/crypto; \
-	cd ${SRCTOP}; ${INSTALL_SYMLINK} ${TAG_ARGS:D${TAG_ARGS},dev} \
-	    $$(printf '../../../%s ' sys/opencrypto/*.h) \
+	${INSTALL_SYMLINK} ${TAG_ARGS:D${TAG_ARGS},dev} ../../../sys/opencrypto/cryptodev.h \
 	    ${SDESTDIR}${INCLUDEDIR}/crypto; \
 	cd ${SRCTOP}; ${INSTALL_SYMLINK} ${TAG_ARGS:D${TAG_ARGS},dev} \
 	    $$(printf '../../../%s ' sys/${MACHINE}/include/*.h) \

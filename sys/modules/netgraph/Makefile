@@ -47,14 +47,14 @@ SUBDIR=	async \
 	socket \
 	source \
 	split \
-	sppp \
 	tag \
 	tcpmss \
 	tee \
 	tty \
 	UI \
 	vjc \
-	vlan
+	vlan \
+	vlan_rotate
 
 .if ${MK_BLUETOOTH} != "no" || defined(ALL_MODULES)
 _bluetooth=	bluetooth

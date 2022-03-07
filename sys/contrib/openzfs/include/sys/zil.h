@@ -399,6 +399,7 @@ typedef struct itx {
 	void		*itx_callback_data; /* User data for the callback */
 	size_t		itx_size;	/* allocated itx structure size */
 	uint64_t	itx_oid;	/* object id */
+	uint64_t	itx_gen;	/* gen number for zfs_get_data */
 	lr_t		itx_lr;		/* common part of log record */
 	/* followed by type-specific part of lr_xx_t and its immediate data */
 } itx_t;
@@ -455,8 +456,6 @@ typedef struct zil_stats {
 	kstat_named_t zil_itx_metaslab_slog_bytes;
 } zil_stats_t;
 
-extern zil_stats_t zil_stats;
-
 #define	ZIL_STAT_INCR(stat, val) \
     atomic_add_64(&zil_stats.stat.value.ui64, (val));
 #define	ZIL_STAT_BUMP(stat) \
@@ -467,7 +466,7 @@ typedef int zil_parse_blk_func_t(zilog_t *zilog, const blkptr_t *bp, void *arg,
 typedef int zil_parse_lr_func_t(zilog_t *zilog, const lr_t *lr, void *arg,
     uint64_t txg);
 typedef int zil_replay_func_t(void *arg1, void *arg2, boolean_t byteswap);
-typedef int zil_get_data_t(void *arg, lr_write_t *lr, char *dbuf,
+typedef int zil_get_data_t(void *arg, uint64_t arg2, lr_write_t *lr, char *dbuf,
     struct lwb *lwb, zio_t *zio);
 
 extern int zil_parse(zilog_t *zilog, zil_parse_blk_func_t *parse_blk_func,
@@ -484,7 +483,7 @@ extern zilog_t	*zil_open(objset_t *os, zil_get_data_t *get_data);
 extern void	zil_close(zilog_t *zilog);
 
 extern void	zil_replay(objset_t *os, void *arg,
-    zil_replay_func_t *replay_func[TX_MAX_TYPE]);
+    zil_replay_func_t *const replay_func[TX_MAX_TYPE]);
 extern boolean_t zil_replaying(zilog_t *zilog, dmu_tx_t *tx);
 extern void	zil_destroy(zilog_t *zilog, boolean_t keep_first);
 extern void	zil_destroy_sync(zilog_t *zilog, dmu_tx_t *tx);

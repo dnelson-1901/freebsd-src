@@ -258,8 +258,8 @@ zfs_fuid_sync(zfsvfs_t *zfsvfs, dmu_tx_t *tx)
 		VERIFY(nvlist_add_string(fuids[i], FUID_DOMAIN,
 		    domnode->f_ksid->kd_name) == 0);
 	}
-	VERIFY(nvlist_add_nvlist_array(nvp, FUID_NVP_ARRAY,
-	    fuids, numnodes) == 0);
+	fnvlist_add_nvlist_array(nvp, FUID_NVP_ARRAY,
+	    (const nvlist_t * const *)fuids, numnodes);
 	for (i = 0; i != numnodes; i++)
 		nvlist_free(fuids[i]);
 	kmem_free(fuids, numnodes * sizeof (void *));
@@ -728,7 +728,6 @@ zfs_fuid_info_free(zfs_fuid_info_t *fuidp)
 boolean_t
 zfs_groupmember(zfsvfs_t *zfsvfs, uint64_t id, cred_t *cr)
 {
-#ifdef HAVE_KSID
 	uid_t		gid;
 
 #ifdef illumos
@@ -773,9 +772,6 @@ zfs_groupmember(zfsvfs_t *zfsvfs, uint64_t id, cred_t *cr)
 	 */
 	gid = zfs_fuid_map_id(zfsvfs, id, cr, ZFS_GROUP);
 	return (groupmember(gid, cr));
-#else
-	return (B_TRUE);
-#endif
 }
 
 void

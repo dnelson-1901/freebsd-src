@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Copyright (c) 2018-2020 Gavin D. Howard and contributors.
+# Copyright (c) 2018-2021 Gavin D. Howard and contributors.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -32,8 +32,11 @@
 script="$0"
 testdir=$(dirname "$script")
 
-. "$testdir/../functions.sh"
+. "$testdir/../scripts/functions.sh"
 
+outputdir=${BC_TEST_OUTPUT_DIR:-$testdir}
+
+# Command-line processing.
 if [ "$#" -eq 0 ]; then
 	printf 'usage: %s dir [exec args...]\n' "$script"
 	exit 1
@@ -49,13 +52,27 @@ else
 	shift
 fi
 
-out="$testdir/../.log_${d}_test.txt"
+# I use these, so unset them to make the tests work.
+unset BC_ENV_ARGS
+unset BC_LINE_LENGTH
+unset DC_ENV_ARGS
+unset DC_LINE_LENGTH
+
+out="$outputdir/${d}_outputs/errors_results.txt"
+outdir=$(dirname "$out")
+
+# Make sure the directory exists.
+if [ ! -d "$outdir" ]; then
+	mkdir -p "$outdir"
+fi
 
 exebase=$(basename "$exe")
 
+# These are the filenames for the extra tests.
 posix="posix_errors"
 read_errors="read_errors"
 
+# Set stuff for the correct calculator.
 if [ "$d" = "bc" ]; then
 	opts="-l"
 	halt="halt"
@@ -66,6 +83,21 @@ else
 	halt="q"
 fi
 
+printf 'Running %s command-line error tests...' "$d"
+
+printf '%s\n' "$halt" | "$exe" "$@" -e "1+1" -f- -e "2+2" 2> "$out" > /dev/null
+err="$?"
+
+checkerrtest "$d" "$err" "command-line -e test" "$out" "$exebase"
+
+printf '%s\n' "$halt" | "$exe" "$@" -e "1+1" -f- -f "$testdir/$d/decimal.txt" 2> "$out" > /dev/null
+err="$?"
+
+checkerrtest "$d" "$err" "command-line -f test" "$out" "$exebase"
+
+printf 'pass\n'
+
+# Now test the error files in the standard tests directory.
 for testfile in $testdir/$d/*errors.txt; do
 
 	if [ -z "${testfile##*$read_errors*}" ]; then
@@ -73,8 +105,10 @@ for testfile in $testdir/$d/*errors.txt; do
 		continue
 	fi
 
+	# Test bc POSIX errors and warnings.
 	if [ -z "${testfile##*$posix*}" ]; then
 
+		# Just test warnings.
 		line="last"
 		printf '%s\n' "$line" | "$exe" "$@" "-lw"  2> "$out" > /dev/null
 		err="$?"
@@ -83,17 +117,22 @@ for testfile in $testdir/$d/*errors.txt; do
 			die "$d" "returned an error ($err)" "POSIX warning" 1
 		fi
 
-		checktest "$d" "1" "$line" "$out" "$exebase"
+		checkerrtest "$d" "1" "$line" "$out" "$exebase"
 
+		# Set the options for standard mode.
 		options="-ls"
+
 	else
 		options="$opts"
 	fi
 
+	# Output something pretty.
 	base=$(basename "$testfile")
 	base="${base%.*}"
 	printf 'Running %s %s...' "$d" "$base"
 
+	# Test errors on each line of the file. Yes, each line has a separate error
+	# case.
 	while read -r line; do
 
 		rm -f "$out"
@@ -101,31 +140,9 @@ for testfile in $testdir/$d/*errors.txt; do
 		printf '%s\n' "$line" | "$exe" "$@" "$options" 2> "$out" > /dev/null
 		err="$?"
 
-		checktest "$d" "$err" "$line" "$out" "$exebase"
+		checkerrtest "$d" "$err" "$line" "$out" "$exebase"
 
 	done < "$testfile"
-
-	printf 'pass\n'
-
-done
-
-for testfile in $testdir/$d/errors/*.txt; do
-
-	printf 'Running %s error file %s...' "$d" "$testfile"
-
-	printf '%s\n' "$halt" | "$exe" "$@" $opts "$testfile" 2> "$out" > /dev/null
-	err="$?"
-
-	checktest "$d" "$err" "$testfile" "$out" "$exebase"
-
-	printf 'pass\n'
-
-	printf 'Running %s error file %s through cat...' "$d" "$testfile"
-
-	cat "$testfile" | "$exe" "$@" $opts 2> "$out" > /dev/null
-	err="$?"
-
-	checkcrash "$d" "$err" "$testfile"
 
 	printf 'pass\n'
 

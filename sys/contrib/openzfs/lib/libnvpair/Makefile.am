@@ -1,5 +1,4 @@
 include $(top_srcdir)/config/Rules.am
-PHONY =
 
 VPATH = \
 	$(top_srcdir)/module/nvpair \
@@ -8,6 +7,7 @@ VPATH = \
 # Includes kernel code, generate warnings for large stack frames
 # and required CFLAGS for libtirpc
 AM_CFLAGS += $(FRAME_LARGER_THAN) $(LIBTIRPC_CFLAGS)
+AM_CFLAGS += -fvisibility=hidden
 
 lib_LTLIBRARIES = libnvpair.la
 
@@ -41,6 +41,8 @@ libnvpair_la_LDFLAGS += -Wl,-z,defs
 endif
 
 libnvpair_la_LDFLAGS += -version-info 3:0:0
+
+include $(top_srcdir)/config/CppCheck.am
 
 # Library ABI
 EXTRA_DIST = libnvpair.abi libnvpair.suppr

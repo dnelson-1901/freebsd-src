@@ -1,12 +1,12 @@
 #*** Input graph:
-# all, made UNMADE, type OP_DEPENDS|OP_HAS_COMMANDS, flags none
-# made-target, made UNMADE, type OP_DEPENDS, flags none
-# made-target-no-sources, made UNMADE, type OP_DEPENDS, flags none
-# made-source, made UNMADE, type OP_DEPENDS, flags none
-# unmade-target, made UNMADE, type OP_DEPENDS, flags none
-# unmade-sources, made UNMADE, type none, flags none
-# unmade-silent-source, made UNMADE, type OP_SILENT, flags none
-# unmade-target-no-sources, made UNMADE, type OP_DEPENDS, flags none
+# all, unmade, type OP_DEPENDS|OP_HAS_COMMANDS, flags none
+# made-target, unmade, type OP_DEPENDS, flags none
+# made-target-no-sources, unmade, type OP_DEPENDS, flags none
+# made-source, unmade, type OP_DEPENDS, flags none
+# unmade-target, unmade, type OP_DEPENDS, flags none
+# unmade-sources, unmade, type none, flags none
+# unmade-silent-source, unmade, type OP_SILENT, flags none
+# unmade-target-no-sources, unmade, type OP_DEPENDS, flags none
 
 
 #
@@ -46,7 +46,6 @@ MFLAGS           =   -r -k -d g1
 # Stats: 0 hits 2 misses 0 near misses 0 losers (0%)
 #  refs  hits  directory
 #     1     0  <curdir>
-#     1     0  .
 
 #*** Suffixes:
 #*** Transformations:

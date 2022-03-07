@@ -28,8 +28,8 @@
  *
  * $FreeBSD$
  */
-#ifndef _LINUX_LIST_H_
-#define _LINUX_LIST_H_
+#ifndef _LINUXKPI_LINUX_LIST_H_
+#define _LINUXKPI_LINUX_LIST_H_
 
 #ifndef _STANDALONE
 /*
@@ -53,6 +53,7 @@
 #include <sys/mbuf.h>
 
 #include <net/bpf.h>
+#include <net/ethernet.h>
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/if_types.h>
@@ -66,6 +67,10 @@
 
 #include <netinet6/in6_var.h>
 #include <netinet6/nd6.h>
+
+#include <net80211/ieee80211.h>
+#include <net80211/ieee80211_var.h>
+#include <net80211/ieee80211_node.h>
 
 #include <vm/vm.h>
 #include <vm/vm_object.h>
@@ -262,6 +267,13 @@ list_move_tail(struct list_head *entry, struct list_head *head)
 
 	list_del(entry);
 	list_add_tail(entry, head);
+}
+
+static inline void
+list_rotate_to_front(struct list_head *entry, struct list_head *head)
+{
+
+	list_move_tail(entry, head);
 }
 
 static inline void
@@ -495,4 +507,4 @@ static inline int list_is_last(const struct list_head *list,
 extern void list_sort(void *priv, struct list_head *head, int (*cmp)(void *priv,
     struct list_head *a, struct list_head *b));
 
-#endif /* _LINUX_LIST_H_ */
+#endif /* _LINUXKPI_LINUX_LIST_H_ */

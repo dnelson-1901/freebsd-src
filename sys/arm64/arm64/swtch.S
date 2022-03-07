@@ -34,13 +34,14 @@
 #include "opt_sched.h"
 
 #include <machine/asm.h>
+#include <machine/armreg.h>
 
 __FBSDID("$FreeBSD$");
 
 .macro clear_step_flag pcbflags, tmp
 	tbz	\pcbflags, #PCB_SINGLE_STEP_SHIFT, 999f
 	mrs	\tmp, mdscr_el1
-	bic	\tmp, \tmp, #1
+	bic	\tmp, \tmp, #MDSCR_SS
 	msr	mdscr_el1, \tmp
 	isb
 999:
@@ -49,7 +50,7 @@ __FBSDID("$FreeBSD$");
 .macro set_step_flag pcbflags, tmp
 	tbz	\pcbflags, #PCB_SINGLE_STEP_SHIFT, 999f
 	mrs	\tmp, mdscr_el1
-	orr	\tmp, \tmp, #1
+	orr	\tmp, \tmp, #MDSCR_SS
 	msr	mdscr_el1, \tmp
 	isb
 999:
@@ -70,13 +71,16 @@ ENTRY(cpu_throw)
 
 #ifdef VFP
 	/* Backup the new thread pointer around a call to C code */
-	mov	x19, x0
-	mov	x20, x1
+	mov	x19, x1
 	bl	vfp_discard
-	mov	x1, x20
 	mov	x0, x19
+#else
+	mov	x0, x1
 #endif
 
+	/* This returns the thread pointer so no need to save it */
+	bl	ptrauth_switch
+	/* This returns the thread pcb */
 	bl	pmap_switch
 	mov	x4, x0
 
@@ -152,10 +156,14 @@ ENTRY(cpu_switch)
 	/* Load the pcb address */
 	mov	x1, x4
 	bl	vfp_save_state
-	mov	x1, x20
-	mov	x0, x19
+	mov	x0, x20
+#else
+	mov	x0, x1
 #endif
 
+	/* This returns the thread pointer so no need to save it */
+	bl	ptrauth_switch
+	/* This returns the thread pcb */
 	bl	pmap_switch
 	/* Move the new pcb out of the way */
 	mov	x4, x0
@@ -202,8 +210,6 @@ ENTRY(cpu_switch)
 
 	str	xzr, [x4, #PCB_REGS + 18 * 8]
 	ret
-.Lcpu_switch_panic_str:
-	.asciz "cpu_switch: %p\0"
 END(cpu_switch)
 
 ENTRY(fork_trampoline)
@@ -213,7 +219,25 @@ ENTRY(fork_trampoline)
 	mov	fp, #0	/* Stack traceback stops here. */
 	bl	_C_LABEL(fork_exit)
 
-	/* Restore the registers other than x0 and x1 */
+	/*
+	 * Disable interrupts as we are setting userspace specific
+	 * state that we won't handle correctly in an interrupt while
+	 * in the kernel.
+	 */
+	msr	daifset, #(DAIF_D | DAIF_INTR)
+
+	ldr	x0, [x18, #PC_CURTHREAD]
+	bl	ptrauth_enter_el0
+
+	/* Restore sp, lr, elr, and spsr */
+	ldp	x18, lr, [sp, #TF_SP]
+	ldp	x10, x11, [sp, #TF_ELR]
+	msr	sp_el0, x18
+	msr	spsr_el1, x11
+	msr	elr_el1, x10
+
+	/* Restore the CPU registers */
+	ldp	x0, x1, [sp, #TF_X + 0 * 8]
 	ldp	x2, x3, [sp, #TF_X + 2 * 8]
 	ldp	x4, x5, [sp, #TF_X + 4 * 8]
 	ldp	x6, x7, [sp, #TF_X + 6 * 8]
@@ -222,32 +246,12 @@ ENTRY(fork_trampoline)
 	ldp	x12, x13, [sp, #TF_X + 12 * 8]
 	ldp	x14, x15, [sp, #TF_X + 14 * 8]
 	ldp	x16, x17, [sp, #TF_X + 16 * 8]
-	ldr	     x19, [sp, #TF_X + 19 * 8]
+	ldp	x18, x19, [sp, #TF_X + 18 * 8]
 	ldp	x20, x21, [sp, #TF_X + 20 * 8]
 	ldp	x22, x23, [sp, #TF_X + 22 * 8]
 	ldp	x24, x25, [sp, #TF_X + 24 * 8]
 	ldp	x26, x27, [sp, #TF_X + 26 * 8]
 	ldp	x28, x29, [sp, #TF_X + 28 * 8]
-
-	/*
-	 * Disable interrupts to avoid
-	 * overwriting spsr_el1 and sp_el0 by an IRQ exception.
-	 */
-	msr	daifset, #2
-
-	/* Restore sp and lr */
-	ldp	x0, x1, [sp, #TF_SP]
-	msr	sp_el0, x0
-	mov	lr, x1
-
-	/* Restore elr and spsr */
-	ldp	x0, x1, [sp, #TF_ELR]
-	msr	elr_el1, x0
-	msr	spsr_el1, x1
-
-	/* Finally x0 and x1 */
-	ldp	x0, x1, [sp, #TF_X + 0 * 8]
-	ldr	x18, [sp, #TF_X + 18 * 8]
 
 	/*
 	 * No need for interrupts reenabling since PSR

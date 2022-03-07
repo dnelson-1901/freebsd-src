@@ -3,7 +3,7 @@
 #
 # Warning flags for compiling the kernel and components of the kernel:
 #
-CWARNFLAGS?=	-Wall -Wredundant-decls -Wnested-externs -Wstrict-prototypes \
+CWARNFLAGS?=	-Wall -Wnested-externs -Wstrict-prototypes \
 		-Wmissing-prototypes -Wpointer-arith -Wcast-qual \
 		-Wundef -Wno-pointer-sign ${FORMAT_EXTENSIONS} \
 		-Wmissing-include-dirs -fdiagnostics-show-option \
@@ -17,38 +17,43 @@ CWARNFLAGS?=	-Wall -Wredundant-decls -Wnested-externs -Wstrict-prototypes \
 # kernel where fixing them is more trouble than it is worth, or where there is
 # a false positive.
 .if ${COMPILER_TYPE} == "clang"
-NO_WCONSTANT_CONVERSION=	-Wno-error-constant-conversion
+NO_WCONSTANT_CONVERSION=	-Wno-error=constant-conversion
 NO_WSHIFT_COUNT_NEGATIVE=	-Wno-shift-count-negative
 NO_WSHIFT_COUNT_OVERFLOW=	-Wno-shift-count-overflow
 NO_WSELF_ASSIGN=		-Wno-self-assign
-NO_WUNNEEDED_INTERNAL_DECL=	-Wno-error-unneeded-internal-declaration
-NO_WSOMETIMES_UNINITIALIZED=	-Wno-error-sometimes-uninitialized
-NO_WCAST_QUAL=			-Wno-error-cast-qual
+NO_WUNNEEDED_INTERNAL_DECL=	-Wno-error=unneeded-internal-declaration
+NO_WSOMETIMES_UNINITIALIZED=	-Wno-error=sometimes-uninitialized
+NO_WCAST_QUAL=			-Wno-error=cast-qual
 NO_WTAUTOLOGICAL_POINTER_COMPARE= -Wno-tautological-pointer-compare
+.if ${COMPILER_VERSION} >= 100000
+NO_WMISLEADING_INDENTATION=	-Wno-misleading-indentation
+.endif
+.if ${COMPILER_VERSION} >= 140000
+NO_WBITWISE_INSTEAD_OF_LOGICAL=	-Wno-bitwise-instead-of-logical
+.endif
 # Several other warnings which might be useful in some cases, but not severe
 # enough to error out the whole kernel build.  Display them anyway, so there is
 # some incentive to fix them eventually.
-CWARNEXTRA?=	-Wno-error-tautological-compare -Wno-error-empty-body \
-		-Wno-error-parentheses-equality -Wno-error-unused-function \
-		-Wno-error-pointer-sign
-CWARNEXTRA+=	-Wno-error-shift-negative-value
+CWARNEXTRA?=	-Wno-error=tautological-compare -Wno-error=empty-body \
+		-Wno-error=parentheses-equality -Wno-error=unused-function \
+		-Wno-error=pointer-sign
+CWARNEXTRA+=	-Wno-error=shift-negative-value
 CWARNEXTRA+=	-Wno-address-of-packed-member
-.if ${COMPILER_VERSION} >= 100000
-NO_WMISLEADING_INDENTATION=	-Wno-misleading-indentation
+.if ${COMPILER_VERSION} >= 130000
+CWARNFLAGS+=	-Wno-error=unused-but-set-variable
 .endif
 .endif	# clang
 
 .if ${COMPILER_TYPE} == "gcc"
 # Catch-all for all the things that are in our tree, but for which we're
 # not yet ready for this compiler.
-NO_WUNUSED_BUT_SET_VARIABLE = -Wno-unused-but-set-variable
+NO_WUNUSED_BUT_SET_VARIABLE=-Wno-unused-but-set-variable
 CWARNEXTRA?=	-Wno-error=address				\
 		-Wno-error=aggressive-loop-optimizations	\
 		-Wno-error=array-bounds				\
 		-Wno-error=attributes				\
 		-Wno-error=cast-qual				\
 		-Wno-error=enum-compare				\
-		-Wno-error=inline				\
 		-Wno-error=maybe-uninitialized			\
 		-Wno-error=misleading-indentation		\
 		-Wno-error=nonnull-compare			\
@@ -67,8 +72,13 @@ CWARNEXTRA+=	-Wno-error=memset-elt-size
 CWARNEXTRA+=	-Wno-error=packed-not-aligned
 .endif
 .if ${COMPILER_VERSION} >= 90100
-CWARNEXTRA+=	-Wno-address-of-packed-member
+CWARNEXTRA+=	-Wno-address-of-packed-member			\
+		-Wno-error=alloca-larger-than=
 .endif
+
+# GCC produces false positives for functions that switch on an
+# enum (GCC bug 87950)
+CWARNFLAGS+=	-Wno-return-type
 .endif	# gcc
 
 # This warning is utter nonsense
@@ -80,6 +90,10 @@ CWARNFLAGS+=	-Wno-format-zero-length
 FORMAT_EXTENSIONS=	-Wno-format
 .elif ${COMPILER_TYPE} == "clang"
 FORMAT_EXTENSIONS=	-D__printf__=__freebsd_kprintf__
+# Only newer versions of clang have -Wno-unused-but-set-variable
+.if ${COMPILER_VERSION} >= 130000
+NO_WUNUSED_BUT_SET_VARIABLE=-Wno-unused-but-set-variable
+.endif
 .else
 FORMAT_EXTENSIONS=	-fformat-extensions
 .endif
@@ -190,14 +204,6 @@ CFLAGS+=	-mabi=elfv2
 .endif
 
 #
-# For MIPS we also tell gcc to use floating point emulation
-#
-.if ${MACHINE_CPUARCH} == "mips"
-CFLAGS+=	-msoft-float
-INLINE_LIMIT?=	8000
-.endif
-
-#
 # GCC 3.0 and above like to do certain optimizations based on the
 # assumption that the program is linked against libc.  Stop this.
 #
@@ -214,8 +220,7 @@ CFLAGS+=	-fwrapv
 #
 # GCC SSP support
 #
-.if ${MK_SSP} != "no" && \
-    ${MACHINE_CPUARCH} != "arm" && ${MACHINE_CPUARCH} != "mips"
+.if ${MK_SSP} != "no"
 CFLAGS+=	-fstack-protector
 .endif
 
@@ -280,17 +285,21 @@ CFLAGS+=        -std=${CSTD}
 # Please keep this if in sync with bsd.sys.mk
 .if ${LD} != "ld" && (${CC:[1]:H} != ${LD:[1]:H} || ${LD:[1]:T} != "ld")
 # Add -fuse-ld=${LD} if $LD is in a different directory or not called "ld".
-# Note: Clang 12+ will prefer --ld-path= over -fuse-ld=.
 .if ${COMPILER_TYPE} == "clang"
-# Note: unlike bsd.sys.mk we can't use LDFLAGS here since that is used for the
-# flags required when linking the kernel. We don't need those flags when
-# building the vdsos. However, we do need -fuse-ld, so use ${CCLDFLAGS} instead.
-# Note: Clang does not like relative paths in -fuse-ld so we map ld.lld -> lld.
+# Note: Clang does not like relative paths for ld so we map ld.lld -> lld.
+.if ${COMPILER_VERSION} >= 120000
+CCLDFLAGS+=	--ld-path=${LD:[1]:S/^ld.//1W}
+.else
 CCLDFLAGS+=	-fuse-ld=${LD:[1]:S/^ld.//1W}
+.endif
 .else
 # GCC does not support an absolute path for -fuse-ld so we just print this
 # warning instead and let the user add the required symlinks.
+# However, we can avoid this warning if -B is set appropriately (e.g. for
+# CROSS_TOOLCHAIN=...-gcc).
+.if !(${LD:[1]:T} == "ld" && ${CC:tw:M-B${LD:[1]:H}/})
 .warning LD (${LD}) is not the default linker for ${CC} but -fuse-ld= is not supported
+.endif
 .endif
 .endif
 
@@ -301,16 +310,6 @@ LD_EMULATION_arm=armelf_fbsd
 LD_EMULATION_armv6=armelf_fbsd
 LD_EMULATION_armv7=armelf_fbsd
 LD_EMULATION_i386=elf_i386_fbsd
-LD_EMULATION_mips= elf32btsmip_fbsd
-LD_EMULATION_mipshf= elf32btsmip_fbsd
-LD_EMULATION_mips64= elf64btsmip_fbsd
-LD_EMULATION_mips64hf= elf64btsmip_fbsd
-LD_EMULATION_mipsel= elf32ltsmip_fbsd
-LD_EMULATION_mipselhf= elf32ltsmip_fbsd
-LD_EMULATION_mips64el= elf64ltsmip_fbsd
-LD_EMULATION_mips64elhf= elf64ltsmip_fbsd
-LD_EMULATION_mipsn32= elf32btsmipn32_fbsd
-LD_EMULATION_mipsn32el= elf32btsmipn32_fbsd   # I don't think this is a thing that works
 LD_EMULATION_powerpc= elf32ppc_fbsd
 LD_EMULATION_powerpcspe= elf32ppc_fbsd
 LD_EMULATION_powerpc64= elf64ppc_fbsd

@@ -191,6 +191,7 @@ in6_selectsrc(uint32_t fibnum, struct sockaddr_in6 *dstsock,
 	int error;
 	struct ip6_moptions *mopts;
 
+	NET_EPOCH_ASSERT();
 	KASSERT(srcp != NULL, ("%s: srcp is NULL", __func__));
 
 	dst = dstsock->sin6_addr; /* make a copy for local operation */
@@ -251,15 +252,11 @@ in6_selectsrc(uint32_t fibnum, struct sockaddr_in6 *dstsock,
 		 * ancillary data.
 		 */
 		if ((inp->inp_flags & INP_BINDANY) == 0) {
-			ia = in6ifa_ifwithaddr(&tmp, 0 /* XXX */);
+			ia = in6ifa_ifwithaddr(&tmp, 0 /* XXX */, false);
 			if (ia == NULL || (ia->ia6_flags & (IN6_IFF_ANYCAST |
-			    IN6_IFF_NOTREADY))) {
-				if (ia != NULL)
-					ifa_free(&ia->ia_ifa);
+			    IN6_IFF_NOTREADY)))
 				return (EADDRNOTAVAIL);
-			}
 			bcopy(&ia->ia_addr.sin6_addr, srcp, sizeof(*srcp));
-			ifa_free(&ia->ia_ifa);
 		} else
 			bcopy(&tmp, srcp, sizeof(*srcp));
 		pi->ipi6_addr = tmp; /* XXX: this overrides pi */
@@ -927,48 +924,6 @@ in6_selecthlim(struct inpcb *inp, struct ifnet *ifp)
 		}
 	}
 	return (V_ip6_defhlim);
-}
-
-/*
- * XXX: this is borrowed from in6_pcbbind(). If possible, we should
- * share this function by all *bsd*...
- */
-int
-in6_pcbsetport(struct in6_addr *laddr, struct inpcb *inp, struct ucred *cred)
-{
-	struct socket *so = inp->inp_socket;
-	u_int16_t lport = 0;
-	int error, lookupflags = 0;
-#ifdef INVARIANTS
-	struct inpcbinfo *pcbinfo = inp->inp_pcbinfo;
-#endif
-
-	INP_WLOCK_ASSERT(inp);
-	INP_HASH_WLOCK_ASSERT(pcbinfo);
-
-	error = prison_local_ip6(cred, laddr,
-	    ((inp->inp_flags & IN6P_IPV6_V6ONLY) != 0));
-	if (error)
-		return(error);
-
-	/* XXX: this is redundant when called from in6_pcbbind */
-	if ((so->so_options & (SO_REUSEADDR|SO_REUSEPORT|SO_REUSEPORT_LB)) == 0)
-		lookupflags = INPLOOKUP_WILDCARD;
-
-	inp->inp_flags |= INP_ANONPORT;
-
-	error = in_pcb_lport(inp, NULL, &lport, cred, lookupflags);
-	if (error != 0)
-		return (error);
-
-	inp->inp_lport = lport;
-	if (in_pcbinshash(inp) != 0) {
-		inp->in6p_laddr = in6addr_any;
-		inp->inp_lport = 0;
-		return (EAGAIN);
-	}
-
-	return (0);
 }
 
 void

@@ -121,7 +121,7 @@ typedef struct mirror_map {
 	mirror_child_t	mm_child[];
 } mirror_map_t;
 
-static int vdev_mirror_shift = 21;
+static const int vdev_mirror_shift = 21;
 
 /*
  * The load configuration settings below are tuned by default for
@@ -174,7 +174,6 @@ vdev_mirror_map_free(zio_t *zio)
 
 static const zio_vsd_ops_t vdev_mirror_vsd_ops = {
 	.vsd_free = vdev_mirror_map_free,
-	.vsd_cksum_report = zio_vsd_default_cksum_report
 };
 
 static int
@@ -379,8 +378,6 @@ vdev_mirror_map_init(zio_t *zio)
 		}
 	}
 
-	zio->io_vsd = mm;
-	zio->io_vsd_ops = &vdev_mirror_vsd_ops;
 	return (mm);
 }
 
@@ -499,7 +496,7 @@ vdev_mirror_preferred_child_randomize(zio_t *zio)
 	int p;
 
 	if (mm->mm_root) {
-		p = spa_get_random(mm->mm_preferred_cnt);
+		p = random_in_range(mm->mm_preferred_cnt);
 		return (vdev_mirror_dva_select(zio, p));
 	}
 
@@ -629,6 +626,8 @@ vdev_mirror_io_start(zio_t *zio)
 	int c, children;
 
 	mm = vdev_mirror_map_init(zio);
+	zio->io_vsd = mm;
+	zio->io_vsd_ops = &vdev_mirror_vsd_ops;
 
 	if (mm == NULL) {
 		ASSERT(!spa_trust_config(zio->io_spa));
@@ -650,6 +649,15 @@ vdev_mirror_io_start(zio_t *zio)
 			 */
 			for (c = 0; c < mm->mm_children; c++) {
 				mc = &mm->mm_child[c];
+
+				/* Don't issue ZIOs to offline children */
+				if (!vdev_mirror_child_readable(mc)) {
+					mc->mc_error = SET_ERROR(ENXIO);
+					mc->mc_tried = 1;
+					mc->mc_skipped = 1;
+					continue;
+				}
+
 				zio_nowait(zio_vdev_child_io(zio, zio->io_bp,
 				    mc->mc_vd, mc->mc_offset,
 				    abd_alloc_sametype(zio->io_abd,
@@ -872,6 +880,8 @@ static uint64_t
 vdev_mirror_rebuild_asize(vdev_t *vd, uint64_t start, uint64_t asize,
     uint64_t max_segment)
 {
+	(void) start;
+
 	uint64_t psize = MIN(P2ROUNDUP(max_segment, 1 << vd->vdev_ashift),
 	    SPA_MAXBLOCKSIZE);
 

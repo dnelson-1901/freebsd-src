@@ -45,6 +45,9 @@
 MALLOC_DECLARE(M_TMPFSNAME);
 #endif
 
+#define	OBJ_TMPFS	OBJ_PAGERPRIV1	/* has tmpfs vnode allocated */
+#define	OBJ_TMPFS_VREF	OBJ_PAGERPRIV2	/* vnode is referenced */
+
 /*
  * Internal representation of a tmpfs directory entry.
  */
@@ -277,7 +280,10 @@ struct tmpfs_node {
 
 		/* Valid when tn_type == VLNK. */
 		/* The link's target, allocated from a string pool. */
-		char *			tn_link;	/* (c) */
+		struct tn_link {
+			char *			tn_link_target;	/* (c) */
+			char 			tn_link_smr;	/* (c) */
+		} tn_link;
 
 		/* Valid when tn_type == VREG. */
 		struct tn_reg {
@@ -300,7 +306,8 @@ LIST_HEAD(tmpfs_node_list, tmpfs_node);
 
 #define tn_rdev tn_spec.tn_rdev
 #define tn_dir tn_spec.tn_dir
-#define tn_link tn_spec.tn_link
+#define tn_link_target tn_spec.tn_link.tn_link_target
+#define tn_link_smr tn_spec.tn_link.tn_link_smr
 #define tn_reg tn_spec.tn_reg
 #define tn_fifo tn_spec.tn_fifo
 
@@ -448,10 +455,11 @@ struct tmpfs_dirent *	tmpfs_dir_lookup(struct tmpfs_node *node,
 			    struct tmpfs_node *f,
 			    struct componentname *cnp);
 int	tmpfs_dir_getdents(struct tmpfs_mount *, struct tmpfs_node *,
-	    struct uio *, int, u_long *, int *);
+	    struct uio *, int, uint64_t *, int *);
 int	tmpfs_dir_whiteout_add(struct vnode *, struct componentname *);
 void	tmpfs_dir_whiteout_remove(struct vnode *, struct componentname *);
 int	tmpfs_reg_resize(struct vnode *, off_t, boolean_t);
+int	tmpfs_reg_punch_hole(struct vnode *vp, off_t *, off_t *);
 int	tmpfs_chflags(struct vnode *, u_long, struct ucred *, struct thread *);
 int	tmpfs_chmod(struct vnode *, mode_t, struct ucred *, struct thread *);
 int	tmpfs_chown(struct vnode *, uid_t, gid_t, struct ucred *,
@@ -510,8 +518,10 @@ tmpfs_update(struct vnode *vp)
 
 size_t tmpfs_mem_avail(void);
 size_t tmpfs_pages_used(struct tmpfs_mount *tmp);
-void tmpfs_subr_init(void);
+int tmpfs_subr_init(void);
 void tmpfs_subr_uninit(void);
+
+extern int tmpfs_pager_type;
 
 /*
  * Macros/functions to convert from generic data structures to tmpfs

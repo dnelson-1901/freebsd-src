@@ -741,6 +741,38 @@ gfxfb_blt_video_to_video(uint32_t SourceX, uint32_t SourceY,
 	return (0);
 }
 
+static void
+gfxfb_shadow_fill(uint32_t *BltBuffer,
+    uint32_t DestinationX, uint32_t DestinationY,
+    uint32_t Width, uint32_t Height)
+{
+	uint32_t fbX, fbY;
+
+	if (gfx_state.tg_shadow_fb == NULL)
+		return;
+
+	fbX = gfx_state.tg_fb.fb_width;
+	fbY = gfx_state.tg_fb.fb_height;
+
+	if (BltBuffer == NULL)
+		return;
+
+	if (DestinationX + Width > fbX)
+		Width = fbX - DestinationX;
+
+	if (DestinationY + Height > fbY)
+		Height = fbY - DestinationY;
+
+	uint32_t y2 = Height + DestinationY;
+	for (uint32_t y1 = DestinationY; y1 < y2; y1++) {
+		uint32_t off = y1 * fbX + DestinationX;
+
+		for (uint32_t x = 0; x < Width; x++) {
+			gfx_state.tg_shadow_fb[off + x] = *BltBuffer;
+		}
+	}
+}
+
 int
 gfxfb_blt(void *BltBuffer, GFXFB_BLT_OPERATION BltOperation,
     uint32_t SourceX, uint32_t SourceY,
@@ -751,14 +783,21 @@ gfxfb_blt(void *BltBuffer, GFXFB_BLT_OPERATION BltOperation,
 #if defined(EFI)
 	EFI_STATUS status;
 	EFI_GRAPHICS_OUTPUT *gop = gfx_state.tg_private;
+	EFI_TPL tpl;
 
 	/*
-	 * We assume Blt() does work, if not, we will need to build
-	 * exception list case by case.
+	 * We assume Blt() does work, if not, we will need to build exception
+	 * list case by case. We only have boot services during part of our
+	 * exectution. Once terminate boot services, these operations cannot be
+	 * done as they are provided by protocols that disappear when exit
+	 * boot services.
 	 */
-	if (gop != NULL) {
+	if (gop != NULL && boot_services_active) {
+		tpl = BS->RaiseTPL(TPL_NOTIFY);
 		switch (BltOperation) {
 		case GfxFbBltVideoFill:
+			gfxfb_shadow_fill(BltBuffer, DestinationX,
+			    DestinationY, Width, Height);
 			status = gop->Blt(gop, BltBuffer, EfiBltVideoFill,
 			    SourceX, SourceY, DestinationX, DestinationY,
 			    Width, Height, Delta);
@@ -803,12 +842,15 @@ gfxfb_blt(void *BltBuffer, GFXFB_BLT_OPERATION BltOperation,
 			break;
 		}
 
+		BS->RestoreTPL(tpl);
 		return (rv);
 	}
 #endif
 
 	switch (BltOperation) {
 	case GfxFbBltVideoFill:
+		gfxfb_shadow_fill(BltBuffer, DestinationX, DestinationY,
+		    Width, Height);
 		rv = gfxfb_blt_fill(BltBuffer, DestinationX, DestinationY,
 		    Width, Height);
 		break;
@@ -976,40 +1018,39 @@ gfx_fb_fill(void *arg, const teken_rect_t *r, teken_char_t c,
 }
 
 static void
-gfx_fb_cursor_draw(teken_gfx_t *state, const teken_pos_t *p, bool on)
+gfx_fb_cursor_draw(teken_gfx_t *state, const teken_pos_t *pos, bool on)
 {
 	const uint8_t *glyph;
+	teken_pos_t p;
 	int idx;
 
-	idx = p->tp_col + p->tp_row * state->tg_tp.tp_col;
+	p = *pos;
+	if (p.tp_col >= state->tg_tp.tp_col)
+		p.tp_col = state->tg_tp.tp_col - 1;
+	if (p.tp_row >= state->tg_tp.tp_row)
+		p.tp_row = state->tg_tp.tp_row - 1;
+	idx = p.tp_col + p.tp_row * state->tg_tp.tp_col;
 	if (idx >= state->tg_tp.tp_col * state->tg_tp.tp_row)
 		return;
 
 	glyph = font_lookup(&state->tg_font, screen_buffer[idx].c,
 	    &screen_buffer[idx].a);
 	gfx_bitblt_bitmap(state, glyph, &screen_buffer[idx].a, 0xff, on);
-	gfx_fb_printchar(state, p);
-	state->tg_cursor = *p;
+	gfx_fb_printchar(state, &p);
+
+	state->tg_cursor = p;
 }
 
 void
 gfx_fb_cursor(void *arg, const teken_pos_t *p)
 {
 	teken_gfx_t *state = arg;
-#if defined(EFI)
-	EFI_TPL tpl;
-
-	tpl = BS->RaiseTPL(TPL_NOTIFY);
-#endif
 
 	/* Switch cursor off in old location and back on in new. */
 	if (state->tg_cursor_visible) {
 		gfx_fb_cursor_draw(state, &state->tg_cursor, false);
 		gfx_fb_cursor_draw(state, p, true);
 	}
-#if defined(EFI)
-	BS->RestoreTPL(tpl);
-#endif
 }
 
 void
@@ -1068,19 +1109,62 @@ gfx_fb_copy_area(teken_gfx_t *state, const teken_rect_t *s,
     const teken_pos_t *d)
 {
 	uint32_t sx, sy, dx, dy, width, height;
+	uint32_t pitch, bytes;
+	int step;
 
 	width = state->tg_font.vf_width;
 	height = state->tg_font.vf_height;
 
-	sx = state->tg_origin.tp_col + s->tr_begin.tp_col * width;
-	sy = state->tg_origin.tp_row + s->tr_begin.tp_row * height;
-	dx = state->tg_origin.tp_col + d->tp_col * width;
-	dy = state->tg_origin.tp_row + d->tp_row * height;
+	sx = s->tr_begin.tp_col * width;
+	sy = s->tr_begin.tp_row * height;
+	dx = d->tp_col * width;
+	dy = d->tp_row * height;
 
 	width *= (s->tr_end.tp_col - s->tr_begin.tp_col + 1);
 
-	(void) gfxfb_blt(NULL, GfxFbBltVideoToVideo, sx, sy, dx, dy,
+	/*
+	 * With no shadow fb, use video to video copy.
+	 */
+	if (state->tg_shadow_fb == NULL) {
+		(void) gfxfb_blt(NULL, GfxFbBltVideoToVideo,
+		    sx + state->tg_origin.tp_col,
+		    sy + state->tg_origin.tp_row,
+		    dx + state->tg_origin.tp_col,
+		    dy + state->tg_origin.tp_row,
 		    width, height, 0);
+		return;
+	}
+
+	/*
+	 * With shadow fb, we need to copy data on both shadow and video,
+	 * to preserve the consistency. We only read data from shadow fb.
+	 */
+
+	step = 1;
+	pitch = state->tg_fb.fb_width;
+	bytes = width * sizeof (*state->tg_shadow_fb);
+
+	/*
+	 * To handle overlapping areas, set up reverse copy here.
+	 */
+	if (dy * pitch + dx > sy * pitch + sx) {
+		sy += height;
+		dy += height;
+		step = -step;
+	}
+
+	while (height-- > 0) {
+		uint32_t *source = &state->tg_shadow_fb[sy * pitch + sx];
+		uint32_t *destination = &state->tg_shadow_fb[dy * pitch + dx];
+
+		bcopy(source, destination, bytes);
+		(void) gfxfb_blt(destination, GfxFbBltBufferToVideo,
+		    0, 0, dx + state->tg_origin.tp_col,
+		    dy + state->tg_origin.tp_row, width, 1, 0);
+
+		sy += step;
+		dy += step;
+	}
 }
 
 static void
@@ -1261,13 +1345,32 @@ gfx_fb_cons_display(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
     void *data)
 {
 #if defined(EFI)
-	EFI_GRAPHICS_OUTPUT_BLT_PIXEL *buf;
+	EFI_GRAPHICS_OUTPUT_BLT_PIXEL *buf, *p;
 #else
-	struct paletteentry *buf;
+	struct paletteentry *buf, *p;
 #endif
 	size_t size;
 
-	size = width * height * sizeof(*buf);
+	/*
+	 * If we do have shadow fb, we will use shadow to render data,
+	 * and copy shadow to video.
+	 */
+	if (gfx_state.tg_shadow_fb != NULL) {
+		uint32_t pitch = gfx_state.tg_fb.fb_width;
+
+		/* Copy rectangle line by line. */
+		p = data;
+		for (uint32_t sy = 0; sy < height; sy++) {
+			buf = (void *)(gfx_state.tg_shadow_fb +
+			    (y - gfx_state.tg_origin.tp_row) * pitch +
+			    x - gfx_state.tg_origin.tp_col);
+			bitmap_cpy(buf, &p[sy * width], width);
+			(void) gfxfb_blt(buf, GfxFbBltBufferToVideo,
+			    0, 0, x, y, width, 1, 0);
+			y++;
+		}
+		return;
+	}
 
 	/*
 	 * Common data to display is glyph, use preallocated
@@ -1276,6 +1379,7 @@ gfx_fb_cons_display(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
         if (gfx_state.tg_glyph_size != GlyphBufferSize)
                 (void) allocate_glyphbuffer(width, height);
 
+	size = width * height * sizeof(*buf);
 	if (size == GlyphBufferSize)
 		buf = GlyphBuffer;
 	else
@@ -1319,15 +1423,11 @@ isqrt(int num)
 	return (res);
 }
 
-/* set pixel in framebuffer using gfx coordinates */
-void
-gfx_fb_setpixel(uint32_t x, uint32_t y)
+static uint32_t
+gfx_fb_getcolor(void)
 {
 	uint32_t c;
 	const teken_attr_t *ap;
-
-	if (gfx_state.tg_fb_type == FB_TEXT)
-		return;
 
 	ap = teken_get_curattr(&gfx_state.tg_teken);
         if (ap->ta_format & TF_REVERSE) {
@@ -1340,7 +1440,19 @@ gfx_fb_setpixel(uint32_t x, uint32_t y)
 			c |= TC_LIGHT;
 	}
 
-	c = gfx_fb_color_map(c);
+	return (gfx_fb_color_map(c));
+}
+
+/* set pixel in framebuffer using gfx coordinates */
+void
+gfx_fb_setpixel(uint32_t x, uint32_t y)
+{
+	uint32_t c;
+
+	if (gfx_state.tg_fb_type == FB_TEXT)
+		return;
+
+	c = gfx_fb_getcolor();
 
 	if (x >= gfx_state.tg_fb.fb_width ||
 	    y >= gfx_state.tg_fb.fb_height)
@@ -1351,25 +1463,26 @@ gfx_fb_setpixel(uint32_t x, uint32_t y)
 
 /*
  * draw rectangle in framebuffer using gfx coordinates.
- * The function is borrowed from vt_fb.c
  */
 void
 gfx_fb_drawrect(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2,
     uint32_t fill)
 {
-	uint32_t x, y;
+	uint32_t c;
 
 	if (gfx_state.tg_fb_type == FB_TEXT)
 		return;
 
-	for (y = y1; y <= y2; y++) {
-		if (fill || (y == y1) || (y == y2)) {
-			for (x = x1; x <= x2; x++)
-				gfx_fb_setpixel(x, y);
-		} else {
-			gfx_fb_setpixel(x1, y);
-			gfx_fb_setpixel(x2, y);
-		}
+	c = gfx_fb_getcolor();
+
+	if (fill != 0) {
+		gfxfb_blt(&c, GfxFbBltVideoFill, 0, 0, x1, y1, x2 - x1,
+		    y2 - y1, 0);
+	} else {
+		gfxfb_blt(&c, GfxFbBltVideoFill, 0, 0, x1, y1, x2 - x1, 1, 0);
+		gfxfb_blt(&c, GfxFbBltVideoFill, 0, 0, x1, y2, x2 - x1, 1, 0);
+		gfxfb_blt(&c, GfxFbBltVideoFill, 0, 0, x1, y1, 1, y2 - y1, 0);
+		gfxfb_blt(&c, GfxFbBltVideoFill, 0, 0, x2, y1, 1, y2 - y1, 0);
 	}
 }
 
@@ -1863,6 +1976,113 @@ reset_font_flags(void)
 	}
 }
 
+/* Return  w^2 + h^2 or 0, if the dimensions are unknown */
+static unsigned
+edid_diagonal_squared(void)
+{
+	unsigned w, h;
+
+	if (edid_info == NULL)
+		return (0);
+
+	w = edid_info->display.max_horizontal_image_size;
+	h = edid_info->display.max_vertical_image_size;
+
+	/* If either one is 0, we have aspect ratio, not size */
+	if (w == 0 || h == 0)
+		return (0);
+
+	/*
+	 * some monitors encode the aspect ratio instead of the physical size.
+	 */
+	if ((w == 16 && h == 9) || (w == 16 && h == 10) ||
+	    (w == 4 && h == 3) || (w == 5 && h == 4))
+		return (0);
+
+	/*
+	 * translate cm to inch, note we scale by 100 here.
+	 */
+	w = w * 100 / 254;
+	h = h * 100 / 254;
+
+	/* Return w^2 + h^2 */
+	return (w * w + h * h);
+}
+
+/*
+ * calculate pixels per inch.
+ */
+static unsigned
+gfx_get_ppi(void)
+{
+	unsigned dp, di;
+
+	di = edid_diagonal_squared();
+	if (di == 0)
+		return (0);
+
+	dp = gfx_state.tg_fb.fb_width *
+	    gfx_state.tg_fb.fb_width +
+	    gfx_state.tg_fb.fb_height *
+	    gfx_state.tg_fb.fb_height;
+
+	return (isqrt(dp / di));
+}
+
+/*
+ * Calculate font size from density independent pixels (dp):
+ * ((16dp * ppi) / 160) * display_factor.
+ * Here we are using fixed constants: 1dp == 160 ppi and
+ * display_factor 2.
+ *
+ * We are rounding font size up and are searching for font which is
+ * not smaller than calculated size value.
+ */
+static vt_font_bitmap_data_t *
+gfx_get_font(void)
+{
+	unsigned ppi, size;
+	vt_font_bitmap_data_t *font = NULL;
+	struct fontlist *fl, *next;
+
+	/* Text mode is not supported here. */
+	if (gfx_state.tg_fb_type == FB_TEXT)
+		return (NULL);
+
+	ppi = gfx_get_ppi();
+	if (ppi == 0)
+		return (NULL);
+
+	/*
+	 * We will search for 16dp font.
+	 * We are using scale up by 10 for roundup.
+	 */
+	size = (16 * ppi * 10) / 160;
+	/* Apply display factor 2.  */
+	size = roundup(size * 2, 10) / 10;
+
+	STAILQ_FOREACH(fl, &fonts, font_next) {
+		next = STAILQ_NEXT(fl, font_next);
+
+		/*
+		 * If this is last font or, if next font is smaller,
+		 * we have our font. Make sure, it actually is loaded.
+		 */
+		if (next == NULL || next->font_data->vfbd_height < size) {
+			font = fl->font_data;
+			if (font->vfbd_font == NULL ||
+			    fl->font_flags == FONT_RELOAD) {
+				if (fl->font_load != NULL &&
+				    fl->font_name != NULL)
+					font = fl->font_load(fl->font_name);
+			}
+			break;
+		}
+	}
+
+	return (font);
+}
+
 static vt_font_bitmap_data_t *
 set_font(teken_unit_t *rows, teken_unit_t *cols, teken_unit_t h, teken_unit_t w)
 {
@@ -1887,26 +2107,28 @@ set_font(teken_unit_t *rows, teken_unit_t *cols, teken_unit_t h, teken_unit_t w)
 		}
 	}
 
+	if (font == NULL)
+		font = gfx_get_font();
+
 	if (font != NULL) {
-		*rows = (height - BORDER_PIXELS) / font->vfbd_height;
-		*cols = (width - BORDER_PIXELS) / font->vfbd_width;
+		*rows = height / font->vfbd_height;
+		*cols = width / font->vfbd_width;
 		return (font);
 	}
 
 	/*
-	 * Find best font for these dimensions, or use default
-	 *
-	 * A 1 pixel border is the absolute minimum we could have
-	 * as a border around the text window (BORDER_PIXELS = 2),
-	 * however a slightly larger border not only looks better
-	 * but for the fonts currently statically built into the
-	 * emulator causes much better font selection for the
-	 * normal range of screen resolutions.
+	 * Find best font for these dimensions, or use default.
+	 * If height >= VT_FB_MAX_HEIGHT and width >= VT_FB_MAX_WIDTH,
+	 * do not use smaller font than our DEFAULT_FONT_DATA.
 	 */
 	STAILQ_FOREACH(fl, &fonts, font_next) {
 		font = fl->font_data;
-		if ((((*rows * font->vfbd_height) + BORDER_PIXELS) <= height) &&
-		    (((*cols * font->vfbd_width) + BORDER_PIXELS) <= width)) {
+		if ((*rows * font->vfbd_height <= height &&
+		    *cols * font->vfbd_width <= width) ||
+		    (height >= VT_FB_MAX_HEIGHT &&
+		    width >= VT_FB_MAX_WIDTH &&
+		    font->vfbd_height == DEFAULT_FONT_DATA.vfbd_height &&
+		    font->vfbd_width == DEFAULT_FONT_DATA.vfbd_width)) {
 			if (font->vfbd_font == NULL ||
 			    fl->font_flags == FONT_RELOAD) {
 				if (fl->font_load != NULL &&
@@ -1916,8 +2138,8 @@ set_font(teken_unit_t *rows, teken_unit_t *cols, teken_unit_t h, teken_unit_t w)
 				if (font == NULL)
 					continue;
 			}
-			*rows = (height - BORDER_PIXELS) / font->vfbd_height;
-			*cols = (width - BORDER_PIXELS) / font->vfbd_width;
+			*rows = height / font->vfbd_height;
+			*cols = width / font->vfbd_width;
 			break;
 		}
 		font = NULL;
@@ -1936,8 +2158,8 @@ set_font(teken_unit_t *rows, teken_unit_t *cols, teken_unit_t h, teken_unit_t w)
 		if (font == NULL)
 			font = &DEFAULT_FONT_DATA;
 
-		*rows = (height - BORDER_PIXELS) / font->vfbd_height;
-		*cols = (width - BORDER_PIXELS) / font->vfbd_width;
+		*rows = height / font->vfbd_height;
+		*cols = width / font->vfbd_width;
 	}
 
 	return (font);
@@ -2274,6 +2496,8 @@ read_list(char *fonts)
 	char buf[PATH_MAX];
 	int fd, len;
 
+	TSENTER();
+
 	dir = strdup(fonts);
 	if (dir == NULL)
 		return (NULL);
@@ -2321,6 +2545,7 @@ read_list(char *fonts)
 		SLIST_INSERT_HEAD(nl, np, n_entry);
 	}
 	close(fd);
+	TSEXIT();
 	return (nl);
 }
 
@@ -2337,6 +2562,8 @@ insert_font(char *name, FONT_FLAGS flags)
 	ssize_t rv;
 	int fd;
 	char *font_name;
+
+	TSENTER();
 
 	font_name = NULL;
 	if (flags == FONT_BUILTIN) {
@@ -2384,6 +2611,7 @@ insert_font(char *name, FONT_FLAGS flags)
 			free(entry->font_name);
 			entry->font_name = font_name;
 			entry->font_flags = FONT_RELOAD;
+			TSEXIT();
 			return (true);
 		}
 	}
@@ -2407,6 +2635,7 @@ insert_font(char *name, FONT_FLAGS flags)
 
 	if (STAILQ_EMPTY(&fonts)) {
 		STAILQ_INSERT_HEAD(&fonts, fp, font_next);
+		TSEXIT();
 		return (true);
 	}
 
@@ -2425,6 +2654,7 @@ insert_font(char *name, FONT_FLAGS flags)
 				STAILQ_INSERT_AFTER(&fonts, previous, fp,
 				    font_next);
 			}
+			TSEXIT();
 			return (true);
 		}
 		next = STAILQ_NEXT(entry, font_next);
@@ -2432,10 +2662,12 @@ insert_font(char *name, FONT_FLAGS flags)
 		    size > next->font_data->vfbd_width *
 		    next->font_data->vfbd_height) {
 			STAILQ_INSERT_AFTER(&fonts, entry, fp, font_next);
+			TSEXIT();
 			return (true);
 		}
 		previous = entry;
 	}
+	TSEXIT();
 	return (true);
 }
 
@@ -2494,6 +2726,8 @@ autoload_font(bool bios)
 	struct name_list *nl;
 	struct name_entry *np;
 
+	TSENTER();
+
 	nl = read_list("/boot/fonts/INDEX.fonts");
 	if (nl == NULL)
 		return;
@@ -2515,6 +2749,8 @@ autoload_font(bool bios)
 	}
 
 	(void) cons_update_mode(gfx_state.tg_fb_type != FB_TEXT);
+
+	TSEXIT();
 }
 
 COMMAND_SET(load_font, "loadfont", "load console font from file", command_font);
@@ -2616,7 +2852,7 @@ gfx_get_edid_resolution(struct vesa_edid_info *edid, edid_res_list_t *res)
 		/* Walk detailed timing descriptors (4) */
 		for (int i = 0; i < DET_TIMINGS; i++) {
 			/*
-			 * Reserved value 0 is not used for display decriptor.
+			 * Reserved value 0 is not used for display descriptor.
 			 */
 			if (edid->detailed_timings[i].pixel_clock == 0)
 				continue;

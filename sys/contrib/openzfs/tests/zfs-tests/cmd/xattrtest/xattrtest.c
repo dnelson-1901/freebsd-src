@@ -44,11 +44,9 @@
 #include <sys/time.h>
 #include <linux/limits.h>
 
-extern char *program_invocation_short_name;
-
 #define	ERROR(fmt, ...)                                                 \
-	fprintf(stderr, "%s: %s:%d: %s: " fmt "\n",                     \
-		program_invocation_short_name, __FILE__, __LINE__,      \
+	fprintf(stderr, "xattrtest: %s:%d: %s: " fmt "\n",              \
+		__FILE__, __LINE__,      				\
 		__func__, ## __VA_ARGS__);
 
 static const char shortopts[] = "hvycdn:f:x:s:p:t:e:rRko:";
@@ -98,12 +96,12 @@ static char script[PATH_MAX] = "/bin/true";
 static char xattrbytes[XATTR_SIZE_MAX];
 
 static int
-usage(int argc, char **argv)
+usage(char *argv0)
 {
 	fprintf(stderr,
 	    "usage: %s [-hvycdrRk] [-n <nth>] [-f <files>] [-x <xattrs>]\n"
 	    "       [-s <bytes>] [-p <path>] [-t <script> ] [-o <phase>]\n",
-	    argv[0]);
+	    argv0);
 
 	fprintf(stderr,
 	    "  --help        -h           This help\n"
@@ -138,7 +136,7 @@ parse_args(int argc, char **argv)
 	while ((c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
 		switch (c) {
 		case 'h':
-			return (usage(argc, argv));
+			return (usage(argv[0]));
 		case 'v':
 			verbose++;
 			break;
@@ -264,7 +262,7 @@ run_process(const char *path, char *argv[])
 	pid_t pid;
 	int rc, devnull_fd;
 
-	pid = vfork();
+	pid = fork();
 	if (pid == 0) {
 		devnull_fd = open("/dev/null", O_WRONLY);
 

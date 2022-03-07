@@ -6,7 +6,7 @@ CFLAGS+=-I${LDRSRC}
 
 SRCS+=	boot.c commands.c console.c devopen.c interp.c 
 SRCS+=	interp_backslash.c interp_parse.c ls.c misc.c 
-SRCS+=	module.c nvstore.c pnglite.c
+SRCS+=	module.c nvstore.c pnglite.c tslog.c
 
 CFLAGS.module.c += -I$(SRCTOP)/sys/teken -I${SRCTOP}/contrib/pnglite
 
@@ -24,12 +24,6 @@ SRCS+=	load_elf32.c reloc_elf32.c
 .elif ${MACHINE_CPUARCH} == "powerpc"
 SRCS+=	load_elf32.c reloc_elf32.c
 SRCS+=	load_elf64.c reloc_elf64.c
-SRCS+=	metadata.c
-.elif ${MACHINE_ARCH:Mmips64*} != ""
-SRCS+= load_elf64.c reloc_elf64.c
-SRCS+=	metadata.c
-.elif ${MACHINE} == "mips"
-SRCS+=	load_elf32.c reloc_elf32.c
 SRCS+=	metadata.c
 .elif ${MACHINE_CPUARCH} == "riscv"
 SRCS+=	load_elf64.c reloc_elf64.c
@@ -81,16 +75,7 @@ SRCS+=	interp_simple.c
 .error Unknown interpreter ${LOADER_INTERP}
 .endif
 
-.if ${MK_LOADER_VERIEXEC} != "no"
-CFLAGS+= -DLOADER_VERIEXEC -I${SRCTOP}/lib/libsecureboot/h
-.if ${MK_LOADER_VERIEXEC_VECTX} != "no"
-CFLAGS+= -DLOADER_VERIEXEC_VECTX
-.endif
-.endif
-
-.if ${MK_LOADER_VERIEXEC_PASS_MANIFEST} != "no"
-CFLAGS+= -DLOADER_VERIEXEC_PASS_MANIFEST -I${SRCTOP}/lib/libsecureboot/h
-.endif
+.include "${BOOTSRC}/veriexec.mk"
 
 .if defined(BOOT_PROMPT_123)
 CFLAGS+=	-DBOOT_PROMPT_123

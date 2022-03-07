@@ -35,7 +35,10 @@
  * $FreeBSD$
  */
 
-#define	KCSAN_RUNTIME
+/* Interceptors are required for KMSAN. */
+#if defined(KASAN) || defined(KCSAN)
+#define	SAN_RUNTIME
+#endif
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
@@ -162,7 +165,7 @@ SYSCTL_UINT(_kern_kcov, OID_AUTO, max_entries, CTLFLAG_RW,
 static struct mtx kcov_lock;
 static int active_count;
 
-static struct kcov_info *
+static struct kcov_info * __nosanitizeaddress __nosanitizememory
 get_kinfo(struct thread *td)
 {
 	struct kcov_info *info;
@@ -189,7 +192,7 @@ get_kinfo(struct thread *td)
 	return (info);
 }
 
-static void
+static void __nosanitizeaddress __nosanitizememory
 trace_pc(uintptr_t ret)
 {
 	struct thread *td;
@@ -221,7 +224,7 @@ trace_pc(uintptr_t ret)
 	buf[0] = index + 1;
 }
 
-static bool
+static bool __nosanitizeaddress __nosanitizememory
 trace_cmp(uint64_t type, uint64_t arg1, uint64_t arg2, uint64_t ret)
 {
 	struct thread *td;

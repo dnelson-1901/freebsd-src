@@ -58,6 +58,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/loginclass.h>
 #include <sys/malloc.h>
 #include <sys/mutex.h>
+#include <sys/ptrace.h>
 #include <sys/refcount.h>
 #include <sys/sx.h>
 #include <sys/priv.h>
@@ -288,7 +289,7 @@ sys_getegid(struct thread *td, struct getegid_args *uap)
 
 #ifndef _SYS_SYSPROTO_H_
 struct getgroups_args {
-	u_int	gidsetsize;
+	int	gidsetsize;
 	gid_t	*gidset;
 };
 #endif
@@ -296,8 +297,7 @@ int
 sys_getgroups(struct thread *td, struct getgroups_args *uap)
 {
 	struct ucred *cred;
-	u_int ngrp;
-	int error;
+	int ngrp, error;
 
 	cred = td->td_ucred;
 	ngrp = cred->cr_ngroups;
@@ -791,7 +791,7 @@ fail:
 
 #ifndef _SYS_SYSPROTO_H_
 struct setgroups_args {
-	u_int	gidsetsize;
+	int	gidsetsize;
 	gid_t	*gidset;
 };
 #endif
@@ -801,11 +801,10 @@ sys_setgroups(struct thread *td, struct setgroups_args *uap)
 {
 	gid_t smallgroups[XU_NGROUPS];
 	gid_t *groups;
-	u_int gidsetsize;
-	int error;
+	int gidsetsize, error;
 
 	gidsetsize = uap->gidsetsize;
-	if (gidsetsize > ngroups_max + 1)
+	if (gidsetsize > ngroups_max + 1 || gidsetsize < 0)
 		return (EINVAL);
 
 	if (gidsetsize > XU_NGROUPS)
@@ -1462,10 +1461,12 @@ cr_cansee(struct ucred *u1, struct ucred *u2)
 int
 p_cansee(struct thread *td, struct proc *p)
 {
-
 	/* Wrap cr_cansee() for all functionality. */
 	KASSERT(td == curthread, ("%s: td not curthread", __func__));
 	PROC_LOCK_ASSERT(p, MA_OWNED);
+
+	if (td->td_proc == p)
+		return (0);
 	return (cr_cansee(td->td_ucred, p->p_ucred));
 }
 
@@ -1683,10 +1684,10 @@ p_candebug(struct thread *td, struct proc *p)
 
 	KASSERT(td == curthread, ("%s: td not curthread", __func__));
 	PROC_LOCK_ASSERT(p, MA_OWNED);
-	if ((error = priv_check(td, PRIV_DEBUG_UNPRIV)))
-		return (error);
 	if (td->td_proc == p)
 		return (0);
+	if ((error = priv_check(td, PRIV_DEBUG_UNPRIV)))
+		return (error);
 	if ((error = prison_check(td->td_ucred, p->p_ucred)))
 		return (error);
 #ifdef MAC
@@ -1955,7 +1956,7 @@ credbatch_add(struct credbatch *crb, struct thread *td)
 
 	MPASS(td->td_realucred != NULL);
 	MPASS(td->td_realucred == td->td_ucred);
-	MPASS(td->td_state == TDS_INACTIVE);
+	MPASS(TD_GET_STATE(td) == TDS_INACTIVE);
 	cr = td->td_realucred;
 	KASSERT(cr->cr_users > 0, ("%s: users %d not > 0 on cred %p",
 	    __func__, cr->cr_users, cr));
@@ -2485,3 +2486,8 @@ change_svgid(struct ucred *newcred, gid_t svgid)
 
 	newcred->cr_svgid = svgid;
 }
+
+bool allow_ptrace = true;
+SYSCTL_BOOL(_security_bsd, OID_AUTO, allow_ptrace, CTLFLAG_RWTUN,
+    &allow_ptrace, 0,
+    "Deny ptrace(2) use by returning ENOSYS");

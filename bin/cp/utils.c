@@ -235,9 +235,9 @@ copy_file(const FTSENT *entp, int dne)
 			do {
 				if (use_copy_file_range) {
 					rcount = copy_file_range(from_fd, NULL,
-			    		    to_fd, NULL, SSIZE_MAX, 0);
+					    to_fd, NULL, SSIZE_MAX, 0);
 					if (rcount < 0 && (errno == EINVAL || errno == ENOSYS)) {
-						/* Non-seekable FD or old kernel */
+						/* Prob a non-seekable FD or old kernel */
 						use_copy_file_range = 0;
 					}
 				}

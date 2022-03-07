@@ -1,5 +1,5 @@
 /*
- * Copyright 2009-2019 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2009-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -211,18 +211,46 @@ size_t OPENSSL_instrument_bus2(unsigned int *out, size_t cnt, size_t max)
 # if __GLIBC_PREREQ(2, 16)
 #  include <sys/auxv.h>
 #  define OSSL_IMPLEMENT_GETAUXVAL
+# elif defined(__ANDROID_API__)
+/* see https://developer.android.google.cn/ndk/guides/cpu-features */
+#  if __ANDROID_API__ >= 18
+#   include <sys/auxv.h>
+#   define OSSL_IMPLEMENT_GETAUXVAL
+#  endif
+# endif
+#endif
+
+#if defined(__FreeBSD__)
+# include <sys/param.h>
+# if __FreeBSD_version >= 1200000
+#  include <sys/auxv.h>
+#  define OSSL_IMPLEMENT_GETAUXVAL
+
+static unsigned long getauxval(unsigned long key)
+{
+  unsigned long val = 0ul;
+
+  if (elf_aux_info((int)key, &val, sizeof(val)) != 0)
+    return 0ul;
+
+  return val;
+}
 # endif
 #endif
 
 /* I wish <sys/auxv.h> was universally available */
-#define HWCAP                   16      /* AT_HWCAP */
+#ifndef AT_HWCAP
+# define AT_HWCAP               16      /* AT_HWCAP */
+#endif
 #define HWCAP_PPC64             (1U << 30)
 #define HWCAP_ALTIVEC           (1U << 28)
 #define HWCAP_FPU               (1U << 27)
 #define HWCAP_POWER6_EXT        (1U << 9)
 #define HWCAP_VSX               (1U << 7)
 
-#define HWCAP2                  26      /* AT_HWCAP2 */
+#ifndef AT_HWCAP2
+# define AT_HWCAP2              26      /* AT_HWCAP2 */
+#endif
 #define HWCAP_VEC_CRYPTO        (1U << 25)
 #define HWCAP_ARCH_3_00         (1U << 23)
 
@@ -313,8 +341,8 @@ void OPENSSL_cpuid_setup(void)
 
 #ifdef OSSL_IMPLEMENT_GETAUXVAL
     {
-        unsigned long hwcap = getauxval(HWCAP);
-        unsigned long hwcap2 = getauxval(HWCAP2);
+        unsigned long hwcap = getauxval(AT_HWCAP);
+        unsigned long hwcap2 = getauxval(AT_HWCAP2);
 
         if (hwcap & HWCAP_FPU) {
             OPENSSL_ppccap_P |= PPC_FPU;

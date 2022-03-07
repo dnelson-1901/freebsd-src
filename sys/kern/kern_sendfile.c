@@ -158,7 +158,7 @@ sfstat_sysctl(SYSCTL_HANDLER_ARGS)
 	return (SYSCTL_OUT(req, &s, sizeof(s)));
 }
 SYSCTL_PROC(_kern_ipc, OID_AUTO, sfstat,
-    CTLTYPE_OPAQUE | CTLFLAG_RW | CTLFLAG_NEEDGIANT, NULL, 0,
+    CTLTYPE_OPAQUE | CTLFLAG_RW | CTLFLAG_MPSAFE, NULL, 0,
     sfstat_sysctl, "I",
     "sendfile statistics");
 
@@ -399,7 +399,6 @@ sendfile_iodone(void *arg, vm_page_t *pa, int count, int error)
 		(void)(so->so_proto->pr_usrreqs->pru_ready)(so, sfio->m,
 		    sfio->npages);
 
-	SOCK_LOCK(so);
 	sorele(so);
 #ifdef KERN_TLS
 out_with_ref:
@@ -571,6 +570,7 @@ sendfile_getobj(struct thread *td, struct file *fp, vm_object_t *obj_res,
 	struct shmfd *shmfd;
 	int error;
 
+	error = 0;
 	vp = *vp_res = NULL;
 	obj = NULL;
 	shmfd = *shmfd_res = NULL;
@@ -588,28 +588,39 @@ sendfile_getobj(struct thread *td, struct file *fp, vm_object_t *obj_res,
 			goto out;
 		}
 		*bsize = vp->v_mount->mnt_stat.f_iosize;
-		error = VOP_GETATTR(vp, &va, td->td_ucred);
-		if (error != 0)
-			goto out;
-		*obj_size = va.va_size;
 		obj = vp->v_object;
 		if (obj == NULL) {
 			error = EINVAL;
 			goto out;
 		}
+
+		/*
+		 * Use the pager size when available to simplify synchronization
+		 * with filesystems, which otherwise must atomically update both
+		 * the vnode pager size and file size.
+		 */
+		if (obj->type == OBJT_VNODE) {
+			VM_OBJECT_RLOCK(obj);
+			*obj_size = obj->un_pager.vnp.vnp_size;
+		} else {
+			error = VOP_GETATTR(vp, &va, td->td_ucred);
+			if (error != 0)
+				goto out;
+			*obj_size = va.va_size;
+			VM_OBJECT_RLOCK(obj);
+		}
 	} else if (fp->f_type == DTYPE_SHM) {
-		error = 0;
 		shmfd = fp->f_data;
 		obj = shmfd->shm_object;
+		VM_OBJECT_RLOCK(obj);
 		*obj_size = shmfd->shm_size;
 	} else {
 		error = EINVAL;
 		goto out;
 	}
 
-	VM_OBJECT_WLOCK(obj);
 	if ((obj->flags & OBJ_DEAD) != 0) {
-		VM_OBJECT_WUNLOCK(obj);
+		VM_OBJECT_RUNLOCK(obj);
 		error = EBADF;
 		goto out;
 	}
@@ -620,7 +631,7 @@ sendfile_getobj(struct thread *td, struct file *fp, vm_object_t *obj_res,
 	 * immediately destroy it.
 	 */
 	vm_object_reference_locked(obj);
-	VM_OBJECT_WUNLOCK(obj);
+	VM_OBJECT_RUNLOCK(obj);
 	*obj_res = obj;
 	*vp_res = vp;
 	*shmfd_res = shmfd;
@@ -656,8 +667,6 @@ sendfile_getsock(struct thread *td, int s, struct file **sock_fp,
 	 */
 	if ((*so)->so_proto->pr_protocol == IPPROTO_SCTP)
 		return (EINVAL);
-	if (SOLISTENING(*so))
-		return (ENOTCONN);
 	return (0);
 }
 
@@ -679,7 +688,7 @@ vn_sendfile(struct file *fp, int sockfd, struct uio *hdr_uio,
 	struct shmfd *shmfd;
 	struct sendfile_sync *sfs;
 	struct vattr va;
-	off_t off, sbytes, rem, obj_size;
+	off_t off, sbytes, rem, obj_size, nobj_size;
 	int bsize, error, ext_pgs_idx, hdrlen, max_pgs, softerr;
 #ifdef KERN_TLS
 	int tls_enq_cnt;
@@ -729,7 +738,9 @@ vn_sendfile(struct file *fp, int sockfd, struct uio *hdr_uio,
 	 * XXXRW: Historically this has assumed non-interruptibility, so now
 	 * we implement that, but possibly shouldn't.
 	 */
-	(void)sblock(&so->so_snd, SBL_WAIT | SBL_NOINTR);
+	error = SOCK_IO_SEND_LOCK(so, SBL_WAIT | SBL_NOINTR);
+	if (error != 0)
+		goto out;
 #ifdef KERN_TLS
 	tls = ktls_hold(so->so_snd.sb_tls_info);
 #endif
@@ -852,15 +863,30 @@ retry_space:
 			error = vn_lock(vp, LK_SHARED);
 			if (error != 0)
 				goto done;
-			error = VOP_GETATTR(vp, &va, td->td_ucred);
-			if (error != 0 || off >= va.va_size) {
+
+			/*
+			 * Check to see if the file size has changed.
+			 */
+			if (obj->type == OBJT_VNODE) {
+				VM_OBJECT_RLOCK(obj);
+				nobj_size = obj->un_pager.vnp.vnp_size;
+				VM_OBJECT_RUNLOCK(obj);
+			} else {
+				error = VOP_GETATTR(vp, &va, td->td_ucred);
+				if (error != 0) {
+					VOP_UNLOCK(vp);
+					goto done;
+				}
+				nobj_size = va.va_size;
+			}
+			if (off >= nobj_size) {
 				VOP_UNLOCK(vp);
 				goto done;
 			}
-			if (va.va_size != obj_size) {
-				obj_size = va.va_size;
-				rem = nbytes ?
-				    omin(nbytes + offset, obj_size) : obj_size;
+			if (nobj_size != obj_size) {
+				obj_size = nobj_size;
+				rem = nbytes ? omin(nbytes + offset, obj_size) :
+				    obj_size;
 				rem -= off;
 			}
 		}
@@ -1148,8 +1174,12 @@ prepend_header:
 			if (tls != NULL && tls->mode == TCP_TLS_MODE_SW) {
 				error = (*so->so_proto->pr_usrreqs->pru_send)
 				    (so, PRUS_NOTREADY, m, NULL, NULL, td);
-				soref(so);
-				ktls_enqueue(m, so, tls_enq_cnt);
+				if (error != 0) {
+					m_freem(m);
+				} else {
+					soref(so);
+					ktls_enqueue(m, so, tls_enq_cnt);
+				}
 			} else
 #endif
 				error = (*so->so_proto->pr_usrreqs->pru_send)
@@ -1160,11 +1190,11 @@ prepend_header:
 			soref(so);
 			error = (*so->so_proto->pr_usrreqs->pru_send)
 			    (so, PRUS_NOTREADY, m, NULL, NULL, td);
-			sendfile_iodone(sfio, NULL, 0, 0);
+			sendfile_iodone(sfio, NULL, 0, error);
 		}
 		CURVNET_RESTORE();
 
-		m = NULL;	/* pru_send always consumes */
+		m = NULL;
 		if (error)
 			goto done;
 		sbytes += space + hdrlen;
@@ -1180,7 +1210,7 @@ prepend_header:
 	 * Send trailers. Wimp out and use writev(2).
 	 */
 	if (trl_uio != NULL) {
-		sbunlock(&so->so_snd);
+		SOCK_IO_SEND_UNLOCK(so);
 		error = kern_writev(td, sockfd, trl_uio);
 		if (error == 0)
 			sbytes += td->td_retval[0];
@@ -1188,7 +1218,7 @@ prepend_header:
 	}
 
 done:
-	sbunlock(&so->so_snd);
+	SOCK_IO_SEND_UNLOCK(so);
 out:
 	/*
 	 * If there was no error we have to clear td->td_retval[0]

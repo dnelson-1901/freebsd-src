@@ -66,6 +66,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sched.h>
 #include <sys/sx.h>
 #include <sys/syscallsubr.h>
+#include <sys/sysctl.h>
 #include <sys/syslog.h>
 #include <sys/ptrace.h>
 #include <sys/acct.h>		/* for acct_process() function prototype */
@@ -75,7 +76,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sem.h>
 #include <sys/sysent.h>
 #include <sys/timers.h>
-#include <sys/umtx.h>
+#include <sys/umtxvar.h>
 #ifdef KTRACE
 #include <sys/ktrace.h>
 #endif
@@ -98,6 +99,16 @@ dtrace_execexit_func_t	dtrace_fasttrap_exit;
 
 SDT_PROVIDER_DECLARE(proc);
 SDT_PROBE_DEFINE1(proc, , , exit, "int");
+
+static int kern_kill_on_dbg_exit = 1;
+SYSCTL_INT(_kern, OID_AUTO, kill_on_debugger_exit, CTLFLAG_RWTUN,
+    &kern_kill_on_dbg_exit, 0,
+    "Kill ptraced processes when debugger exits");
+
+static bool kern_wait_dequeue_sigchld = 1;
+SYSCTL_BOOL(_kern, OID_AUTO, wait_dequeue_sigchld, CTLFLAG_RWTUN,
+    &kern_wait_dequeue_sigchld, 0,
+    "Dequeue SIGCHLD on wait(2) for live process");
 
 struct proc *
 proc_realparent(struct proc *child)
@@ -184,15 +195,22 @@ proc_clear_orphan(struct proc *p)
 	p->p_treeflag &= ~P_TREE_ORPHANED;
 }
 
+void
+exit_onexit(struct proc *p)
+{
+	MPASS(p->p_numthreads == 1);
+	umtx_thread_exit(FIRST_THREAD_IN_PROC(p));
+}
+
 /*
  * exit -- death of process.
  */
-void
-sys_sys_exit(struct thread *td, struct sys_exit_args *uap)
+int
+sys_exit(struct thread *td, struct exit_args *uap)
 {
 
 	exit1(td, uap->rval, 0);
-	/* NOTREACHED */
+	__unreachable();
 }
 
 /*
@@ -210,6 +228,7 @@ exit1(struct thread *td, int rval, int signo)
 
 	mtx_assert(&Giant, MA_NOTOWNED);
 	KASSERT(rval == 0 || signo == 0, ("exit1 rv %d sig %d", rval, signo));
+	TSPROCEXIT(td->td_proc->p_pid);
 
 	p = td->td_proc;
 	/*
@@ -329,9 +348,6 @@ exit1(struct thread *td, int rval, int signo)
 
 	itimers_exit(p);
 
-	if (p->p_sysent->sv_onexit != NULL)
-		p->p_sysent->sv_onexit(p);
-
 	/*
 	 * Check if any loadable modules need anything done at process exit.
 	 * E.g. SYSV IPC stuff.
@@ -362,7 +378,8 @@ exit1(struct thread *td, int rval, int signo)
 
 	PROC_UNLOCK(p);
 
-	umtx_thread_exit(td);
+	if (p->p_sysent->sv_onexit != NULL)
+		p->p_sysent->sv_onexit(p);
 	seltdfini(td);
 
 	/*
@@ -400,6 +417,7 @@ exit1(struct thread *td, int rval, int signo)
 		mtx_unlock(&ppeers_lock);
 	}
 
+	exec_free_abi_mappings(p);
 	vmspace_exit(td);
 	(void)acct_process(td);
 
@@ -407,11 +425,19 @@ exit1(struct thread *td, int rval, int signo)
 	ktrprocexit(td);
 #endif
 	/*
-	 * Release reference to text vnode
+	 * Release reference to text vnode etc
 	 */
 	if (p->p_textvp != NULL) {
 		vrele(p->p_textvp);
 		p->p_textvp = NULL;
+	}
+	if (p->p_textdvp != NULL) {
+		vrele(p->p_textdvp);
+		p->p_textdvp = NULL;
+	}
+	if (p->p_binname != NULL) {
+		free(p->p_binname, M_PARGS);
+		p->p_binname = NULL;
 	}
 
 	/*
@@ -504,8 +530,9 @@ exit1(struct thread *td, int rval, int signo)
 			}
 		} else {
 			/*
-			 * Traced processes are killed since their existence
-			 * means someone is screwing up.
+			 * Traced processes are killed by default
+			 * since their existence means someone is
+			 * screwing up.
 			 */
 			t = proc_realparent(q);
 			if (t == p) {
@@ -522,14 +549,23 @@ exit1(struct thread *td, int rval, int signo)
 			 * orphan link for q now while q is locked.
 			 */
 			proc_clear_orphan(q);
-			q->p_flag &= ~(P_TRACED | P_STOPPED_TRACE);
+			q->p_flag &= ~P_TRACED;
 			q->p_flag2 &= ~P2_PTRACE_FSTP;
 			q->p_ptevents = 0;
+			p->p_xthread = NULL;
 			FOREACH_THREAD_IN_PROC(q, tdt) {
 				tdt->td_dbgflags &= ~(TDB_SUSPEND | TDB_XSIG |
 				    TDB_FSTP);
+				tdt->td_xsig = 0;
 			}
-			kern_psignal(q, SIGKILL);
+			if (kern_kill_on_dbg_exit) {
+				q->p_flag &= ~P_STOPPED_TRACE;
+				kern_psignal(q, SIGKILL);
+			} else if ((q->p_flag & (P_STOPPED_TRACE |
+			    P_STOPPED_SIG)) != 0) {
+				sigqueue_delete_proc(q, SIGTRAP);
+				ptrace_unsuspend(q);
+			}
 		}
 		PROC_UNLOCK(q);
 		if (ksi != NULL)
@@ -700,9 +736,40 @@ struct abort2_args {
 int
 sys_abort2(struct thread *td, struct abort2_args *uap)
 {
+	void *uargs[16];
+	void **uargsp;
+	int error, nargs;
+
+	nargs = uap->nargs;
+	if (nargs < 0 || nargs > nitems(uargs))
+		nargs = -1;
+	uargsp = NULL;
+	if (nargs > 0) {
+		if (uap->args != NULL) {
+			error = copyin(uap->args, uargs,
+			    nargs * sizeof(void *));
+			if (error != 0)
+				nargs = -1;
+			else
+				uargsp = uargs;
+		} else
+			nargs = -1;
+	}
+	return (kern_abort2(td, uap->why, nargs, uargsp));
+}
+
+/*
+ * kern_abort2()
+ * Arguments:
+ *  why - user pointer to why
+ *  nargs - number of arguments copied or -1 if an error occured in copying
+ *  args - pointer to an array of pointers in kernel format
+ */
+int
+kern_abort2(struct thread *td, const char *why, int nargs, void **uargs)
+{
 	struct proc *p = td->td_proc;
 	struct sbuf *sb;
-	void *uargs[16];
 	int error, i, sig;
 
 	/*
@@ -720,29 +787,24 @@ sys_abort2(struct thread *td, struct abort2_args *uap)
 	 */
 	sig = SIGKILL;
 	/* Prevent from DoSes from user-space. */
-	if (uap->nargs < 0 || uap->nargs > 16)
+	if (nargs == -1)
 		goto out;
-	if (uap->nargs > 0) {
-		if (uap->args == NULL)
-			goto out;
-		error = copyin(uap->args, uargs, uap->nargs * sizeof(void *));
-		if (error != 0)
-			goto out;
-	}
+	KASSERT(nargs >= 0 && nargs <= 16, ("called with too many args (%d)",
+	    nargs));
 	/*
 	 * Limit size of 'reason' string to 128. Will fit even when
 	 * maximal number of arguments was chosen to be logged.
 	 */
-	if (uap->why != NULL) {
-		error = sbuf_copyin(sb, uap->why, 128);
+	if (why != NULL) {
+		error = sbuf_copyin(sb, why, 128);
 		if (error < 0)
 			goto out;
 	} else {
 		sbuf_printf(sb, "(null)");
 	}
-	if (uap->nargs > 0) {
+	if (nargs > 0) {
 		sbuf_printf(sb, "(");
-		for (i = 0;i < uap->nargs; i++)
+		for (i = 0;i < nargs; i++)
 			sbuf_printf(sb, "%s%p", i == 0 ? "" : ", ", uargs[i]);
 		sbuf_printf(sb, ")");
 	}
@@ -1191,9 +1253,12 @@ report_alive_proc(struct thread *td, struct proc *p, siginfo_t *siginfo,
 			p->p_flag &= ~P_CONTINUED;
 		else
 			p->p_flag |= P_WAITED;
-		PROC_LOCK(td->td_proc);
-		sigqueue_take(p->p_ksi);
-		PROC_UNLOCK(td->td_proc);
+		if (kern_wait_dequeue_sigchld &&
+		    (td->td_proc->p_sysent->sv_flags & SV_SIG_WAITNDQ) == 0) {
+			PROC_LOCK(td->td_proc);
+			sigqueue_take(p->p_ksi);
+			PROC_UNLOCK(td->td_proc);
+		}
 	}
 	sx_xunlock(&proctree_lock);
 	if (siginfo != NULL) {

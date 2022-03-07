@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Copyright (c) 2018-2020 Gavin D. Howard and contributors.
+# Copyright (c) 2018-2021 Gavin D. Howard and contributors.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -32,6 +32,9 @@ export LC_CTYPE=C
 
 progname=${0##*/}
 
+# See strgen.c comment on main() for what these mean. Note, however, that this
+# script generates a string literal, not a char array. To understand the
+# consequences of that, see manuals/development.md#strgenc.
 if [ $# -lt 3 ]; then
 	echo "usage: $progname input output name [label [define [remove_tabs]]]"
 	exit 1
@@ -64,7 +67,7 @@ if [ -n "$remove_tabs" ]; then
 fi
 
 cat<<EOF
-// Copyright (c) 2018-2020 Gavin D. Howard and contributors.
+// Copyright (c) 2018-2021 Gavin D. Howard and contributors.
 // Licensed under the 2-clause BSD license.
 // *** AUTOMATICALLY GENERATED FROM ${input}. DO NOT MODIFY. ***
 

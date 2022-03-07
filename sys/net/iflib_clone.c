@@ -81,13 +81,12 @@ int
 iflib_pseudo_detach(device_t dev)
 {
 	if_ctx_t ctx;
-	uint32_t ifc_flags;
 
 	ctx = device_get_softc(dev);
-	ifc_flags = iflib_get_flags(ctx);
-	if ((ifc_flags & IFC_INIT_DONE) == 0)
-		return (0);
-	return (IFDI_DETACH(ctx));
+	if ((iflib_get_flags(ctx) & (IFC_INIT_DONE | IFC_IN_DETACH)) ==
+	    IFC_INIT_DONE)
+		return (EBUSY);
+	return (0);
 }
 
 static device_t iflib_pseudodev;
@@ -183,9 +182,9 @@ iflib_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 
 	if (__predict_false(iflib_pseudodev == NULL)) {
 		/* SYSINIT initialization would panic !?! */
-		mtx_lock(&Giant);
+		bus_topo_lock();
 		iflib_pseudodev = device_add_child(root_bus, "ifpseudo", 0);
-		mtx_unlock(&Giant);
+		bus_topo_unlock();
 		MPASS(iflib_pseudodev != NULL);
 	}
 	ip = iflib_ip_lookup(name);
@@ -209,9 +208,9 @@ iflib_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	MPASS(devclass_get_device(ip->ip_dc, unit) == dev);
 	rc = iflib_pseudo_register(dev, ip->ip_sctx, &ctx, &clctx);
 	if (rc) {
-		mtx_lock(&Giant);
+		bus_topo_lock();
 		device_delete_child(iflib_pseudodev, dev);
-		mtx_unlock(&Giant);
+		bus_topo_unlock();
 	} else
 		device_set_softc(dev, ctx);
 
@@ -237,9 +236,9 @@ iflib_clone_destroy(if_t ifp)
 	iflib_stop(ctx);
 	sx_xunlock(ctx_lock);
 
-	mtx_lock(&Giant);
+	bus_topo_lock();
 	rc = device_delete_child(iflib_pseudodev, dev);
-	mtx_unlock(&Giant);
+	bus_topo_unlock();
 	if (rc == 0)
 		iflib_pseudo_deregister(ctx);
 }

@@ -87,7 +87,7 @@ VERSION_FILE=	${.CURDIR}/../loader/version
 
 CLEANFILES+=	8x16.c
 
-8x16.c:		${SRCTOP}/contrib/terminus/ter-u16v.bdf
+8x16.c:		${SRCTOP}/contrib/terminus/ter-u16b.bdf
 	vtfontcvt -f compressed-source -o ${.TARGET} ${.ALLSRC}
 
 FILES+=	${LOADER}.efi
@@ -99,6 +99,9 @@ LINKS+=		${BINDIR}/${LOADER}.efi ${BINDIR}/loader.efi
 
 LDSCRIPT=	${.CURDIR}/../loader/arch/${MACHINE}/ldscript.${MACHINE}
 LDFLAGS+=	-Wl,-T${LDSCRIPT},-Bsymbolic,-znotext -pie
+.if ${LINKER_TYPE} == "bfd" && ${LINKER_VERSION} >= 23400
+LDFLAGS+=	-Wl,--no-dynamic-linker
+.endif
 
 CLEANFILES+=	loader.efi
 

@@ -479,6 +479,7 @@ ctlferegister(struct cam_periph *periph, void *arg)
 		    /*getcount_only*/1);
 	}
 
+	memset(&ccb, 0, sizeof(ccb));
 	xpt_setup_ccb(&ccb.ccb_h, periph->path, CAM_PRIORITY_NONE);
 	ccb.ccb_h.func_code = XPT_EN_LUN;
 	ccb.cel.grp6_len = 0;
@@ -613,6 +614,7 @@ ctlfeoninvalidate(struct cam_periph *periph)
 	cam_status status;
 
 	/* Abort all ATIOs and INOTs queued to SIM. */
+	memset(&ccb, 0, sizeof(ccb));
 	xpt_setup_ccb(&ccb.ccb_h, periph->path, CAM_PRIORITY_NONE);
 	ccb.ccb_h.func_code = XPT_ABORT;
 	LIST_FOREACH(hdr, &softc->atio_list, periph_links.le) {
@@ -1394,8 +1396,7 @@ ctlfedone(struct cam_periph *periph, union ccb *done_ccb)
 				xpt_release_ccb(done_ccb);
 				mtx_unlock(mtx);
 
-				/* Call the backend move done callback */
-				io->scsiio.be_move_done(io);
+				ctl_datamove_done(io, false);
 			}
 			return;
 		}
@@ -1491,6 +1492,7 @@ ctlfedone(struct cam_periph *periph, union ccb *done_ccb)
 			ctlfe_free_ccb(periph, done_ccb);
 			goto out;
 		}
+		mtx_unlock(mtx);
 		if (send_ctl_io != 0) {
 			ctl_queue(io);
 		} else {
@@ -1498,7 +1500,7 @@ ctlfedone(struct cam_periph *periph, union ccb *done_ccb)
 			done_ccb->ccb_h.func_code = XPT_NOTIFY_ACKNOWLEDGE;
 			xpt_action(done_ccb);
 		}
-		break;
+		return;
 	}
 	case XPT_NOTIFY_ACKNOWLEDGE:
 		/* Queue this back down to the SIM as an immediate notify. */
@@ -1852,6 +1854,7 @@ ctlfe_dump_queue(struct ctlfe_lun_softc *softc)
 	struct ccb_getdevstats cgds;
 	int num_items;
 
+	memset(&cgds, 0, sizeof(cgds));
 	xpt_setup_ccb(&cgds.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
 	cgds.ccb_h.func_code = XPT_GDEV_STATS;
 	xpt_action((union ccb *)&cgds);
@@ -1909,7 +1912,7 @@ ctlfe_datamove(union ctl_io *io)
 	struct ctlfe_lun_softc *softc;
 
 	KASSERT(io->io_hdr.io_type == CTL_IO_SCSI,
-	    ("Unexpected io_type (%d) in ctlfe_datamove", io->io_hdr.io_type));
+	    ("%s: unexpected I/O type %x", __func__, io->io_hdr.io_type));
 
 	io->scsiio.ext_data_filled = 0;
 	ccb = PRIV_CCB(io);

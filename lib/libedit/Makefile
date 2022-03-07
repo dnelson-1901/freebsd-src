@@ -7,13 +7,13 @@ PACKAGE=clibs
 EDITDIR=	${SRCTOP}/contrib/libedit
 .PATH: ${EDITDIR}
 
-SHLIB_MAJOR=	7
+SHLIB_MAJOR=	8
 SHLIBDIR?= /lib
 
 WARNS?=	3
 LIB=	edit
 
-LIBADD=	ncursesw
+LIBADD=	tinfow
 
 SRCS=	chared.c chartype.c common.c el.c eln.c emacs.c filecomplete.c \
 	hist.c history.c historyn.c keymacro.c literal.c map.c \
@@ -65,7 +65,7 @@ MLINKS=	\
 	editline.3 tok_wreset.3 \
 	editline.3 tok_wstr.3
 
-INCS=	histedit.h
+INCS=	histedit.h filecomplete.h
 
 SRCS+=	common.h emacs.h fcns.h func.h help.h vi.h
 CLEANFILES+= common.h emacs.h fcns.h func.h help.h vi.h

@@ -53,6 +53,7 @@ dmu_tx_stats_t dmu_tx_stats = {
 	{ "dmu_tx_dirty_throttle",	KSTAT_DATA_UINT64 },
 	{ "dmu_tx_dirty_delay",		KSTAT_DATA_UINT64 },
 	{ "dmu_tx_dirty_over_max",	KSTAT_DATA_UINT64 },
+	{ "dmu_tx_wrlog_over_max",	KSTAT_DATA_UINT64 },
 	{ "dmu_tx_dirty_frees_delay",	KSTAT_DATA_UINT64 },
 	{ "dmu_tx_quota",		KSTAT_DATA_UINT64 },
 };
@@ -613,7 +614,8 @@ dmu_tx_dirty_buf(dmu_tx_t *tx, dmu_buf_impl_t *db)
 			/* XXX txh_arg2 better not be zero... */
 
 			dprintf("found txh type %x beginblk=%llx endblk=%llx\n",
-			    txh->txh_type, beginblk, endblk);
+			    txh->txh_type, (u_longlong_t)beginblk,
+			    (u_longlong_t)endblk);
 
 			switch (txh->txh_type) {
 			case THT_WRITE:
@@ -681,8 +683,7 @@ dmu_tx_dirty_buf(dmu_tx_t *tx, dmu_buf_impl_t *db)
  * If we can't do 10 iops, something is wrong.  Let us go ahead
  * and hit zfs_dirty_data_max.
  */
-hrtime_t zfs_delay_max_ns = 100 * MICROSEC; /* 100 milliseconds */
-int zfs_delay_resolution_ns = 100 * 1000; /* 100 microseconds */
+static const hrtime_t zfs_delay_max_ns = 100 * MICROSEC; /* 100 milliseconds */
 
 /*
  * We delay transactions when we've determined that the backend storage
@@ -884,6 +885,12 @@ dmu_tx_try_assign(dmu_tx_t *tx, uint64_t txg_how)
 	}
 
 	if (!tx->tx_dirty_delayed &&
+	    dsl_pool_wrlog_over_max(tx->tx_pool)) {
+		DMU_TX_STAT_BUMP(dmu_tx_wrlog_over_max);
+		return (SET_ERROR(ERESTART));
+	}
+
+	if (!tx->tx_dirty_delayed &&
 	    dsl_pool_need_dirty_delay(tx->tx_pool)) {
 		tx->tx_wait_dirty = B_TRUE;
 		DMU_TX_STAT_BUMP(dmu_tx_dirty_delay);
@@ -1012,6 +1019,22 @@ dmu_tx_unassign(dmu_tx_t *tx)
  * details on the throttle). This is used by the VFS operations, after
  * they have already called dmu_tx_wait() (though most likely on a
  * different tx).
+ *
+ * It is guaranteed that subsequent successful calls to dmu_tx_assign()
+ * will assign the tx to monotonically increasing txgs. Of course this is
+ * not strong monotonicity, because the same txg can be returned multiple
+ * times in a row. This guarantee holds both for subsequent calls from
+ * one thread and for multiple threads. For example, it is impossible to
+ * observe the following sequence of events:
+ *
+ *          Thread 1                            Thread 2
+ *
+ *     dmu_tx_assign(T1, ...)
+ *     1 <- dmu_tx_get_txg(T1)
+ *                                       dmu_tx_assign(T2, ...)
+ *                                       2 <- dmu_tx_get_txg(T2)
+ *     dmu_tx_assign(T3, ...)
+ *     1 <- dmu_tx_get_txg(T3)
  */
 int
 dmu_tx_assign(dmu_tx_t *tx, uint64_t txg_how)

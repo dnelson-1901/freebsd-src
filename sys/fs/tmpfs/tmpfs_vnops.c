@@ -91,13 +91,9 @@ tmpfs_lookup1(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 	struct tmpfs_mount *tm;
 	int error;
 
+	/* Caller assumes responsibility for ensuring access (VEXEC). */
 	dnode = VP_TO_TMPFS_DIR(dvp);
 	*vpp = NULLVP;
-
-	/* Check accessibility of requested node as a first step. */
-	error = vn_dir_check_exec(dvp, cnp);
-	if (error != 0)
-		goto out;
 
 	/* We cannot be requesting the parent directory of the root node. */
 	MPASS(IMPLIES(dnode->tn_type == VDIR &&
@@ -140,7 +136,7 @@ tmpfs_lookup1(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 			    cnp->cn_flags & DOWHITEOUT &&
 			    cnp->cn_flags & ISWHITEOUT))) {
 				error = VOP_ACCESS(dvp, VWRITE, cnp->cn_cred,
-				    cnp->cn_thread);
+				    curthread);
 				if (error != 0)
 					goto out;
 
@@ -184,7 +180,7 @@ tmpfs_lookup1(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 			    (cnp->cn_nameiop == DELETE ||
 			    cnp->cn_nameiop == RENAME)) {
 				error = VOP_ACCESS(dvp, VWRITE, cnp->cn_cred,
-				    cnp->cn_thread);
+				    curthread);
 				if (error != 0)
 					goto out;
 
@@ -196,8 +192,8 @@ tmpfs_lookup1(struct vnode *dvp, struct vnode **vpp, struct componentname *cnp)
 
 				if ((dnode->tn_mode & S_ISTXT) &&
 				  VOP_ACCESS(dvp, VADMIN, cnp->cn_cred,
-				  cnp->cn_thread) && VOP_ACCESS(*vpp, VADMIN,
-				  cnp->cn_cred, cnp->cn_thread)) {
+				  curthread) && VOP_ACCESS(*vpp, VADMIN,
+				  cnp->cn_cred, curthread)) {
 					error = EPERM;
 					vput(*vpp);
 					*vpp = NULL;
@@ -241,8 +237,17 @@ tmpfs_cached_lookup(struct vop_cachedlookup_args *v)
 static int
 tmpfs_lookup(struct vop_lookup_args *v)
 {
+	struct vnode *dvp = v->a_dvp;
+	struct vnode **vpp = v->a_vpp;
+	struct componentname *cnp = v->a_cnp;
+	int error;
 
-	return (tmpfs_lookup1(v->a_dvp, v->a_vpp, v->a_cnp));
+	/* Check accessibility of requested node as a first step. */
+	error = vn_dir_check_exec(dvp, cnp);
+	if (error != 0)
+		return (error);
+
+	return (tmpfs_lookup1(dvp, vpp, cnp));
 }
 
 static int
@@ -272,9 +277,9 @@ tmpfs_mknod(struct vop_mknod_args *v)
 
 	if (vap->va_type != VBLK && vap->va_type != VCHR &&
 	    vap->va_type != VFIFO)
-		return EINVAL;
+		return (EINVAL);
 
-	return tmpfs_alloc_file(dvp, vpp, vap, cnp, NULL);
+	return (tmpfs_alloc_file(dvp, vpp, vap, cnp, NULL));
 }
 
 struct fileops tmpfs_fnops;
@@ -512,7 +517,7 @@ tmpfs_getattr(struct vop_getattr_args *v)
 		vap->va_bytes = node->tn_size;
 	vap->va_filerev = 0;
 
-	return 0;
+	return (0);
 }
 
 int
@@ -570,7 +575,7 @@ tmpfs_setattr(struct vop_setattr_args *v)
 
 	MPASS(VOP_ISLOCKED(vp));
 
-	return error;
+	return (error);
 }
 
 static int
@@ -618,8 +623,9 @@ tmpfs_read_pgcache(struct vop_read_pgcache_args *v)
 	if (object == NULL)
 		goto out_smr;
 
-	MPASS((object->flags & (OBJ_ANON | OBJ_DEAD | OBJ_TMPFS_NODE)) ==
-	    OBJ_TMPFS_NODE);
+	MPASS(object->type == tmpfs_pager_type);
+	MPASS((object->flags & (OBJ_ANON | OBJ_DEAD | OBJ_SWAP)) ==
+	    OBJ_SWAP);
 	if (!VN_IS_DOOMED(vp)) {
 		/* size cannot become shorter due to rangelock. */
 		size = node->tn_size;
@@ -690,6 +696,12 @@ out:
 }
 
 static int
+tmpfs_deallocate(struct vop_deallocate_args *v)
+{
+	return (tmpfs_reg_punch_hole(v->a_vp, v->a_offset, v->a_len));
+}
+
+static int
 tmpfs_fsync(struct vop_fsync_args *v)
 {
 	struct vnode *vp = v->a_vp;
@@ -699,7 +711,7 @@ tmpfs_fsync(struct vop_fsync_args *v)
 	tmpfs_check_mtime(vp);
 	tmpfs_update(vp);
 
-	return 0;
+	return (0);
 }
 
 static int
@@ -802,7 +814,7 @@ tmpfs_link(struct vop_link_args *v)
 	error = 0;
 
 out:
-	return error;
+	return (error);
 }
 
 /*
@@ -1258,7 +1270,7 @@ tmpfs_mkdir(struct vop_mkdir_args *v)
 
 	MPASS(vap->va_type == VDIR);
 
-	return tmpfs_alloc_file(dvp, vpp, vap, cnp, NULL);
+	return (tmpfs_alloc_file(dvp, vpp, vap, cnp, NULL));
 }
 
 static int
@@ -1349,7 +1361,7 @@ tmpfs_rmdir(struct vop_rmdir_args *v)
 	error = 0;
 
 out:
-	return error;
+	return (error);
 }
 
 static int
@@ -1367,7 +1379,7 @@ tmpfs_symlink(struct vop_symlink_args *v)
 	vap->va_type = VLNK;
 #endif
 
-	return tmpfs_alloc_file(dvp, vpp, vap, cnp, target);
+	return (tmpfs_alloc_file(dvp, vpp, vap, cnp, target));
 }
 
 static int
@@ -1377,7 +1389,7 @@ tmpfs_readdir(struct vop_readdir_args *va)
 	struct uio *uio;
 	struct tmpfs_mount *tm;
 	struct tmpfs_node *node;
-	u_long **cookies;
+	uint64_t **cookies;
 	int *eofflag, *ncookies;
 	ssize_t startresid;
 	int error, maxcookies;
@@ -1390,7 +1402,7 @@ tmpfs_readdir(struct vop_readdir_args *va)
 
 	/* This operation only makes sense on directory nodes. */
 	if (vp->v_type != VDIR)
-		return ENOTDIR;
+		return (ENOTDIR);
 
 	maxcookies = 0;
 	node = VP_TO_TMPFS_DIR(vp);
@@ -1427,7 +1439,7 @@ tmpfs_readdir(struct vop_readdir_args *va)
 		*eofflag =
 		    (error == 0 && uio->uio_offset == TMPFS_DIRCOOKIE_EOF);
 
-	return error;
+	return (error);
 }
 
 static int
@@ -1444,11 +1456,37 @@ tmpfs_readlink(struct vop_readlink_args *v)
 
 	node = VP_TO_TMPFS_NODE(vp);
 
-	error = uiomove(node->tn_link, MIN(node->tn_size, uio->uio_resid),
+	error = uiomove(node->tn_link_target, MIN(node->tn_size, uio->uio_resid),
 	    uio);
 	tmpfs_set_accessed(VFS_TO_TMPFS(vp->v_mount), node);
 
 	return (error);
+}
+
+/*
+ * VOP_FPLOOKUP_SYMLINK routines are subject to special circumstances, see
+ * the comment above cache_fplookup for details.
+ *
+ * Check tmpfs_alloc_node for tmpfs-specific synchronisation notes.
+ */
+static int
+tmpfs_fplookup_symlink(struct vop_fplookup_symlink_args *v)
+{
+	struct vnode *vp;
+	struct tmpfs_node *node;
+	char *symlink;
+
+	vp = v->a_vp;
+	node = VP_TO_TMPFS_NODE_SMR(vp);
+	if (__predict_false(node == NULL))
+		return (EAGAIN);
+	if (!atomic_load_char(&node->tn_link_smr))
+		return (EAGAIN);
+	symlink = atomic_load_ptr(&node->tn_link_target);
+	if (symlink == NULL)
+		return (EAGAIN);
+
+	return (cache_symlink_resolve(v->a_fpl, symlink, node->tn_size));
 }
 
 static int
@@ -1493,26 +1531,18 @@ tmpfs_reclaim(struct vop_reclaim_args *v)
 	struct vnode *vp;
 	struct tmpfs_mount *tmp;
 	struct tmpfs_node *node;
-	bool unlock, tm_locked;
+	bool unlock;
 
 	vp = v->a_vp;
 	node = VP_TO_TMPFS_NODE(vp);
 	tmp = VFS_TO_TMPFS(vp->v_mount);
-	tm_locked = false;
 
 	if (vp->v_type == VREG)
 		tmpfs_destroy_vobject(vp, node->tn_reg.tn_aobj);
 	vp->v_object = NULL;
 
-relock:
+	TMPFS_LOCK(tmp);
 	TMPFS_NODE_LOCK(node);
-	if (!tm_locked && node->tn_links == 0 &&
-	    (node->tn_vpstate & TMPFS_VNODE_ALLOCATING) == 0) {
-		TMPFS_NODE_UNLOCK(node);
-		TMPFS_LOCK(tmp);
-		tm_locked = true;
-		goto relock;
-	}
 	tmpfs_free_vp(vp);
 
 	/*
@@ -1520,19 +1550,16 @@ relock:
 	 * we must free its associated data structures (now that the vnode
 	 * is being reclaimed).
 	 */
+	unlock = true;
 	if (node->tn_links == 0 &&
 	    (node->tn_vpstate & TMPFS_VNODE_ALLOCATING) == 0) {
-		MPASS(tm_locked);
 		node->tn_vpstate = TMPFS_VNODE_DOOMED;
 		unlock = !tmpfs_free_node_locked(tmp, node, true);
-	} else {
-		unlock = true;
 	}
 
 	if (unlock) {
 		TMPFS_NODE_UNLOCK(node);
-		if (tm_locked)
-			TMPFS_UNLOCK(tmp);
+		TMPFS_UNLOCK(tmp);
 	}
 
 	MPASS(vp->v_data == NULL);
@@ -1559,7 +1586,7 @@ tmpfs_print(struct vop_print_args *v)
 
 	printf("\n");
 
-	return 0;
+	return (0);
 }
 
 int
@@ -1576,6 +1603,10 @@ tmpfs_pathconf(struct vop_pathconf_args *v)
 	switch (name) {
 	case _PC_LINK_MAX:
 		*retval = TMPFS_LINK_MAX;
+		break;
+
+	case _PC_SYMLINK_MAX:
+		*retval = MAXPATHLEN;
 		break;
 
 	case _PC_NAME_MAX:
@@ -1609,7 +1640,7 @@ tmpfs_pathconf(struct vop_pathconf_args *v)
 		error = vop_stdpathconf(v);
 	}
 
-	return error;
+	return (error);
 }
 
 static int
@@ -1807,6 +1838,7 @@ struct vop_vector tmpfs_vnodeop_entries = {
 	.vop_open =			tmpfs_open,
 	.vop_close =			tmpfs_close,
 	.vop_fplookup_vexec =		tmpfs_fplookup_vexec,
+	.vop_fplookup_symlink =		tmpfs_fplookup_symlink,
 	.vop_access =			tmpfs_access,
 	.vop_stat =			tmpfs_stat,
 	.vop_getattr =			tmpfs_getattr,
@@ -1814,6 +1846,7 @@ struct vop_vector tmpfs_vnodeop_entries = {
 	.vop_read =			tmpfs_read,
 	.vop_read_pgcache =		tmpfs_read_pgcache,
 	.vop_write =			tmpfs_write,
+	.vop_deallocate =		tmpfs_deallocate,
 	.vop_fsync =			tmpfs_fsync,
 	.vop_remove =			tmpfs_remove,
 	.vop_link =			tmpfs_link,
@@ -1835,6 +1868,7 @@ struct vop_vector tmpfs_vnodeop_entries = {
 	.vop_lock1 =			vop_lock,
 	.vop_unlock = 			vop_unlock,
 	.vop_islocked = 		vop_islocked,
+	.vop_add_writecount =		vop_stdadd_writecount_nomsync,
 };
 VFS_VOP_VECTOR_REGISTER(tmpfs_vnodeop_entries);
 

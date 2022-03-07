@@ -853,12 +853,12 @@ mqfs_lookupx(struct vop_cachedlookup_args *ap)
 	char *pname;
 	struct thread *td;
 
+	td = curthread;
 	cnp = ap->a_cnp;
 	vpp = ap->a_vpp;
 	dvp = ap->a_dvp;
 	pname = cnp->cn_nameptr;
 	namelen = cnp->cn_namelen;
-	td = cnp->cn_thread;
 	flags = cnp->cn_flags;
 	nameiop = cnp->cn_nameiop;
 	pd = VTON(dvp);
@@ -869,7 +869,7 @@ mqfs_lookupx(struct vop_cachedlookup_args *ap)
 	if (dvp->v_type != VDIR)
 		return (ENOTDIR);
 
-	error = VOP_ACCESS(dvp, VEXEC, cnp->cn_cred, cnp->cn_thread);
+	error = VOP_ACCESS(dvp, VEXEC, cnp->cn_cred, td);
 	if (error)
 		return (error);
 
@@ -1369,7 +1369,7 @@ struct vop_readdir_args {
 	struct ucred *a_cred;
 	int *a_eofflag;
 	int *a_ncookies;
-	u_long **a_cookies;
+	uint64_t **a_cookies;
 };
 #endif
 
@@ -1564,29 +1564,26 @@ mqfs_prison_remove(void *obj, void *data __unused)
 	const struct prison *pr = obj;
 	struct prison *tpr;
 	struct mqfs_node *pn, *tpn;
-	int found;
+	struct vnode *pr_root;
 
-	found = 0;
+	pr_root = pr->pr_root;
+	if (pr->pr_parent->pr_root == pr_root)
+		return (0);
 	TAILQ_FOREACH(tpr, &allprison, pr_list) {
-		prison_lock(tpr);
-		if (tpr != pr && prison_isvalid(tpr) &&
-		    tpr->pr_root == pr->pr_root)
-			found = 1;
-		prison_unlock(tpr);
+		if (tpr != pr && tpr->pr_root == pr_root)
+			return (0);
 	}
-	if (!found) {
-		/*
-		 * No jails are rooted in this directory anymore,
-		 * so no queues should be either.
-		 */
-		sx_xlock(&mqfs_data.mi_lock);
-		LIST_FOREACH_SAFE(pn, &mqfs_data.mi_root->mn_children,
-		    mn_sibling, tpn) {
-			if (pn->mn_pr_root == pr->pr_root)
-				(void)do_unlink(pn, curthread->td_ucred);
-		}
-		sx_xunlock(&mqfs_data.mi_lock);
+	/*
+	 * No jails are rooted in this directory anymore,
+	 * so no queues should be either.
+	 */
+	sx_xlock(&mqfs_data.mi_lock);
+	LIST_FOREACH_SAFE(pn, &mqfs_data.mi_root->mn_children,
+	    mn_sibling, tpn) {
+		if (pn->mn_pr_root == pr_root)
+			(void)do_unlink(pn, curthread->td_ucred);
 	}
+	sx_xunlock(&mqfs_data.mi_lock);
 	return (0);
 }
 
@@ -2353,7 +2350,7 @@ kern_kmq_notify(struct thread *td, int mqd, struct sigevent *sigev)
 		return (error);
 again:
 	FILEDESC_SLOCK(fdp);
-	fp2 = fget_locked(fdp, mqd);
+	fp2 = fget_noref(fdp, mqd);
 	if (fp2 == NULL) {
 		FILEDESC_SUNLOCK(fdp);
 		error = EBADF;
@@ -2485,7 +2482,7 @@ mq_proc_exit(void *arg __unused, struct proc *p)
 	fdp = p->p_fd;
 	FILEDESC_SLOCK(fdp);
 	for (i = 0; i < fdp->fd_nfiles; ++i) {
-		fp = fget_locked(fdp, i);
+		fp = fget_noref(fdp, i);
 		if (fp != NULL && fp->f_ops == &mqueueops) {
 			mq = FPTOMQ(fp);
 			mtx_lock(&mq->mq_mutex);
@@ -2540,8 +2537,7 @@ mqf_close(struct file *fp, struct thread *td)
 }
 
 static int
-mqf_stat(struct file *fp, struct stat *st, struct ucred *active_cred,
-	struct thread *td)
+mqf_stat(struct file *fp, struct stat *st, struct ucred *active_cred)
 {
 	struct mqfs_node *pn = fp->f_data;
 

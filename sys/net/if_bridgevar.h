@@ -76,9 +76,13 @@
  * Data structure and control definitions for bridge interfaces.
  */
 
+#include <sys/types.h>
 #include <sys/callout.h>
 #include <sys/queue.h>
 #include <sys/condvar.h>
+
+#include <net/ethernet.h>
+#include <net/if.h>
 
 /*
  * Commands used in the SIOCSDRVSPEC ioctl.  Note the lookup of the
@@ -278,15 +282,15 @@ struct ifbpstpconf {
     "discarding"
 
 #define STP_PROTOS \
-    "stp"          \
-    "-"            \
+    "stp",         \
+    "-",           \
     "rstp"
 
 #define STP_ROLES \
-    "disabled"    \
-    "root"        \
-    "designated"  \
-    "alternate"   \
+    "disabled",   \
+    "root",       \
+    "designated", \
+    "alternate",  \
     "backup"
 
 #define PV2ID(pv, epri, eaddr)	do { \

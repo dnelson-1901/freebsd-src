@@ -156,6 +156,13 @@ qlnxr_register_device(qlnxr_dev_t *dev)
 
 	ibdev = &dev->ibdev;
 
+#define qlnxr_ib_ah qlnxr_ah
+#define qlnxr_ib_cq qlnxr_cq
+#define qlnxr_ib_pd qlnxr_pd
+#define qlnxr_ib_qp qlnxr_qp
+#define qlnxr_ib_srq qlnxr_srq
+#define qlnxr_ib_ucontext qlnxr_ucontext
+	INIT_IB_DEVICE_OPS(&ibdev->ops, qlnxr, QLNXR);
 	strlcpy(ibdev->name, "qlnxr%d", IB_DEVICE_NAME_MAX);
 
 	memset(&ibdev->node_guid, 0, sizeof(ibdev->node_guid));
@@ -257,7 +264,7 @@ qlnxr_register_device(qlnxr_dev_t *dev)
         ibdev->post_recv = qlnxr_post_recv;
 	ibdev->process_mad = qlnxr_process_mad;
 
-        ibdev->dma_device = &dev->pdev->dev;
+	ibdev->dma_device = &dev->pdev.dev;
 
 	ibdev->get_link_layer = qlnxr_link_layer;
         
@@ -1097,11 +1104,7 @@ qlnxr_add(void *eth_dev)
 	dev->ha = eth_dev;
 	dev->cdev = &ha->cdev;
 	/* Added to extend Application support */
-	dev->pdev = kzalloc(sizeof(struct pci_dev), GFP_KERNEL);
-
-        dev->pdev->dev = *(dev->ha->pci_dev);
-        dev->pdev->device = pci_get_device(dev->ha->pci_dev);
-        dev->pdev->vendor = pci_get_vendor(dev->ha->pci_dev);
+	linux_pci_attach_device(dev->ha->pci_dev, NULL, NULL, &dev->pdev);
 
 	dev->rdma_ctx = &ha->cdev.hwfns[0];
 	dev->wq_multiplier = wq_multiplier;
@@ -1209,6 +1212,8 @@ qlnxr_remove(void *eth_dev, void *qlnx_rdma_dev)
 
 	qlnxr_remove_sysfiles(dev);
 	ib_dealloc_device(&dev->ibdev);
+
+	linux_pci_detach_device(&dev->pdev);
 
 	QL_DPRINT12(ha, "exit ha = %p qlnx_rdma_dev = %p\n", ha, qlnx_rdma_dev);
 	return (0);

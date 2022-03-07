@@ -49,12 +49,12 @@ extern vm_paddr_t intel_graphics_stolen_size;
 
 extern int la57;
 
-/*
- * The file "conf/ldscript.amd64" defines the symbol "kernphys".  Its
- * value is the physical address at which the kernel is loaded.
- */
-extern char kernphys[];
+extern vm_paddr_t kernphys;
+extern vm_paddr_t KERNend;
 
+extern bool efi_boot;
+
+struct	__mcontext;
 struct	savefpu;
 struct	sysentvec;
 
@@ -85,10 +85,13 @@ void	gsbase_load_fault(void) __asm(__STRING(gsbase_load_fault));
 void	fpstate_drop(struct thread *td);
 void	pagezero(void *addr);
 void	setidt(int idx, alias_for_inthand_t *func, int typ, int dpl, int ist);
-void	sse2_pagezero(void *addr);
 void	set_top_of_stack_td(struct thread *td);
 struct savefpu *get_pcb_user_save_td(struct thread *td);
 struct savefpu *get_pcb_user_save_pcb(struct pcb *pcb);
 void	pci_early_quirks(void);
+void	get_fpcontext(struct thread *td, struct __mcontext *mcp,
+	    char **xfpusave, size_t *xfpusave_len);
+int	set_fpcontext(struct thread *td, struct __mcontext *mcp,
+	    char *xfpustate, size_t xfpustate_len);
 
 #endif /* !_MACHINE_MD_VAR_H_ */

@@ -28,8 +28,8 @@
  *
  * $FreeBSD$
  */
-#ifndef	_LINUX_KOBJECT_H_
-#define	_LINUX_KOBJECT_H_
+#ifndef	_LINUXKPI_LINUX_KOBJECT_H_
+#define	_LINUXKPI_LINUX_KOBJECT_H_
 
 #include <machine/stdarg.h>
 
@@ -40,6 +40,8 @@
 
 struct kobject;
 struct sysctl_oid;
+
+#define	KOBJ_CHANGE		0x01
 
 struct kobj_type {
 	void (*release)(struct kobject *kobj);
@@ -65,6 +67,8 @@ struct attribute {
 	struct module	*owner;
 	mode_t		mode;
 };
+
+extern const struct sysfs_ops kobj_sysfs_ops;
 
 struct kobj_attribute {
 	struct attribute attr;
@@ -151,4 +155,16 @@ int	kobject_set_name(struct kobject *kobj, const char *fmt, ...);
 int	kobject_init_and_add(struct kobject *kobj, const struct kobj_type *ktype,
 	    struct kobject *parent, const char *fmt, ...);
 
-#endif /* _LINUX_KOBJECT_H_ */
+static __inline void
+kobject_uevent_env(struct kobject *kobj, int action, char *envp[])
+{
+
+	/*
+	 * iwlwifi(4) sends an INACCESSIBLE event when it detects that the card
+	 * (pice endpoint) is gone and it attempts a removal cleanup.
+	 * Not sure if we do anything related to udev/sysfs at the moment or
+	 * need a shortcut or simply ignore it (for now).
+	 */
+}
+
+#endif /* _LINUXKPI_LINUX_KOBJECT_H_ */

@@ -34,9 +34,8 @@
 #include <sys/dsl_dataset.h>
 #include <sys/spa.h>
 #include <sys/objlist.h>
-#include <sys/dsl_bookmark.h>
 
-extern const char *recv_clone_name;
+extern const char *const recv_clone_name;
 
 typedef struct dmu_recv_cookie {
 	struct dsl_dataset *drc_ds;

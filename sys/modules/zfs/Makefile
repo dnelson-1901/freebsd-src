@@ -8,6 +8,7 @@ KMOD=	zfs
 .PATH:	${SRCDIR}/avl \
 	${SRCDIR}/lua \
 	${SRCDIR}/nvpair \
+	${SRCDIR}/icp/algs/edonr \
 	${SRCDIR}/os/freebsd/spl \
 	${SRCDIR}/os/freebsd/zfs \
 	${SRCDIR}/unicode \
@@ -22,8 +23,6 @@ CFLAGS+= -I${INCDIR}/os/freebsd
 CFLAGS+= -I${INCDIR}/os/freebsd/spl
 CFLAGS+= -I${INCDIR}/os/freebsd/zfs
 CFLAGS+= -I${SRCDIR}/zstd/include
-CFLAGS+= -include ${INCDIR}/os/freebsd/spl/sys/ccompile.h
-CFLAGS+= -include ${SRCTOP}/sys/modules/zfs/static_ccompile.h
 CFLAGS+= -I${.CURDIR}
 
 CFLAGS+= -D__KERNEL__ -DFREEBSD_NAMECACHE -DBUILDING_ZFS \
@@ -45,6 +44,9 @@ SRCS=	vnode_if.h device_if.h bus_if.h
 
 # avl
 SRCS+=	avl.c
+
+# icp
+SRCS+=	edonr.c
 
 #lua
 SRCS+=	lapi.c \
@@ -126,6 +128,7 @@ SRCS+=	abd_os.c \
 	zfs_ioctl_compat.c \
 	zfs_ioctl_os.c \
 	zfs_log.c \
+	zfs_racct.c \
 	zfs_replay.c \
 	zfs_vfsops.c \
 	zfs_vnops_os.c \
@@ -192,10 +195,12 @@ SRCS+=	abd.c \
 	dsl_scan.c \
 	dsl_synctask.c \
 	dsl_userhold.c \
+	edonr_zfs.c \
 	fm.c \
 	gzip.c \
 	lzjb.c \
 	lz4.c \
+	lz4_zfs.c \
 	metaslab.c \
 	mmp.c \
 	multilist.c \
@@ -282,6 +287,10 @@ SRCS+=	zfs_zstd.c \
 
 .include <bsd.kmod.mk>
 
+CFLAGS+= -include ${SRCTOP}/sys/cddl/compat/opensolaris/sys/debug_compat.h
+CFLAGS+= -include ${INCDIR}/os/freebsd/spl/sys/ccompile.h
+CFLAGS+= -include ${SRCTOP}/sys/modules/zfs/static_ccompile.h
+
 CWARNFLAGS+=	${OPENZFS_CWARNFLAGS}
 
 CFLAGS.gcc+= -Wno-pointer-to-int-cast
@@ -310,8 +319,10 @@ CFLAGS.dmu_traverse.c= -Wno-cast-qual
 CFLAGS.dsl_dir.c= -Wno-cast-qual
 CFLAGS.dsl_deadlist.c= -Wno-cast-qual
 CFLAGS.dsl_prop.c= -Wno-cast-qual
+CFLAGS.edonr.c= -Wno-cast-qual
 CFLAGS.fm.c= -Wno-cast-qual
 CFLAGS.lz4.c= -Wno-cast-qual
+CFLAGS.lz4_zfs.c= -Wno-cast-qual
 CFLAGS.spa.c= -Wno-cast-qual
 CFLAGS.spa_misc.c= -Wno-cast-qual
 CFLAGS.sysctl_os.c= -include ${SRCTOP}/sys/modules/zfs/zfs_config.h
@@ -335,3 +346,4 @@ CFLAGS.zstd.c= -U__BMI__ -fno-tree-vectorize
 .if ${MACHINE_CPUARCH} == "aarch64"
 CFLAGS.zstd.c+= -include ${SRCDIR}/zstd/include/aarch64_compat.h
 .endif
+CFLAGS.zstd.c+= ${NO_WBITWISE_INSTEAD_OF_LOGICAL}

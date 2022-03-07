@@ -9,7 +9,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2020, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2021, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -737,7 +737,7 @@ AcpiDsExecEndOp (
             if (ACPI_SUCCESS (Status))
             {
                 Status = AcpiExWriteDataToField (ObjDesc, Op->Common.Node->Object, NULL);
-                if ACPI_FAILURE (Status)
+                if (ACPI_FAILURE (Status))
                 {
                     ACPI_EXCEPTION ((AE_INFO, Status, "While writing to buffer field"));
                 }
@@ -772,8 +772,7 @@ AcpiDsExecEndOp (
                     break;
                 }
 
-                /* Fall through */
-                /*lint -fallthrough */
+                ACPI_FALLTHROUGH;
 
             case AML_INT_EVAL_SUBTREE_OP:
 

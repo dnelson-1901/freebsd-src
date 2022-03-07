@@ -53,9 +53,15 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/openfirm.h>
 #include <machine/ofw_machdep.h>
 
+#include <powerpc/powermac/platform_powermac.h>
+
 #include "platform_if.h"
 
-extern void *ap_pcpu;
+extern volatile void *ap_pcpu;
+
+static void dummy_timebase(device_t, bool);
+static device_t powermac_tb_dev;
+static void (*freeze_timebase)(device_t, bool) = dummy_timebase;
 
 static int powermac_probe(platform_t);
 static int powermac_attach(platform_t);
@@ -68,7 +74,9 @@ static int powermac_smp_get_bsp(platform_t, struct cpuref *cpuref);
 static int powermac_smp_start_cpu(platform_t, struct pcpu *cpu);
 static void powermac_smp_timebase_sync(platform_t, u_long tb, int ap);
 static void powermac_reset(platform_t);
+#ifndef __powerpc64__
 static void powermac_sleep(platform_t);
+#endif
 
 static platform_method_t powermac_methods[] = {
 	PLATFORMMETHOD(platform_probe, 		powermac_probe),
@@ -83,7 +91,9 @@ static platform_method_t powermac_methods[] = {
 	PLATFORMMETHOD(platform_smp_timebase_sync, powermac_smp_timebase_sync),
 
 	PLATFORMMETHOD(platform_reset,		powermac_reset),
+#ifndef __powerpc64__
 	PLATFORMMETHOD(platform_sleep,		powermac_sleep),
+#endif
 
 	PLATFORMMETHOD_END
 };
@@ -391,11 +401,62 @@ powermac_smp_start_cpu(platform_t plat, struct pcpu *pc)
 #endif
 }
 
+void
+powermac_register_timebase(device_t dev, powermac_tb_disable_t cb)
+{
+	powermac_tb_dev = dev;
+	freeze_timebase = cb;
+}
+
 static void
 powermac_smp_timebase_sync(platform_t plat, u_long tb, int ap)
 {
+	static volatile bool tb_ready;
+	static volatile int cpu_done;
 
+	/*
+	 * XXX Temporary fallback for platforms we don't know how to freeze.
+	 *
+	 * This needs to be replaced with a cpu-to-cpu software sync
+	 * protocol, because this is not a consistent way to sync timebase.
+	 */
 	mttb(tb);
+	if (freeze_timebase == dummy_timebase)
+		return;
+
+	if (ap) {
+		/* APs.  Hold off until we get a stable timebase. */
+		critical_enter();
+		while (!tb_ready)
+			atomic_thread_fence_seq_cst();
+		mttb(tb);
+		atomic_add_int(&cpu_done, 1);
+		while (cpu_done < mp_ncpus)
+			atomic_thread_fence_seq_cst();
+		critical_exit();
+	} else {
+		/* BSP */
+		critical_enter();
+		/* Ensure cpu_done is zeroed so we can resync at runtime */
+		atomic_set_int(&cpu_done, 0);
+		freeze_timebase(powermac_tb_dev, true);
+		tb_ready = true;
+		mttb(tb);
+		atomic_add_int(&cpu_done, 1);
+		while (cpu_done < mp_ncpus)
+			atomic_thread_fence_seq_cst();
+		freeze_timebase(powermac_tb_dev, false);
+		/* Reset tb_ready so we can resync at runtime */
+		tb_ready = false;
+		critical_exit();
+	}
+}
+
+/* Fallback freeze. In case no real handler is found in the device tree. */
+static void
+dummy_timebase(device_t dev, bool freeze)
+{
+	/* Nothing to do here, move along. */
 }
 
 static void
@@ -404,10 +465,17 @@ powermac_reset(platform_t platform)
 	OF_reboot();
 }
 
+#ifndef __powerpc64__
 void
 powermac_sleep(platform_t platform)
 {
+	/* Only supports MPC745x for now. */
+	if (!MPC745X_P(mfspr(SPR_PVR) >> 16)) {
+		printf("sleep only supported for G4 PowerMac hardware.\n");
+		return;
+	}
 
 	*(unsigned long *)0x80 = 0x100;
-	cpu_sleep();
+	mpc745x_sleep();
 }
+#endif

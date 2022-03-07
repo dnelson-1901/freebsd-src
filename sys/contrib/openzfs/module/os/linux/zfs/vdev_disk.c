@@ -37,6 +37,9 @@
 #include <linux/blkpg.h>
 #include <linux/msdos_fs.h>
 #include <linux/vfs_compat.h>
+#ifdef HAVE_LINUX_BLK_CGROUP_HEADER
+#include <linux/blk-cgroup.h>
+#endif
 
 typedef struct vdev_disk {
 	struct block_device		*vd_bdev;
@@ -265,6 +268,11 @@ vdev_disk_open(vdev_t *v, uint64_t *psize, uint64_t *max_psize,
 	 * a ENOENT failure at this point is highly likely to be transient
 	 * and it is reasonable to sleep and retry before giving up.  In
 	 * practice delays have been observed to be on the order of 100ms.
+	 *
+	 * When ERESTARTSYS is returned it indicates the block device is
+	 * a zvol which could not be opened due to the deadlock detection
+	 * logic in zvol_open().  Extend the timeout and retry the open
+	 * subsequent attempts are expected to eventually succeed.
 	 */
 	hrtime_t start = gethrtime();
 	bdev = ERR_PTR(-ENXIO);
@@ -273,6 +281,9 @@ vdev_disk_open(vdev_t *v, uint64_t *psize, uint64_t *max_psize,
 		    zfs_vdev_holder);
 		if (unlikely(PTR_ERR(bdev) == -ENOENT)) {
 			schedule_timeout(MSEC_TO_TICK(10));
+		} else if (unlikely(PTR_ERR(bdev) == -ERESTARTSYS)) {
+			timeout = MSEC2NSEC(zfs_vdev_open_timeout_ms * 10);
+			continue;
 		} else if (IS_ERR(bdev)) {
 			break;
 		}
@@ -350,19 +361,14 @@ vdev_disk_close(vdev_t *v)
 static dio_request_t *
 vdev_disk_dio_alloc(int bio_count)
 {
-	dio_request_t *dr;
-	int i;
-
-	dr = kmem_zalloc(sizeof (dio_request_t) +
+	dio_request_t *dr = kmem_zalloc(sizeof (dio_request_t) +
 	    sizeof (struct bio *) * bio_count, KM_SLEEP);
-	if (dr) {
-		atomic_set(&dr->dr_ref, 0);
-		dr->dr_bio_count = bio_count;
-		dr->dr_error = 0;
+	atomic_set(&dr->dr_ref, 0);
+	dr->dr_bio_count = bio_count;
+	dr->dr_error = 0;
 
-		for (i = 0; i < dr->dr_bio_count; i++)
-			dr->dr_bio[i] = NULL;
-	}
+	for (int i = 0; i < dr->dr_bio_count; i++)
+		dr->dr_bio[i] = NULL;
 
 	return (dr);
 }
@@ -438,9 +444,9 @@ static inline void
 vdev_submit_bio_impl(struct bio *bio)
 {
 #ifdef HAVE_1ARG_SUBMIT_BIO
-	submit_bio(bio);
+	(void) submit_bio(bio);
 #else
-	submit_bio(0, bio);
+	(void) submit_bio(0, bio);
 #endif
 }
 
@@ -490,6 +496,7 @@ vdev_blkg_tryget(struct blkcg_gq *blkg)
 #elif defined(HAVE_BLKG_TRYGET)
 #define	vdev_blkg_tryget(bg)	blkg_tryget(bg)
 #endif
+#ifdef HAVE_BIO_SET_DEV_MACRO
 /*
  * The Linux 5.0 kernel updated the bio_set_dev() macro so it calls the
  * GPL-only bio_associate_blkg() symbol thus inadvertently converting
@@ -499,7 +506,11 @@ vdev_blkg_tryget(struct blkcg_gq *blkg)
 static inline void
 vdev_bio_associate_blkg(struct bio *bio)
 {
+#if defined(HAVE_BIO_BDEV_DISK)
+	struct request_queue *q = bio->bi_bdev->bd_disk->queue;
+#else
 	struct request_queue *q = bio->bi_disk->queue;
+#endif
 
 	ASSERT3P(q, !=, NULL);
 	ASSERT3P(bio->bi_blkg, ==, NULL);
@@ -507,7 +518,30 @@ vdev_bio_associate_blkg(struct bio *bio)
 	if (q->root_blkg && vdev_blkg_tryget(q->root_blkg))
 		bio->bi_blkg = q->root_blkg;
 }
+
 #define	bio_associate_blkg vdev_bio_associate_blkg
+#else
+static inline void
+vdev_bio_set_dev(struct bio *bio, struct block_device *bdev)
+{
+#if defined(HAVE_BIO_BDEV_DISK)
+	struct request_queue *q = bdev->bd_disk->queue;
+#else
+	struct request_queue *q = bio->bi_disk->queue;
+#endif
+	bio_clear_flag(bio, BIO_REMAPPED);
+	if (bio->bi_bdev != bdev)
+		bio_clear_flag(bio, BIO_THROTTLED);
+	bio->bi_bdev = bdev;
+
+	ASSERT3P(q, !=, NULL);
+	ASSERT3P(bio->bi_blkg, ==, NULL);
+
+	if (q->root_blkg && vdev_blkg_tryget(q->root_blkg))
+		bio->bi_blkg = q->root_blkg;
+}
+#define	bio_set_dev		vdev_bio_set_dev
+#endif
 #endif
 #else
 /*
@@ -536,8 +570,9 @@ __vdev_disk_physio(struct block_device *bdev, zio_t *zio,
 	dio_request_t *dr;
 	uint64_t abd_offset;
 	uint64_t bio_offset;
-	int bio_size, bio_count = 16;
-	int i = 0, error = 0;
+	int bio_size;
+	int bio_count = 16;
+	int error = 0;
 	struct blk_plug plug;
 
 	/*
@@ -546,14 +581,14 @@ __vdev_disk_physio(struct block_device *bdev, zio_t *zio,
 	if (io_offset + io_size > bdev->bd_inode->i_size) {
 		vdev_dbgmsg(zio->io_vd,
 		    "Illegal access %llu size %llu, device size %llu",
-		    io_offset, io_size, i_size_read(bdev->bd_inode));
+		    (u_longlong_t)io_offset,
+		    (u_longlong_t)io_size,
+		    (u_longlong_t)i_size_read(bdev->bd_inode));
 		return (SET_ERROR(EIO));
 	}
 
 retry:
 	dr = vdev_disk_dio_alloc(bio_count);
-	if (dr == NULL)
-		return (SET_ERROR(ENOMEM));
 
 	if (zio && !(zio->io_flags & (ZIO_FLAG_IO_RETRY | ZIO_FLAG_TRYHARD)))
 		bio_set_flags_failfast(bdev, &flags);
@@ -561,26 +596,28 @@ retry:
 	dr->dr_zio = zio;
 
 	/*
-	 * When the IO size exceeds the maximum bio size for the request
-	 * queue we are forced to break the IO in multiple bio's and wait
-	 * for them all to complete.  Ideally, all pool users will set
-	 * their volume block size to match the maximum request size and
-	 * the common case will be one bio per vdev IO request.
+	 * Since bio's can have up to BIO_MAX_PAGES=256 iovec's, each of which
+	 * is at least 512 bytes and at most PAGESIZE (typically 4K), one bio
+	 * can cover at least 128KB and at most 1MB.  When the required number
+	 * of iovec's exceeds this, we are forced to break the IO in multiple
+	 * bio's and wait for them all to complete.  This is likely if the
+	 * recordsize property is increased beyond 1MB.  The default
+	 * bio_count=16 should typically accommodate the maximum-size zio of
+	 * 16MB.
 	 */
 
 	abd_offset = 0;
 	bio_offset = io_offset;
-	bio_size   = io_size;
-	for (i = 0; i <= dr->dr_bio_count; i++) {
+	bio_size = io_size;
+	for (int i = 0; i <= dr->dr_bio_count; i++) {
 
 		/* Finished constructing bio's for given buffer */
 		if (bio_size <= 0)
 			break;
 
 		/*
-		 * By default only 'bio_count' bio's per dio are allowed.
-		 * However, if we find ourselves in a situation where more
-		 * are needed we allocate a larger dio and warn the user.
+		 * If additional bio's are required, we have to retry, but
+		 * this should be rare - see the comment above.
 		 */
 		if (dr->dr_bio_count == i) {
 			vdev_disk_dio_free(dr);
@@ -589,9 +626,14 @@ retry:
 		}
 
 		/* bio_alloc() with __GFP_WAIT never returns NULL */
+#ifdef HAVE_BIO_MAX_SEGS
+		dr->dr_bio[i] = bio_alloc(GFP_NOIO, bio_max_segs(
+		    abd_nr_pages_off(zio->io_abd, bio_size, abd_offset)));
+#else
 		dr->dr_bio[i] = bio_alloc(GFP_NOIO,
 		    MIN(abd_nr_pages_off(zio->io_abd, bio_size, abd_offset),
 		    BIO_MAX_PAGES));
+#endif
 		if (unlikely(dr->dr_bio[i] == NULL)) {
 			vdev_disk_dio_free(dr);
 			return (SET_ERROR(ENOMEM));
@@ -622,9 +664,10 @@ retry:
 		blk_start_plug(&plug);
 
 	/* Submit all bio's associated with this dio */
-	for (i = 0; i < dr->dr_bio_count; i++)
+	for (int i = 0; i < dr->dr_bio_count; i++) {
 		if (dr->dr_bio[i])
 			vdev_submit_bio(dr->dr_bio[i]);
+	}
 
 	if (dr->dr_bio_count > 1)
 		blk_finish_plug(&plug);
@@ -876,7 +919,7 @@ param_set_vdev_scheduler(const char *val, zfs_kernel_param_t *kp)
 	return (error);
 }
 
-char *zfs_vdev_scheduler = "unused";
+static const char *zfs_vdev_scheduler = "unused";
 module_param_call(zfs_vdev_scheduler, param_set_vdev_scheduler,
     param_get_charp, &zfs_vdev_scheduler, 0644);
 MODULE_PARM_DESC(zfs_vdev_scheduler, "I/O scheduler");

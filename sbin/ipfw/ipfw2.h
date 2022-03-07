@@ -20,6 +20,11 @@
  * $FreeBSD$
  */
 
+enum cmdline_prog {
+	cmdline_prog_ipfw,
+	cmdline_prog_dnctl
+};
+
 /*
  * Options that can be set on the command line.
  * When reading commands from a file, a subset of the options can also
@@ -54,7 +59,10 @@ struct cmdline_opts {
 	uint32_t use_set;	/* work with specified set number */
 		/* 0 means all sets, otherwise apply to set use_set - 1 */
 
+	enum cmdline_prog	prog;	/* Are we ipfw or dnctl? */
 };
+
+int is_ipfw(void);
 
 enum {
 	TIMESTAMP_NONE = 0,
@@ -285,6 +293,7 @@ enum tokens {
 	TOK_STATES_CHUNKS,
 	TOK_JMAXLEN,
 	TOK_PORT_RANGE,
+	TOK_PORT_ALIAS,
 	TOK_HOST_DEL_AGE,
 	TOK_PG_DEL_AGE,
 	TOK_TCP_SYN_AGE,

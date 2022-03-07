@@ -4,7 +4,6 @@
 SRCS+=	\
 	__aeabi_read_tp.S \
 	_ctx_start.S \
-	_set_tp.c \
 	_setjmp.S \
 	alloca.S \
 	arm_initfini.c \

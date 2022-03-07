@@ -19,17 +19,20 @@ SUBDIRS = \
 	mktree \
 	mmap_exec \
 	mmap_libaio \
+	mmap_seek \
 	mmapwrite \
 	nvlist_to_lua \
 	randwritecomp \
 	readmmap \
 	rename_dir \
 	rm_lnkcnt_zero_file \
+	send_doall \
 	stride_dd \
 	threadsappend
 
 if BUILD_LINUX
 SUBDIRS += \
+	getversion \
 	randfree_file \
 	user_ns_exec \
 	xattrtest

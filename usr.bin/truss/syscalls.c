@@ -47,8 +47,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/ioccom.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
+#include <sys/poll.h>
+#include <sys/procfs.h>
 #include <sys/ptrace.h>
 #include <sys/resource.h>
+#include <sys/sched.h>
 #include <sys/socket.h>
 #define _WANT_FREEBSD11_STAT
 #include <sys/stat.h>
@@ -66,10 +69,9 @@ __FBSDID("$FreeBSD$");
 #define _WANT_KERNEL_ERRNO
 #include <errno.h>
 #include <fcntl.h>
-#include <poll.h>
-#include <sched.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,16 +79,19 @@ __FBSDID("$FreeBSD$");
 #include <unistd.h>
 #include <vis.h>
 
-#include <contrib/cloudabi/cloudabi_types_common.h>
-
 #include "truss.h"
 #include "extern.h"
 #include "syscall.h"
 
 /*
  * This should probably be in its own file, sorted alphabetically.
+ *
+ * Note: We only scan this table on the initial syscall number to calling
+ * convention lookup, i.e. once each time a new syscall is encountered. This
+ * is unlikely to be a performance issue, but if it is we could sort this array
+ * and use a binary search instead.
  */
-static struct syscall decoded_syscalls[] = {
+static const struct syscall_decode decoded_syscalls[] = {
 	/* Native ABI */
 	{ .name = "__acl_aclcheck_fd", .ret_type = 1, .nargs = 3,
 	  .args = { { Int, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
@@ -178,6 +183,8 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 } } },
 	{ .name = "closefrom", .ret_type = 1, .nargs = 1,
 	  .args = { { Int, 0 } } },
+	{ .name = "close_range", .ret_type = 1, .nargs = 3,
+	  .args = { { Int, 0 }, { Int, 1 }, { Closerangeflags, 2 } } },
 	{ .name = "compat11.fstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { Stat11 | OUT, 1 } } },
 	{ .name = "compat11.fstatat", .ret_type = 1, .nargs = 4,
@@ -188,6 +195,10 @@ static struct syscall decoded_syscalls[] = {
 		    { Kevent11 | OUT, 3 }, { Int, 4 }, { Timespec, 5 } } },
 	{ .name = "compat11.lstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { Stat11 | OUT, 1 } } },
+	{ .name = "compat11.mknod", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Octal, 1 }, { Int, 2 } } },
+	{ .name = "compat11.mknodat", .ret_type = 1, .nargs = 4,
+	  .args = { { Atfd, 0 }, { Name, 1 }, { Octal, 2 }, { Int, 3 } } },
 	{ .name = "compat11.stat", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { Stat11 | OUT, 1 } } },
 	{ .name = "connect", .ret_type = 1, .nargs = 3,
@@ -367,9 +378,9 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "mkfifoat", .ret_type = 1, .nargs = 3,
 	  .args = { { Atfd, 0 }, { Name, 1 }, { Octal, 2 } } },
 	{ .name = "mknod", .ret_type = 1, .nargs = 3,
-	  .args = { { Name, 0 }, { Octal, 1 }, { Int, 2 } } },
+	  .args = { { Name, 0 }, { Octal, 1 }, { Quad, 2 } } },
 	{ .name = "mknodat", .ret_type = 1, .nargs = 4,
-	  .args = { { Atfd, 0 }, { Name, 1 }, { Octal, 2 }, { Int, 3 } } },
+	  .args = { { Atfd, 0 }, { Name, 1 }, { Octal, 2 }, { Quad, 3 } } },
 	{ .name = "mlock", .ret_type = 1, .nargs = 2,
 	  .args = { { Ptr, 0 }, { Sizet, 1 } } },
 	{ .name = "mlockall", .ret_type = 1, .nargs = 1,
@@ -478,6 +489,10 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 }, { Iovec | IN, 1 }, { Int, 2 },
 	            { Sockaddr | IN, 3 }, { Socklent, 4 },
 	            { Sctpsndrcvinfo | IN, 5 }, { Msgflags, 6 } } },
+	{ .name = "sendfile", .ret_type = 1, .nargs = 7,
+	  .args = { { Int, 0 }, { Int, 1 }, { QuadHex, 2 }, { Sizet, 3 },
+		    { Sendfilehdtr, 4 }, { QuadHex | OUT, 5 },
+		    { Sendfileflags, 6 } } },
 	{ .name = "select", .ret_type = 1, .nargs = 5,
 	  .args = { { Int, 0 }, { Fd_set, 1 }, { Fd_set, 2 }, { Fd_set, 3 },
 		    { Timeval, 4 } } },
@@ -605,107 +620,8 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 }, { LinuxSockArgs, 1 } } },
 	{ .name = "linux_stat64", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { Ptr | OUT, 1 } } },
-
-	/* CloudABI system calls. */
-	{ .name = "cloudabi_sys_clock_res_get", .ret_type = 1, .nargs = 1,
-	  .args = { { CloudABIClockID, 0 } } },
-	{ .name = "cloudabi_sys_clock_time_get", .ret_type = 1, .nargs = 2,
-	  .args = { { CloudABIClockID, 0 }, { CloudABITimestamp, 1 } } },
-	{ .name = "cloudabi_sys_condvar_signal", .ret_type = 1, .nargs = 3,
-	  .args = { { Ptr, 0 }, { CloudABIMFlags, 1 }, { UInt, 2 } } },
-	{ .name = "cloudabi_sys_fd_close", .ret_type = 1, .nargs = 1,
-	  .args = { { Int, 0 } } },
-	{ .name = "cloudabi_sys_fd_create1", .ret_type = 1, .nargs = 1,
-	  .args = { { CloudABIFileType, 0 } } },
-	{ .name = "cloudabi_sys_fd_create2", .ret_type = 1, .nargs = 2,
-	  .args = { { CloudABIFileType, 0 }, { PipeFds | OUT, 0 } } },
-	{ .name = "cloudabi_sys_fd_datasync", .ret_type = 1, .nargs = 1,
-	  .args = { { Int, 0 } } },
-	{ .name = "cloudabi_sys_fd_dup", .ret_type = 1, .nargs = 1,
-	  .args = { { Int, 0 } } },
-	{ .name = "cloudabi_sys_fd_replace", .ret_type = 1, .nargs = 2,
-	  .args = { { Int, 0 }, { Int, 1 } } },
-	{ .name = "cloudabi_sys_fd_seek", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { Int, 1 }, { CloudABIWhence, 2 } } },
-	{ .name = "cloudabi_sys_fd_stat_get", .ret_type = 1, .nargs = 2,
-	  .args = { { Int, 0 }, { CloudABIFDStat | OUT, 1 } } },
-	{ .name = "cloudabi_sys_fd_stat_put", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { CloudABIFDStat | IN, 1 },
-	            { CloudABIFDSFlags, 2 } } },
-	{ .name = "cloudabi_sys_fd_sync", .ret_type = 1, .nargs = 1,
-	  .args = { { Int, 0 } } },
-	{ .name = "cloudabi_sys_file_advise", .ret_type = 1, .nargs = 4,
-	  .args = { { Int, 0 }, { Int, 1 }, { Int, 2 },
-	            { CloudABIAdvice, 3 } } },
-	{ .name = "cloudabi_sys_file_allocate", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { Int, 1 }, { Int, 2 } } },
-	{ .name = "cloudabi_sys_file_create", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { BinString | IN, 1 },
-	            { CloudABIFileType, 3 } } },
-	{ .name = "cloudabi_sys_file_link", .ret_type = 1, .nargs = 4,
-	  .args = { { CloudABILookup, 0 }, { BinString | IN, 1 },
-	            { Int, 3 }, { BinString | IN, 4 } } },
-	{ .name = "cloudabi_sys_file_open", .ret_type = 1, .nargs = 4,
-	  .args = { { Int, 0 }, { BinString | IN, 1 },
-	            { CloudABIOFlags, 3 }, { CloudABIFDStat | IN, 4 } } },
-	{ .name = "cloudabi_sys_file_readdir", .ret_type = 1, .nargs = 4,
-	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Int, 2 },
-	            { Int, 3 } } },
-	{ .name = "cloudabi_sys_file_readlink", .ret_type = 1, .nargs = 4,
-	  .args = { { Int, 0 }, { BinString | IN, 1 },
-	            { BinString | OUT, 3 }, { Int, 4 } } },
-	{ .name = "cloudabi_sys_file_rename", .ret_type = 1, .nargs = 4,
-	  .args = { { Int, 0 }, { BinString | IN, 1 },
-	            { Int, 3 }, { BinString | IN, 4 } } },
-	{ .name = "cloudabi_sys_file_stat_fget", .ret_type = 1, .nargs = 2,
-	  .args = { { Int, 0 }, { CloudABIFileStat | OUT, 1 } } },
-	{ .name = "cloudabi_sys_file_stat_fput", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { CloudABIFileStat | IN, 1 },
-	            { CloudABIFSFlags, 2 } } },
-	{ .name = "cloudabi_sys_file_stat_get", .ret_type = 1, .nargs = 3,
-	  .args = { { CloudABILookup, 0 }, { BinString | IN, 1 },
-	            { CloudABIFileStat | OUT, 3 } } },
-	{ .name = "cloudabi_sys_file_stat_put", .ret_type = 1, .nargs = 4,
-	  .args = { { CloudABILookup, 0 }, { BinString | IN, 1 },
-	            { CloudABIFileStat | IN, 3 }, { CloudABIFSFlags, 4 } } },
-	{ .name = "cloudabi_sys_file_symlink", .ret_type = 1, .nargs = 3,
-	  .args = { { BinString | IN, 0 },
-	            { Int, 2 }, { BinString | IN, 3 } } },
-	{ .name = "cloudabi_sys_file_unlink", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { BinString | IN, 1 },
-	            { CloudABIULFlags, 3 } } },
-	{ .name = "cloudabi_sys_lock_unlock", .ret_type = 1, .nargs = 2,
-	  .args = { { Ptr, 0 }, { CloudABIMFlags, 1 } } },
-	{ .name = "cloudabi_sys_mem_advise", .ret_type = 1, .nargs = 3,
-	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIAdvice, 2 } } },
-	{ .name = "cloudabi_sys_mem_map", .ret_type = 1, .nargs = 6,
-	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIMProt, 2 },
-	            { CloudABIMFlags, 3 }, { Int, 4 }, { Int, 5 } } },
-	{ .name = "cloudabi_sys_mem_protect", .ret_type = 1, .nargs = 3,
-	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIMProt, 2 } } },
-	{ .name = "cloudabi_sys_mem_sync", .ret_type = 1, .nargs = 3,
-	  .args = { { Ptr, 0 }, { Int, 1 }, { CloudABIMSFlags, 2 } } },
-	{ .name = "cloudabi_sys_mem_unmap", .ret_type = 1, .nargs = 2,
-	  .args = { { Ptr, 0 }, { Int, 1 } } },
-	{ .name = "cloudabi_sys_proc_exec", .ret_type = 1, .nargs = 5,
-	  .args = { { Int, 0 }, { BinString | IN, 1 }, { Int, 2 },
-	            { IntArray, 3 }, { Int, 4 } } },
-	{ .name = "cloudabi_sys_proc_exit", .ret_type = 1, .nargs = 1,
-	  .args = { { Int, 0 } } },
-	{ .name = "cloudabi_sys_proc_fork", .ret_type = 1, .nargs = 0 },
-	{ .name = "cloudabi_sys_proc_raise", .ret_type = 1, .nargs = 1,
-	  .args = { { CloudABISignal, 0 } } },
-	{ .name = "cloudabi_sys_random_get", .ret_type = 1, .nargs = 2,
-	  .args = { { BinString | OUT, 0 }, { Int, 1 } } },
-	{ .name = "cloudabi_sys_sock_shutdown", .ret_type = 1, .nargs = 2,
-	  .args = { { Int, 0 }, { CloudABISDFlags, 1 } } },
-	{ .name = "cloudabi_sys_thread_exit", .ret_type = 1, .nargs = 2,
-	  .args = { { Ptr, 0 }, { CloudABIMFlags, 1 } } },
-	{ .name = "cloudabi_sys_thread_yield", .ret_type = 1, .nargs = 0 },
-
-	{ .name = 0 },
 };
-static STAILQ_HEAD(, syscall) syscalls;
+static STAILQ_HEAD(, syscall) seen_syscalls;
 
 /* Xlat idea taken from strace */
 struct xlat {
@@ -719,7 +635,7 @@ struct xlat {
 static struct xlat poll_flags[] = {
 	X(POLLSTANDARD) X(POLLIN) X(POLLPRI) X(POLLOUT) X(POLLERR)
 	X(POLLHUP) X(POLLNVAL) X(POLLRDNORM) X(POLLRDBAND)
-	X(POLLWRBAND) X(POLLINIGNEOF) XEND
+	X(POLLWRBAND) X(POLLINIGNEOF) X(POLLRDHUP) XEND
 };
 
 static struct xlat sigaction_flags[] = {
@@ -742,97 +658,12 @@ static struct xlat lio_modes[] = {
 };
 
 static struct xlat lio_opcodes[] = {
-	X(LIO_WRITE) X(LIO_READ) X(LIO_NOP)
+	X(LIO_WRITE) X(LIO_READ) X(LIO_READV) X(LIO_WRITEV) X(LIO_NOP)
 	XEND
 };
 
 static struct xlat aio_fsync_ops[] = {
 	X(O_SYNC)
-	XEND
-};
-
-#undef X
-#define	X(a)	{ CLOUDABI_##a, #a },
-
-static struct xlat cloudabi_advice[] = {
-	X(ADVICE_DONTNEED) X(ADVICE_NOREUSE) X(ADVICE_NORMAL)
-	X(ADVICE_RANDOM) X(ADVICE_SEQUENTIAL) X(ADVICE_WILLNEED)
-	XEND
-};
-
-static struct xlat cloudabi_clockid[] = {
-	X(CLOCK_MONOTONIC) X(CLOCK_PROCESS_CPUTIME_ID)
-	X(CLOCK_REALTIME) X(CLOCK_THREAD_CPUTIME_ID)
-	XEND
-};
-
-static struct xlat cloudabi_fdflags[] = {
-	X(FDFLAG_APPEND) X(FDFLAG_DSYNC) X(FDFLAG_NONBLOCK)
-	X(FDFLAG_RSYNC) X(FDFLAG_SYNC)
-	XEND
-};
-
-static struct xlat cloudabi_fdsflags[] = {
-	X(FDSTAT_FLAGS) X(FDSTAT_RIGHTS)
-	XEND
-};
-
-static struct xlat cloudabi_filetype[] = {
-	X(FILETYPE_UNKNOWN) X(FILETYPE_BLOCK_DEVICE)
-	X(FILETYPE_CHARACTER_DEVICE) X(FILETYPE_DIRECTORY)
-	X(FILETYPE_PROCESS) X(FILETYPE_REGULAR_FILE)
-	X(FILETYPE_SHARED_MEMORY) X(FILETYPE_SOCKET_DGRAM)
-	X(FILETYPE_SOCKET_STREAM) X(FILETYPE_SYMBOLIC_LINK)
-	XEND
-};
-
-static struct xlat cloudabi_fsflags[] = {
-	X(FILESTAT_ATIM) X(FILESTAT_ATIM_NOW) X(FILESTAT_MTIM)
-	X(FILESTAT_MTIM_NOW) X(FILESTAT_SIZE)
-	XEND
-};
-
-static struct xlat cloudabi_mflags[] = {
-	X(MAP_ANON) X(MAP_FIXED) X(MAP_PRIVATE) X(MAP_SHARED)
-	XEND
-};
-
-static struct xlat cloudabi_mprot[] = {
-	X(PROT_EXEC) X(PROT_WRITE) X(PROT_READ)
-	XEND
-};
-
-static struct xlat cloudabi_msflags[] = {
-	X(MS_ASYNC) X(MS_INVALIDATE) X(MS_SYNC)
-	XEND
-};
-
-static struct xlat cloudabi_oflags[] = {
-	X(O_CREAT) X(O_DIRECTORY) X(O_EXCL) X(O_TRUNC)
-	XEND
-};
-
-static struct xlat cloudabi_sdflags[] = {
-	X(SHUT_RD) X(SHUT_WR)
-	XEND
-};
-
-static struct xlat cloudabi_signal[] = {
-	X(SIGABRT) X(SIGALRM) X(SIGBUS) X(SIGCHLD) X(SIGCONT) X(SIGFPE)
-	X(SIGHUP) X(SIGILL) X(SIGINT) X(SIGKILL) X(SIGPIPE) X(SIGQUIT)
-	X(SIGSEGV) X(SIGSTOP) X(SIGSYS) X(SIGTERM) X(SIGTRAP) X(SIGTSTP)
-	X(SIGTTIN) X(SIGTTOU) X(SIGURG) X(SIGUSR1) X(SIGUSR2)
-	X(SIGVTALRM) X(SIGXCPU) X(SIGXFSZ)
-	XEND
-};
-
-static struct xlat cloudabi_ulflags[] = {
-	X(UNLINK_REMOVEDIR)
-	XEND
-};
-
-static struct xlat cloudabi_whence[] = {
-	X(WHENCE_CUR) X(WHENCE_END) X(WHENCE_SET)
 	XEND
 };
 
@@ -852,18 +683,17 @@ lookup(struct xlat *xlat, int val, int base)
 		if (xlat->val == val)
 			return (xlat->str);
 	switch (base) {
-		case 8:
-			sprintf(tmp, "0%o", val);
-			break;
-		case 16:
-			sprintf(tmp, "0x%x", val);
-			break;
-		case 10:
-			sprintf(tmp, "%u", val);
-			break;
-		default:
-			errx(1,"Unknown lookup base");
-			break;
+	case 8:
+		sprintf(tmp, "0%o", val);
+		break;
+	case 16:
+		sprintf(tmp, "0x%x", val);
+		break;
+	case 10:
+		sprintf(tmp, "%u", val);
+		break;
+	default:
+		errx(1, "Unknown lookup base");
 	}
 	return (tmp);
 }
@@ -956,7 +786,6 @@ print_mask_arg32(bool (*decoder)(FILE *, uint32_t, uint32_t *), FILE *fp,
 		fprintf(fp, "|0x%x", rem);
 }
 
-#ifndef __LP64__
 /*
  * Add argument padding to subsequent system calls after Quad
  * syscall arguments as needed.  This used to be done by hand in the
@@ -965,7 +794,7 @@ print_mask_arg32(bool (*decoder)(FILE *, uint32_t, uint32_t *), FILE *fp,
  * decoding arguments.
  */
 static void
-quad_fixup(struct syscall *sc)
+quad_fixup(struct syscall_decode *sc)
 {
 	int offset, prev;
 	u_int i;
@@ -983,9 +812,9 @@ quad_fixup(struct syscall *sc)
 		switch (sc->args[i].type & ARG_MASK) {
 		case Quad:
 		case QuadHex:
-#ifdef __powerpc__
+#if defined(__powerpc__) || defined(__arm__) || defined(__aarch64__)
 			/*
-			 * 64-bit arguments on 32-bit powerpc must be
+			 * 64-bit arguments on 32-bit powerpc and arm must be
 			 * 64-bit aligned.  If the current offset is
 			 * not aligned, the calling convention inserts
 			 * a 32-bit pad argument that should be skipped.
@@ -999,21 +828,6 @@ quad_fixup(struct syscall *sc)
 		default:
 			break;
 		}
-	}
-}
-#endif
-
-void
-init_syscalls(void)
-{
-	struct syscall *sc;
-
-	STAILQ_INIT(&syscalls);
-	for (sc = decoded_syscalls; sc->name != NULL; sc++) {
-#ifndef __LP64__
-		quad_fixup(sc);
-#endif
-		STAILQ_INSERT_HEAD(&syscalls, sc, entries);
 	}
 }
 
@@ -1036,6 +850,14 @@ add_syscall(struct procabi *abi, u_int number, struct syscall *sc)
 {
 	struct extra_syscall *es;
 
+	/*
+	 * quad_fixup() is currently needed for all 32-bit ABIs.
+	 * TODO: This should probably be a function pointer inside struct
+	 *  procabi instead.
+	 */
+	if (abi->pointer_size == 4)
+		quad_fixup(&sc->decode);
+
 	if (number < nitems(abi->syscalls)) {
 		assert(abi->syscalls[number] == NULL);
 		abi->syscalls[number] = sc;
@@ -1045,6 +867,8 @@ add_syscall(struct procabi *abi, u_int number, struct syscall *sc)
 		es->number = number;
 		STAILQ_INSERT_TAIL(&abi->extra_syscalls, es, entries);
 	}
+
+	STAILQ_INSERT_HEAD(&seen_syscalls, sc, entries);
 }
 
 /*
@@ -1055,24 +879,37 @@ struct syscall *
 get_syscall(struct threadinfo *t, u_int number, u_int nargs)
 {
 	struct syscall *sc;
+	struct procabi *procabi;
+	const char *sysdecode_name;
+	const char *lookup_name;
 	const char *name;
-	char *new_name;
 	u_int i;
 
-	sc = find_syscall(t->proc->abi, number);
+	procabi = t->proc->abi;
+	sc = find_syscall(procabi, number);
 	if (sc != NULL)
 		return (sc);
 
-	name = sysdecode_syscallname(t->proc->abi->abi, number);
-	if (name == NULL) {
-		asprintf(&new_name, "#%d", number);
-		name = new_name;
-	} else
-		new_name = NULL;
-	STAILQ_FOREACH(sc, &syscalls, entries) {
-		if (strcmp(name, sc->name) == 0) {
+	/* Memory is not explicitly deallocated, it's released on exit(). */
+	sysdecode_name = sysdecode_syscallname(procabi->abi, number);
+	if (sysdecode_name == NULL)
+		asprintf(__DECONST(char **, &name), "#%d", number);
+	else
+		name = sysdecode_name;
+
+	sc = calloc(1, sizeof(*sc));
+	sc->name = name;
+
+	/* Also decode compat syscalls arguments by stripping the prefix. */
+	lookup_name = name;
+	if (procabi->compat_prefix != NULL && strncmp(procabi->compat_prefix,
+	    name, strlen(procabi->compat_prefix)) == 0)
+		lookup_name += strlen(procabi->compat_prefix);
+
+	for (i = 0; i < nitems(decoded_syscalls); i++) {
+		if (strcmp(lookup_name, decoded_syscalls[i].name) == 0) {
+			sc->decode = decoded_syscalls[i];
 			add_syscall(t->proc->abi, number, sc);
-			free(new_name);
 			return (sc);
 		}
 	}
@@ -1082,21 +919,15 @@ get_syscall(struct threadinfo *t, u_int number, u_int nargs)
 	fprintf(stderr, "unknown syscall %s -- setting args to %d\n", name,
 	    nargs);
 #endif
-
-	sc = calloc(1, sizeof(struct syscall));
-	sc->name = name;
-	if (new_name != NULL)
-		sc->unknown = true;
-	sc->ret_type = 1;
-	sc->nargs = nargs;
+	sc->unknown = sysdecode_name == NULL;
+	sc->decode.ret_type = 1; /* Assume 1 return value. */
+	sc->decode.nargs = nargs;
 	for (i = 0; i < nargs; i++) {
-		sc->args[i].offset = i;
+		sc->decode.args[i].offset = i;
 		/* Treat all unknown arguments as LongHex. */
-		sc->args[i].type = LongHex;
+		sc->decode.args[i].type = LongHex;
 	}
-	STAILQ_INSERT_HEAD(&syscalls, sc, entries);
 	add_syscall(t->proc->abi, number, sc);
-
 	return (sc);
 }
 
@@ -1104,12 +935,12 @@ get_syscall(struct threadinfo *t, u_int number, u_int nargs)
  * Copy a fixed amount of bytes from the process.
  */
 static int
-get_struct(pid_t pid, uintptr_t offset, void *buf, int len)
+get_struct(pid_t pid, psaddr_t offset, void *buf, size_t len)
 {
 	struct ptrace_io_desc iorequest;
 
 	iorequest.piod_op = PIOD_READ_D;
-	iorequest.piod_offs = (void *)offset;
+	iorequest.piod_offs = (void *)(uintptr_t)offset;
 	iorequest.piod_addr = buf;
 	iorequest.piod_len = len;
 	if (ptrace(PT_IO, pid, (caddr_t)&iorequest, 0) < 0)
@@ -1125,7 +956,7 @@ get_struct(pid_t pid, uintptr_t offset, void *buf, int len)
  * only get that much.
  */
 static char *
-get_string(pid_t pid, uintptr_t addr, int max)
+get_string(pid_t pid, psaddr_t addr, int max)
 {
 	struct ptrace_io_desc iorequest;
 	char *buf, *nbuf;
@@ -1136,7 +967,7 @@ get_string(pid_t pid, uintptr_t addr, int max)
 		size = max + 1;
 	else {
 		/* Read up to the end of the current page. */
-		size = PAGE_SIZE - ((uintptr_t)addr % PAGE_SIZE);
+		size = PAGE_SIZE - (addr % PAGE_SIZE);
 		if (size > MAXSIZE)
 			size = MAXSIZE;
 	}
@@ -1146,7 +977,7 @@ get_string(pid_t pid, uintptr_t addr, int max)
 		return (NULL);
 	for (;;) {
 		iorequest.piod_op = PIOD_READ_D;
-		iorequest.piod_offs = (void *)(addr + offset);
+		iorequest.piod_offs = (void *)((uintptr_t)addr + offset);
 		iorequest.piod_addr = buf + offset;
 		iorequest.piod_len = size;
 		if (ptrace(PT_IO, pid, (caddr_t)&iorequest, 0) < 0) {
@@ -1707,13 +1538,27 @@ print_sysctl(FILE *fp, int *oid, size_t len)
 }
 
 /*
+ * Convert a 32-bit user-space pointer to psaddr_t. Currently, this
+ * sign-extends on MIPS and zero-extends on all other architectures.
+ */
+static psaddr_t
+user_ptr32_to_psaddr(int32_t user_pointer)
+{
+#if defined(__mips__)
+	return ((psaddr_t)(intptr_t)user_pointer);
+#else
+	return ((psaddr_t)(uintptr_t)user_pointer);
+#endif
+}
+
+/*
  * Converts a syscall argument into a string.  Said string is
  * allocated via malloc(), so needs to be free()'d.  sc is
  * a pointer to the syscall description (see above); args is
  * an array of all of the system call arguments.
  */
 char *
-print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
+print_arg(struct syscall_arg *sc, unsigned long *args, register_t *retval,
     struct trussinfo *trussinfo)
 {
 	FILE *fp;
@@ -1757,7 +1602,7 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		break;
 	case ShmName:
 		/* Handle special SHM_ANON value. */
-		if ((char *)args[sc->offset] == SHM_ANON) {
+		if ((char *)(uintptr_t)args[sc->offset] == SHM_ANON) {
 			fprintf(fp, "SHM_ANON");
 			break;
 		}
@@ -1817,14 +1662,17 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 	case ExecArgs:
 	case ExecEnv:
 	case StringArray: {
-		uintptr_t addr;
+		psaddr_t addr;
 		union {
-			char *strarray[0];
+			int32_t strarray32[PAGE_SIZE / sizeof(int32_t)];
+			int64_t strarray64[PAGE_SIZE / sizeof(int64_t)];
 			char buf[PAGE_SIZE];
 		} u;
 		char *string;
 		size_t len;
 		u_int first, i;
+		size_t pointer_size =
+		    trussinfo->curthread->proc->abi->pointer_size;
 
 		/*
 		 * Only parse argv[] and environment arrays from exec calls
@@ -1844,7 +1692,7 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		 * a partial page.
 		 */
 		addr = args[sc->offset];
-		if (addr % sizeof(char *) != 0) {
+		if (!__is_aligned(addr, pointer_size)) {
 			print_pointer(fp, args[sc->offset]);
 			break;
 		}
@@ -1854,22 +1702,35 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 			print_pointer(fp, args[sc->offset]);
 			break;
 		}
+		assert(len > 0);
 
 		fputc('[', fp);
 		first = 1;
 		i = 0;
-		while (u.strarray[i] != NULL) {
-			string = get_string(pid, (uintptr_t)u.strarray[i], 0);
+		for (;;) {
+			psaddr_t straddr;
+			if (pointer_size == 4) {
+				straddr = user_ptr32_to_psaddr(u.strarray32[i]);
+			} else if (pointer_size == 8) {
+				straddr = (psaddr_t)u.strarray64[i];
+			} else {
+				errx(1, "Unsupported pointer size: %zu",
+				    pointer_size);
+			}
+
+			/* Stop once we read the first NULL pointer. */
+			if (straddr == 0)
+				break;
+			string = get_string(pid, straddr, 0);
 			fprintf(fp, "%s \"%s\"", first ? "" : ",", string);
 			free(string);
 			first = 0;
 
 			i++;
-			if (i == len / sizeof(char *)) {
+			if (i == len / pointer_size) {
 				addr += len;
 				len = PAGE_SIZE;
-				if (get_struct(pid, addr, u.buf, len) ==
-				    -1) {
+				if (get_struct(pid, addr, u.buf, len) == -1) {
 					fprintf(fp, ", <inval>");
 					break;
 				}
@@ -1879,32 +1740,29 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		fputs(" ]", fp);
 		break;
 	}
-#ifdef __LP64__
-	case Quad:
-		fprintf(fp, "%ld", args[sc->offset]);
-		break;
-	case QuadHex:
-		fprintf(fp, "0x%lx", args[sc->offset]);
-		break;
-#else
 	case Quad:
 	case QuadHex: {
-		unsigned long long ll;
+		uint64_t value;
+		size_t pointer_size =
+		    trussinfo->curthread->proc->abi->pointer_size;
 
+		if (pointer_size == 4) {
 #if _BYTE_ORDER == _LITTLE_ENDIAN
-		ll = (unsigned long long)args[sc->offset + 1] << 32 |
-		    args[sc->offset];
+			value = (uint64_t)args[sc->offset + 1] << 32 |
+			    args[sc->offset];
 #else
-		ll = (unsigned long long)args[sc->offset] << 32 |
-		    args[sc->offset + 1];
+			value = (uint64_t)args[sc->offset] << 32 |
+			    args[sc->offset + 1];
 #endif
+		} else {
+			value = (uint64_t)args[sc->offset];
+		}
 		if ((sc->type & ARG_MASK) == Quad)
-			fprintf(fp, "%lld", ll);
+			fprintf(fp, "%jd", (intmax_t)value);
 		else
-			fprintf(fp, "0x%llx", ll);
+			fprintf(fp, "0x%jx", (intmax_t)value);
 		break;
 	}
-#endif
 	case PQuadHex: {
 		uint64_t val;
 
@@ -2089,11 +1947,9 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		fputs(strsig2(args[sc->offset]), fp);
 		break;
 	case Sigset: {
-		long sig;
 		sigset_t ss;
 		int i, first;
 
-		sig = args[sc->offset];
 		if (get_struct(pid, args[sc->offset], (void *)&ss,
 		    sizeof(ss)) == -1) {
 			print_pointer(fp, args[sc->offset]);
@@ -2128,6 +1984,9 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		break;
 	case Fcntl:
 		print_integer_arg(sysdecode_fcntl_cmd, fp, args[sc->offset]);
+		break;
+	case Closerangeflags:
+		print_mask_arg(sysdecode_close_range_flags, fp, args[sc->offset]);
 		break;
 	case Mprot:
 		print_mask_arg(sysdecode_mmap_prot, fp, args[sc->offset]);
@@ -2255,7 +2114,7 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		break;
 	}
 	case Kevent11: {
-		struct kevent_freebsd11 *ke11;
+		struct freebsd11_kevent *ke11;
 		struct kevent ke;
 		int numevents = -1;
 		size_t bytes;
@@ -2267,7 +2126,7 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 			numevents = retval[0];
 
 		if (numevents >= 0) {
-			bytes = sizeof(struct kevent_freebsd11) * numevents;
+			bytes = sizeof(struct freebsd11_kevent) * numevents;
 			if ((ke11 = malloc(bytes)) == NULL)
 				err(1,
 				    "Cannot malloc %zu bytes for kevent array",
@@ -2670,6 +2529,24 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		print_integer_arg(sysdecode_ptrace_request, fp,
 		    args[sc->offset]);
 		break;
+	case Sendfileflags:
+		print_mask_arg(sysdecode_sendfile_flags, fp, args[sc->offset]);
+		break;
+	case Sendfilehdtr: {
+		struct sf_hdtr hdtr;
+
+		if (get_struct(pid, args[sc->offset], &hdtr, sizeof(hdtr)) !=
+		    -1) {
+			fprintf(fp, "{");
+			print_iovec(fp, trussinfo, (uintptr_t)hdtr.headers,
+			    hdtr.hdr_cnt);
+			print_iovec(fp, trussinfo, (uintptr_t)hdtr.trailers,
+			    hdtr.trl_cnt);
+			fprintf(fp, "}");
+		} else
+			print_pointer(fp, args[sc->offset]);
+		break;
+	}
 	case Quotactlcmd:
 		if (!sysdecode_quotactl_cmd(fp, args[sc->offset]))
 			fprintf(fp, "%#x", (int)args[sc->offset]);
@@ -2815,80 +2692,6 @@ print_arg(struct syscall_args *sc, unsigned long *args, register_t *retval,
 		break;
 	}
 
-	case CloudABIAdvice:
-		fputs(xlookup(cloudabi_advice, args[sc->offset]), fp);
-		break;
-	case CloudABIClockID:
-		fputs(xlookup(cloudabi_clockid, args[sc->offset]), fp);
-		break;
-	case CloudABIFDSFlags:
-		fputs(xlookup_bits(cloudabi_fdsflags, args[sc->offset]), fp);
-		break;
-	case CloudABIFDStat: {
-		cloudabi_fdstat_t fds;
-		if (get_struct(pid, args[sc->offset], &fds, sizeof(fds))
-		    != -1) {
-			fprintf(fp, "{ %s, ",
-			    xlookup(cloudabi_filetype, fds.fs_filetype));
-			fprintf(fp, "%s, ... }",
-			    xlookup_bits(cloudabi_fdflags, fds.fs_flags));
-		} else
-			print_pointer(fp, args[sc->offset]);
-		break;
-	}
-	case CloudABIFileStat: {
-		cloudabi_filestat_t fsb;
-		if (get_struct(pid, args[sc->offset], &fsb, sizeof(fsb))
-		    != -1)
-			fprintf(fp, "{ %s, %ju }",
-			    xlookup(cloudabi_filetype, fsb.st_filetype),
-			    (uintmax_t)fsb.st_size);
-		else
-			print_pointer(fp, args[sc->offset]);
-		break;
-	}
-	case CloudABIFileType:
-		fputs(xlookup(cloudabi_filetype, args[sc->offset]), fp);
-		break;
-	case CloudABIFSFlags:
-		fputs(xlookup_bits(cloudabi_fsflags, args[sc->offset]), fp);
-		break;
-	case CloudABILookup:
-		if ((args[sc->offset] & CLOUDABI_LOOKUP_SYMLINK_FOLLOW) != 0)
-			fprintf(fp, "%d|LOOKUP_SYMLINK_FOLLOW",
-			    (int)args[sc->offset]);
-		else
-			fprintf(fp, "%d", (int)args[sc->offset]);
-		break;
-	case CloudABIMFlags:
-		fputs(xlookup_bits(cloudabi_mflags, args[sc->offset]), fp);
-		break;
-	case CloudABIMProt:
-		fputs(xlookup_bits(cloudabi_mprot, args[sc->offset]), fp);
-		break;
-	case CloudABIMSFlags:
-		fputs(xlookup_bits(cloudabi_msflags, args[sc->offset]), fp);
-		break;
-	case CloudABIOFlags:
-		fputs(xlookup_bits(cloudabi_oflags, args[sc->offset]), fp);
-		break;
-	case CloudABISDFlags:
-		fputs(xlookup_bits(cloudabi_sdflags, args[sc->offset]), fp);
-		break;
-	case CloudABISignal:
-		fputs(xlookup(cloudabi_signal, args[sc->offset]), fp);
-		break;
-	case CloudABITimestamp:
-		fprintf(fp, "%lu.%09lus", args[sc->offset] / 1000000000,
-		    args[sc->offset] % 1000000000);
-		break;
-	case CloudABIULFlags:
-		fputs(xlookup_bits(cloudabi_ulflags, args[sc->offset]), fp);
-		break;
-	case CloudABIWhence:
-		fputs(xlookup(cloudabi_whence, args[sc->offset]), fp);
-		break;
-
 	default:
 		errx(1, "Invalid argument type %d\n", sc->type & ARG_MASK);
 	}
@@ -2968,11 +2771,9 @@ print_syscall_ret(struct trussinfo *trussinfo, int error, register_t *retval)
 		fprintf(trussinfo->outfile, " ERR#%d '%s'\n",
 		    sysdecode_freebsd_to_abi_errno(t->proc->abi->abi, error),
 		    strerror(error));
-	}
-#ifndef __LP64__
-	else if (sc->ret_type == 2) {
+	} else if (sc->decode.ret_type == 2 &&
+	    t->proc->abi->pointer_size == 4) {
 		off_t off;
-
 #if _BYTE_ORDER == _LITTLE_ENDIAN
 		off = (off_t)retval[1] << 32 | retval[0];
 #else
@@ -2980,11 +2781,10 @@ print_syscall_ret(struct trussinfo *trussinfo, int error, register_t *retval)
 #endif
 		fprintf(trussinfo->outfile, " = %jd (0x%jx)\n", (intmax_t)off,
 		    (intmax_t)off);
-	}
-#endif
-	else
+	} else {
 		fprintf(trussinfo->outfile, " = %jd (0x%jx)\n",
 		    (intmax_t)retval[0], (intmax_t)retval[0]);
+	}
 }
 
 void
@@ -2997,7 +2797,7 @@ print_summary(struct trussinfo *trussinfo)
 	fprintf(trussinfo->outfile, "%-20s%15s%8s%8s\n",
 	    "syscall", "seconds", "calls", "errors");
 	ncall = nerror = 0;
-	STAILQ_FOREACH(sc, &syscalls, entries)
+	STAILQ_FOREACH(sc, &seen_syscalls, entries) {
 		if (sc->ncalls) {
 			fprintf(trussinfo->outfile, "%-20s%5jd.%09ld%8d%8d\n",
 			    sc->name, (intmax_t)sc->time.tv_sec,
@@ -3006,6 +2806,7 @@ print_summary(struct trussinfo *trussinfo)
 			ncall += sc->ncalls;
 			nerror += sc->nerror;
 		}
+	}
 	fprintf(trussinfo->outfile, "%20s%15s%8s%8s\n",
 	    "", "-------------", "-------", "-------");
 	fprintf(trussinfo->outfile, "%-20s%5jd.%09ld%8d%8d\n",

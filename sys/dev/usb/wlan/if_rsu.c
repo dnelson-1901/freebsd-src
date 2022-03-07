@@ -2081,9 +2081,11 @@ rsu_event_survey(struct rsu_softc *sc, uint8_t *buf, int len)
 	/* Set channel flags for input path */
 	bzero(&rxs, sizeof(rxs));
 	rxs.r_flags |= IEEE80211_R_IEEE | IEEE80211_R_FREQ;
+	rxs.r_flags |= IEEE80211_R_BAND;
 	rxs.r_flags |= IEEE80211_R_NF | IEEE80211_R_RSSI;
 	rxs.c_ieee = le32toh(bss->config.dsconfig);
 	rxs.c_freq = ieee80211_ieee2mhz(rxs.c_ieee, IEEE80211_CHAN_2GHZ);
+	rxs.c_band = IEEE80211_CHAN_2GHZ;
 	/* This is a number from 0..100; so let's just divide it down a bit */
 	rxs.c_rssi = le32toh(bss->rssi) / 2;
 	rxs.c_nf = -96;
@@ -2897,6 +2899,7 @@ rsu_tx_start(struct rsu_softc *sc, struct ieee80211_node *ni,
 	}
 
 	xferlen = sizeof(*txd) + m0->m_pkthdr.len;
+	KASSERT(xferlen <= RSU_TXBUFSZ, ("%s: invalid length", __func__));
 	m_copydata(m0, 0, m0->m_pkthdr.len, (caddr_t)&txd[1]);
 
 	data->buflen = xferlen;

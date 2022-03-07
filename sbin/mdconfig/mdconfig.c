@@ -89,7 +89,8 @@ usage(void)
 "       mdconfig file\n");
 	fprintf(stderr, "\t\ttype = {malloc, vnode, swap}\n");
 	fprintf(stderr, "\t\toption = {cache, cluster, compress, force,\n");
-	fprintf(stderr, "\t\t          readonly, reserve, ro, verify}\n");
+	fprintf(stderr, "\t\t          mustdealloc, readonly, reserve, ro,\n");
+	fprintf(stderr, "\t\t          verify}\n");
 	fprintf(stderr, "\t\tsize = %%d (512 byte blocks), %%db (B),\n");
 	fprintf(stderr, "\t\t       %%dk (kB), %%dm (MB), %%dg (GB), \n");
 	fprintf(stderr, "\t\t       %%dt (TB), or %%dp (PB)\n");
@@ -194,6 +195,10 @@ main(int argc, char **argv)
 				mdio.md_options |= MD_FORCE;
 			else if (!strcmp(optarg, "noforce"))
 				mdio.md_options &= ~MD_FORCE;
+			else if (!strcmp(optarg, "mustdealloc"))
+				mdio.md_options |= MD_MUSTDEALLOC;
+			else if (!strcmp(optarg, "nomustdealloc"))
+				mdio.md_options &= ~MD_MUSTDEALLOC;
 			else if (!strcmp(optarg, "readonly"))
 				mdio.md_options |= MD_READONLY;
 			else if (!strcmp(optarg, "noreadonly"))
@@ -423,7 +428,7 @@ md_set_file(const char *fn)
 /*
  * Lists md(4) disks. Is used also as a query routine, since it handles XML
  * interface. 'units' can be NULL for listing memory disks. It might be
- * coma-separated string containing md(4) disk names. 'opt' distinguished
+ * comma-separated string containing md(4) disk names. 'opt' distinguished
  * between list and query mode.
  */
 static int

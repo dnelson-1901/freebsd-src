@@ -53,8 +53,8 @@
 #
 
 TYPE="FreeBSD"
-REVISION="13.0"
-BRANCH="ALPHA1"
+REVISION="14.0"
+BRANCH="CURRENT"
 if [ -n "${BRANCH_OVERRIDE}" ]; then
 	BRANCH=${BRANCH_OVERRIDE}
 fi
@@ -65,7 +65,7 @@ if [ -z "${SYSDIR}" ]; then
     SYSDIR=$(dirname $0)/..
 fi
 
-RELDATE=$(awk '/__FreeBSD_version.*propagated to newvers/ {print $3}' ${PARAMFILE:-${SYSDIR}/sys/param.h})
+RELDATE=$(awk '/^\#define[[:space:]]*__FreeBSD_version/ {print $3}' ${PARAMFILE:-${SYSDIR}/sys/param.h})
 
 if [ -r "${SYSDIR}/../COPYRIGHT" ]; then
 	year=$(sed -Ee '/^Copyright .* The FreeBSD Project/!d;s/^.*1992-([0-9]*) .*$/\1/g' ${SYSDIR}/../COPYRIGHT)
@@ -127,7 +127,7 @@ while getopts crRvV: opt; do
 		v=$OPTARG
 		eval val=\$${v}
 		echo ${v}=\"${val}\"
-		exit 0
+		VARS_ONLY=1
 		;;
 	esac
 done
@@ -253,10 +253,14 @@ fi
 if [ -n "$git_cmd" ] ; then
 	git=$($git_cmd rev-parse --verify --short HEAD 2>/dev/null)
 	if [ "$($git_cmd rev-parse --is-shallow-repository)" = false ] ; then
-		git_cnt=$($git_cmd rev-list --count HEAD 2>/dev/null)
+		git_cnt=$($git_cmd rev-list --first-parent --count HEAD 2>/dev/null)
 		if [ -n "$git_cnt" ] ; then
-			git="c${git_cnt}-g${git}"
+			git="n${git_cnt}-${git}"
 		fi
+	fi
+	git_b=$($git_cmd rev-parse --abbrev-ref HEAD)
+	if [ -n "$git_b" -a "$git_b" != "HEAD" ] ; then
+		git="${git_b}-${git}"
 	fi
 	if git_tree_modified; then
 		git="${git}-dirty"
@@ -306,7 +310,7 @@ EOF
 )
 vers_content_old=$(cat vers.c 2>/dev/null || true)
 if [ "$vers_content_new" != "$vers_content_old" ]; then
-	printf "%s" "$vers_content_new" > vers.c
+	printf "%s\n" "$vers_content_new" > vers.c
 fi
 
 echo $((v + 1)) > version

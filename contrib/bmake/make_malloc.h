@@ -1,6 +1,6 @@
-/*	$NetBSD: make_malloc.h,v 1.15 2020/12/30 10:03:16 rillig Exp $	*/
+/*	$NetBSD: make_malloc.h,v 1.18 2021/12/15 11:01:39 rillig Exp $	*/
 
-/*-
+/*
  * Copyright (c) 2009 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
@@ -27,10 +27,10 @@
  */
 
 #ifndef USE_EMALLOC
-void *bmake_malloc(size_t);
-void *bmake_realloc(void *, size_t);
-char *bmake_strdup(const char *);
-char *bmake_strldup(const char *, size_t);
+void *bmake_malloc(size_t) MAKE_ATTR_USE;
+void *bmake_realloc(void *, size_t) MAKE_ATTR_USE;
+char *bmake_strdup(const char *) MAKE_ATTR_USE;
+char *bmake_strldup(const char *, size_t) MAKE_ATTR_USE;
 #else
 #include <util.h>
 #define bmake_malloc(n)		emalloc(n)
@@ -39,18 +39,4 @@ char *bmake_strldup(const char *, size_t);
 #define bmake_strldup(s, n)	estrndup(s, n)
 #endif
 
-char *bmake_strsedup(const char *, const char *);
-
-/*
- * Thin wrapper around free(3) to avoid the extra function call in case
- * p is NULL, to save a few machine instructions.
- *
- * The case of a NULL pointer happens especially often after Var_Value,
- * since only environment variables need to be freed, but not others.
- */
-MAKE_INLINE void
-bmake_free(void *p)
-{
-	if (p != NULL)
-		free(p);
-}
+char *bmake_strsedup(const char *, const char *) MAKE_ATTR_USE;

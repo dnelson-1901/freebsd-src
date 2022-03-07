@@ -65,41 +65,13 @@ breakpoint(void)
 	__asm __volatile("int $3");
 }
 
-static __inline __pure2 u_int
-bsfl(u_int mask)
-{
-	u_int	result;
+#define	bsfl(mask)	__builtin_ctz(mask)
 
-	__asm __volatile("bsfl %1,%0" : "=r" (result) : "rm" (mask));
-	return (result);
-}
+#define	bsfq(mask)	__builtin_ctzl(mask)
 
-static __inline __pure2 u_long
-bsfq(u_long mask)
-{
-	u_long	result;
+#define	bsrl(mask)	(__builtin_clz(mask) ^ 0x1f)
 
-	__asm __volatile("bsfq %1,%0" : "=r" (result) : "rm" (mask));
-	return (result);
-}
-
-static __inline __pure2 u_int
-bsrl(u_int mask)
-{
-	u_int	result;
-
-	__asm __volatile("bsrl %1,%0" : "=r" (result) : "rm" (mask));
-	return (result);
-}
-
-static __inline __pure2 u_long
-bsrq(u_long mask)
-{
-	u_long	result;
-
-	__asm __volatile("bsrq %1,%0" : "=r" (result) : "rm" (mask));
-	return (result);
-}
+#define	bsrq(mask)	(__builtin_clzl(mask) ^ 0x3f)
 
 static __inline void
 clflush(u_long addr)
@@ -384,11 +356,34 @@ rdtsc(void)
 }
 
 static __inline uint64_t
+rdtsc_ordered_lfence(void)
+{
+	lfence();
+	return (rdtsc());
+}
+
+static __inline uint64_t
+rdtsc_ordered_mfence(void)
+{
+	mfence();
+	return (rdtsc());
+}
+
+static __inline uint64_t
 rdtscp(void)
 {
 	uint32_t low, high;
 
 	__asm __volatile("rdtscp" : "=a" (low), "=d" (high) : : "ecx");
+	return (low | ((uint64_t)high << 32));
+}
+
+static __inline uint64_t
+rdtscp_aux(uint32_t *aux)
+{
+	uint32_t low, high;
+
+	__asm __volatile("rdtscp" : "=a" (low), "=d" (high), "=c" (*aux));
 	return (low | ((uint64_t)high << 32));
 }
 

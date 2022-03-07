@@ -264,8 +264,7 @@ ptbl_alloc(pmap_t pmap, unsigned int pdir_idx, boolean_t nosleep)
 
 	for (i = 0; i < PTBL_PAGES; i++) {
 		pidx = (PTBL_PAGES * pdir_idx) + i;
-		while ((m = vm_page_alloc(NULL, pidx,
-		    VM_ALLOC_NOOBJ | VM_ALLOC_WIRED)) == NULL) {
+		while ((m = vm_page_alloc_noobj(VM_ALLOC_WIRED)) == NULL) {
 			if (nosleep) {
 				ptbl_free_pmap_ptbl(pmap, ptbl);
 				for (j = 0; j < i; j++)
@@ -279,6 +278,7 @@ ptbl_alloc(pmap_t pmap, unsigned int pdir_idx, boolean_t nosleep)
 			rw_wlock(&pvh_global_lock);
 			PMAP_LOCK(pmap);
 		}
+		m->pindex = pidx;
 		mtbl[i] = m;
 	}
 
@@ -748,14 +748,23 @@ mmu_booke_sync_icache(pmap_t pm, vm_offset_t va, vm_size_t sz)
 		sync_sz = min(sync_sz, sz);
 		if (valid) {
 			if (!active) {
-				/* Create a mapping in the active pmap. */
+				/*
+				 * Create a mapping in the active pmap.
+				 *
+				 * XXX: We use the zero page here, because
+				 * it isn't likely to be in use.
+				 * If we ever decide to support
+				 * security.bsd.map_at_zero on Book-E, change
+				 * this to some other address that isn't
+				 * normally mappable.
+				 */
 				addr = 0;
 				m = PHYS_TO_VM_PAGE(pa);
 				PMAP_LOCK(pmap);
 				pte_enter(pmap, m, addr,
 				    PTE_SR | PTE_VALID, FALSE);
-				addr += (va & PAGE_MASK);
-				__syncicache((void *)addr, sync_sz);
+				__syncicache((void *)(addr + (va & PAGE_MASK)),
+				    sync_sz);
 				pte_remove(pmap, addr, PTBL_UNHOLD);
 				PMAP_UNLOCK(pmap);
 			} else

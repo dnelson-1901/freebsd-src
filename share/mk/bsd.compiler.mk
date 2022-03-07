@@ -25,6 +25,13 @@
 # - retpoline: supports the retpoline speculative execution vulnerability
 #              mitigation.
 # - init-all:  supports stack variable initialization.
+# - aarch64-sha512: supports the AArch64 sha512 intrinsic functions.
+#
+# When bootstrapping on macOS, 'apple-clang' will be set in COMPILER_FEATURES
+# to differentiate Apple's version of Clang. Apple Clang uses a different
+# versioning scheme and may not support the same -W/-Wno warning flags. For a
+# mapping of Apple Clang versions to upstream clang versions see
+# https://en.wikipedia.org/wiki/Xcode#Xcode_7.0_-_12.x_(since_Free_On-Device_Development)
 #
 # These variables with an X_ prefix will also be provided if XCC is set.
 #
@@ -58,8 +65,9 @@ CCACHE_BUILD_TYPE?=	command
 # PATH since it is more clear that ccache is used and avoids wasting time
 # for mkdep/linking/asm builds.
 LOCALBASE?=		/usr/local
-CCACHE_WRAPPER_PATH?=	${LOCALBASE}/libexec/ccache
-CCACHE_BIN?=		${LOCALBASE}/bin/ccache
+CCACHE_PKG_PREFIX?=	${LOCALBASE}
+CCACHE_WRAPPER_PATH?=	${CCACHE_PKG_PREFIX}/libexec/ccache
+CCACHE_BIN?=		${CCACHE_PKG_PREFIX}/bin/ccache
 .if exists(${CCACHE_BIN})
 # Export to ensure sub-makes can filter it out for mkdep/linking and
 # to chain down into kernel build which won't include this file.
@@ -152,7 +160,7 @@ _can_export=	yes
 .for var in ${_exported_vars}
 .if defined(${var}) && (!defined(${var}__${${X_}_cc_hash}) || ${${var}__${${X_}_cc_hash}} != ${${var}})
 .if defined(${var}__${${X_}_ld_hash})
-.info "Cannot import ${X_}COMPILER variables since cached ${var} is different: ${${var}__${${X_}_cc_hash}} != ${${var}}"
+.info Cannot import ${X_}COMPILER variables since cached ${var} is different: ${${var}__${${X_}_cc_hash}} != ${${var}}
 .endif
 _can_export=	no
 .endif
@@ -187,11 +195,24 @@ ${X_}COMPILER_TYPE:=	gcc
 . elif ${_v:Mclang} || ${_v:M(clang-*.*.*)}
 ${X_}COMPILER_TYPE:=	clang
 . else
+# With GCC, cc --version prints "cc $VERSION ($PKGVERSION)", so if a
+# distribution overrides the default GCC PKGVERSION it is not identified.
+# However, its -v output always says "gcc version" in it, so fall back on that.
+_gcc_version!=	${${cc}:N${CCACHE_BIN}} -v 2>&1 | grep "gcc version"
+.  if !empty(_gcc_version)
+${X_}COMPILER_TYPE:=	gcc
+.  else
 .error Unable to determine compiler type for ${cc}=${${cc}}.  Consider setting ${X_}COMPILER_TYPE.
+.  endif
+.undef _gcc_version
 . endif
 .endif
 .if !defined(${X_}COMPILER_VERSION)
 ${X_}COMPILER_VERSION!=echo "${_v:M[1-9]*.[0-9]*}" | awk -F. '{print $$1 * 10000 + $$2 * 100 + $$3;}'
+.endif
+# Detect apple clang when bootstrapping to select appropriate warning flags.
+.if !defined(${X_}COMPILER_FEATURES) && ${_v:[*]:M*Apple clang version*}
+${X_}COMPILER_FEATURES=	apple-clang
 .endif
 .undef _v
 .endif
@@ -209,13 +230,37 @@ ${X_}COMPILER_FREEBSD_VERSION=	unknown
 ${X_}COMPILER_RESOURCE_DIR!=	${${cc}:N${CCACHE_BIN}} -print-resource-dir 2>/dev/null || echo unknown
 .endif
 
-${X_}COMPILER_FEATURES=		c++11 c++14
+${X_}COMPILER_FEATURES+=		c++11 c++14
 .if ${${X_}COMPILER_TYPE} == "clang" || \
 	(${${X_}COMPILER_TYPE} == "gcc" && ${${X_}COMPILER_VERSION} >= 70000)
 ${X_}COMPILER_FEATURES+=	c++17
 .endif
 .if ${${X_}COMPILER_TYPE} == "clang"
 ${X_}COMPILER_FEATURES+=	retpoline init-all
+# PR257638 lld fails with BE compressed debug.  Fixed in main but external tool
+# chains will initially not have the fix.  For now limit the feature to LE
+# targets.
+# When compiling bootstrap tools on non-FreeBSD, the various MACHINE variables
+# for the host can be missing or not match FreeBSD's naming (e.g. Linux/amd64
+# reports as MACHINE=x86_64 MACHINE_ARCH=x86_64), causing TARGET_ENDIANNESS to
+# be undefined; be conservative and default to off until we turn this on by
+# default everywhere.
+.include <bsd.endian.mk>
+.if (${.MAKE.OS} == "FreeBSD" || defined(TARGET_ENDIANNESS)) && \
+    ${TARGET_ENDIANNESS} == "1234"
+${X_}COMPILER_FEATURES+=	compressed-debug
+.endif
+.endif
+.if ${${X_}COMPILER_TYPE} == "clang" && ${${X_}COMPILER_VERSION} >= 100000 || \
+	(${${X_}COMPILER_TYPE} == "gcc" && ${${X_}COMPILER_VERSION} >= 80100)
+${X_}COMPILER_FEATURES+=	fileprefixmap
+.endif
+
+.if (${${X_}COMPILER_TYPE} == "clang" && ${${X_}COMPILER_VERSION} >= 130000) || \
+	(${${X_}COMPILER_TYPE} == "gcc" && ${${X_}COMPILER_VERSION} >= 90000)
+# AArch64 sha512 intrinsics are supported (and have been tested) in
+# clang 13 and gcc 9.
+${X_}COMPILER_FEATURES+=	aarch64-sha512
 .endif
 
 .else

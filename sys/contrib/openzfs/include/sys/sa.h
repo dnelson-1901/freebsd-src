@@ -143,7 +143,8 @@ uint64_t sa_handle_object(sa_handle_t *);
 boolean_t sa_attr_would_spill(sa_handle_t *, sa_attr_type_t, int size);
 void sa_spill_rele(sa_handle_t *);
 void sa_register_update_callback(objset_t *, sa_update_cb_t *);
-int sa_setup(objset_t *, uint64_t, sa_attr_reg_t *, int, sa_attr_type_t **);
+int sa_setup(objset_t *, uint64_t, const sa_attr_reg_t *, int,
+    sa_attr_type_t **);
 void sa_tear_down(objset_t *);
 int sa_replace_all_by_template(sa_handle_t *, sa_bulk_attr_t *,
     int, dmu_tx_t *);
@@ -158,7 +159,7 @@ void sa_handle_lock(sa_handle_t *);
 void sa_handle_unlock(sa_handle_t *);
 
 #ifdef _KERNEL
-int sa_lookup_uio(sa_handle_t *, sa_attr_type_t, uio_t *);
+int sa_lookup_uio(sa_handle_t *, sa_attr_type_t, zfs_uio_t *);
 int sa_add_projid(sa_handle_t *, dmu_tx_t *, uint64_t);
 #endif
 

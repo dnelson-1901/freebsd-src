@@ -38,7 +38,6 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/gdb_machdep.h>
 #include <machine/pcb.h>
-#include <machine/reg.h>
 
 #include <machine/hid.h>
 #include <machine/spr.h>
@@ -98,10 +97,7 @@ gdb_cpu_signal(int vector, int dummy __unused)
 		return (SIGTRAP);
 #endif
 
-	if (vector <= 255)
-		return (vector);
-	else
-		return (SIGEMT);
+	return (SIGEMT);
 }
 
 void

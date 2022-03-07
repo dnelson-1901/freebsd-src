@@ -82,7 +82,7 @@ __FBSDID("$FreeBSD$");
 #include <xen/xen-os.h>
 #include <xen/hypervisor.h>
 #include <xen/xen_intr.h>
-#include <xen/interface/io/netif.h>
+#include <contrib/xen/io/netif.h>
 #include <xen/xenbus/xenbusvar.h>
 
 /*--------------------------- Compile-time Tunables --------------------------*/
@@ -639,7 +639,7 @@ static int
 xnb_disconnect(struct xnb_softc *xnb)
 {
 	struct gnttab_unmap_grant_ref gnts[XNB_NUM_RING_TYPES];
-	int error;
+	int error __diagused;
 	int i;
 
 	if (xnb->xen_intr_handle != NULL)
@@ -1392,8 +1392,8 @@ xnb_frontend_changed(device_t dev, XenbusState frontend_state)
 
 	switch (frontend_state) {
 	case XenbusStateInitialising:
-		break;
 	case XenbusStateInitialised:
+		break;
 	case XenbusStateConnected:
 		xnb_connect(xnb);
 		break;
@@ -2296,6 +2296,7 @@ xnb_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		case SIOCADDMULTI:
 		case SIOCDELMULTI:
+			break;
 		case SIOCSIFMEDIA:
 		case SIOCGIFMEDIA:
 			error = ifmedia_ioctl(ifp, ifr, &xnb->sc_media, cmd);

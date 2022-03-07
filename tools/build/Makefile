@@ -34,7 +34,7 @@ _MACOS_SDK_DIR=${_XCODE_ROOT}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sd
 .endif
 HOST_INCLUDE_ROOT=${_MACOS_SDK_DIR}/usr/include
 .if !exists(${HOST_INCLUDE_ROOT}/stdio.h)
-.error "You must install the macOS SDK (try xcode-select --install)"
+.error You must install the macOS SDK (try xcode-select --install)
 .endif
 .else
 HOST_INCLUDE_ROOT=/usr/include
@@ -88,6 +88,11 @@ INCS+=		strings.h
 SRCS+=		explicit_bzero.c
 .endif
 
+_WITH_FSPACECTL!= grep -c fspacectl ${HOST_INCLUDE_ROOT}/fcntl.h || true
+.if ${_WITH_FSPACECTL} == 0
+INCS+=		fcntl.h
+SRCS+=		fspacectl.c
+.endif
 
 .if exists(${HOST_INCLUDE_ROOT}/capsicum_helpers.h)
 _WITH_CAPH_ENTER!= grep -c caph_enter ${HOST_INCLUDE_ROOT}/capsicum_helpers.h || true
@@ -120,6 +125,11 @@ _host_arch=${MACHINE}
 .if ${_host_arch} == "x86_64"
 # bmake on Linux/mac often prints that instead of amd64
 _host_arch=amd64
+.elif ${_host_arch} == "aarch64"
+# Linux calls arm64, aarch64, across the board
+_host_arch=arm64
+.elif ${_host_arch:Mppc*}
+_host_arch=powerpc
 .endif
 .if ${_host_arch} == "unknown"
 # HACK: If MACHINE is unknown, assume we are building on x86
@@ -158,6 +168,9 @@ INCS+=	 ${SRCTOP}/include/getopt.h
 # getcap.c is needed for cap_mkdb:
 .PATH: ${LIBC_SRCTOP}/gen
 SRCS+=	getcap.c
+# Glibc does not provide all err*/warn* functions, and for macOS we need the
+# alias with the extra underscore.
+SRCS+=	err.c
 # Add various libbc functions that are not available in glibc:
 SRCS+=	stringlist.c setmode.c
 SRCS+=	strtonum.c merge.c heapsort.c reallocf.c
@@ -172,8 +185,8 @@ SRCS+=	strlcpy.c strlcat.c strmode.c
 SRCS+=	fgetln_fallback.c fgetwln_fallback.c closefrom.c
 CFLAGS.closefrom.c+=	-DSTDC_HEADERS -DHAVE_SYS_DIR_H -DHAVE_DIRENT_H \
 	-DHAVE_DIRFD -DHAVE_SYSCONF
-# Provide warnc/errc/getprogname/setprograme
-SRCS+=	err.c progname.c
+# Provide getprogname/setprograme
+SRCS+=	progname.c
 # Stub implementations of fflagstostr/strtofflags
 SRCS+=	fflags.c
 .endif
@@ -263,8 +276,8 @@ SYSINCS+=	${SRCTOP}/sys/sys/elf.h
 # Linux/MacOS since we only use flags that are supported by all of them.
 _host_tools_to_symlink=	basename bzip2 bunzip2 chmod chown cmp comm cp date dd \
 	dirname echo env false find fmt gzip gunzip head hostname id ln ls \
-	mkdir mv nice patch rm sh sleep stat tee touch tr true uname uniq unxz \
-	wc which xz
+	mkdir mv nice patch rm sh sleep stat tee time touch tr true uname uniq \
+	unxz wc which xz
 
 # We also need a symlink to the absolute path to the make binary used for
 # the toplevel makefile. This is not necessarily the same as `which make`
@@ -272,7 +285,17 @@ _host_tools_to_symlink=	basename bzip2 bunzip2 chmod chown cmp comm cp date dd \
 _make_abs!=	which "${MAKE}"
 _host_abs_tools_to_symlink=	${_make_abs}:make ${_make_abs}:bmake
 
-.if ${.MAKE.OS} != "FreeBSD"
+.if ${.MAKE.OS} == "FreeBSD"
+# When building on FreeBSD we always copy the host tools instead of linking
+# into WORLDTMP to avoid issues with incompatible libraries (see r364030).
+# Note: we could create links if we don't intend to update the current machine.
+_COPY_HOST_TOOL=cp -pf
+.else
+# However, this is not necessary on Linux/macOS. Additionally, copying the host
+# tools to another directory with cp -p results in freezes on macOS Big Sur for
+# some unknown reason. It can also break building inside docker containers if
+# there are ACLs on shared volumes.
+_COPY_HOST_TOOL=ln -sfn
 _make_abs!=	which "${MAKE}"
 _host_abs_tools_to_symlink+=	${_make_abs}:make ${_make_abs}:bmake
 .if ${.MAKE.OS} == "Darwin"
@@ -288,25 +311,26 @@ _host_tools_to_symlink:=${_host_tools_to_symlink:Nsh}
 host-symlinks:
 	@echo "Linking host tools into ${DESTDIR}/bin"
 .for _tool in ${_host_tools_to_symlink}
-	@export PATH=$${PATH}:/usr/local/bin; source_path=`which ${_tool}`; \
+	@export PATH=$${PATH}:/usr/local/bin; \
+	source_path=`which ${_tool} || echo /dev/null/no/such`; \
 	if [ ! -e "$${source_path}" ] ; then \
 		echo "Cannot find host tool '${_tool}' in PATH ($$PATH)." >&2; false; \
 	fi; \
 	rm -f "${DESTDIR}/bin/${_tool}"; \
-	cp -pf "$${source_path}" "${DESTDIR}/bin/${_tool}"
+	${_COPY_HOST_TOOL} "$${source_path}" "${DESTDIR}/bin/${_tool}"
 .endfor
 .for _tool in ${_host_abs_tools_to_symlink}
 	@source_path="${_tool:S/:/ /:[1]}"; \
 	target_path="${DESTDIR}/bin/${_tool:S/:/ /:[2]}"; \
 	if [ ! -e "$${source_path}" ] ; then \
-		echo "Host tool '${src_path}' is missing"; false; \
+		echo "Host tool '$${source_path}' is missing"; false; \
 	fi; \
 	rm -f "$${target_path}"; \
-	cp -pf "$${source_path}" "$${target_path}"
+	${_COPY_HOST_TOOL} "$${source_path}" "$${target_path}"
 .endfor
 .if exists(/usr/libexec/flua)
 	rm -f ${DESTDIR}/usr/libexec/flua
-	cp -pf /usr/libexec/flua ${DESTDIR}/usr/libexec/flua
+	${_COPY_HOST_TOOL} /usr/libexec/flua ${DESTDIR}/usr/libexec/flua
 .endif
 
 # Create all the directories that are needed during the legacy, bootstrap-tools
@@ -320,6 +344,7 @@ INSTALLDIR_LIST= \
 	usr/include/private/ucl \
 	usr/include/private/zstd \
 	usr/lib \
+	usr/libdata/pkgconfig \
 	usr/libexec
 
 installdirs:

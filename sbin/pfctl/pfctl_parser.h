@@ -36,6 +36,8 @@
 #ifndef _PFCTL_PARSER_H_
 #define _PFCTL_PARSER_H_
 
+#include <libpfctl.h>
+
 #define PF_OSFP_FILE		"/etc/pf.os"
 
 #define PF_OPT_DISABLE		0x0001
@@ -53,6 +55,7 @@
 #define PF_OPT_NUMERIC		0x1000
 #define PF_OPT_MERGE		0x2000
 #define PF_OPT_RECURSE		0x4000
+#define PF_OPT_KILLMATCH	0x8000
 
 #define PF_TH_ALL		0xFF
 
@@ -79,15 +82,18 @@ struct pfctl {
 	int loadopt;
 	int asd;			/* anchor stack depth */
 	int bn;				/* brace number */
-	int brace;
 	int tdirty;			/* kernel dirty */
 #define PFCTL_ANCHOR_STACK_DEPTH 64
-	struct pf_anchor *astack[PFCTL_ANCHOR_STACK_DEPTH];
+	struct pfctl_anchor *astack[PFCTL_ANCHOR_STACK_DEPTH];
 	struct pfioc_pooladdr paddr;
 	struct pfioc_altq *paltq;
 	struct pfioc_queue *pqueue;
 	struct pfr_buffer *trans;
-	struct pf_anchor *anchor, *alast;
+	struct pfctl_anchor *anchor, *alast;
+	int eth_nr;
+	struct pfctl_eth_anchor *eanchor, *ealast;
+	struct pfctl_eth_anchor *eastack[PFCTL_ANCHOR_STACK_DEPTH];
+	u_int32_t eth_ticket;
 	const char *ruleset;
 
 	/* 'set foo' options */
@@ -96,6 +102,10 @@ struct pfctl {
 	u_int32_t	 debug;
 	u_int32_t	 hostid;
 	char		*ifname;
+	bool		 keep_counters;
+	u_int8_t	 syncookies;
+	u_int8_t	 syncookieswat[2];	/* lowat, highwat, in % */
+	u_int8_t	 syncookieswat_set;
 
 	u_int8_t	 timeout_set[PFTM_MAX];
 	u_int8_t	 limit_set[PF_LIMIT_MAX];
@@ -124,6 +134,15 @@ struct node_host {
 	u_int			 ifa_flags;
 	struct node_host	*next;
 	struct node_host	*tail;
+};
+
+struct node_mac {
+	u_int8_t	 mac[ETHER_ADDR_LEN];
+	u_int8_t	 mask[ETHER_ADDR_LEN];
+	bool		 neg;
+	bool		 isset;
+	struct node_mac	*next;
+	struct node_mac	*tail;
 };
 
 struct node_os {
@@ -178,7 +197,7 @@ struct node_queue_opt {
 };
 
 #define QPRI_BITSET_SIZE	256
-BITSET_DEFINE(qpri_bitset, QPRI_BITSET_SIZE);
+__BITSET_DEFINE(qpri_bitset, QPRI_BITSET_SIZE);
 LIST_HEAD(gen_sc, segment);
 
 struct pfctl_altq {
@@ -193,6 +212,11 @@ struct pfctl_altq {
 		struct gen_sc			lssc;
 		struct gen_sc			rtsc;
 	} meta;
+};
+
+struct pfctl_watermarks {
+	uint32_t	hi;
+	uint32_t	lo;
 };
 
 #ifdef __FreeBSD__
@@ -239,7 +263,7 @@ struct pf_opt_tbl {
 
 /* optimizer pf_rule container */
 struct pf_opt_rule {
-	struct pf_rule		 por_rule;
+	struct pfctl_rule	 por_rule;
 	struct pf_opt_tbl	*por_src_tbl;
 	struct pf_opt_tbl	*por_dst_tbl;
 	u_int64_t		 por_profile_count;
@@ -250,13 +274,15 @@ struct pf_opt_rule {
 TAILQ_HEAD(pf_opt_queue, pf_opt_rule);
 
 int	pfctl_rules(int, char *, int, int, char *, struct pfr_buffer *);
-int	pfctl_optimize_ruleset(struct pfctl *, struct pf_ruleset *);
+int	pfctl_optimize_ruleset(struct pfctl *, struct pfctl_ruleset *);
 
-int	pfctl_add_rule(struct pfctl *, struct pf_rule *, const char *);
+int	pfctl_append_rule(struct pfctl *, struct pfctl_rule *, const char *);
+int	pfctl_append_eth_rule(struct pfctl *, struct pfctl_eth_rule *,
+	    const char *);
 int	pfctl_add_altq(struct pfctl *, struct pf_altq *);
-int	pfctl_add_pool(struct pfctl *, struct pf_pool *, sa_family_t);
-void	pfctl_move_pool(struct pf_pool *, struct pf_pool *);
-void	pfctl_clear_pool(struct pf_pool *);
+int	pfctl_add_pool(struct pfctl *, struct pfctl_pool *, sa_family_t);
+void	pfctl_move_pool(struct pfctl_pool *, struct pfctl_pool *);
+void	pfctl_clear_pool(struct pfctl_pool *);
 
 int	pfctl_set_timeout(struct pfctl *, const char *, int, int);
 int	pfctl_set_optimization(struct pfctl *, const char *);
@@ -265,17 +291,19 @@ int	pfctl_set_logif(struct pfctl *, char *);
 int	pfctl_set_hostid(struct pfctl *, u_int32_t);
 int	pfctl_set_debug(struct pfctl *, char *);
 int	pfctl_set_interface_flags(struct pfctl *, char *, int, int);
+int	pfctl_cfg_syncookies(struct pfctl *, uint8_t, struct pfctl_watermarks *);
 
 int	parse_config(char *, struct pfctl *);
 int	parse_flags(char *);
 int	pfctl_load_anchors(int, struct pfctl *, struct pfr_buffer *);
 
-void	print_pool(struct pf_pool *, u_int16_t, u_int16_t, sa_family_t, int);
+void	print_pool(struct pfctl_pool *, u_int16_t, u_int16_t, sa_family_t, int);
 void	print_src_node(struct pf_src_node *, int);
-void	print_rule(struct pf_rule *, const char *, int, int);
+void	print_eth_rule(struct pfctl_eth_rule *, const char *, int);
+void	print_rule(struct pfctl_rule *, const char *, int, int);
 void	print_tabledef(const char *, int, int, struct node_tinithead *);
-void	print_status(struct pf_status *, int);
-void	print_running(struct pf_status *);
+void	print_status(struct pfctl_status *, struct pfctl_syncookies *, int);
+void	print_running(struct pfctl_status *);
 
 int	eval_pfaltq(struct pfctl *, struct pf_altq *, struct node_queue_bw *,
 	    struct node_queue_opt *);
@@ -324,6 +352,7 @@ struct pf_timeout {
 #define PFCTL_FLAG_OPTION	0x08
 #define PFCTL_FLAG_ALTQ		0x10
 #define PFCTL_FLAG_TABLE	0x20
+#define PFCTL_FLAG_ETH		0x40
 
 extern const struct pf_timeout pf_timeouts[];
 

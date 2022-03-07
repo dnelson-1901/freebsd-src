@@ -68,10 +68,12 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/asan.h>
 #include <sys/domainset.h>
 #include <sys/limits.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
+#include <sys/msan.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
 #include <sys/racct.h>
@@ -86,7 +88,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/vmem.h>
 #include <sys/sx.h>
 #include <sys/sysctl.h>
-#include <sys/eventhandler.h>
 #include <sys/kernel.h>
 #include <sys/ktr.h>
 #include <sys/unistd.h>
@@ -297,19 +298,7 @@ vm_thread_stack_create(struct domainset *ds, int pages)
 	/*
 	 * Get a kernel virtual address for this thread's kstack.
 	 */
-#if defined(__mips__)
-	/*
-	 * We need to align the kstack's mapped address to fit within
-	 * a single TLB entry.
-	 */
-	if (vmem_xalloc(kernel_arena, (pages + KSTACK_GUARD_PAGES) * PAGE_SIZE,
-	    PAGE_SIZE * 2, 0, 0, VMEM_ADDR_MIN, VMEM_ADDR_MAX,
-	    M_BESTFIT | M_NOWAIT, &ks)) {
-		ks = 0;
-	}
-#else
 	ks = kva_alloc((pages + KSTACK_GUARD_PAGES) * PAGE_SIZE);
-#endif
 	if (ks == 0) {
 		printf("%s: kstack allocation failed\n", __func__);
 		return (0);
@@ -351,6 +340,7 @@ vm_thread_stack_dispose(vm_offset_t ks, int pages)
 		vm_page_free(m);
 	}
 	VM_OBJECT_WUNLOCK(kstack_object);
+	kasan_mark((void *)ks, ptoa(pages), ptoa(pages), 0);
 	kva_free(ks - (KSTACK_GUARD_PAGES * PAGE_SIZE),
 	    (pages + KSTACK_GUARD_PAGES) * PAGE_SIZE);
 }
@@ -385,6 +375,8 @@ vm_thread_new(struct thread *td, int pages)
 		return (0);
 	td->td_kstack = ks;
 	td->td_kstack_pages = pages;
+	kasan_mark((void *)ks, ptoa(pages), ptoa(pages), 0);
+	kmsan_mark((void *)ks, ptoa(pages), KMSAN_STATE_UNINIT);
 	return (1);
 }
 
@@ -401,6 +393,7 @@ vm_thread_dispose(struct thread *td)
 	ks = td->td_kstack;
 	td->td_kstack = 0;
 	td->td_kstack_pages = 0;
+	kasan_mark((void *)ks, 0, ptoa(pages), KASAN_KSTACK_FREED);
 	if (pages == kstack_pages)
 		uma_zfree(kstack_cache, (void *)ks);
 	else
@@ -489,7 +482,7 @@ static int max_kstack_used;
 
 SYSCTL_INT(_debug, OID_AUTO, max_kstack_used, CTLFLAG_RD,
     &max_kstack_used, 0,
-    "Maxiumum stack depth used by a thread in kernel");
+    "Maximum stack depth used by a thread in kernel");
 
 void
 intr_prof_stack_use(struct thread *td, struct trapframe *frame)
@@ -550,11 +543,9 @@ vm_forkproc(struct thread *td, struct proc *p2, struct thread *td2,
 		 * COW locally.
 		 */
 		if ((flags & RFMEM) == 0) {
-			if (refcount_load(&p1->p_vmspace->vm_refcnt) > 1) {
-				error = vmspace_unshare(p1);
-				if (error)
-					return (error);
-			}
+			error = vmspace_unshare(p1);
+			if (error)
+				return (error);
 		}
 		cpu_fork(td, p2, td2, flags);
 		return (0);

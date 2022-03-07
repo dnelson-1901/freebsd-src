@@ -1,6 +1,5 @@
 /*-
  * Copyright (c) 2015-2016 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Andrew Turner under
  * sponsorship from the FreeBSD Foundation.
@@ -41,6 +40,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/bus.h>
 #include <sys/cpu.h>
 #include <sys/csan.h>
+#include <sys/domainset.h>
 #include <sys/kernel.h>
 #include <sys/ktr.h>
 #include <sys/malloc.h>
@@ -58,6 +58,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_map.h>
 
 #include <machine/machdep.h>
+#include <machine/cpu.h>
 #include <machine/debug_monitor.h>
 #include <machine/intr.h>
 #include <machine/smp.h>
@@ -152,7 +153,7 @@ static bool
 is_boot_cpu(uint64_t target_cpu)
 {
 
-	return (__pcpu[0].pc_mpidr == (target_cpu & CPU_AFF_MASK));
+	return (cpuid_to_pcpu[0]->pc_mpidr == (target_cpu & CPU_AFF_MASK));
 }
 
 static void
@@ -208,21 +209,25 @@ init_secondary(uint64_t cpu)
 	pmap_t pmap0;
 	u_int mpidr;
 
+	ptrauth_mp_start(cpu);
+
 	/*
 	 * Verify that the value passed in 'cpu' argument (aka context_id) is
 	 * valid. Some older U-Boot based PSCI implementations are buggy,
 	 * they can pass random value in it.
 	 */
 	mpidr = READ_SPECIALREG(mpidr_el1) & CPU_AFF_MASK;
-	if  (cpu >= MAXCPU || __pcpu[cpu].pc_mpidr != mpidr) {
+	if (cpu >= MAXCPU || cpuid_to_pcpu[cpu] == NULL ||
+	    cpuid_to_pcpu[cpu]->pc_mpidr != mpidr) {
 		for (cpu = 0; cpu < mp_maxid; cpu++)
-			if (__pcpu[cpu].pc_mpidr == mpidr)
+			if (cpuid_to_pcpu[cpu] != NULL &&
+			    cpuid_to_pcpu[cpu]->pc_mpidr == mpidr)
 				break;
 		if ( cpu >= MAXCPU)
 			panic("MPIDR for this CPU is not in pcpu table");
 	}
 
-	pcpup = &__pcpu[cpu];
+	pcpup = cpuid_to_pcpu[cpu];
 	/*
 	 * Set the pcpu pointer with a backup in tpidr_el1 to be
 	 * loaded when entering the kernel from userland.
@@ -239,6 +244,7 @@ init_secondary(uint64_t cpu)
 	 * We need this before signalling the CPU is ready to
 	 * let the boot CPU use the results.
 	 */
+	pcpup->pc_midr = get_midr();
 	identify_cpu(cpu);
 
 	/* Ensure the stores in identify_cpu have completed */
@@ -249,11 +255,10 @@ init_secondary(uint64_t cpu)
 	while (!atomic_load_int(&aps_ready))
 		__asm __volatile("wfe");
 
-	pcpup->pc_midr = get_midr();
-
 	/* Initialize curthread */
 	KASSERT(PCPU_GET(idlethread) != NULL, ("no idle thread"));
 	pcpup->pc_curthread = pcpup->pc_idlethread;
+	schedinit_ap();
 
 	/* Initialize curpmap to match TTBR0's current setting. */
 	pmap0 = vmspace_pmap(&vmspace0);
@@ -291,7 +296,7 @@ init_secondary(uint64_t cpu)
 	MPASS(PCPU_GET(curpcb) == NULL);
 
 	/* Enter the scheduler */
-	sched_throw(NULL);
+	sched_ap_entry();
 
 	panic("scheduler returned us to init_secondary");
 	/* NOTREACHED */
@@ -364,6 +369,8 @@ intr_pic_ipi_setup(u_int ipi, const char *name, intr_ipi_handler_t *hand,
 	ii->ii_send_arg = isrc;
 	strlcpy(ii->ii_name, name, INTR_IPI_NAMELEN);
 	ii->ii_count = intr_ipi_setup_counters(name);
+
+	PIC_ENABLE_INTR(intr_irq_root_dev, isrc);
 }
 
 static void
@@ -437,8 +444,35 @@ ipi_stop(void *dummy __unused)
 struct cpu_group *
 cpu_topo(void)
 {
+	struct cpu_group *dom, *root;
+	int i;
 
-	return (smp_topo_none());
+	root = smp_topo_alloc(1);
+	dom = smp_topo_alloc(vm_ndomains);
+
+	root->cg_parent = NULL;
+	root->cg_child = dom;
+	CPU_COPY(&all_cpus, &root->cg_mask);
+	root->cg_count = mp_ncpus;
+	root->cg_children = vm_ndomains;
+	root->cg_level = CG_SHARE_NONE;
+	root->cg_flags = 0;
+
+	/*
+	 * Redundant layers will be collapsed by the caller so we don't need a
+	 * special case for a single domain.
+	 */
+	for (i = 0; i < vm_ndomains; i++, dom++) {
+		dom->cg_parent = root;
+		dom->cg_child = NULL;
+		CPU_COPY(&cpuset_domain[i], &dom->cg_mask);
+		dom->cg_count = CPU_COUNT(&dom->cg_mask);
+		dom->cg_children = 0;
+		dom->cg_level = CG_SHARE_L3;
+		dom->cg_flags = 0;
+	}
+
+	return (root);
 }
 
 /* Determine if we running MP machine */
@@ -455,7 +489,7 @@ cpu_mp_probe(void)
  * do nothing. Returns true if the CPU is present and running.
  */
 static bool
-start_cpu(u_int cpuid, uint64_t target_cpu)
+start_cpu(u_int cpuid, uint64_t target_cpu, int domain)
 {
 	struct pcpu *pcpup;
 	vm_paddr_t pa;
@@ -471,14 +505,17 @@ start_cpu(u_int cpuid, uint64_t target_cpu)
 
 	KASSERT(cpuid < MAXCPU, ("Too many CPUs"));
 
-	pcpup = &__pcpu[cpuid];
+	pcpup = (void *)kmem_malloc_domainset(DOMAINSET_PREF(domain),
+	    sizeof(*pcpup), M_WAITOK | M_ZERO);
 	pcpu_init(pcpup, cpuid, sizeof(struct pcpu));
 	pcpup->pc_mpidr = target_cpu & CPU_AFF_MASK;
 
-	dpcpu[cpuid - 1] = (void *)kmem_malloc(DPCPU_SIZE, M_WAITOK | M_ZERO);
+	dpcpu[cpuid - 1] = (void *)kmem_malloc_domainset(
+	    DOMAINSET_PREF(domain), DPCPU_SIZE, M_WAITOK | M_ZERO);
 	dpcpu_init(dpcpu[cpuid - 1], cpuid);
 
-	bootstacks[cpuid] = (void *)kmem_malloc(PAGE_SIZE, M_WAITOK | M_ZERO);
+	bootstacks[cpuid] = (void *)kmem_malloc_domainset(
+	    DOMAINSET_PREF(domain), PAGE_SIZE, M_WAITOK | M_ZERO);
 
 	naps = atomic_load_int(&aps_started);
 	bootstack = (char *)bootstacks[cpuid] + PAGE_SIZE;
@@ -521,6 +558,7 @@ madt_handler(ACPI_SUBTABLE_HEADER *entry, void *arg)
 	ACPI_MADT_GENERIC_INTERRUPT *intr;
 	u_int *cpuid;
 	u_int id;
+	int domain;
 
 	switch(entry->Type) {
 	case ACPI_MADT_TYPE_GENERIC_INTERRUPT:
@@ -532,8 +570,14 @@ madt_handler(ACPI_SUBTABLE_HEADER *entry, void *arg)
 		else
 			id = *cpuid;
 
-		if (start_cpu(id, intr->ArmMpidr)) {
-			__pcpu[id].pc_acpi_id = intr->Uid;
+		domain = 0;
+#ifdef NUMA
+		if (vm_ndomains > 1)
+			domain = acpi_pxm_get_cpu_locality(intr->Uid);
+#endif
+		if (start_cpu(id, intr->ArmMpidr, domain)) {
+			MPASS(cpuid_to_pcpu[id] != NULL);
+			cpuid_to_pcpu[id]->pc_acpi_id = intr->Uid;
 			/*
 			 * Don't increment for the boot CPU, its CPU ID is
 			 * reserved.
@@ -596,7 +640,7 @@ start_cpu_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 	else
 		cpuid = fdt_cpuid;
 
-	if (!start_cpu(cpuid, target_cpu))
+	if (!start_cpu(cpuid, target_cpu, 0))
 		return (FALSE);
 
 	/*
@@ -609,7 +653,7 @@ start_cpu_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 	if (vm_ndomains == 1 ||
 	    OF_getencprop(node, "numa-node-id", &domain, sizeof(domain)) <= 0)
 		domain = 0;
-	__pcpu[cpuid].pc_domain = domain;
+	cpuid_to_pcpu[cpuid]->pc_domain = domain;
 	if (domain < MAXMEMDOM)
 		CPU_SET(cpuid, &cpuset_domain[domain]);
 	return (TRUE);
@@ -640,7 +684,7 @@ cpu_mp_start(void)
 
 	/* CPU 0 is always boot CPU. */
 	CPU_SET(0, &all_cpus);
-	__pcpu[0].pc_mpidr = READ_SPECIALREG(mpidr_el1) & CPU_AFF_MASK;
+	cpuid_to_pcpu[0]->pc_mpidr = READ_SPECIALREG(mpidr_el1) & CPU_AFF_MASK;
 
 	switch(arm64_bus_method) {
 #ifdef DEV_ACPI
@@ -669,12 +713,10 @@ cpu_mp_announce(void)
 static void
 cpu_count_acpi_handler(ACPI_SUBTABLE_HEADER *entry, void *arg)
 {
-	ACPI_MADT_GENERIC_INTERRUPT *intr;
 	u_int *cores = arg;
 
 	switch(entry->Type) {
 	case ACPI_MADT_TYPE_GENERIC_INTERRUPT:
-		intr = (ACPI_MADT_GENERIC_INTERRUPT *)entry;
 		(*cores)++;
 		break;
 	default:

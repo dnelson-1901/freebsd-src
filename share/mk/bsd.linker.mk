@@ -46,7 +46,7 @@ _can_export=	yes
 .for var in ${_exported_vars}
 .if defined(${var}) && (!defined(${var}__${${X_}_ld_hash}) || ${${var}__${${X_}_ld_hash}} != ${${var}})
 .if defined(${var}__${${X_}_ld_hash})
-.info "Cannot import ${X_}LINKER variables since cached ${var} is different: ${${var}__${${X_}_ld_hash}} != ${${var}}"
+.info Cannot import ${X_}LINKER variables since cached ${var} is different: ${${var}__${${X_}_ld_hash}} != ${${var}}
 .endif
 _can_export=	no
 .endif
@@ -69,7 +69,9 @@ _ld_version!=	(${${ld}} -v 2>&1 || echo none) | sed -n 1p
 ${X_}LINKER_TYPE=	bfd
 ${X_}LINKER_FREEBSD_VERSION=	0
 _v=	${_ld_version:M[1-9]*.[0-9]*:[1]}
-.elif ${_ld_version:[1]} == "LLD"
+.elif ${_ld_version:MLLD}
+# Strip any leading PACKAGE_VENDOR string (e.g. "Homebrew")
+_ld_version:=${_ld_version:[*]:C/^.* LLD /LLD /:[@]}
 ${X_}LINKER_TYPE=	lld
 _v=	${_ld_version:[2]}
 .if ${_ld_version:[3]} == "(FreeBSD"

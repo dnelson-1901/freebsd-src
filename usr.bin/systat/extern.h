@@ -58,6 +58,11 @@ extern int	protos;
 extern int	verbose;
 extern unsigned int	delay;
 
+extern int	curscale;
+extern char	*matchline;
+extern int	showpps;
+extern int	needsort;
+
 struct in_conninfo;
 
 extern struct device_selection *dev_select;
@@ -83,6 +88,7 @@ void	 closepigs(WINDOW *);
 void	 closeswap(WINDOW *);
 void	 closetcp(WINDOW *);
 int	 cmdifstat(const char *, const char *);
+int	 cmdiolat(const char *, const char *);
 int	 cmdiostat(const char *, const char *);
 int	 cmdkre(const char *, const char *);
 int	 cmdnetstat(const char *, const char *);
@@ -168,6 +174,7 @@ char	*sysctl_dynread(const char *, size_t *);
 void	 sysputpage(WINDOW* , int, int, int, uint64_t, int);
 void	 sysputspaces(WINDOW* , int, int, int);
 void	 sysputstrs(WINDOW* , int, int, int);
+void	 sysputXs(WINDOW* , int, int, int);
 void	 sysputuint64(WINDOW* , int, int, int, uint64_t, int);
 void	 sysputwuint64(WINDOW* , int, int, int, uint64_t, int);
 
@@ -182,3 +189,4 @@ void	 sysputwuint64(WINDOW* , int, int, int, uint64_t, int);
 
 SYSTAT_CMD( zarc );
 SYSTAT_CMD( sctp );
+SYSTAT_CMD( iolat );

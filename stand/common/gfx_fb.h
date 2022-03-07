@@ -109,6 +109,8 @@ struct vesa_edid_info {
 	uint8_t checksum;
 } __packed;
 
+extern struct vesa_edid_info *edid_info;
+
 #define	STD_TIMINGS	8
 #define	DET_TIMINGS	4
 
@@ -164,6 +166,18 @@ struct vesa_flat_panel_info {
 #define	NCMAP	256
 extern uint32_t cmap[NCMAP];
 
+/*
+ * VT_FB_MAX_WIDTH and VT_FB_MAX_HEIGHT are dimensions from where
+ * we will not auto select smaller font than 8x16.
+ * See also sys/dev/vt/vt.h
+ */
+#ifndef VT_FB_MAX_WIDTH
+#define	VT_FB_MAX_WIDTH		4096
+#endif
+#ifndef VT_FB_MAX_HEIGHT
+#define	VT_FB_MAX_HEIGHT	2400
+#endif
+
 enum FB_TYPE {
 	FB_TEXT = -1,
 	FB_GOP,
@@ -202,6 +216,8 @@ typedef struct teken_gfx {
 	size_t		tg_glyph_size;
 	struct vt_font	tg_font;
 	struct gen_fb	tg_fb;
+	uint32_t	*tg_shadow_fb;		/* units of 4 bytes */
+	size_t		tg_shadow_sz;		/* units of pages */
 	teken_funcs_t	*tg_functions;
 	void		*tg_private;
 } teken_gfx_t;

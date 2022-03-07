@@ -1,7 +1,8 @@
 include $(top_srcdir)/config/Rules.am
-PHONY =
 
 pkgconfig_DATA = libzfsbootenv.pc
+
+AM_CFLAGS += -fvisibility=hidden
 
 lib_LTLIBRARIES = libzfsbootenv.la
 
@@ -33,6 +34,8 @@ libzfsbootenv_la_LDFLAGS += -Wl,-z,defs
 endif
 
 libzfsbootenv_la_LDFLAGS += -version-info 1:0:0
+
+include $(top_srcdir)/config/CppCheck.am
 
 # Library ABI
 EXTRA_DIST = libzfsbootenv.abi libzfsbootenv.suppr

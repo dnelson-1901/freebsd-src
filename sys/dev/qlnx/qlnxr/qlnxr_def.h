@@ -41,7 +41,6 @@
 #include <linux/spinlock.h>
 #include <linux/idr.h>
 #include <linux/completion.h>
-#include <linux/netdevice.h>
 #include <linux/sched.h>
 #include <linux/pci.h>
 #include <linux/dma-mapping.h>
@@ -66,6 +65,7 @@
 #include <rdma/ib_umem.h>
 #include <rdma/ib_mad.h>
 #include <rdma/ib_sa.h>
+#include <rdma/uverbs_ioctl.h>
 
 #if __FreeBSD_version < 1100000
 #undef MODULE_VERSION
@@ -365,7 +365,7 @@ struct qlnxr_dev {
 	struct ecore_dev	*cdev;
 
 	/* Added to extend Applications Support */
-        struct pci_dev          *pdev;
+        struct pci_dev          pdev;
 	uint32_t		dp_module;
 	uint8_t			dp_level;
 

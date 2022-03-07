@@ -35,7 +35,9 @@
  * $FreeBSD$
  */
 
-#define	KCSAN_RUNTIME
+#ifdef SAN_NEEDS_INTERCEPTORS
+#define	SAN_RUNTIME
+#endif
 
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");

@@ -57,9 +57,9 @@ const char	*errstr[] = {
 	"",
 /* 1*/	"(standard input)",
 /* 2*/	"unknown %s option",
-/* 3*/	"usage: %s [-abcDEFGHhIiLlmnOoPqRSsUVvwxz] [-A num] [-B num] [-C[num]]\n",
+/* 3*/	"usage: %s [-abcDEFGHhIiLlmnOopqRSsUVvwxz] [-A num] [-B num] [-C num]\n",
 /* 4*/	"\t[-e pattern] [-f file] [--binary-files=value] [--color=when]\n",
-/* 5*/	"\t[--context[=num]] [--directories=action] [--label] [--line-buffered]\n",
+/* 5*/	"\t[--context=num] [--directories=action] [--label] [--line-buffered]\n",
 /* 6*/	"\t[--null] [pattern] [file ...]\n",
 /* 7*/	"Binary file %s matches\n",
 /* 8*/	"%s (BSD grep, GNU compatible) %s\n",
@@ -69,13 +69,6 @@ const char	*errstr[] = {
 int		 cflags = REG_NOSUB | REG_NEWLINE;
 int		 eflags = REG_STARTEND;
 
-/* XXX TODO: Get rid of this flag.
- * matchall is a gross hack that means that an empty pattern was passed to us.
- * It is a necessary evil at the moment because our regex(3) implementation
- * does not allow for empty patterns, as supported by POSIX's definition of
- * grammar for BREs/EREs. When libregex becomes available, it would be wise
- * to remove this and let regex(3) handle the dirty details of empty patterns.
- */
 bool		 matchall;
 
 /* Searching patterns */
@@ -117,7 +110,7 @@ bool	 lbflag;	/* --line-buffered */
 bool	 nullflag;	/* --null */
 char	*label;		/* --label */
 const char *color;	/* --color */
-int	 grepbehave = GREP_BASIC;	/* -EFGP: type of the regex */
+int	 grepbehave = GREP_BASIC;	/* -EFG: type of the regex */
 int	 binbehave = BINFILE_BIN;	/* -aIU: handling of binary files */
 int	 filebehave = FILE_STDIO;
 int	 devbehave = DEV_READ;		/* -D: handling of devices */
@@ -159,7 +152,7 @@ usage(void)
 	exit(2);
 }
 
-static const char	*optstr = "0123456789A:B:C:D:EFGHILOPSRUVabcd:e:f:hilm:nopqrsuvwxyz";
+static const char	*optstr = "0123456789A:B:C:D:EFGHILOSRUVabcd:e:f:hilm:nopqrsuvwxyz";
 
 static const struct option long_options[] =
 {
@@ -637,9 +630,9 @@ main(int argc, char *argv[])
 	aargc -= optind;
 	aargv += optind;
 
-	/* Empty pattern file matches nothing */
-	if (!needpattern && (patterns == 0) && !matchall)
-		exit(1);
+	/* xflag takes precedence, don't confuse the matching bits. */
+	if (wflag && xflag)
+		wflag = false;
 
 	/* Fail if we don't have any pattern */
 	if (aargc == 0 && needpattern)

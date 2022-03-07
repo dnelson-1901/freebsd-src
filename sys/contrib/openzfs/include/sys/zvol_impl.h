@@ -61,12 +61,11 @@ typedef struct zvol_state {
 } zvol_state_t;
 
 
-extern list_t zvol_state_list;
 extern krwlock_t zvol_state_lock;
 #define	ZVOL_HT_SIZE	1024
 extern struct hlist_head *zvol_htable;
 #define	ZVOL_HT_HEAD(hash)	(&zvol_htable[(hash) & (ZVOL_HT_SIZE-1)])
-extern zil_replay_func_t *zvol_replay_vector[TX_MAX_TYPE];
+extern zil_replay_func_t *const zvol_replay_vector[TX_MAX_TYPE];
 
 extern unsigned int zvol_volmode;
 extern unsigned int zvol_inhibit_dev;
@@ -85,8 +84,8 @@ void zvol_log_truncate(zvol_state_t *zv, dmu_tx_t *tx, uint64_t off,
     uint64_t len, boolean_t sync);
 void zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx, uint64_t offset,
     uint64_t size, int sync);
-int zvol_get_data(void *arg, lr_write_t *lr, char *buf, struct lwb *lwb,
-    zio_t *zio);
+int zvol_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
+    struct lwb *lwb, zio_t *zio);
 int zvol_init_impl(void);
 void zvol_fini_impl(void);
 void zvol_wait_close(zvol_state_t *zv);
