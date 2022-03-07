@@ -155,7 +155,7 @@ hint.map.2.end="search:0x00020000:0x10000:.!/bin/sh"
 hint.map.2.name="kernel"
 hint.map.2.readonly=1
 
-# 1344KiB uImage
+# rootfs
 hint.map.3.at="flash/spi0"
 hint.map.3.start="search:0x00020000:0x10000:.!/bin/sh"
 hint.map.3.end=0x007d0000
@@ -182,6 +182,13 @@ hint.map.6.start=0x007f0000
 hint.map.6.end=0x00800000	# 64k ART
 hint.map.6.name="ART"
 hint.map.6.readonly=1
+
+# 7872KiB firmware (kernel+rootfs)
+hint.map.7.at="flash/spi0"
+hint.map.7.start=0x00020000
+hint.map.7.end=0x007d0000
+hint.map.7.name="firmware"
+hint.map.7.readonly=0
 
 # GPIO configuration
 # GPIO21 and GPIO22 - USB1 and USB2 power

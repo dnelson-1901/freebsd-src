@@ -13,6 +13,7 @@ SUBDIR+=	lldb-tblgen
 .if !defined(TOOLS_PREFIX)
 SUBDIR+=	llvm-ar
 SUBDIR+=	llvm-nm
+SUBDIR+=	llvm-objcopy
 SUBDIR+=	llvm-objdump
 SUBDIR+=	llvm-symbolizer
 
@@ -38,7 +39,6 @@ SUBDIR+=	llvm-lto2
 SUBDIR+=	llvm-mc
 SUBDIR+=	llvm-mca
 SUBDIR+=	llvm-modextract
-SUBDIR+=	llvm-objcopy
 SUBDIR+=	llvm-pdbutil
 SUBDIR+=	llvm-rtdyld
 SUBDIR+=	llvm-size

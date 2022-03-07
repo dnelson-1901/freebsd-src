@@ -437,7 +437,7 @@ inline Error joinErrors(Error E1, Error E2) {
 /// takeError(). It also adds an bool errorIsA<ErrT>() method for testing the
 /// error class type.
 template <class T> class LLVM_NODISCARD Expected {
-  template <class T1> friend class ExpectedAsOutParameter;
+  template <class tmp_T1> friend class ExpectedAsOutParameter;
   template <class OtherT> friend class Expected;
 
   static constexpr bool isRef = std::is_reference<T>::value;
@@ -586,13 +586,13 @@ public:
   }
 
 private:
-  template <class T1>
-  static bool compareThisIfSameType(const T1 &a, const T1 &b) {
+  template <class tmp_T1>
+  static bool compareThisIfSameType(const tmp_T1 &a, const tmp_T1 &b) {
     return &a == &b;
   }
 
-  template <class T1, class T2>
-  static bool compareThisIfSameType(const T1 &a, const T2 &b) {
+  template <class tmp_T1, class tmp_T2>
+  static bool compareThisIfSameType(const tmp_T1 &a, const tmp_T2 &b) {
     return false;
   }
 

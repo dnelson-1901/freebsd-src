@@ -327,11 +327,11 @@ protected:
 
   /// Copy the range [I, E) onto the uninitialized memory
   /// starting with "Dest", constructing elements into it as needed.
-  template <typename T1, typename T2>
+  template <typename tmp_T1, typename tmp_T2>
   static void uninitialized_copy(
-      T1 *I, T1 *E, T2 *Dest,
-      std::enable_if_t<std::is_same<typename std::remove_const<T1>::type,
-                                    T2>::value> * = nullptr) {
+      tmp_T1 *I, tmp_T1 *E, tmp_T2 *Dest,
+      std::enable_if_t<std::is_same<typename std::remove_const<tmp_T1>::type,
+                                    tmp_T2>::value> * = nullptr) {
     // Use memcpy for PODs iterated by pointers (which includes SmallVector
     // iterators): std::uninitialized_copy optimizes to memmove, but we can
     // use memcpy here. Note that I and E are iterators and thus might be

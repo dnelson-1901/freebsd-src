@@ -184,6 +184,7 @@ main(int argc, char *argv[])
 		fts_options |= FTS_LOGICAL | FTS_COMFOLLOW;
 	}
 	(void)signal(SIGINFO, siginfo);
+	(void)signal(SIGSYS, SIG_IGN);
 
 	/* Save the target base in "to". */
 	target = argv[--argc];

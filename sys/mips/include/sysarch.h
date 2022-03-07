@@ -40,6 +40,17 @@
 #define	MIPS_SET_TLS	1
 #define	MIPS_GET_TLS	2
 
+/*
+ * sysarch() to flush the cache from userspace.
+ */
+#define	MIPS_CACHEFLUSH	6
+
+struct mips_cacheflush_args {
+	void *addr;
+	size_t nbytes;
+	unsigned whichcache;
+};
+
 #ifndef _KERNEL
 #include <sys/cdefs.h>
 

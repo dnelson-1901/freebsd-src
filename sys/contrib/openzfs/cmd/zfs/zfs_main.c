@@ -676,7 +676,7 @@ parse_depth(char *opt, int *flags)
 	return (depth);
 }
 
-#define	PROGRESS_DELAY 2		/* seconds */
+#define	PROGRESS_DELAY 60		/* seconds */
 
 static char *pt_reverse = "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b";
 static time_t pt_begin;

@@ -51,6 +51,7 @@ __FBSDID("$FreeBSD$");
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <vis.h>
 
 #define	DUMPSIZE	10000
 
@@ -73,7 +74,7 @@ main(int argc, char **argv)
 	char *lockfile;
 
 	if (modfind("nfsd") < 0)
-		errx(1, "nfsd not loaded - self terminating");
+		err(1, "nfsd not loaded - self terminating");
 	openstate = 0;
 	lockfile = NULL;
 	while ((ch = getopt(argc, argv, "ol:")) != -1)
@@ -128,7 +129,7 @@ dump_openstate(void)
 	dumplist.ndl_size = DUMPSIZE;
 	dumplist.ndl_list = (void *)dp;
 	if (nfssvc(NFSSVC_DUMPCLIENTS, &dumplist) < 0)
-		errx(1, "Can't perform dump clients syscall");
+		err(1, "Can't perform dump clients syscall");
 
 	printf("%-13s %9.9s %9.9s %9.9s %9.9s %9.9s %9.9s %-45s %s\n",
 	    "Flags", "OpenOwner", "Open", "LockOwner",
@@ -163,8 +164,12 @@ dump_openstate(void)
 			break;
 #endif
 		}
-		for (i = 0; i < dp[cnt].ndcl_clid.nclid_idlen; i++)
-			printf("%02x", dp[cnt].ndcl_clid.nclid_id[i]);
+		for (i = 0; i < dp[cnt].ndcl_clid.nclid_idlen; i++) {
+			int c = dp[cnt].ndcl_clid.nclid_id[i];
+			char buf[5];
+			vis(buf, c, 0, 0);
+			fputs(buf, stdout);
+		}
 		printf("\n");
 		cnt++;
 	}
@@ -186,7 +191,7 @@ dump_lockstate(char *fname)
 	dumplocklist.ndllck_list = (void *)lp;
 	dumplocklist.ndllck_fname = fname;
 	if (nfssvc(NFSSVC_DUMPLOCKS, &dumplocklist) < 0)
-		errx(1, "Can't dump locks for %s\n", fname);
+		err(1, "Can't dump locks for %s\n", fname);
 
 	printf("%-11s %-36s %-45s %s\n",
 	    "Open/Lock",

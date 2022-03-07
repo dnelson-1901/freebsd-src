@@ -140,7 +140,7 @@ public:
     UnknownVendor,
 
     Apple,
-    PC,
+    V_PC,
     SCEI,
     BGP,
     BGQ,

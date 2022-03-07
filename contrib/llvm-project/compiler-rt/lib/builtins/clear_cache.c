@@ -90,6 +90,8 @@ void __clear_cache(void *start, void *end) {
   syscall(__NR_cacheflush, start, (end_int - start_int), BCACHE);
 #elif defined(__mips__) && defined(__OpenBSD__)
   cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);
+#elif defined(__mips__) && defined(__FreeBSD__)
+  /* XXX synci maybe? */
 #elif defined(__aarch64__) && !defined(__APPLE__)
   uint64_t xstart = (uint64_t)(uintptr_t)start;
   uint64_t xend = (uint64_t)(uintptr_t)end;

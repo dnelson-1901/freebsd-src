@@ -7,6 +7,8 @@ SRCS=	mount.c mount_fs.c getmntopts.c vfslist.c
 MAN=	mount.8
 # We do NOT install the getmntopts.3 man page.
 
+NO_SHARED?=	YES
+
 LIBADD=	util
 
 .include <bsd.prog.mk>

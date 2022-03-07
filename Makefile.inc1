@@ -337,8 +337,17 @@ test-system-${_t}: .PHONY
     make(toolchain) || make(_cross-tools))
 .if ${USING_SYSTEM_COMPILER} == "yes"
 .info SYSTEM_COMPILER: Determined that CC=${CC} matches the source tree.  Not bootstrapping a cross-compiler.
-.elif ${MK_CLANG_BOOTSTRAP} == "yes"
+.else
+.info SYSTEM_COMPILER: ${.newline}\
+Determined that CC=${CC} does NOT match the source tree. ${.newline}\
+Bootstrapping a cross-compiler. ${.newline}\
+MK_SYSTEM_COMPILER(yes) -> ${MK_SYSTEM_COMPILER} ${.newline}\
+TARGET_ARCH==MACHINE_ARCH -> ${TARGET_ARCH} == ${MACHINE_ARCH} ${.newline}\
+COMPILER_VERSION==WANT_COMPILER_VERSION -> ${COMPILER_VERSION} == ${WANT_COMPILER_VERSION} ${.newline}\
+COMPILER_FREEBSD_VERSION==WANT_COMPILER_FREEBSD_VERSION -> ${COMPILER_FREEBSD_VERSION} == ${WANT_COMPILER_FREEBSD_VERSION}
+.if ${MK_CLANG_BOOTSTRAP} == "yes"
 .info SYSTEM_COMPILER: libclang will be built for bootstrapping a cross-compiler.
+.endif
 .endif
 .if ${USING_SYSTEM_LINKER} == "yes"
 .info SYSTEM_LINKER: Determined that LD=${LD} matches the source tree.  Not bootstrapping a cross-linker.
@@ -1011,7 +1020,7 @@ _worldtmp: .PHONY
 		echo ">>> Deleting stale files in build tree..."; \
 		cd ${.CURDIR}; env PATH=${TMPPATH}:${PATH} ${WMAKE:NPATH=*} \
 		    _NO_INCLUDE_COMPILERMK=t -DBATCH_DELETE_OLD_FILES delete-old \
-		    delete-old-libs >/dev/null; \
+		    delete-old-libs ; \
 	fi
 	rm -rf ${WORLDTMP}/legacy/usr/include
 .if ${USING_SYSTEM_COMPILER} == "yes"
@@ -3171,8 +3180,9 @@ delete-old-files: .PHONY
 # the Makefile parser segfault.
 	@exec 3<&0; \
 	cd ${.CURDIR}; \
+	OLDTMP=$$(mktemp -t old); \
 	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V OLD_FILES -V "OLD_FILES:Musr/share/*.gz:R" | xargs -n1 | sort | \
+	    -V "OLD_FILES:ts\n" -V "OLD_FILES:Musr/share/*.gz:R:ts\n" | sort > $$OLDTMP; \
 	while read file; do \
 		if [ -f "${DESTDIR}/$${file}" -o -L "${DESTDIR}/$${file}" ]; then \
 			chflags noschg "${DESTDIR}/$${file}" 2>/dev/null || true; \
@@ -3185,7 +3195,8 @@ delete-old-files: .PHONY
 			      <&3; \
 		  fi; \
 		done; \
-	done
+	done < $$OLDTMP; \
+	rm -f $$OLDTMP
 # Remove catpages without corresponding manpages.
 	@exec 3<&0; \
 	find ${DESTDIR}/usr/share/man/cat* ! -type d 2>/dev/null | sort | \

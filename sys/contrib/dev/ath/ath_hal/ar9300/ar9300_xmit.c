@@ -921,7 +921,7 @@ ar9300_abort_tx_dma(struct ath_hal *ah)
         if (i == AR9300_ABORT_LOOPS) {
             status = AH_FALSE;
             HALDEBUG(ah, HAL_DEBUG_UNMASKABLE,
-                    "ABORT LOOP finsihsed for Q: %d, num_pending: %d \n",
+                    "ABORT LOOP finished for Q: %d, num_pending: %d \n",
                     q, ar9300_num_tx_pending(ah, q));
             goto exit;
         }

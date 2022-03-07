@@ -10,8 +10,14 @@ if [ $# -eq 0 ]; then
 	exit 0
 fi
 
-out=`showmount -E "$1"`
-[ $? -eq 0 ] || exit 1
-echo "$out" | awk -v host="$1" \
-    '{ printf "\"%s\"\t\"%s:%s\" ", $0, host, $0 } END { printf "\n" }'
-
+# Check to see if the remote system is running NFSv4
+rpcinfo -T tcp "$1" nfs 2>/dev/null | grep -q "version 4"
+if [ $? -eq 0 ] ; then
+	# NFSv4 only needs one mount to access all exported filessytems
+	echo "/ -nfsv4 $1:/"
+else
+	out=`showmount -E "$1"`
+	[ $? -eq 0 ] || exit 1
+	echo "$out" | awk -v host="$1" \
+	    '{ printf "\"%s\"\t\"%s:%s\" ", $0, host, $0 } END { printf "\n" }'
+fi

@@ -33,3 +33,4 @@ MODULES		+= pam_ssh
 .endif
 MODULES		+= pam_tacplus
 MODULES		+= pam_unix
+MODULES		+= pam_xauth

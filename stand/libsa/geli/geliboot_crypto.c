@@ -42,7 +42,7 @@ geliboot_crypt(u_int algo, geli_op_t enc, u_char *data, size_t datasize,
 	cipherInstance cipher;
 	struct aes_xts_ctx xtsctx, *ctxp;
 	size_t xts_len;
-	int err, blks, i;
+	int err, blks = 0, i;
 
 	switch (algo) {
 	case CRYPTO_AES_CBC:

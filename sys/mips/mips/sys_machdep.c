@@ -41,6 +41,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/syscall.h>
 #include <sys/sysent.h>
 
+#include <machine/cache.h>
+#include <machine/cachectl.h>
 #include <machine/cpufunc.h>
 #include <machine/cpuinfo.h>
 #include <machine/sysarch.h>
@@ -53,6 +55,56 @@ struct sysarch_args {
 	char *parms;
 };
 #endif
+
+static int
+mips_sysarch_cacheflush(struct thread *td __unused, struct sysarch_args *uap)
+{
+	struct mips_cacheflush_args cfua;
+	vm_offset_t va;
+	vm_size_t nbytes;
+
+	if (copyin(uap->parms, &cfua, sizeof(cfua)) != 0)
+		return (EFAULT);
+
+	va = (vm_offset_t)cfua.addr;
+	nbytes = (vm_size_t)cfua.nbytes;
+
+	if ((cfua.whichcache & MIPS_CF_ALLF) == 0 && nbytes == 0)
+		return (0);
+
+	switch (cfua.whichcache) {
+	case MIPS_CF_ICACHE:
+		mips_icache_sync_range(va, nbytes);
+		break;
+
+	case MIPS_CF_DCACHE:
+		mips_dcache_wbinv_range(va, nbytes);
+		break;
+
+	case MIPS_CF_BCACHE:
+		mips_icache_sync_range(va, nbytes);
+		mips_dcache_wbinv_range(va, nbytes);
+		break;
+
+	case MIPS_CF_ICACHE_ALL:
+		mips_icache_sync_all();
+		break;
+
+	case MIPS_CF_DCACHE_ALL:
+		mips_dcache_wbinv_all();
+		break;
+
+	case MIPS_CF_BCACHE_ALL:
+		mips_icache_sync_all();
+		mips_dcache_wbinv_all();
+		break;
+
+	default:
+		return (EINVAL);
+	}
+
+	return (0);
+}
 
 int
 sysarch(struct thread *td, struct sysarch_args *uap)
@@ -79,6 +131,8 @@ sysarch(struct thread *td, struct sysarch_args *uap)
 		tlsbase = td->td_md.md_tls;
 		error = copyout(&tlsbase, uap->parms, sizeof(tlsbase));
 		return (error);
+	case MIPS_CACHEFLUSH:
+		return (mips_sysarch_cacheflush(td, uap));
 	default:
 		break;
 	}

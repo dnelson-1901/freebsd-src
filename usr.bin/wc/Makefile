@@ -6,6 +6,8 @@
 PROG=	wc
 LIBADD=	xo
 
+NO_SHARED?=	YES
+
 .if ${MK_CASPER} != "no"
 LIBADD+=        casper
 LIBADD+=        cap_fileargs

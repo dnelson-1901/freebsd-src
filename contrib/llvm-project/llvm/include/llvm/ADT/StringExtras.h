@@ -358,9 +358,9 @@ inline void join_items_impl(std::string &Result, Sep Separator,
 }
 
 template <typename Sep, typename Arg1, typename... Args>
-inline void join_items_impl(std::string &Result, Sep Separator, const Arg1 &A1,
+inline void join_items_impl(std::string &Result, Sep Separator, const Arg1 &tmp_A1,
                             Args &&... Items) {
-  Result += A1;
+  Result += tmp_A1;
   Result += Separator;
   join_items_impl(Result, Separator, std::forward<Args>(Items)...);
 }
@@ -374,11 +374,11 @@ template <typename T> inline size_t join_one_item_size(const T &Str) {
 
 inline size_t join_items_size() { return 0; }
 
-template <typename A1> inline size_t join_items_size(const A1 &A) {
+template <typename tmp_A1> inline size_t join_items_size(const tmp_A1 &A) {
   return join_one_item_size(A);
 }
-template <typename A1, typename... Args>
-inline size_t join_items_size(const A1 &A, Args &&... Items) {
+template <typename tmp_A1, typename... Args>
+inline size_t join_items_size(const tmp_A1 &A, Args &&... Items) {
   return join_one_item_size(A) + join_items_size(std::forward<Args>(Items)...);
 }
 

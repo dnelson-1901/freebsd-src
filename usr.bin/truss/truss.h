@@ -106,6 +106,7 @@ struct trussinfo
 {
 	int flags;
 	int strsize;
+	int timeout;
 	FILE *outfile;
 
 	struct timespec start_time;

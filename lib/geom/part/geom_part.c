@@ -94,6 +94,7 @@ static void gpart_write_partcode_vtoc8(struct ggeom *, int, void *);
 static void gpart_print_error(const char *);
 static void gpart_backup(struct gctl_req *, unsigned int);
 static void gpart_restore(struct gctl_req *, unsigned int);
+static void gpart_trim(struct gctl_req *, unsigned int);
 
 struct g_command PUBSYM(class_commands)[] = {
 	{ "add", 0, gpart_issue, {
@@ -163,6 +164,9 @@ struct g_command PUBSYM(class_commands)[] = {
 		{ 'p', "show_providers", NULL, G_TYPE_BOOL },
 		G_OPT_SENTINEL },
 	    "[-l | -r] [-p] [geom ...]"
+	},
+	{ "trim", 0, gpart_trim, G_NULL_OPTS,
+	    "provider"
 	},
 	{ "undo", 0, gpart_issue, G_NULL_OPTS,
 	    "geom"
@@ -1343,4 +1347,23 @@ gpart_issue(struct gctl_req *req, unsigned int fl __unused)
  done:
 	gctl_free(req);
 	exit(status);
+}
+
+static void
+gpart_trim(struct gctl_req *req, unsigned int fl __unused)
+{
+	const char *s;
+	int fd;
+
+	if (gctl_get_int(req, "nargs") != 1)
+		errx(EXIT_FAILURE, "Invalid number of arguments.");
+	s = gctl_get_ascii(req, "arg0");
+	if (s == NULL)
+		abort();
+	fd = g_open(s, 1);
+	if (fd == -1)
+		err(EXIT_FAILURE, "Cannot open %s", s);
+	if (g_delete(fd, 0, g_mediasize(fd)) == -1)
+		err(EXIT_FAILURE, "g_delete call failed");
+	g_close(fd);
 }

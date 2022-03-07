@@ -71,7 +71,7 @@ MipsSubtarget::MipsSubtarget(const Triple &TT, StringRef CPU, StringRef FS,
                              bool little, const MipsTargetMachine &TM,
                              MaybeAlign StackAlignOverride)
     : MipsGenSubtargetInfo(TT, CPU, FS), MipsArchVersion(MipsDefault),
-      IsLittle(little), IsSoftFloat(false), IsSingleFloat(false), IsFPXX(false),
+      IsLittle(little), IsSoftFloat(true), IsSingleFloat(false), IsFPXX(false),
       NoABICalls(false), Abs2008(false), IsFP64bit(false), UseOddSPReg(true),
       IsNaN2008bit(false), IsGP64bit(false), HasVFPU(false), HasCnMips(false),
       HasCnMipsP(false), HasMips3_32(false), HasMips3_32r2(false),
@@ -89,7 +89,7 @@ MipsSubtarget::MipsSubtarget(const Triple &TT, StringRef CPU, StringRef FS,
       TLInfo(MipsTargetLowering::create(TM, *this)) {
 
   if (MipsArchVersion == MipsDefault)
-    MipsArchVersion = Mips32;
+    MipsArchVersion = Mips2;
 
   // Don't even attempt to generate code for MIPS-I and MIPS-V. They have not
   // been tested and currently exist for the integrated assembler only.
