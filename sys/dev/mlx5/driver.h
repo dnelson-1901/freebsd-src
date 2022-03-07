@@ -50,6 +50,8 @@
 #define MLX5_QCOUNTER_SETS_NETDEV 64
 #define MLX5_MAX_NUMBER_OF_VFS 128
 
+#define MLX5_INVALID_QUEUE_HANDLE 0xffffffff
+
 enum {
 	MLX5_BOARD_ID_LEN = 64,
 	MLX5_MAX_NAME_LEN = 16,
@@ -388,9 +390,7 @@ struct mlx5_core_psv {
 struct mlx5_core_sig_ctx {
 	struct mlx5_core_psv	psv_memory;
 	struct mlx5_core_psv	psv_wire;
-#if (__FreeBSD_version >= 1100000)
 	struct ib_sig_err       err_item;
-#endif
 	bool			sig_status_checked;
 	bool			sig_err_exists;
 	u32			sigerr_count;
@@ -551,6 +551,7 @@ struct mlx5_rl_entry {
 	u32			rate;
 	u16			burst;
 	u16			index;
+	u32			qos_handle; /* schedule queue handle */
 	u32			refcount;
 };
 
@@ -805,6 +806,7 @@ struct mlx5_core_dct {
 	struct completion	drained;
 	struct mlx5_rsc_debug	*dbg;
 	int			pid;
+	u16			uid;
 };
 
 enum {
@@ -984,8 +986,6 @@ void mlx5_drain_health_recovery(struct mlx5_core_dev *dev);
 void mlx5_trigger_health_work(struct mlx5_core_dev *dev);
 void mlx5_trigger_health_watchdog(struct mlx5_core_dev *dev);
 
-#define	mlx5_buf_alloc_node(dev, size, direct, buf, node) \
-	mlx5_buf_alloc(dev, size, direct, buf)
 int mlx5_buf_alloc(struct mlx5_core_dev *dev, int size, int max_direct,
 		   struct mlx5_buf *buf);
 void mlx5_buf_free(struct mlx5_core_dev *dev, struct mlx5_buf *buf);
@@ -1071,9 +1071,13 @@ void mlx5_eq_debugfs_cleanup(struct mlx5_core_dev *dev);
 int mlx5_cq_debugfs_init(struct mlx5_core_dev *dev);
 void mlx5_cq_debugfs_cleanup(struct mlx5_core_dev *dev);
 int mlx5_db_alloc(struct mlx5_core_dev *dev, struct mlx5_db *db);
-int mlx5_db_alloc_node(struct mlx5_core_dev *dev, struct mlx5_db *db,
-		       int node);
 void mlx5_db_free(struct mlx5_core_dev *dev, struct mlx5_db *db);
+
+static inline struct domainset *
+mlx5_dev_domainset(struct mlx5_core_dev *mdev)
+{
+	return (linux_get_vm_domain_set(mdev->priv.numa_node));
+}
 
 const char *mlx5_command_str(int command);
 int mlx5_cmdif_debugfs_init(struct mlx5_core_dev *dev);
@@ -1192,6 +1196,15 @@ void mlx5_cleanup_rl_table(struct mlx5_core_dev *dev);
 int mlx5_rl_add_rate(struct mlx5_core_dev *dev, u32 rate, u32 burst, u16 *index);
 void mlx5_rl_remove_rate(struct mlx5_core_dev *dev, u32 rate, u32 burst);
 bool mlx5_rl_is_in_range(const struct mlx5_core_dev *dev, u32 rate, u32 burst);
+int mlx5e_query_rate_limit_cmd(struct mlx5_core_dev *dev, u16 index, u32 *scq_handle);
+
+static inline u32 mlx5_rl_get_scq_handle(struct mlx5_core_dev *dev, uint16_t index)
+{
+	KASSERT(index > 0,
+	    ("invalid rate index for sq remap, failed retrieving SCQ handle"));
+
+        return (dev->priv.rl_table.rl_entry[index - 1].qos_handle);
+}
 
 static inline bool mlx5_rl_is_supported(struct mlx5_core_dev *dev)
 {
@@ -1201,5 +1214,26 @@ static inline bool mlx5_rl_is_supported(struct mlx5_core_dev *dev)
 
 void mlx5_disable_interrupts(struct mlx5_core_dev *);
 void mlx5_poll_interrupts(struct mlx5_core_dev *);
+
+static inline int mlx5_get_qp_default_ts(struct mlx5_core_dev *dev)
+{
+        return !MLX5_CAP_ROCE(dev, qp_ts_format) ?
+                       MLX5_QPC_TIMESTAMP_FORMAT_FREE_RUNNING :
+                       MLX5_QPC_TIMESTAMP_FORMAT_DEFAULT;
+}
+
+static inline int mlx5_get_rq_default_ts(struct mlx5_core_dev *dev)
+{
+        return !MLX5_CAP_GEN(dev, rq_ts_format) ?
+                       MLX5_RQC_TIMESTAMP_FORMAT_FREE_RUNNING :
+                       MLX5_RQC_TIMESTAMP_FORMAT_DEFAULT;
+}
+
+static inline int mlx5_get_sq_default_ts(struct mlx5_core_dev *dev)
+{
+        return !MLX5_CAP_GEN(dev, sq_ts_format) ?
+                       MLX5_SQC_TIMESTAMP_FORMAT_FREE_RUNNING :
+                       MLX5_SQC_TIMESTAMP_FORMAT_DEFAULT;
+}
 
 #endif /* MLX5_DRIVER_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -323,9 +323,10 @@ static int sk_X509_contains(STACK_OF(X509) *sk, X509 *cert)
 }
 
 /*
- * Find in given STACK_OF(X509) sk a non-expired issuer cert (if any) of given cert x.
- * The issuer must not be the same as x and must not yet be in ctx->chain, where the
- * exceptional case x is self-issued and ctx->chain has just one element is allowed.
+ * Find in given STACK_OF(X509) sk an issuer cert of given cert x.
+ * The issuer must not yet be in ctx->chain, where the exceptional case
+ * that x is self-issued and ctx->chain has just one element is allowed.
+ * Prefer the first one that is not expired, else take the last expired one.
  */
 static X509 *find_issuer(X509_STORE_CTX *ctx, STACK_OF(X509) *sk, X509 *x)
 {
@@ -334,11 +335,7 @@ static X509 *find_issuer(X509_STORE_CTX *ctx, STACK_OF(X509) *sk, X509 *x)
 
     for (i = 0; i < sk_X509_num(sk); i++) {
         issuer = sk_X509_value(sk, i);
-        /*
-         * Below check 'issuer != x' is an optimization and safety precaution:
-         * Candidate issuer cert cannot be the same as the subject cert 'x'.
-         */
-        if (issuer != x && ctx->check_issued(ctx, x, issuer)
+        if (ctx->check_issued(ctx, x, issuer)
             && (((x->ex_flags & EXFLAG_SI) != 0 && sk_X509_num(ctx->chain) == 1)
                 || !sk_X509_contains(ctx->chain, issuer))) {
             rv = issuer;
@@ -527,15 +524,19 @@ static int check_chain_extensions(X509_STORE_CTX *ctx)
                 ret = 1;
             break;
         }
-        if ((ctx->param->flags & X509_V_FLAG_X509_STRICT) && num > 1) {
+        if (ret > 0
+            && (ctx->param->flags & X509_V_FLAG_X509_STRICT) && num > 1) {
             /* Check for presence of explicit elliptic curve parameters */
             ret = check_curve(x);
-            if (ret < 0)
+            if (ret < 0) {
                 ctx->error = X509_V_ERR_UNSPECIFIED;
-            else if (ret == 0)
+                ret = 0;
+            } else if (ret == 0) {
                 ctx->error = X509_V_ERR_EC_KEY_EXPLICIT_PARAMS;
+            }
         }
-        if ((x->ex_flags & EXFLAG_CA) == 0
+        if (ret > 0
+            && (x->ex_flags & EXFLAG_CA) == 0
             && x->ex_pathlen != -1
             && (ctx->param->flags & X509_V_FLAG_X509_STRICT)) {
             ctx->error = X509_V_ERR_INVALID_EXTENSION;
@@ -2923,6 +2924,26 @@ static int get_issuer(X509 **issuer, X509_STORE_CTX *ctx, X509 *cert)
     return ok;
 }
 
+static int augment_stack(STACK_OF(X509) *src, STACK_OF(X509) **dstPtr)
+{
+    if (src) {
+        STACK_OF(X509) *dst;
+        int i;
+
+        if (*dstPtr == NULL)
+            return ((*dstPtr = sk_X509_dup(src)) != NULL);
+
+        for (dst = *dstPtr, i = 0; i < sk_X509_num(src); ++i) {
+            if (!sk_X509_push(dst, sk_X509_value(src, i))) {
+                sk_X509_free(dst);
+                *dstPtr = NULL;
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 static int build_chain(X509_STORE_CTX *ctx)
 {
     SSL_DANE *dane = ctx->dane;
@@ -2966,18 +2987,7 @@ static int build_chain(X509_STORE_CTX *ctx)
     }
 
     /*
-     * Shallow-copy the stack of untrusted certificates (with TLS, this is
-     * typically the content of the peer's certificate message) so can make
-     * multiple passes over it, while free to remove elements as we go.
-     */
-    if (ctx->untrusted && (sktmp = sk_X509_dup(ctx->untrusted)) == NULL) {
-        X509err(X509_F_BUILD_CHAIN, ERR_R_MALLOC_FAILURE);
-        ctx->error = X509_V_ERR_OUT_OF_MEM;
-        return 0;
-    }
-
-    /*
-     * If we got any "DANE-TA(2) Cert(0) Full(0)" trust-anchors from DNS, add
+     * If we got any "Cert(0) Full(0)" issuer certificates from DNS, *prepend*
      * them to our working copy of the untrusted certificate stack.  Since the
      * caller of X509_STORE_CTX_init() may have provided only a leaf cert with
      * no corresponding stack of untrusted certificates, we may need to create
@@ -2986,20 +2996,21 @@ static int build_chain(X509_STORE_CTX *ctx)
      * containing at least the leaf certificate, but we must be prepared for
      * this to change. ]
      */
-    if (DANETLS_ENABLED(dane) && dane->certs != NULL) {
-        if (sktmp == NULL && (sktmp = sk_X509_new_null()) == NULL) {
-            X509err(X509_F_BUILD_CHAIN, ERR_R_MALLOC_FAILURE);
-            ctx->error = X509_V_ERR_OUT_OF_MEM;
-            return 0;
-        }
-        for (i = 0; i < sk_X509_num(dane->certs); ++i) {
-            if (!sk_X509_push(sktmp, sk_X509_value(dane->certs, i))) {
-                sk_X509_free(sktmp);
-                X509err(X509_F_BUILD_CHAIN, ERR_R_MALLOC_FAILURE);
-                ctx->error = X509_V_ERR_OUT_OF_MEM;
-                return 0;
-            }
-        }
+    if (DANETLS_ENABLED(dane) && !augment_stack(dane->certs, &sktmp)) {
+        X509err(X509_F_BUILD_CHAIN, ERR_R_MALLOC_FAILURE);
+        ctx->error = X509_V_ERR_OUT_OF_MEM;
+        return 0;
+    }
+
+    /*
+     * Shallow-copy the stack of untrusted certificates (with TLS, this is
+     * typically the content of the peer's certificate message) so can make
+     * multiple passes over it, while free to remove elements as we go.
+     */
+    if (!augment_stack(ctx->untrusted, &sktmp)) {
+        X509err(X509_F_BUILD_CHAIN, ERR_R_MALLOC_FAILURE);
+        ctx->error = X509_V_ERR_OUT_OF_MEM;
+        return 0;
     }
 
     /*

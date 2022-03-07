@@ -185,11 +185,12 @@
 #define	HUM_CENTIMETER	0x11
 #define	HUM_RADIAN	0x12
 #define	HUM_INCH	0x13
+#define	HUM_INCH_EGALAX	0x33
 #define	HUM_DEGREE	0x14
 
 #if defined(_KERNEL) || defined(_STANDALONE)
 
-#define	HID_ITEM_MAXUSAGE	4
+#define	HID_ITEM_MAXUSAGE	8
 #define	HID_MAX_AUTO_QUIRK	8	/* maximum number of dynamic quirks */
 #define	HID_PNP_ID_SIZE		20	/* includes null terminator */
 

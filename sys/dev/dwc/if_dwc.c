@@ -69,6 +69,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/mii/miivar.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
+#include <dev/mii/mii_fdt.h>
 
 #ifdef EXT_RESOURCES
 #include <dev/extres/clk/clk.h>
@@ -1559,7 +1560,6 @@ dwc_attach(device_t dev)
 	struct ifnet *ifp;
 	int error, i;
 	uint32_t reg;
-	char *phy_mode;
 	phandle_t node;
 	uint32_t txpbl, rxpbl, pbl;
 	bool nopblx8 = false;
@@ -1574,12 +1574,22 @@ dwc_attach(device_t dev)
 	sc->mactype = IF_DWC_MAC_TYPE(dev);
 
 	node = ofw_bus_get_node(dev);
-	if (OF_getprop_alloc(node, "phy-mode", (void **)&phy_mode)) {
-		if (strcmp(phy_mode, "rgmii") == 0)
-			sc->phy_mode = PHY_MODE_RGMII;
-		if (strcmp(phy_mode, "rmii") == 0)
-			sc->phy_mode = PHY_MODE_RMII;
-		OF_prop_free(phy_mode);
+	switch (mii_fdt_get_contype(node)) {
+	case MII_CONTYPE_RGMII:
+	case MII_CONTYPE_RGMII_ID:
+	case MII_CONTYPE_RGMII_RXID:
+	case MII_CONTYPE_RGMII_TXID:
+		sc->phy_mode = PHY_MODE_RGMII;
+		break;
+	case MII_CONTYPE_RMII:
+		sc->phy_mode = PHY_MODE_RMII;
+		break;
+	case MII_CONTYPE_MII:
+		sc->phy_mode = PHY_MODE_MII;
+		break;
+	default:
+		device_printf(dev, "Unsupported MII type\n");
+		return (ENXIO);
 	}
 
 	if (OF_getencprop(node, "snps,pbl", &pbl, sizeof(uint32_t)) <= 0)
@@ -1612,6 +1622,7 @@ dwc_attach(device_t dev)
 	/* Reset the PHY if needed */
 	if (dwc_reset(dev) != 0) {
 		device_printf(dev, "Can't reset the PHY\n");
+		bus_release_resources(dev, dwc_spec, sc->res);
 		return (ENXIO);
 	}
 
@@ -1627,6 +1638,7 @@ dwc_attach(device_t dev)
 	}
 	if (i >= MAC_RESET_TIMEOUT) {
 		device_printf(sc->dev, "Can't reset DWC.\n");
+		bus_release_resources(dev, dwc_spec, sc->res);
 		return (ENXIO);
 	}
 
@@ -1647,8 +1659,10 @@ dwc_attach(device_t dev)
 	reg &= ~(MODE_ST | MODE_SR);
 	WRITE4(sc, OPERATION_MODE, reg);
 
-	if (setup_dma(sc))
-	        return (ENXIO);
+	if (setup_dma(sc)) {
+		bus_release_resources(dev, dwc_spec, sc->res);
+		return (ENXIO);
+	}
 
 	/* Setup addresses */
 	WRITE4(sc, RX_DESCR_LIST_ADDR, sc->rxdesc_ring_paddr);
@@ -1664,6 +1678,7 @@ dwc_attach(device_t dev)
 	    NULL, dwc_intr, sc, &sc->intr_cookie);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
+		bus_release_resources(dev, dwc_spec, sc->res);
 		return (ENXIO);
 	}
 
@@ -1689,6 +1704,8 @@ dwc_attach(device_t dev)
 
 	if (error != 0) {
 		device_printf(dev, "PHY attach failed\n");
+		bus_teardown_intr(dev, sc->res[1], sc->intr_cookie);
+		bus_release_resources(dev, dwc_spec, sc->res);
 		return (ENXIO);
 	}
 	sc->mii_softc = device_get_softc(sc->miibus);

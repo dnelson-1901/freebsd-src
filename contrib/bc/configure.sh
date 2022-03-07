@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Copyright (c) 2018-2020 Gavin D. Howard and contributors.
+# Copyright (c) 2018-2021 Gavin D. Howard and contributors.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -31,8 +31,12 @@ script="$0"
 scriptdir=$(dirname "$script")
 script=$(basename "$script")
 
-. "$scriptdir/functions.sh"
+builddir=$(pwd)
 
+. "$scriptdir/scripts/functions.sh"
+
+# Simply prints the help message and quits based on the argument.
+# @param msg  The help message to print.
 usage() {
 
 	if [ $# -gt 0 ]; then
@@ -48,18 +52,20 @@ usage() {
 	printf 'usage:\n'
 	printf '    %s -h\n' "$script"
 	printf '    %s --help\n' "$script"
-	printf '    %s [-a|-bD|-dB|-c] [-EfgGHlMNPT] [-O OPT_LEVEL] [-k KARATSUBA_LEN]\n' "$script"
+	printf '    %s [-a|-bD|-dB|-c] [-CEfgGHlmMNtTvz] [-O OPT_LEVEL] [-k KARATSUBA_LEN]\\\n' "$script"
+	printf '       [-s SETTING] [-S SETTING]\n'
 	printf '    %s \\\n' "$script"
-	printf '       [--library|--bc-only --disable-dc|--dc-only --disable-bc|--coverage]\\\n'
-	printf '       [--force --debug --disable-extra-math --disable-generated-tests]    \\\n'
-	printf '       [--disable-history --disable-man-pages --disable-nls]               \\\n'
-	printf '       [--disable-prompt --disable-strip] [--install-all-locales]          \\\n'
-	printf '       [--opt=OPT_LEVEL] [--karatsuba-len=KARATSUBA_LEN]                   \\\n'
-	printf '       [--prefix=PREFIX] [--bindir=BINDIR] [--datarootdir=DATAROOTDIR]     \\\n'
-	printf '       [--datadir=DATADIR] [--mandir=MANDIR] [--man1dir=MAN1DIR]           \\\n'
+	printf '       [--library|--bc-only --disable-dc|--dc-only --disable-bc|--coverage]  \\\n'
+	printf '       [--force --debug --disable-extra-math --disable-generated-tests]      \\\n'
+	printf '       [--disable-history --disable-man-pages --disable-nls --disable-strip] \\\n'
+	printf '       [--install-all-locales] [--opt=OPT_LEVEL]                             \\\n'
+	printf '       [--karatsuba-len=KARATSUBA_LEN]                                       \\\n'
+	printf '       [--set-default-on=SETTING] [--set-default-off=SETTING]                \\\n'
+	printf '       [--prefix=PREFIX] [--bindir=BINDIR] [--datarootdir=DATAROOTDIR]       \\\n'
+	printf '       [--datadir=DATADIR] [--mandir=MANDIR] [--man1dir=MAN1DIR]             \\\n'
 	printf '\n'
 	printf '    -a, --library\n'
-	printf '        Build the libbc instead of the programs. This is meant to be used with\n'
+	printf '        Build the libbcl instead of the programs. This is meant to be used with\n'
 	printf '        Other software like programming languages that want to make use of the\n'
 	printf '        parsing and math capabilities. This option will install headers using\n'
 	printf '        `make install`.\n'
@@ -70,9 +76,11 @@ usage() {
 	printf '        Disable bc. It is an error if "-b", "--bc-only", "-D", or "--disable-dc"\n'
 	printf '        are specified too.\n'
 	printf '    -c, --coverage\n'
-	printf '        Generate test coverage code. Requires gcov and regcovr.\n'
+	printf '        Generate test coverage code. Requires gcov and gcovr.\n'
 	printf '        It is an error if either "-b" ("-D") or "-d" ("-B") is specified.\n'
 	printf '        Requires a compiler that use gcc-compatible coverage options\n'
+	printf '    -C, --disable-clean\n'
+	printf '        Disable the clean that configure.sh does before configure.\n'
 	printf '    -d, --dc-only\n'
 	printf '        Build dc only. It is an error if "-b", "--bc-only", "-D", or\n'
 	printf '        "--disable-dc" are specified too.\n'
@@ -87,7 +95,7 @@ usage() {
 	printf '    -f, --force\n'
 	printf '        Force use of all enabled options, even if they do not work. This\n'
 	printf '        option is to allow the maintainer a way to test that certain options\n'
-	printf '        are not failing invisibly. (Development only.)'
+	printf '        are not failing invisibly. (Development only.)\n'
 	printf '    -g, --debug\n'
 	printf '        Build in debug mode. Adds the "-g" flag, and if there are no\n'
 	printf '        other CFLAGS, and "-O" was not given, this also adds the "-O0"\n'
@@ -107,6 +115,8 @@ usage() {
 	printf '        Installs all locales, regardless of how many are on the system. This\n'
 	printf '        option is useful for package maintainers who want to make sure that\n'
 	printf '        a package contains all of the locales that end users might need.\n'
+	printf '    -m, --enable-memcheck\n'
+	printf '        Enable memcheck mode, to ensure no memory leaks. For development only.\n'
 	printf '    -M, --disable-man-pages\n'
 	printf '        Disable installing manpages.\n'
 	printf '    -N, --disable-nls\n'
@@ -115,13 +125,23 @@ usage() {
 	printf '        Set the optimization level. This can also be included in the CFLAGS,\n'
 	printf '        but it is provided, so maintainers can build optimized debug builds.\n'
 	printf '        This is passed through to the compiler, so it must be supported.\n'
-	printf '    -P, --disable-prompt\n'
-	printf '        Disables the prompt in the built bc. The prompt will never show up,\n'
-	printf '        or in other words, it will be permanently disabled and cannot be\n'
-	printf '        enabled.\n'
+	printf '    -s SETTING, --set-default-on SETTING\n'
+	printf '        Set the default named by SETTING to on. See below for possible values\n'
+	printf '        for SETTING. For multiple instances of the -s or -S for the the same\n'
+	printf '        setting, the last one is used.\n'
+	printf '    -S SETTING, --set-default-off SETTING\n'
+	printf '        Set the default named by SETTING to off. See below for possible values\n'
+	printf '        for SETTING. For multiple instances of the -s or -S for the the same\n'
+	printf '        setting, the last one is used.\n'
+	printf '    -t, --enable-test-timing\n'
+	printf '        Enable the timing of tests. This is for development only.\n'
 	printf '    -T, --disable-strip\n'
 	printf '        Disable stripping symbols from the compiled binary or binaries.\n'
 	printf '        Stripping symbols only happens when debug mode is off.\n'
+	printf '    -v, --enable-valgrind\n'
+	printf '        Enable a build appropriate for valgrind. For development only.\n'
+	printf '    -z, --enable-fuzz-mode\n'
+	printf '        Enable fuzzing mode. THIS IS FOR DEVELOPMENT ONLY.\n'
 	printf '    --prefix PREFIX\n'
 	printf '        The prefix to install to. Overrides "$PREFIX" if it exists.\n'
 	printf '        If PREFIX is "/usr", install path will be "/usr/bin".\n'
@@ -187,6 +207,9 @@ usage() {
 	printf '                 path (or contain one). This is treated the same as the POSIX\n'
 	printf '                 definition of $NLSPATH (see POSIX environment variables for\n'
 	printf '                 more information). Default is "/usr/share/locale/%%L/%%N".\n'
+	printf '    PC_PATH      The location to install pkg-config files to. Must be an\n'
+	printf '                 path or contain one. Default is the first path given by the\n'
+	printf '                 output of `pkg-config --variable=pc_path pkg-config`.\n'
 	printf '    EXECSUFFIX   The suffix to append to the executable names, used to not\n'
 	printf '                 interfere with other installed bc executables. Default is "".\n'
 	printf '    EXECPREFIX   The prefix to append to the executable names, used to not\n'
@@ -227,10 +250,78 @@ usage() {
 	printf '\n'
 	printf 'WARNING: even though `configure.sh` supports both option types, short and\n'
 	printf 'long, it does not support handling both at the same time. Use only one type.\n'
+	printf '\n'
+	printf 'Settings\n'
+	printf '========\n'
+	printf '\n'
+	printf 'bc and dc have some settings that, while they cannot be removed by build time\n'
+	printf 'options, can have their defaults changed at build time by packagers. Users are\n'
+	printf 'also able to change each setting with environment variables.\n'
+	printf '\n'
+	printf 'The following is a table of settings, along with their default values and the\n'
+	printf 'environment variables users can use to change them. (For the defaults, non-zero\n'
+	printf 'means on, and zero means off.)\n'
+	printf '\n'
+	printf '| Setting         | Description          | Default      | Env Variable         |\n'
+	printf '| =============== | ==================== | ============ | ==================== |\n'
+	printf '| bc.banner       | Whether to display   |            0 | BC_BANNER            |\n'
+	printf '|                 | the bc version       |              |                      |\n'
+	printf '|                 | banner when in       |              |                      |\n'
+	printf '|                 | interactive mode.    |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| bc.sigint_reset | Whether SIGINT will  |            1 | BC_SIGINT_RESET      |\n'
+	printf '|                 | reset bc, instead of |              |                      |\n'
+	printf '|                 | exiting, when in     |              |                      |\n'
+	printf '|                 | interactive mode.    |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| dc.sigint_reset | Whether SIGINT will  |            1 | DC_SIGINT_RESET      |\n'
+	printf '|                 | reset dc, instead of |              |                      |\n'
+	printf '|                 | exiting, when in     |              |                      |\n'
+	printf '|                 | interactive mode.    |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| bc.tty_mode     | Whether TTY mode for |            1 | BC_TTY_MODE          |\n'
+	printf '|                 | bc should be on when |              |                      |\n'
+	printf '|                 | available.           |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| dc.tty_mode     | Whether TTY mode for |            0 | BC_TTY_MODE          |\n'
+	printf '|                 | dc should be on when |              |                      |\n'
+	printf '|                 | available.           |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| bc.prompt       | Whether the prompt   | $BC_TTY_MODE | BC_PROMPT            |\n'
+	printf '|                 | for bc should be on  |              |                      |\n'
+	printf '|                 | in tty mode.         |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| dc.prompt       | Whether the prompt   | $DC_TTY_MODE | DC_PROMPT            |\n'
+	printf '|                 | for dc should be on  |              |                      |\n'
+	printf '|                 | in tty mode.         |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| bc.expr_exit    | Whether to exit bc   |            1 | BC_EXPR_EXIT         |\n'
+	printf '|                 | if an expression or  |              |                      |\n'
+	printf '|                 | expression file is   |              |                      |\n'
+	printf '|                 | given with the -e or |              |                      |\n'
+	printf '|                 | -f options.          |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '| dc.expr_exit    | Whether to exit dc   |            1 | DC_EXPR_EXIT         |\n'
+	printf '|                 | if an expression or  |              |                      |\n'
+	printf '|                 | expression file is   |              |                      |\n'
+	printf '|                 | given with the -e or |              |                      |\n'
+	printf '|                 | -f options.          |              |                      |\n'
+	printf '| --------------- | -------------------- | ------------ | -------------------- |\n'
+	printf '\n'
+	printf 'These settings are not meant to be changed on a whim. They are meant to ensure\n'
+	printf 'that this bc and dc will conform to the expectations of the user on each\n'
+	printf 'platform.\n'
 
 	exit "$_usage_val"
 }
 
+# Replaces a file extension in a filename. This is used mostly to turn filenames
+# like `src/num.c` into `src/num.o`. In other words, it helps to link targets to
+# the files they depend on.
+#
+# @param file  The filename.
+# @param ext1  The extension to replace.
+# @param ext2  The new extension.
 replace_ext() {
 
 	if [ "$#" -ne 3 ]; then
@@ -241,11 +332,18 @@ replace_ext() {
 	_replace_ext_ext1="$2"
 	_replace_ext_ext2="$3"
 
-	_replace_ext_result=${_replace_ext_file%.$_replace_ext_ext1}.$_replace_ext_ext2
+	_replace_ext_result="${_replace_ext_file%.$_replace_ext_ext1}.$_replace_ext_ext2"
 
 	printf '%s\n' "$_replace_ext_result"
 }
 
+# Replaces a file extension in every filename given in a list. The list is just
+# a space-separated list of words, so filenames are expected to *not* have
+# spaces in them. See the documentation for `replace_ext()`.
+#
+# @param files  The list of space-separated filenames to replace extensions for.
+# @param ext1   The extension to replace.
+# @param ext2   The new extension.
 replace_exts() {
 
 	if [ "$#" -ne 3 ]; then
@@ -264,6 +362,17 @@ replace_exts() {
 	printf '%s\n' "$_replace_exts_result"
 }
 
+# Finds a placeholder in @a str and replaces it. This is the workhorse of
+# configure.sh. It's what replaces placeholders in Makefile.in with the data
+# needed for the chosen build. Below, you will see a lot of calls to this
+# function.
+#
+# Note that needle can never contain an exclamation point. For more information,
+# see substring_replace() in scripts/functions.sh.
+#
+# @param str          The string to find and replace placeholders in.
+# @param needle       The placeholder name.
+# @param replacement  The string to use to replace the placeholder.
 replace() {
 
 	if [ "$#" -ne 3 ]; then
@@ -277,6 +386,46 @@ replace() {
 	substring_replace "$_replace_str" "%%$_replace_needle%%" "$_replace_replacement"
 }
 
+# This function finds all the source files that need to be built. If there is
+# only one argument and it is empty, then all source files are built. Otherwise,
+# the arguments are all assumed to be source files that should *not* be built.
+find_src_files() {
+
+	_find_src_files_args=""
+
+	if [ "$#" -ge 1 ] && [ "$1" != "" ]; then
+
+		while [ "$#" -ge 1 ]; do
+			_find_src_files_a="${1## }"
+			shift
+			_find_src_files_args=$(printf '%s\n%s/src/%s\n' "$_find_src_files_args" "$scriptdir" "${_find_src_files_a}")
+		done
+
+	fi
+
+	_find_src_files_files=$(find "$scriptdir/src/" -depth -name "*.c" -print)
+
+	_find_src_files_result=""
+
+	for _find_src_files_f in $_find_src_files_files; do
+
+		# If this is true, the file is part of args, and therefore, unneeded.
+		if [ "${_find_src_files_args##*$_find_src_files_f}" != "${_find_src_files_args}" ]; then
+			continue
+		fi
+
+		_find_src_files_result=$(printf '%s\n%s\n' "$_find_src_files_result" "$_find_src_files_f")
+
+	done
+
+	printf '%s\n' "$_find_src_files_result"
+}
+
+# This function generates a list of files to go into the Makefile. It generates
+# the list of object files, as well as the list of test coverage files.
+#
+# @param contents  The contents of the Makefile template to put the list of
+#                  files into.
 gen_file_list() {
 
 	if [ "$#" -lt 1 ]; then
@@ -286,20 +435,10 @@ gen_file_list() {
 	_gen_file_list_contents="$1"
 	shift
 
-	p=$(pwd)
-
-	cd "$scriptdir"
-
 	if [ "$#" -ge 1 ]; then
-
-		while [ "$#" -ge 1 ]; do
-			a="$1"
-			shift
-			args="$args ! -path src/${a}"
-		done
-
+		_gen_file_list_unneeded="$@"
 	else
-		args="-print"
+		_gen_file_list_unneeded=""
 	fi
 
 	_gen_file_list_needle_src="SRC"
@@ -307,11 +446,18 @@ gen_file_list() {
 	_gen_file_list_needle_gcda="GCDA"
 	_gen_file_list_needle_gcno="GCNO"
 
-	_gen_file_list_replacement=$(find src/ -depth -name "*.c" $args | tr '\n' ' ')
+	_gen_file_list_replacement=$(find_src_files $_gen_file_list_unneeded | tr '\n' ' ')
 	_gen_file_list_contents=$(replace "$_gen_file_list_contents" \
 		"$_gen_file_list_needle_src" "$_gen_file_list_replacement")
 
-	_gen_file_list_replacement=$(replace_exts "$_gen_file_list_replacement" "c" "o")
+	_gen_file_list_cbases=""
+
+	for _gen_file_list_f in $_gen_file_list_replacement; do
+		_gen_file_list_b=$(basename "$_gen_file_list_f")
+		_gen_file_list_cbases="$_gen_file_list_cbases src/$_gen_file_list_b"
+	done
+
+	_gen_file_list_replacement=$(replace_exts "$_gen_file_list_cbases" "c" "o")
 	_gen_file_list_contents=$(replace "$_gen_file_list_contents" \
 		"$_gen_file_list_needle_obj" "$_gen_file_list_replacement")
 
@@ -323,11 +469,198 @@ gen_file_list() {
 	_gen_file_list_contents=$(replace "$_gen_file_list_contents" \
 		"$_gen_file_list_needle_gcno" "$_gen_file_list_replacement")
 
-	cd "$p"
-
 	printf '%s\n' "$_gen_file_list_contents"
 }
 
+# Generates the proper test targets for each test to have its own target. This
+# allows `make test` to run in parallel.
+#
+# @param name        Which calculator to generate tests for.
+# @param extra_math  An integer that, if non-zero, activates extra math tests.
+# @param time_tests  An integer that, if non-zero, tells the test suite to time
+#                    the execution of each test.
+gen_std_tests() {
+
+	_gen_std_tests_name="$1"
+	shift
+
+	_gen_std_tests_extra_math="$1"
+	shift
+
+	_gen_std_tests_time_tests="$1"
+	shift
+
+	_gen_std_tests_extra_required=$(cat "$scriptdir/tests/extra_required.txt")
+
+	for _gen_std_tests_t in $(cat "$scriptdir/tests/$_gen_std_tests_name/all.txt"); do
+
+		if [ "$_gen_std_tests_extra_math" -eq 0 ]; then
+
+			if [ -z "${_gen_std_tests_extra_required##*$_gen_std_tests_t*}" ]; then
+				printf 'test_%s_%s:\n\t@printf "Skipping %s %s\\n"\n\n' \
+					"$_gen_std_tests_name" "$_gen_std_tests_t" "$_gen_std_tests_name" \
+					"$_gen_std_tests_t" >> "Makefile"
+				continue
+			fi
+
+		fi
+
+		printf 'test_%s_%s:\n\t@export BC_TEST_OUTPUT_DIR="%s/tests"; sh \$(TESTSDIR)/test.sh %s %s %s %s %s\n\n' \
+			"$_gen_std_tests_name" "$_gen_std_tests_t" "$builddir" "$_gen_std_tests_name" \
+			"$_gen_std_tests_t" "$generate_tests" "$time_tests" \
+			"$*" >> "Makefile"
+
+	done
+}
+
+# Generates a list of test targets that will be used as prerequisites for other
+# targets.
+#
+# @param name  The name of the calculator to generate test targets for.
+gen_std_test_targets() {
+
+	_gen_std_test_targets_name="$1"
+	shift
+
+	_gen_std_test_targets_tests=$(cat "$scriptdir/tests/${_gen_std_test_targets_name}/all.txt")
+
+	for _gen_std_test_targets_t in $_gen_std_test_targets_tests; do
+		printf ' test_%s_%s' "$_gen_std_test_targets_name" "$_gen_std_test_targets_t"
+	done
+
+	printf '\n'
+}
+
+# Generates the proper test targets for each error test to have its own target.
+# This allows `make test_bc_errors` and `make test_dc_errors` to run in
+# parallel.
+#
+# @param name  Which calculator to generate tests for.
+gen_err_tests() {
+
+	_gen_err_tests_name="$1"
+	shift
+
+	_gen_err_tests_fs=$(ls "$scriptdir/tests/$_gen_err_tests_name/errors/")
+
+	for _gen_err_tests_t in $_gen_err_tests_fs; do
+
+		printf 'test_%s_error_%s:\n\t@export BC_TEST_OUTPUT_DIR="%s/tests"; sh \$(TESTSDIR)/error.sh %s %s %s\n\n' \
+			"$_gen_err_tests_name" "$_gen_err_tests_t" "$builddir" "$_gen_err_tests_name" \
+			"$_gen_err_tests_t" "$*" >> "Makefile"
+
+	done
+
+}
+
+# Generates a list of error test targets that will be used as prerequisites for
+# other targets.
+#
+# @param name  The name of the calculator to generate test targets for.
+gen_err_test_targets() {
+
+	_gen_err_test_targets_name="$1"
+	shift
+
+	_gen_err_test_targets_tests=$(ls "$scriptdir/tests/$_gen_err_test_targets_name/errors/")
+
+	for _gen_err_test_targets_t in $_gen_err_test_targets_tests; do
+		printf ' test_%s_error_%s' "$_gen_err_test_targets_name" "$_gen_err_test_targets_t"
+	done
+
+	printf '\n'
+}
+
+# Generates the proper script test targets for each script test to have its own
+# target. This allows `make test` to run in parallel.
+#
+# @param name        Which calculator to generate tests for.
+# @param extra_math  An integer that, if non-zero, activates extra math tests.
+# @param generate    An integer that, if non-zero, activates generated tests.
+# @param time_tests  An integer that, if non-zero, tells the test suite to time
+#                    the execution of each test.
+gen_script_tests() {
+
+	_gen_script_tests_name="$1"
+	shift
+
+	_gen_script_tests_extra_math="$1"
+	shift
+
+	_gen_script_tests_generate="$1"
+	shift
+
+	_gen_script_tests_time="$1"
+	shift
+
+	_gen_script_tests_tests=$(cat "$scriptdir/tests/$_gen_script_tests_name/scripts/all.txt")
+
+	for _gen_script_tests_f in $_gen_script_tests_tests; do
+
+		_gen_script_tests_b=$(basename "$_gen_script_tests_f" ".${_gen_script_tests_name}")
+
+		printf 'test_%s_script_%s:\n\t@export BC_TEST_OUTPUT_DIR="%s/tests"; sh \$(TESTSDIR)/script.sh %s %s %s 1 %s %s %s\n\n' \
+			"$_gen_script_tests_name" "$_gen_script_tests_b" "$builddir" "$_gen_script_tests_name" \
+			"$_gen_script_tests_f" "$_gen_script_tests_extra_math" "$_gen_script_tests_generate" \
+			"$_gen_script_tests_time" "$*" >> "Makefile"
+	done
+}
+
+set_default() {
+
+	_set_default_on="$1"
+	shift
+
+	_set_default_name="$1"
+	shift
+
+	# The reason that the variables that are being set do not have the same
+	# non-collision avoidance that the other variables do is that we *do* want
+	# the settings of these variables to leak out of the function. They adjust
+	# the settings outside of the function.
+	case "$_set_default_name" in
+
+		bc.banner) bc_default_banner="$_set_default_on" ;;
+		bc.sigint_reset) bc_default_sigint_reset="$_set_default_on" ;;
+		dc.sigint_reset) dc_default_sigint_reset="$_set_default_on" ;;
+		bc.tty_mode) bc_default_tty_mode="$_set_default_on" ;;
+		dc.tty_mode) dc_default_tty_mode="$_set_default_on" ;;
+		bc.prompt) bc_default_prompt="$_set_default_on" ;;
+		dc.prompt) dc_default_prompt="$_set_default_on" ;;
+		bc.expr_exit) bc_default_expr_exit="$_set_default_on";;
+		dc.expr_exit) dc_default_expr_exit="$_set_default_on";;
+		?) usage "Invalid setting: $_set_default_name" ;;
+
+	esac
+}
+
+# Generates a list of script test targets that will be used as prerequisites for
+# other targets.
+#
+# @param name  The name of the calculator to generate script test targets for.
+gen_script_test_targets() {
+
+	_gen_script_test_targets_name="$1"
+	shift
+
+	_gen_script_test_targets_tests=$(cat "$scriptdir/tests/$_gen_script_test_targets_name/scripts/all.txt")
+
+	for _gen_script_test_targets_f in $_gen_script_test_targets_tests; do
+		_gen_script_test_targets_b=$(basename "$_gen_script_test_targets_f" \
+			".$_gen_script_test_targets_name")
+		printf ' test_%s_script_%s' "$_gen_script_test_targets_name" \
+			"$_gen_script_test_targets_b"
+	done
+
+	printf '\n'
+}
+
+# This is a list of defaults, but it is also the list of possible options for
+# users to change.
+#
+# The development options are: force (force options even if they fail), valgrind
+# (build in a way suitable for valgrind testing), memcheck (same as valgrind),
+# and fuzzing (build in a way suitable for fuzzing).
 bc_only=0
 dc_only=0
 coverage=0
@@ -339,19 +672,39 @@ optimization=""
 generate_tests=1
 install_manpages=1
 nls=1
-prompt=1
 force=0
 strip_bin=1
 all_locales=0
 library=0
+fuzz=0
+time_tests=0
+vg=0
+memcheck=0
+clean=1
 
-while getopts "abBcdDEfgGhHk:lMNO:PST-" opt; do
+# The empty strings are because they depend on TTY mode. If they are directly
+# set, though, they will be integers. We test for empty strings later.
+bc_default_banner=0
+bc_default_sigint_reset=1
+dc_default_sigint_reset=1
+bc_default_tty_mode=1
+dc_default_tty_mode=0
+bc_default_prompt=""
+dc_default_prompt=""
+bc_default_expr_exit=1
+dc_default_expr_exit=1
+
+# getopts is a POSIX utility, but it cannot handle long options. Thus, the
+# handling of long options is done by hand, and that's the reason that short and
+# long options cannot be mixed.
+while getopts "abBcdDEfgGhHk:lMmNO:S:s:tTvz-" opt; do
 
 	case "$opt" in
 		a) library=1 ;;
 		b) bc_only=1 ;;
 		B) dc_only=1 ;;
 		c) coverage=1 ;;
+		C) clean=0 ;;
 		d) dc_only=1 ;;
 		D) bc_only=1 ;;
 		E) extra_math=0 ;;
@@ -362,11 +715,16 @@ while getopts "abBcdDEfgGhHk:lMNO:PST-" opt; do
 		H) hist=0 ;;
 		k) karatsuba_len="$OPTARG" ;;
 		l) all_locales=1 ;;
+		m) memcheck=1 ;;
 		M) install_manpages=0 ;;
 		N) nls=0 ;;
 		O) optimization="$OPTARG" ;;
-		P) prompt=0 ;;
+		S) set_default 0 "$OPTARG" ;;
+		s) set_default 1 "$OPTARG" ;;
+		t) time_tests=1 ;;
 		T) strip_bin=0 ;;
+		v) vg=1 ;;
+		z) fuzz=1 ;;
 		-)
 			arg="$1"
 			arg="${arg#--}"
@@ -463,46 +821,80 @@ while getopts "abBcdDEfgGhHk:lMNO:PST-" opt; do
 					fi
 					optimization="$1"
 					shift ;;
+				set-default-on=?*) set_default 1 "$LONG_OPTARG" ;;
+				set-default-on)
+					if [ "$#" -lt 2 ]; then
+						usage "No argument given for '--$arg' option"
+					fi
+					set_default 1 "$1"
+					shift ;;
+				set-default-off=?*) set_default 0 "$LONG_OPTARG" ;;
+				set-default-off)
+					if [ "$#" -lt 2 ]; then
+						usage "No argument given for '--$arg' option"
+					fi
+					set_default 0 "$1"
+					shift ;;
 				disable-bc) dc_only=1 ;;
 				disable-dc) bc_only=1 ;;
+				disable-clean) clean=0 ;;
 				disable-extra-math) extra_math=0 ;;
 				disable-generated-tests) generate_tests=0 ;;
 				disable-history) hist=0 ;;
 				disable-man-pages) install_manpages=0 ;;
 				disable-nls) nls=0 ;;
-				disable-prompt) prompt=0 ;;
 				disable-strip) strip_bin=0 ;;
+				enable-test-timing) time_tests=1 ;;
+				enable-valgrind) vg=1 ;;
+				enable-fuzz-mode) fuzz=1 ;;
+				enable-memcheck) memcheck=1 ;;
 				install-all-locales) all_locales=1 ;;
 				help* | bc-only* | dc-only* | coverage* | debug*)
 					usage "No arg allowed for --$arg option" ;;
-				disable-bc* | disable-dc* | disable-extra-math*)
+				disable-bc* | disable-dc* | disable-clean*)
+					usage "No arg allowed for --$arg option" ;;
+				disable-extra-math*)
 					usage "No arg allowed for --$arg option" ;;
 				disable-generated-tests* | disable-history*)
 					usage "No arg allowed for --$arg option" ;;
 				disable-man-pages* | disable-nls* | disable-strip*)
 					usage "No arg allowed for --$arg option" ;;
-				install-all-locales*)
+				enable-fuzz-mode* | enable-test-timing* | enable-valgrind*)
+					usage "No arg allowed for --$arg option" ;;
+				enable-memcheck* | install-all-locales*)
 					usage "No arg allowed for --$arg option" ;;
 				'') break ;; # "--" terminates argument processing
 				* ) usage "Invalid option $LONG_OPTARG" ;;
 			esac
 			shift
 			OPTIND=1 ;;
-		?) usage "Invalid option $opt" ;;
+		?) usage "Invalid option: $opt" ;;
 	esac
 
 done
 
+# Sometimes, developers don't want configure.sh to do a config clean. But
+# sometimes they do.
+if [ "$clean" -ne 0 ]; then
+	if [ -f ./Makefile ]; then
+		make clean_config > /dev/null
+	fi
+fi
+
+# It is an error to say that bc only should be built and likewise for dc.
 if [ "$bc_only" -eq 1 ] && [ "$dc_only" -eq 1 ]; then
 	usage "Can only specify one of -b(-D) or -d(-B)"
 fi
 
+# The library is mutually exclusive to the calculators, so it's an error to
+# give an option for either of them.
 if [ "$library" -ne 0 ]; then
 	if [ "$bc_only" -eq 1 ] || [ "$dc_only" -eq 1 ]; then
 		usage "Must not specify -b(-D) or -d(-B) when building the library"
 	fi
 fi
 
+# KARATSUBA_LEN must be an integer and must be 16 or greater.
 case $karatsuba_len in
 	(*[!0-9]*|'') usage "KARATSUBA_LEN is not a number" ;;
 	(*) ;;
@@ -525,6 +917,11 @@ fi
 if [ -z "$CC" ]; then
 	CC="c99"
 else
+
+	# I had users complain that, if they gave CFLAGS as part of CC, which
+	# autotools allows in its braindead way, the build would fail with an error.
+	# I don't like adjusting for autotools, but oh well. These lines puts the
+	# stuff after the first space into CFLAGS.
 	ccbase=$(basename "$CC")
 	suffix=" *"
 	prefix="* "
@@ -550,6 +947,8 @@ elif [ -z "$HOSTCC" ]; then
 fi
 
 if [ "$HOSTCC" != "$CC" ]; then
+
+	# Like above, this splits HOSTCC and HOSTCFLAGS.
 	ccbase=$(basename "$HOSTCC")
 	suffix=" *"
 	prefix="* "
@@ -574,29 +973,36 @@ elif [ -z "${HOSTCFLAGS+set}" ]; then
 	HOSTCFLAGS="$HOST_CFLAGS"
 fi
 
+# Store these for the cross compilation detection later.
+OLDCFLAGS="$CFLAGS"
+OLDHOSTCFLAGS="$HOSTCFLAGS"
+
 link="@printf 'No link necessary\\\\n'"
 main_exec="BC"
 executable="BC_EXEC"
 
 tests="test_bc timeconst test_dc"
 
-bc_test="@tests/all.sh bc $extra_math 1 $generate_tests 0 \$(BC_EXEC)"
-bc_time_test="@tests/all.sh bc $extra_math 1 $generate_tests 1 \$(BC_EXEC)"
+bc_test="@export BC_TEST_OUTPUT_DIR=\"$builddir/tests\"; \$(TESTSDIR)/all.sh bc $extra_math 1 $generate_tests $time_tests \$(BC_EXEC)"
+bc_test_np="@export BC_TEST_OUTPUT_DIR=\"$builddir/tests\"; \$(TESTSDIR)/all.sh -n bc $extra_math 1 $generate_tests $time_tests \$(BC_EXEC)"
+dc_test="@export BC_TEST_OUTPUT_DIR=\"$builddir/tests\"; \$(TESTSDIR)/all.sh dc $extra_math 1 $generate_tests $time_tests \$(DC_EXEC)"
+dc_test_np="@export BC_TEST_OUTPUT_DIR=\"$builddir/tests\"; \$(TESTSDIR)/all.sh -n dc $extra_math 1 $generate_tests $time_tests \$(DC_EXEC)"
 
-dc_test="@tests/all.sh dc $extra_math 1 $generate_tests 0 \$(DC_EXEC)"
-dc_time_test="@tests/all.sh dc $extra_math 1 $generate_tests 1 \$(DC_EXEC)"
-
-timeconst="@tests/bc/timeconst.sh tests/bc/scripts/timeconst.bc \$(BC_EXEC)"
+timeconst="@export BC_TEST_OUTPUT_DIR=\"$builddir/tests\"; \$(TESTSDIR)/bc/timeconst.sh \$(TESTSDIR)/bc/scripts/timeconst.bc \$(BC_EXEC)"
 
 # In order to have cleanup at exit, we need to be in
 # debug mode, so don't run valgrind without that.
-if [ "$debug" -ne 0 ]; then
-	vg_bc_test="@tests/all.sh bc $extra_math 1 $generate_tests 0 valgrind \$(VALGRIND_ARGS) \$(BC_EXEC)"
-	vg_dc_test="@tests/all.sh dc $extra_math 1 $generate_tests 0 valgrind \$(VALGRIND_ARGS) \$(DC_EXEC)"
+if [ "$vg" -ne 0 ]; then
+	debug=1
+	bc_test_exec='valgrind $(VALGRIND_ARGS) $(BC_EXEC)'
+	dc_test_exec='valgrind $(VALGRIND_ARGS) $(DC_EXEC)'
 else
-	vg_bc_test="@printf 'Cannot run valgrind without debug flags\\\\n'"
-	vg_dc_test="@printf 'Cannot run valgrind without debug flags\\\\n'"
+	bc_test_exec='$(BC_EXEC)'
+	dc_test_exec='$(DC_EXEC)'
 fi
+
+test_bc_history_prereqs="test_bc_history_all"
+test_dc_history_prereqs="test_dc_history_all"
 
 karatsuba="@printf 'karatsuba cannot be run because one of bc or dc is not built\\\\n'"
 karatsuba_test="@printf 'karatsuba cannot be run because one of bc or dc is not built\\\\n'"
@@ -605,7 +1011,37 @@ bc_lib="\$(GEN_DIR)/lib.o"
 bc_help="\$(GEN_DIR)/bc_help.o"
 dc_help="\$(GEN_DIR)/dc_help.o"
 
-if [ "$bc_only" -eq 1 ]; then
+default_target_prereqs="\$(BIN) \$(OBJS)"
+default_target_cmd="\$(CC) \$(CFLAGS) \$(OBJS) \$(LDFLAGS) -o \$(EXEC)"
+default_target="\$(DC_EXEC)"
+
+second_target_prereqs=""
+second_target_cmd="$default_target_cmd"
+second_target="\$(BC_EXEC)"
+
+# This if/else if chain is for setting the defaults that change based on whether
+# the library is being built, bc only, dc only, or both calculators.
+if [ "$library" -ne 0 ]; then
+
+	extra_math=1
+	nls=0
+	hist=0
+	bc=1
+	dc=1
+
+	default_target_prereqs="\$(BIN) \$(OBJ)"
+	default_target_cmd="ar -r -cu \$(LIBBC) \$(OBJ)"
+	default_target="\$(LIBBC)"
+	tests="test_library"
+	test_bc_history_prereqs=" test_bc_history_skip"
+	test_dc_history_prereqs=" test_dc_history_skip"
+
+	install_prereqs=" install_library"
+	uninstall_prereqs=" uninstall_library"
+	install_man_prereqs=" install_bcl_manpage"
+	uninstall_man_prereqs=" uninstall_bcl_manpage"
+
+elif [ "$bc_only" -eq 1 ]; then
 
 	bc=1
 	dc=0
@@ -615,13 +1051,17 @@ if [ "$bc_only" -eq 1 ]; then
 	executables="bc"
 
 	dc_test="@printf 'No dc tests to run\\\\n'"
-	dc_time_test="@printf 'No dc tests to run\\\\n'"
-	vg_dc_test="@printf 'No dc tests to run\\\\n'"
+	dc_test_np="@printf 'No dc tests to run\\\\n'"
+	test_dc_history_prereqs=" test_dc_history_skip"
 
 	install_prereqs=" install_execs"
 	install_man_prereqs=" install_bc_manpage"
 	uninstall_prereqs=" uninstall_bc"
 	uninstall_man_prereqs=" uninstall_bc_manpage"
+
+	default_target="\$(BC_EXEC)"
+	second_target="\$(DC_EXEC)"
+	tests="test_bc timeconst"
 
 elif [ "$dc_only" -eq 1 ]; then
 
@@ -637,8 +1077,8 @@ elif [ "$dc_only" -eq 1 ]; then
 	executable="DC_EXEC"
 
 	bc_test="@printf 'No bc tests to run\\\\n'"
-	bc_time_test="@printf 'No bc tests to run\\\\n'"
-	vg_bc_test="@printf 'No bc tests to run\\\\n'"
+	bc_test_np="@printf 'No bc tests to run\\\\n'"
+	test_bc_history_prereqs=" test_bc_history_skip"
 
 	timeconst="@printf 'timeconst cannot be run because bc is not built\\\\n'"
 
@@ -647,14 +1087,14 @@ elif [ "$dc_only" -eq 1 ]; then
 	uninstall_prereqs=" uninstall_dc"
 	uninstall_man_prereqs=" uninstall_dc_manpage"
 
+	tests="test_dc"
+
 else
 
 	bc=1
 	dc=1
 
 	executables="bc and dc"
-
-	link="\$(LINK) \$(BIN) \$(EXEC_PREFIX)\$(DC)"
 
 	karatsuba="@\$(KARATSUBA) 30 0 \$(BC_EXEC)"
 	karatsuba_test="@\$(KARATSUBA) 1 100 \$(BC_EXEC)"
@@ -672,8 +1112,21 @@ else
 		tests="test_library"
 	fi
 
+	second_target_prereqs="$default_target_prereqs"
+	default_target_prereqs="$second_target"
+	default_target_cmd="\$(LINK) \$(BIN) \$(EXEC_PREFIX)\$(DC)"
+
 fi
 
+# We need specific stuff for fuzzing.
+if [ "$fuzz" -ne 0 ]; then
+	debug=1
+	hist=0
+	nls=0
+	optimization="3"
+fi
+
+# This sets some necessary things for debug mode.
 if [ "$debug" -eq 1 ]; then
 
 	if [ -z "$CFLAGS" ] && [ -z "$optimization" ]; then
@@ -683,16 +1136,20 @@ if [ "$debug" -eq 1 ]; then
 	CFLAGS="-g $CFLAGS"
 
 else
+
 	CPPFLAGS="-DNDEBUG $CPPFLAGS"
+
 	if [ "$strip_bin" -ne 0 ]; then
 		LDFLAGS="-s $LDFLAGS"
 	fi
 fi
 
+# Set optimization CFLAGS.
 if [ -n "$optimization" ]; then
 	CFLAGS="-O$optimization $CFLAGS"
 fi
 
+# Set test coverage defaults.
 if [ "$coverage" -eq 1 ]; then
 
 	if [ "$bc_only" -eq 1 ] || [ "$dc_only" -eq 1 ]; then
@@ -704,7 +1161,7 @@ if [ "$coverage" -eq 1 ]; then
 
 	COVERAGE_OUTPUT="@gcov -pabcdf \$(GCDA) \$(BC_GCDA) \$(DC_GCDA) \$(HISTORY_GCDA) \$(RAND_GCDA)"
 	COVERAGE_OUTPUT="$COVERAGE_OUTPUT;\$(RM) -f \$(GEN)*.gc*"
-	COVERAGE_OUTPUT="$COVERAGE_OUTPUT;gcovr --html-details --output index.html"
+	COVERAGE_OUTPUT="$COVERAGE_OUTPUT;gcovr --exclude-unreachable-branches --exclude-throw-branches --html-details --output index.html"
 	COVERAGE_PREREQS=" test coverage_output"
 
 else
@@ -712,6 +1169,8 @@ else
 	COVERAGE_PREREQS=""
 fi
 
+
+# Set some defaults.
 if [ -z "${DESTDIR+set}" ]; then
 	destdir=""
 else
@@ -734,12 +1193,34 @@ if [ -z "${LIBDIR+set}" ]; then
 	LIBDIR="$PREFIX/lib"
 fi
 
+if [ -z "${PC_PATH+set}" ]; then
+
+	set +e
+
+	command -v pkg-config > /dev/null
+	err=$?
+
+	set -e
+
+	if [ "$err" -eq 0 ]; then
+		PC_PATH=$(pkg-config --variable=pc_path pkg-config)
+		PC_PATH="${PC_PATH%%:*}"
+	else
+		PC_PATH=""
+	fi
+
+fi
+
+# Set a default for the DATAROOTDIR. This is done if either manpages will be
+# installed, or locales are enabled because that's probably where NLS_PATH
+# points.
 if [ "$install_manpages" -ne 0 ] || [ "$nls" -ne 0 ]; then
 	if [ -z "${DATAROOTDIR+set}" ]; then
 		DATAROOTDIR="$PREFIX/share"
 	fi
 fi
 
+# Set defaults for manpage environment variables.
 if [ "$install_manpages" -ne 0 ]; then
 
 	if [ -z "${DATADIR+set}" ]; then
@@ -763,16 +1244,9 @@ else
 	uninstall_man_prereqs=""
 fi
 
-if [ "$library" -ne 0 ]; then
-	extra_math=1
-	nls=0
-	hist=0
-	prompt=0
-	ALL_PREREQ="library"
-else
-	ALL_PREREQ="execs"
-fi
-
+# Here is where we test NLS (the locale system). This is done by trying to
+# compile src/vm.c, which has the relevant code. If it fails, then it is
+# disabled.
 if [ "$nls" -ne 0 ]; then
 
 	set +e
@@ -780,15 +1254,15 @@ if [ "$nls" -ne 0 ]; then
 	printf 'Testing NLS...\n'
 
 	flags="-DBC_ENABLE_NLS=1 -DBC_ENABLED=$bc -DDC_ENABLED=$dc"
-	flags="$flags -DBC_ENABLE_HISTORY=$hist"
-	flags="$flags -DBC_ENABLE_EXTRA_MATH=$extra_math -I./include/"
+	flags="$flags -DBC_ENABLE_HISTORY=$hist -DBC_ENABLE_LIBRARY=0 -DBC_ENABLE_AFL=0"
+	flags="$flags -DBC_ENABLE_EXTRA_MATH=$extra_math -I$scriptdir/include/"
 	flags="$flags -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700"
 
-	"$CC" $CPPFLAGS $CFLAGS $flags -c "src/vm.c" -o "$scriptdir/vm.o" > /dev/null 2>&1
+	"$CC" $CPPFLAGS $CFLAGS $flags -c "$scriptdir/src/vm.c" -o "./vm.o" > /dev/null 2>&1
 
 	err="$?"
 
-	rm -rf "$scriptdir/vm.o"
+	rm -rf "./vm.o"
 
 	# If this errors, it is probably because of building on Windows,
 	# and NLS is not supported on Windows, so disable it.
@@ -804,11 +1278,11 @@ if [ "$nls" -ne 0 ]; then
 		printf 'NLS works.\n\n'
 
 		printf 'Testing gencat...\n'
-		gencat "$scriptdir/en_US.cat" "$scriptdir/locales/en_US.msg" > /dev/null 2>&1
+		gencat "./en_US.cat" "$scriptdir/locales/en_US.msg" > /dev/null 2>&1
 
 		err="$?"
 
-		rm -rf "$scriptdir/en_US.cat"
+		rm -rf "./en_US.cat"
 
 		if [ "$err" -ne 0 ]; then
 			printf 'gencat does not work.\n'
@@ -822,7 +1296,10 @@ if [ "$nls" -ne 0 ]; then
 
 			printf 'gencat works.\n\n'
 
-			if [ "$HOSTCC" != "$CC" ]; then
+			# It turns out that POSIX locales are really terrible, and running
+			# gencat on one machine is not guaranteed to make those cat files
+			# portable to another machine, so we had better warn the user here.
+			if [ "$HOSTCC" != "$CC" ] || [ "$OLDHOSTCFLAGS" != "$OLDCFLAGS" ]; then
 				printf 'Cross-compile detected.\n\n'
 				printf 'WARNING: Catalog files generated with gencat may not be portable\n'
 				printf '         across different architectures.\n\n'
@@ -853,6 +1330,7 @@ else
 	install_locales="\$(LOCALE_INSTALL) \$(NLSPATH) \$(MAIN_EXEC) \$(DESTDIR)"
 fi
 
+# Like the above tested locale support, this tests history.
 if [ "$hist" -eq 1 ]; then
 
 	set +e
@@ -860,15 +1338,15 @@ if [ "$hist" -eq 1 ]; then
 	printf 'Testing history...\n'
 
 	flags="-DBC_ENABLE_HISTORY=1 -DBC_ENABLED=$bc -DDC_ENABLED=$dc"
-	flags="$flags -DBC_ENABLE_NLS=$nls -DBC_ENABLE_LIBRARY=0"
-	flags="$flags -DBC_ENABLE_EXTRA_MATH=$extra_math -I./include/"
+	flags="$flags -DBC_ENABLE_NLS=$nls -DBC_ENABLE_LIBRARY=0 -DBC_ENABLE_AFL=0"
+	flags="$flags -DBC_ENABLE_EXTRA_MATH=$extra_math -I$scriptdir/include/"
 	flags="$flags -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700"
 
-	"$CC" $CPPFLAGS $CFLAGS $flags -c "src/history.c" -o "$scriptdir/history.o" > /dev/null 2>&1
+	"$CC" $CPPFLAGS $CFLAGS $flags -c "$scriptdir/src/history.c" -o "./history.o" > /dev/null 2>&1
 
 	err="$?"
 
-	rm -rf "$scriptdir/history.o"
+	rm -rf "./history.o"
 
 	# If this errors, it is probably because of building on Windows,
 	# and history is not supported on Windows, so disable it.
@@ -888,6 +1366,39 @@ if [ "$hist" -eq 1 ]; then
 
 fi
 
+# We have to disable the history tests if it is disabled or valgrind is on.
+if [ "$hist" -eq 0 ] || [ "$vg" -ne 0 ]; then
+	test_bc_history_prereqs=" test_bc_history_skip"
+	test_dc_history_prereqs=" test_dc_history_skip"
+	history_tests="@printf 'Skipping history tests...\\\\n'"
+else
+	history_tests="@printf '\$(TEST_STARS)\\\\n\\\\nRunning history tests...\\\\n\\\\n' \&\& \$(TESTSDIR)/history.sh bc -a \&\& \$(TESTSDIR)/history.sh dc -a \&\& printf '\\\\nAll history tests passed.\\\\n\\\\n\$(TEST_STARS)\\\\n'"
+fi
+
+# Test OpenBSD. This is not in an if statement because regardless of whatever
+# the user says, we need to know if we are on OpenBSD to activate _BSD_SOURCE.
+# No, I cannot `#define _BSD_SOURCE` in a header because OpenBSD's patched GCC
+# and Clang complain that that is only allowed for system headers. Sigh....So we
+# have to check at configure time and set it on the compiler command-line. And
+# we have to set it because we also set _POSIX_C_SOURCE, which OpenBSD headers
+# detect, and when they detect it, they turn off _BSD_SOURCE unless it is
+# specifically requested.
+set +e
+printf 'Testing for OpenBSD...\n'
+
+flags="-DBC_TEST_OPENBSD -DBC_ENABLE_AFL=0"
+"$CC" $CPPFLAGS $CFLAGS $flags "-I$scriptdir/include" -E "$scriptdir/include/status.h" > /dev/null 2>&1
+
+err="$?"
+
+if [ "$err" -ne 0 ]; then
+	printf 'On OpenBSD. Using _BSD_SOURCE.\n\n'
+	bsd="-D_BSD_SOURCE"
+else
+	printf 'Not on OpenBSD.\n\n'
+	bsd=""
+fi
+
 if [ "$library" -eq 1 ]; then
 	bc_lib=""
 fi
@@ -898,9 +1409,11 @@ else
 	BC_LIB2_O=""
 fi
 
+# These lines set the appropriate targets based on whether `gen/strgen.c` or
+# `gen/strgen.sh` is used.
 GEN="strgen"
 GEN_EXEC_TARGET="\$(HOSTCC) \$(HOSTCFLAGS) -o \$(GEN_EXEC) \$(GEN_C)"
-CLEAN_PREREQS=" clean_gen"
+CLEAN_PREREQS=" clean_gen clean_coverage"
 
 if [ -z "${GEN_HOST+set}" ]; then
 	GEN_HOST=1
@@ -908,60 +1421,123 @@ else
 	if [ "$GEN_HOST" -eq 0 ]; then
 		GEN="strgen.sh"
 		GEN_EXEC_TARGET="@printf 'Do not need to build gen/strgen.c\\\\n'"
-		CLEAN_PREREQS=""
+		CLEAN_PREREQS=" clean_coverage"
 	fi
 fi
 
 manpage_args=""
+unneeded=""
+headers="\$(HEADERS)"
 
+# This series of if statements figure out what source files are *not* needed.
 if [ "$extra_math" -eq 0 ]; then
 	manpage_args="E"
+	unneeded="$unneeded rand.c"
+else
+	headers="$headers \$(EXTRA_MATH_HEADERS)"
 fi
+
+# All of these next if statements set the build type and mark certain source
+# files as unneeded so that they won't have targets generated for them.
 
 if [ "$hist" -eq 0 ]; then
 	manpage_args="${manpage_args}H"
+	unneeded="$unneeded history.c"
+else
+	headers="$headers \$(HISTORY_HEADERS)"
 fi
 
 if [ "$nls" -eq 0 ]; then
 	manpage_args="${manpage_args}N"
 fi
 
-if [ "$prompt" -eq 0 ]; then
-	manpage_args="${manpage_args}P"
-fi
-
-if [ "$manpage_args" = "" ]; then
-	manpage_args="A"
-fi
-
-unneeded=""
-
-if [ "$hist" -eq 0 ]; then
-	unneeded="$unneeded history.c"
-fi
-
 if [ "$bc" -eq 0 ]; then
 	unneeded="$unneeded bc.c bc_lex.c bc_parse.c"
+else
+	headers="$headers \$(BC_HEADERS)"
 fi
 
 if [ "$dc" -eq 0 ]; then
 	unneeded="$unneeded dc.c dc_lex.c dc_parse.c"
+else
+	headers="$headers \$(DC_HEADERS)"
 fi
 
-if [ "$extra_math" -eq 0 ]; then
-	unneeded="$unneeded rand.c"
-fi
+# This convoluted mess does pull the version out. If you change the format of
+# include/version.h, you may have to change this line.
+version=$(cat "$scriptdir/include/version.h" | grep "VERSION " - | awk '{ print $3 }' -)
 
 if [ "$library" -ne 0 ]; then
+
 	unneeded="$unneeded args.c opt.c read.c file.c main.c"
 	unneeded="$unneeded lang.c lex.c parse.c program.c"
 	unneeded="$unneeded bc.c bc_lex.c bc_parse.c"
 	unneeded="$unneeded dc.c dc_lex.c dc_parse.c"
+	headers="$headers \$(LIBRARY_HEADERS)"
+
+	if [ "$PC_PATH" != "" ]; then
+
+		contents=$(cat "$scriptdir/bcl.pc.in")
+
+		contents=$(replace "$contents" "INCLUDEDIR" "$INCLUDEDIR")
+		contents=$(replace "$contents" "LIBDIR" "$LIBDIR")
+		contents=$(replace "$contents" "VERSION" "$version")
+
+		printf '%s\n' "$contents" > "./bcl.pc"
+
+		pkg_config_install="\$(SAFE_INSTALL) \$(PC_INSTALL_ARGS) \"\$(BCL_PC)\" \"\$(DESTDIR)\$(PC_PATH)/\$(BCL_PC)\""
+		pkg_config_uninstall="\$(RM) -f \"\$(DESTDIR)\$(PC_PATH)/\$(BCL_PC)\""
+
+	else
+
+		pkg_config_install=""
+		pkg_config_uninstall=""
+
+	fi
+
 else
+
 	unneeded="$unneeded library.c"
+
+	PC_PATH=""
+	pkg_config_install=""
+	pkg_config_uninstall=""
+
 fi
 
+# library.c is not needed under normal circumstances.
+if [ "$unneeded" = "" ]; then
+	unneeded="library.c"
+fi
+
+# This sets the appropriate manpage for a full build.
+if [ "$manpage_args" = "" ]; then
+	manpage_args="A"
+fi
+
+if [ "$vg" -ne 0 ]; then
+	memcheck=1
+fi
+
+if [ "$bc_default_prompt" = "" ]; then
+	bc_default_prompt="$bc_default_tty_mode"
+fi
+
+if [ "$dc_default_prompt" = "" ]; then
+	dc_default_prompt="$dc_default_tty_mode"
+fi
+
+# Generate the test targets and prerequisites.
+bc_tests=$(gen_std_test_targets bc)
+bc_script_tests=$(gen_script_test_targets bc)
+bc_err_tests=$(gen_err_test_targets bc)
+dc_tests=$(gen_std_test_targets dc)
+dc_script_tests=$(gen_script_test_targets dc)
+dc_err_tests=$(gen_err_test_targets dc)
+
 # Print out the values; this is for debugging.
+printf 'Version: %s\n' "$version"
+
 if [ "$bc" -ne 0 ]; then
 	printf 'Building bc\n'
 else
@@ -977,7 +1553,7 @@ printf 'BC_ENABLE_LIBRARY=%s\n\n' "$library"
 printf 'BC_ENABLE_HISTORY=%s\n' "$hist"
 printf 'BC_ENABLE_EXTRA_MATH=%s\n' "$extra_math"
 printf 'BC_ENABLE_NLS=%s\n' "$nls"
-printf 'BC_ENABLE_PROMPT=%s\n' "$prompt"
+printf 'BC_ENABLE_AFL=%s\n' "$fuzz"
 printf '\n'
 printf 'BC_NUM_KARATSUBA_LEN=%s\n' "$karatsuba_len"
 printf '\n'
@@ -997,12 +1573,28 @@ printf 'MANDIR=%s\n' "$MANDIR"
 printf 'MAN1DIR=%s\n' "$MAN1DIR"
 printf 'MAN3DIR=%s\n' "$MAN3DIR"
 printf 'NLSPATH=%s\n' "$NLSPATH"
+printf 'PC_PATH=%s\n' "$PC_PATH"
 printf 'EXECSUFFIX=%s\n' "$EXECSUFFIX"
 printf 'EXECPREFIX=%s\n' "$EXECPREFIX"
 printf 'DESTDIR=%s\n' "$DESTDIR"
 printf 'LONG_BIT=%s\n' "$LONG_BIT"
 printf 'GEN_HOST=%s\n' "$GEN_HOST"
 printf 'GEN_EMU=%s\n' "$GEN_EMU"
+printf '\n'
+printf 'Setting Defaults\n'
+printf '================\n'
+printf 'bc.banner=%s\n' "$bc_default_banner"
+printf 'bc.sigint_reset=%s\n' "$bc_default_sigint_reset"
+printf 'dc.sigint_reset=%s\n' "$dc_default_sigint_reset"
+printf 'bc.tty_mode=%s\n' "$bc_default_tty_mode"
+printf 'dc.tty_mode=%s\n' "$dc_default_tty_mode"
+printf 'bc.prompt=%s\n' "$bc_default_prompt"
+printf 'dc.prompt=%s\n' "$dc_default_prompt"
+printf 'bc.expr_exit=%s\n' "$bc_default_expr_exit"
+printf 'dc.expr_exit=%s\n' "$dc_default_expr_exit"
+
+# This is where the real work begins. This is the point at which the Makefile.in
+# template is edited and output to the Makefile.
 
 contents=$(cat "$scriptdir/Makefile.in")
 
@@ -1011,21 +1603,56 @@ replacement='*** WARNING: Autogenerated from Makefile.in. DO NOT MODIFY ***'
 
 contents=$(replace "$contents" "$needle" "$replacement")
 
-if [ "$unneeded" = "" ]; then
-	contents=$(gen_file_list "$contents" "library.c")
-else
-	contents=$(gen_file_list "$contents" $unneeded)
-fi
+# The contents are edited to have the list of files to build.
+contents=$(gen_file_list "$contents" $unneeded)
+
+SRC_TARGETS=""
+
+# This line and loop generates the individual targets for source files. I used
+# to just use an implicit target, but that was found to be inadequate when I
+# added the library.
+src_files=$(find_src_files $unneeded)
+
+for f in $src_files; do
+	o=$(replace_ext "$f" "c" "o")
+	o=$(basename "$o")
+	SRC_TARGETS=$(printf '%s\n\nsrc/%s: src %s %s\n\t$(CC) $(CFLAGS) -o src/%s -c %s\n' \
+		"$SRC_TARGETS" "$o" "$headers" "$f" "$o" "$f")
+done
+
+# Replace all the placeholders.
+contents=$(replace "$contents" "ROOTDIR" "$scriptdir")
+contents=$(replace "$contents" "BUILDDIR" "$builddir")
+
+contents=$(replace "$contents" "HEADERS" "$headers")
 
 contents=$(replace "$contents" "BC_ENABLED" "$bc")
 contents=$(replace "$contents" "DC_ENABLED" "$dc")
-contents=$(replace "$contents" "LINK" "$link")
+
+contents=$(replace "$contents" "BC_ALL_TESTS" "$bc_test")
+contents=$(replace "$contents" "BC_ALL_TESTS_NP" "$bc_test_np")
+contents=$(replace "$contents" "BC_TESTS" "$bc_tests")
+contents=$(replace "$contents" "BC_SCRIPT_TESTS" "$bc_script_tests")
+contents=$(replace "$contents" "BC_ERROR_TESTS" "$bc_err_tests")
+contents=$(replace "$contents" "BC_TEST_EXEC" "$bc_test_exec")
+contents=$(replace "$contents" "TIMECONST_ALL_TESTS" "$timeconst")
+
+contents=$(replace "$contents" "DC_ALL_TESTS" "$dc_test")
+contents=$(replace "$contents" "DC_ALL_TESTS_NP" "$dc_test_np")
+contents=$(replace "$contents" "DC_TESTS" "$dc_tests")
+contents=$(replace "$contents" "DC_SCRIPT_TESTS" "$dc_script_tests")
+contents=$(replace "$contents" "DC_ERROR_TESTS" "$dc_err_tests")
+contents=$(replace "$contents" "DC_TEST_EXEC" "$dc_test_exec")
+
+contents=$(replace "$contents" "BUILD_TYPE" "$manpage_args")
 
 contents=$(replace "$contents" "LIBRARY" "$library")
 contents=$(replace "$contents" "HISTORY" "$hist")
 contents=$(replace "$contents" "EXTRA_MATH" "$extra_math")
 contents=$(replace "$contents" "NLS" "$nls")
-contents=$(replace "$contents" "PROMPT" "$prompt")
+contents=$(replace "$contents" "FUZZ" "$fuzz")
+contents=$(replace "$contents" "MEMCHECK" "$memcheck")
+
 contents=$(replace "$contents" "BC_LIB_O" "$bc_lib")
 contents=$(replace "$contents" "BC_HELP_O" "$bc_help")
 contents=$(replace "$contents" "DC_HELP_O" "$dc_help")
@@ -1057,18 +1684,31 @@ contents=$(replace "$contents" "UNINSTALL_MAN_PREREQS" "$uninstall_man_prereqs")
 contents=$(replace "$contents" "UNINSTALL_PREREQS" "$uninstall_prereqs")
 contents=$(replace "$contents" "UNINSTALL_LOCALES_PREREQS" "$uninstall_locales_prereqs")
 
+contents=$(replace "$contents" "PC_PATH" "$PC_PATH")
+contents=$(replace "$contents" "PKG_CONFIG_INSTALL" "$pkg_config_install")
+contents=$(replace "$contents" "PKG_CONFIG_UNINSTALL" "$pkg_config_uninstall")
+
+contents=$(replace "$contents" "DEFAULT_TARGET" "$default_target")
+contents=$(replace "$contents" "DEFAULT_TARGET_PREREQS" "$default_target_prereqs")
+contents=$(replace "$contents" "DEFAULT_TARGET_CMD" "$default_target_cmd")
+contents=$(replace "$contents" "SECOND_TARGET" "$second_target")
+contents=$(replace "$contents" "SECOND_TARGET_PREREQS" "$second_target_prereqs")
+contents=$(replace "$contents" "SECOND_TARGET_CMD" "$second_target_cmd")
+
 contents=$(replace "$contents" "ALL_PREREQ" "$ALL_PREREQ")
+contents=$(replace "$contents" "BC_EXEC_PREREQ" "$bc_exec_prereq")
+contents=$(replace "$contents" "BC_EXEC_CMD" "$bc_exec_cmd")
+contents=$(replace "$contents" "DC_EXEC_PREREQ" "$dc_exec_prereq")
+contents=$(replace "$contents" "DC_EXEC_CMD" "$dc_exec_cmd")
 
 contents=$(replace "$contents" "EXECUTABLES" "$executables")
 contents=$(replace "$contents" "MAIN_EXEC" "$main_exec")
 contents=$(replace "$contents" "EXEC" "$executable")
 contents=$(replace "$contents" "TESTS" "$tests")
 
-contents=$(replace "$contents" "BC_TEST" "$bc_test")
-contents=$(replace "$contents" "BC_TIME_TEST" "$bc_time_test")
-
-contents=$(replace "$contents" "DC_TEST" "$dc_test")
-contents=$(replace "$contents" "DC_TIME_TEST" "$dc_time_test")
+contents=$(replace "$contents" "BC_HISTORY_TEST_PREREQS" "$test_bc_history_prereqs")
+contents=$(replace "$contents" "DC_HISTORY_TEST_PREREQS" "$test_dc_history_prereqs")
+contents=$(replace "$contents" "HISTORY_TESTS" "$history_tests")
 
 contents=$(replace "$contents" "VG_BC_TEST" "$vg_bc_test")
 contents=$(replace "$contents" "VG_DC_TEST" "$vg_dc_test")
@@ -1086,13 +1726,39 @@ contents=$(replace "$contents" "GEN_EXEC_TARGET" "$GEN_EXEC_TARGET")
 contents=$(replace "$contents" "CLEAN_PREREQS" "$CLEAN_PREREQS")
 contents=$(replace "$contents" "GEN_EMU" "$GEN_EMU")
 
-printf '%s\n' "$contents" > "$scriptdir/Makefile"
+contents=$(replace "$contents" "BSD" "$bsd")
 
-cd "$scriptdir"
+contents=$(replace "$contents" "BC_DEFAULT_BANNER" "$bc_default_banner")
+contents=$(replace "$contents" "BC_DEFAULT_SIGINT_RESET" "$bc_default_sigint_reset")
+contents=$(replace "$contents" "DC_DEFAULT_SIGINT_RESET" "$dc_default_sigint_reset")
+contents=$(replace "$contents" "BC_DEFAULT_TTY_MODE" "$bc_default_tty_mode")
+contents=$(replace "$contents" "DC_DEFAULT_TTY_MODE" "$dc_default_tty_mode")
+contents=$(replace "$contents" "BC_DEFAULT_PROMPT" "$bc_default_prompt")
+contents=$(replace "$contents" "DC_DEFAULT_PROMPT" "$dc_default_prompt")
+contents=$(replace "$contents" "BC_DEFAULT_EXPR_EXIT" "$bc_default_expr_exit")
+contents=$(replace "$contents" "DC_DEFAULT_EXPR_EXIT" "$dc_default_expr_exit")
 
-cp -f manuals/bc/$manpage_args.1.md manuals/bc.1.md
-cp -f manuals/bc/$manpage_args.1 manuals/bc.1
-cp -f manuals/dc/$manpage_args.1.md manuals/dc.1.md
-cp -f manuals/dc/$manpage_args.1 manuals/dc.1
+# Do the first print to the Makefile.
+printf '%s\n%s\n\n' "$contents" "$SRC_TARGETS" > "Makefile"
+
+# Generate the individual test targets.
+if [ "$bc" -ne 0 ]; then
+	gen_std_tests bc "$extra_math" "$time_tests" $bc_test_exec
+	gen_script_tests bc "$extra_math" "$generate_tests" "$time_tests" $bc_test_exec
+	gen_err_tests bc $bc_test_exec
+fi
+
+if [ "$dc" -ne 0 ]; then
+	gen_std_tests dc "$extra_math" "$time_tests" $dc_test_exec
+	gen_script_tests dc "$extra_math" "$generate_tests" "$time_tests" $dc_test_exec
+	gen_err_tests dc $dc_test_exec
+fi
+
+# Copy the correct manuals to the expected places.
+mkdir -p manuals
+cp -f "$scriptdir/manuals/bc/$manpage_args.1.md" manuals/bc.1.md
+cp -f "$scriptdir/manuals/bc/$manpage_args.1" manuals/bc.1
+cp -f "$scriptdir/manuals/dc/$manpage_args.1.md" manuals/dc.1.md
+cp -f "$scriptdir/manuals/dc/$manpage_args.1" manuals/dc.1
 
 make clean > /dev/null

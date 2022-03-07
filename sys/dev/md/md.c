@@ -187,8 +187,6 @@ int mfs_root_size;
 #else
 extern volatile u_char __weak_symbol mfs_root;
 extern volatile u_char __weak_symbol mfs_root_end;
-__GLOBL(mfs_root);
-__GLOBL(mfs_root_end);
 #define mfs_root_size ((uintptr_t)(&mfs_root_end - &mfs_root))
 #endif
 #endif
@@ -225,6 +223,7 @@ struct g_class g_md_class = {
 };
 
 DECLARE_GEOM_CLASS(g_md_class, g_md);
+MODULE_VERSION(geom_md, 0);
 
 static LIST_HEAD(, md_s) md_softc_list = LIST_HEAD_INITIALIZER(md_softc_list);
 
@@ -645,6 +644,8 @@ mdstart_malloc(struct md_s *sc, struct bio *bp)
 	case BIO_WRITE:
 	case BIO_DELETE:
 		break;
+	case BIO_FLUSH:
+		return (0);
 	default:
 		return (EOPNOTSUPP);
 	}
@@ -1034,6 +1035,8 @@ mdstart_swap(struct md_s *sc, struct bio *bp)
 	case BIO_WRITE:
 	case BIO_DELETE:
 		break;
+	case BIO_FLUSH:
+		return (0);
 	default:
 		return (EOPNOTSUPP);
 	}
@@ -1594,6 +1597,7 @@ mdresize(struct md_s *sc, struct md_req *mdr)
 	}
 
 	sc->mediasize = mdr->md_mediasize;
+
 	g_topology_lock();
 	g_resize_provider(sc->pp, sc->mediasize);
 	g_topology_unlock();
@@ -1801,6 +1805,7 @@ kern_mdresize_locked(struct md_req *mdr)
 		return (ENOENT);
 	if (mdr->md_mediasize < sc->sectorsize)
 		return (EINVAL);
+	mdr->md_mediasize -= mdr->md_mediasize % sc->sectorsize;
 	if (mdr->md_mediasize < sc->mediasize &&
 	    !(sc->flags & MD_FORCE) &&
 	    !(mdr->md_options & MD_FORCE))

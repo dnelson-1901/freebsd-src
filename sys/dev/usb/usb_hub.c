@@ -4,7 +4,7 @@
  *
  * Copyright (c) 1998 The NetBSD Foundation, Inc. All rights reserved.
  * Copyright (c) 1998 Lennart Augustsson. All rights reserved.
- * Copyright (c) 2008-2010 Hans Petter Selasky. All rights reserved.
+ * Copyright (c) 2008-2022 Hans Petter Selasky. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -513,7 +513,7 @@ uhub_explore_sub(struct uhub_softc *sc, struct usb_port *up)
 	usb_error_t err;
 
 	bus = sc->sc_udev->bus;
-	err = 0;
+	err = USB_ERR_NORMAL_COMPLETION;
 
 	/* get driver added refcount from USB bus */
 	refcount = bus->driver_added_refcount;
@@ -1013,7 +1013,7 @@ uhub_explore(struct usb_device *udev)
 	if (udev->flags.self_suspended) {
 		/* need to wait until the child signals resume */
 		DPRINTF("Device is suspended!\n");
-		return (0);
+		return (USB_ERR_NORMAL_COMPLETION);
 	}
 
 	/*
@@ -1021,6 +1021,12 @@ uhub_explore(struct usb_device *udev)
 	 * like LibUSB:
 	 */
 	do_unlock = usbd_enum_lock(udev);
+
+	/*
+	 * Set default error code to avoid compiler warnings.
+	 * Note that hub->nports cannot be zero.
+	 */
+	err = USB_ERR_NORMAL_COMPLETION;
 
 	for (x = 0; x != hub->nports; x++) {
 		up = hub->ports + x;
@@ -1090,13 +1096,11 @@ uhub_explore(struct usb_device *udev)
 				break;
 			}
 		}
-		err = uhub_explore_sub(sc, up);
-		if (err) {
-			/* no device(s) present */
-			continue;
+
+		if (uhub_explore_sub(sc, up) == USB_ERR_NORMAL_COMPLETION) {
+			/* explore succeeded - reset restart counter */
+			up->restartcnt = 0;
 		}
-		/* explore succeeded - reset restart counter */
-		up->restartcnt = 0;
 	}
 
 	if (do_unlock)
@@ -1105,8 +1109,7 @@ uhub_explore(struct usb_device *udev)
 	/* initial status checked */
 	sc->sc_flags |= UHUB_FLAG_DID_EXPLORE;
 
-	/* return success */
-	return (USB_ERR_NORMAL_COMPLETION);
+	return (err);
 }
 
 int
@@ -2666,18 +2669,15 @@ usb_dev_resume_peer(struct usb_device *udev)
 		/* resume current port (Valid in Host and Device Mode) */
 		err = usbd_req_clear_port_feature(udev->parent_hub,
 		    NULL, udev->port_no, UHF_PORT_SUSPEND);
-		if (err) {
-			DPRINTFN(0, "Resuming port failed\n");
-			return;
-		}
 	} else {
 		/* resume current port (Valid in Host and Device Mode) */
 		err = usbd_req_set_port_link_state(udev->parent_hub,
 		    NULL, udev->port_no, UPS_PORT_LS_U0);
-		if (err) {
-			DPRINTFN(0, "Resuming port failed\n");
-			return;
-		}
+	}
+
+	if (err != 0) {
+		DPRINTFN(0, "Resuming port failed: %s (ignored)\n",
+		    usbd_errstr(err));
 	}
 
 	/* resume settle time */

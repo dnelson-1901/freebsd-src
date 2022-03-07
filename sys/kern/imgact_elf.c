@@ -130,6 +130,15 @@ SYSCTL_INT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO,
     nxstack, CTLFLAG_RW, &__elfN(nxstack), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": enable non-executable stack");
 
+#if defined(__amd64__)
+static int __elfN(vdso) = 1;
+SYSCTL_INT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO,
+    vdso, CTLFLAG_RWTUN, &__elfN(vdso), 0,
+    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": enable vdso preloading");
+#else
+static int __elfN(vdso) = 0;
+#endif
+
 #if __ELF_WORD_SIZE == 32 && (defined(__amd64__) || defined(__i386__))
 int i386_read_exec = 0;
 SYSCTL_INT(_kern_elf32, OID_AUTO, read_exec, CTLFLAG_RW, &i386_read_exec, 0,
@@ -179,11 +188,11 @@ SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, honor_sbrk, CTLFLAG_RW,
     &__elfN(aslr_honor_sbrk), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": assume sbrk is used");
 
-static int __elfN(aslr_stack_gap) = 3;
-SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, stack_gap, CTLFLAG_RW,
-    &__elfN(aslr_stack_gap), 0,
+static int __elfN(aslr_stack) = 1;
+SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, stack, CTLFLAG_RWTUN,
+    &__elfN(aslr_stack), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
-    ": maximum percentage of main stack to waste on a random gap");
+    ": enable stack address randomization");
 
 static int __elfN(sigfastblock) = 1;
 SYSCTL_INT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO, sigfastblock,
@@ -855,28 +864,44 @@ fail:
 	return (error);
 }
 
-static u_long
-__CONCAT(rnd_, __elfN(base))(vm_map_t map __unused, u_long minv, u_long maxv,
-    u_int align)
+/*
+ * Select randomized valid address in the map map, between minv and
+ * maxv, with specified alignment.  The [minv, maxv) range must belong
+ * to the map.  Note that function only allocates the address, it is
+ * up to caller to clamp maxv in a way that the final allocation
+ * length fit into the map.
+ *
+ * Result is returned in *resp, error code indicates that arguments
+ * did not pass sanity checks for overflow and range correctness.
+ */
+static int
+__CONCAT(rnd_, __elfN(base))(vm_map_t map, u_long minv, u_long maxv,
+    u_int align, u_long *resp)
 {
 	u_long rbase, res;
 
 	MPASS(vm_map_min(map) <= minv);
-	MPASS(maxv <= vm_map_max(map));
-	MPASS(minv < maxv);
-	MPASS(minv + align < maxv);
+
+	if (minv >= maxv || minv + align >= maxv || maxv > vm_map_max(map)) {
+		uprintf("Invalid ELF segments layout\n");
+		return (ENOEXEC);
+	}
+
 	arc4rand(&rbase, sizeof(rbase), 0);
 	res = roundup(minv, (u_long)align) + rbase % (maxv - minv);
 	res &= ~((u_long)align - 1);
 	if (res >= maxv)
 		res -= align;
+
 	KASSERT(res >= minv,
 	    ("res %#lx < minv %#lx, maxv %#lx rbase %#lx",
 	    res, minv, maxv, rbase));
 	KASSERT(res < maxv,
 	    ("res %#lx > maxv %#lx, minv %#lx rbase %#lx",
 	    res, maxv, minv, rbase));
-	return (res);
+
+	*resp = res;
+	return (0);
 }
 
 static int
@@ -1076,7 +1101,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	Elf_Brandinfo *brand_info;
 	struct sysentvec *sv;
 	u_long addr, baddr, et_dyn_addr, entry, proghdr;
-	u_long maxalign, mapsz, maxv, maxv1;
+	u_long maxalign, maxsalign, mapsz, maxv, maxv1, anon_loc;
 	uint32_t fctl0;
 	int32_t osrel;
 	bool free_interp;
@@ -1117,7 +1142,20 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	interp = NULL;
 	free_interp = false;
 	td = curthread;
+
+	/*
+	 * Somewhat arbitrary, limit accepted max alignment for the
+	 * loadable segment to the max supported superpage size. Too
+	 * large alignment requests are not useful and are indicators
+	 * of corrupted or outright malicious binary.
+	 */
 	maxalign = PAGE_SIZE;
+	maxsalign = PAGE_SIZE * 1024;
+	for (i = MAXPAGESIZES - 1; i > 0; i--) {
+		if (pagesizes[i] > maxsalign)
+			maxsalign = pagesizes[i];
+	}
+
 	mapsz = 0;
 
 	for (i = 0; i < hdr->e_phnum; i++) {
@@ -1125,8 +1163,19 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		case PT_LOAD:
 			if (n == 0)
 				baddr = phdr[i].p_vaddr;
+			if (!powerof2(phdr[i].p_align) ||
+			    phdr[i].p_align > maxsalign) {
+				uprintf("Invalid segment alignment\n");
+				error = ENOEXEC;
+				goto ret;
+			}
 			if (phdr[i].p_align > maxalign)
 				maxalign = phdr[i].p_align;
+			if (mapsz + phdr[i].p_memsz < mapsz) {
+				uprintf("Mapsize overflow\n");
+				error = ENOEXEC;
+				goto ret;
+			}
 			mapsz += phdr[i].p_memsz;
 			n++;
 
@@ -1137,8 +1186,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			 * a PT_PHDR entry.
 			 */
 			if (phdr[i].p_offset == 0 &&
-			    hdr->e_phoff + hdr->e_phnum * hdr->e_phentsize
-				<= phdr[i].p_filesz)
+			    hdr->e_phoff + hdr->e_phnum * hdr->e_phentsize <=
+			    phdr[i].p_filesz)
 				proghdr = phdr[i].p_vaddr + hdr->e_phoff;
 			break;
 		case PT_INTERP:
@@ -1219,7 +1268,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	 */
 	if (imgp->credential_setid) {
 		PROC_LOCK(imgp->proc);
-		imgp->proc->p_flag2 &= ~(P2_ASLR_ENABLE | P2_ASLR_DISABLE);
+		imgp->proc->p_flag2 &= ~(P2_ASLR_ENABLE | P2_ASLR_DISABLE |
+		    P2_WXORX_DISABLE | P2_WXORX_ENABLE_EXEC);
 		PROC_UNLOCK(imgp->proc);
 	}
 	if ((sv->sv_flags & SV_ASLR) == 0 ||
@@ -1240,25 +1290,36 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		if (!__elfN(aslr_honor_sbrk) ||
 		    (imgp->proc->p_flag2 & P2_ASLR_IGNSTART) != 0)
 			imgp->map_flags |= MAP_ASLR_IGNSTART;
+		if (__elfN(aslr_stack))
+			imgp->map_flags |= MAP_ASLR_STACK;
 	}
 
-	if (!__elfN(allow_wx) && (fctl0 & NT_FREEBSD_FCTL_WXNEEDED) == 0)
+	if ((!__elfN(allow_wx) && (fctl0 & NT_FREEBSD_FCTL_WXNEEDED) == 0 &&
+	    (imgp->proc->p_flag2 & P2_WXORX_DISABLE) == 0) ||
+	    (imgp->proc->p_flag2 & P2_WXORX_ENABLE_EXEC) != 0)
 		imgp->map_flags |= MAP_WXORX;
 
 	error = exec_new_vmspace(imgp, sv);
-	vmspace = imgp->proc->p_vmspace;
-	map = &vmspace->vm_map;
 
 	imgp->proc->p_sysent = sv;
 
-	maxv = vm_map_max(map) - lim_max(td, RLIMIT_STACK);
-	if (et_dyn_addr == ET_DYN_ADDR_RAND) {
+	vmspace = imgp->proc->p_vmspace;
+	map = &vmspace->vm_map;
+	maxv = sv->sv_usrstack;
+	if ((imgp->map_flags & MAP_ASLR_STACK) == 0)
+		maxv -= lim_max(td, RLIMIT_STACK);
+	if (error == 0 && mapsz >= maxv - vm_map_min(map)) {
+		uprintf("Excessive mapping size\n");
+		error = ENOEXEC;
+	}
+
+	if (error == 0 && et_dyn_addr == ET_DYN_ADDR_RAND) {
 		KASSERT((map->flags & MAP_ASLR) != 0,
 		    ("ET_DYN_ADDR_RAND but !MAP_ASLR"));
-		et_dyn_addr = __CONCAT(rnd_, __elfN(base))(map,
+		error = __CONCAT(rnd_, __elfN(base))(map,
 		    vm_map_min(map) + mapsz + lim_max(td, RLIMIT_DATA),
 		    /* reserve half of the address space to interpreter */
-		    maxv / 2, 1UL << flsl(maxalign));
+		    maxv / 2, maxalign, &et_dyn_addr);
 	}
 
 	vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
@@ -1273,8 +1334,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	if (error != 0)
 		goto ret;
 
-	entry = (u_long)hdr->e_entry + et_dyn_addr;
-
 	/*
 	 * We load the dynamic linker where a userland call
 	 * to mmap(0, ...) would put it.  The rationale behind this
@@ -1285,31 +1344,40 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	    RLIMIT_DATA));
 	if ((map->flags & MAP_ASLR) != 0) {
 		maxv1 = maxv / 2 + addr / 2;
-		MPASS(maxv1 >= addr);	/* No overflow */
-		map->anon_loc = __CONCAT(rnd_, __elfN(base))(map, addr, maxv1,
-		    MAXPAGESIZES > 1 ? pagesizes[1] : pagesizes[0]);
+		error = __CONCAT(rnd_, __elfN(base))(map, addr, maxv1,
+		    (MAXPAGESIZES > 1 && pagesizes[1] != 0) ?
+		    pagesizes[1] : pagesizes[0], &anon_loc);
+		if (error != 0)
+			goto ret;
+		map->anon_loc = anon_loc;
 	} else {
 		map->anon_loc = addr;
 	}
 
+	entry = (u_long)hdr->e_entry + et_dyn_addr;
 	imgp->entry_addr = entry;
 
 	if (interp != NULL) {
 		VOP_UNLOCK(imgp->vp);
 		if ((map->flags & MAP_ASLR) != 0) {
-			/* Assume that interpeter fits into 1/4 of AS */
+			/* Assume that interpreter fits into 1/4 of AS */
 			maxv1 = maxv / 2 + addr / 2;
-			MPASS(maxv1 >= addr);	/* No overflow */
-			addr = __CONCAT(rnd_, __elfN(base))(map, addr,
-			    maxv1, PAGE_SIZE);
+			error = __CONCAT(rnd_, __elfN(base))(map, addr,
+			    maxv1, PAGE_SIZE, &addr);
 		}
-		error = __elfN(load_interp)(imgp, brand_info, interp, &addr,
-		    &imgp->entry_addr);
+		if (error == 0) {
+			error = __elfN(load_interp)(imgp, brand_info, interp,
+			    &addr, &imgp->entry_addr);
+		}
 		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
 		if (error != 0)
 			goto ret;
 	} else
 		addr = et_dyn_addr;
+
+	error = exec_map_stack(imgp);
+	if (error != 0)
+		goto ret;
 
 	/*
 	 * Construct auxargs table (used by the copyout_auxargs routine)
@@ -1339,12 +1407,13 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	imgp->proc->p_elf_flags = hdr->e_flags;
 
 ret:
+	ASSERT_VOP_LOCKED(imgp->vp, "skipped relock");
 	if (free_interp)
 		free(interp, M_TEMP);
 	return (error);
 }
 
-#define	suword __CONCAT(suword, __ELF_WORD_SIZE)
+#define	elf_suword __CONCAT(suword, __ELF_WORD_SIZE)
 
 int
 __elfN(freebsd_copyout_auxargs)(struct image_params *imgp, uintptr_t base)
@@ -1399,6 +1468,8 @@ __elfN(freebsd_copyout_auxargs)(struct image_params *imgp, uintptr_t base)
 	AUXARGS_ENTRY_PTR(pos, AT_PS_STRINGS, imgp->ps_strings);
 	if (imgp->sysent->sv_fxrng_gen_base != 0)
 		AUXARGS_ENTRY(pos, AT_FXRNG, imgp->sysent->sv_fxrng_gen_base);
+	if (imgp->sysent->sv_vdso_base != 0 && __elfN(vdso) != 0)
+		AUXARGS_ENTRY(pos, AT_KPRELOAD, imgp->sysent->sv_vdso_base);
 	AUXARGS_ENTRY(pos, AT_NULL, 0);
 
 	free(imgp->auxargs, M_TEMP);
@@ -1417,7 +1488,7 @@ __elfN(freebsd_fixup)(uintptr_t *stack_base, struct image_params *imgp)
 
 	base = (Elf_Addr *)*stack_base;
 	base--;
-	if (suword(base, imgp->args->argc) == -1)
+	if (elf_suword(base, imgp->args->argc) == -1)
 		return (EFAULT);
 	*stack_base = (uintptr_t)base;
 	return (0);
@@ -1470,12 +1541,13 @@ static void cb_put_phdr(vm_map_entry_t, void *);
 static void cb_size_segment(vm_map_entry_t, void *);
 static int core_write(struct coredump_params *, const void *, size_t, off_t,
     enum uio_seg, size_t *);
-static void each_dumpable_segment(struct thread *, segment_callback, void *);
+static void each_dumpable_segment(struct thread *, segment_callback, void *,
+    int);
 static int __elfN(corehdr)(struct coredump_params *, int, void *, size_t,
-    struct note_info_list *, size_t);
+    struct note_info_list *, size_t, int);
 static void __elfN(prepare_notes)(struct thread *, struct note_info_list *,
     size_t *);
-static void __elfN(puthdr)(struct thread *, void *, size_t, int, size_t);
+static void __elfN(puthdr)(struct thread *, void *, size_t, int, size_t, int);
 static void __elfN(putnote)(struct note_info *, struct sbuf *);
 static size_t register_note(struct note_info_list *, int, outfunc_t, void *);
 static int sbuf_drain_core_output(void *, const char *, int);
@@ -1500,9 +1572,9 @@ static void note_procstat_vmmap(void *, struct sbuf *, size_t *);
  * Write out a core segment to the compression stream.
  */
 static int
-compress_chunk(struct coredump_params *p, char *base, char *buf, u_int len)
+compress_chunk(struct coredump_params *p, char *base, char *buf, size_t len)
 {
-	u_int chunk_len;
+	size_t chunk_len;
 	int error;
 
 	while (len > 0) {
@@ -1542,6 +1614,8 @@ core_write(struct coredump_params *p, const void *base, size_t len,
 	    p->active_cred, p->file_cred, resid, p->td));
 }
 
+extern int core_dump_can_intr;
+
 static int
 core_output(char *base, size_t len, off_t offset, struct coredump_params *p,
     void *tmpbuf)
@@ -1567,6 +1641,8 @@ core_output(char *base, size_t len, off_t offset, struct coredump_params *p,
 		 * anonymous memory or truncated files, for example.
 		 */
 		for (runlen = 0; runlen < len; runlen += PAGE_SIZE) {
+			if (core_dump_can_intr && curproc_sigkilled())
+				return (EINTR);
 			error = vm_fault(map, (uintptr_t)base + runlen,
 			    VM_PROT_READ, VM_FAULT_NOFILL, NULL);
 			if (runlen == 0)
@@ -1653,7 +1729,7 @@ int
 __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 {
 	struct ucred *cred = td->td_ucred;
-	int error = 0;
+	int compm, error = 0;
 	struct sseg_closure seginfo;
 	struct note_info_list notelst;
 	struct coredump_params params;
@@ -1668,7 +1744,7 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	/* Size the program segments. */
 	seginfo.count = 0;
 	seginfo.size = 0;
-	each_dumpable_segment(td, cb_size_segment, &seginfo);
+	each_dumpable_segment(td, cb_size_segment, &seginfo, flags);
 
 	/*
 	 * Collect info about the core file header area.
@@ -1704,9 +1780,13 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	}
 
 	/* Create a compression stream if necessary. */
-	if (compress_user_cores != 0) {
+	compm = compress_user_cores;
+	if ((flags & (SVC_PT_COREDUMP | SVC_NOCOMPRESS)) == SVC_PT_COREDUMP &&
+	    compm == 0)
+		compm = COMPRESS_GZIP;
+	if (compm != 0) {
 		params.comp = compressor_init(core_compressed_write,
-		    compress_user_cores, CORE_BUF_SIZE,
+		    compm, CORE_BUF_SIZE,
 		    compress_user_cores_level, &params);
 		if (params.comp == NULL) {
 			error = EFAULT;
@@ -1721,7 +1801,7 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	 */
 	hdr = malloc(hdrsize, M_TEMP, M_WAITOK);
 	error = __elfN(corehdr)(&params, seginfo.count, hdr, hdrsize, &notelst,
-	    notesz);
+	    notesz, flags);
 
 	/* Write the contents of all of the writable segments. */
 	if (error == 0) {
@@ -1805,7 +1885,8 @@ cb_size_segment(vm_map_entry_t entry, void *closure)
  * caller-supplied data.
  */
 static void
-each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
+each_dumpable_segment(struct thread *td, segment_callback func, void *closure,
+    int flags)
 {
 	struct proc *p = td->td_proc;
 	vm_map_t map = &p->p_vmspace->vm_map;
@@ -1823,12 +1904,15 @@ each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
 		 * are marked MAP_ENTRY_NOCOREDUMP now so we no longer
 		 * need to arbitrarily ignore such segments.
 		 */
-		if (elf_legacy_coredump) {
-			if ((entry->protection & VM_PROT_RW) != VM_PROT_RW)
-				continue;
-		} else {
-			if ((entry->protection & VM_PROT_ALL) == 0)
-				continue;
+		if ((flags & SVC_ALL) == 0) {
+			if (elf_legacy_coredump) {
+				if ((entry->protection & VM_PROT_RW) !=
+				    VM_PROT_RW)
+					continue;
+			} else {
+				if ((entry->protection & VM_PROT_ALL) == 0)
+					continue;
+			}
 		}
 
 		/*
@@ -1837,9 +1921,11 @@ each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
 		 * madvise(2).  Do not dump submaps (i.e. parts of the
 		 * kernel map).
 		 */
-		if (entry->eflags & (MAP_ENTRY_NOCOREDUMP|MAP_ENTRY_IS_SUB_MAP))
+		if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) != 0)
 			continue;
-
+		if ((entry->eflags & MAP_ENTRY_NOCOREDUMP) != 0 &&
+		    (flags & SVC_ALL) == 0)
+			continue;
 		if ((object = entry->object.vm_object) == NULL)
 			continue;
 
@@ -1866,7 +1952,8 @@ each_dumpable_segment(struct thread *td, segment_callback func, void *closure)
  */
 static int
 __elfN(corehdr)(struct coredump_params *p, int numsegs, void *hdr,
-    size_t hdrsize, struct note_info_list *notelst, size_t notesz)
+    size_t hdrsize, struct note_info_list *notelst, size_t notesz,
+    int flags)
 {
 	struct note_info *ninfo;
 	struct sbuf *sb;
@@ -1874,7 +1961,7 @@ __elfN(corehdr)(struct coredump_params *p, int numsegs, void *hdr,
 
 	/* Fill in the header. */
 	bzero(hdr, hdrsize);
-	__elfN(puthdr)(p->td, hdr, hdrsize, numsegs, notesz);
+	__elfN(puthdr)(p->td, hdr, hdrsize, numsegs, notesz, flags);
 
 	sb = sbuf_new(NULL, NULL, CORE_BUF_SIZE, SBUF_FIXEDLEN);
 	sbuf_set_drain(sb, sbuf_drain_core_output, p);
@@ -1952,7 +2039,7 @@ __elfN(prepare_notes)(struct thread *td, struct note_info_list *list,
 
 static void
 __elfN(puthdr)(struct thread *td, void *hdr, size_t hdrsize, int numsegs,
-    size_t notesz)
+    size_t notesz, int flags)
 {
 	Elf_Ehdr *ehdr;
 	Elf_Phdr *phdr;
@@ -2031,7 +2118,7 @@ __elfN(puthdr)(struct thread *td, void *hdr, size_t hdrsize, int numsegs,
 	/* All the writable segments from the program. */
 	phc.phdr = phdr;
 	phc.offset = round_page(hdrsize + notesz);
-	each_dumpable_segment(td, cb_put_phdr, &phc);
+	each_dumpable_segment(td, cb_put_phdr, &phc, flags);
 }
 
 static size_t
@@ -2582,9 +2669,9 @@ __elfN(note_procstat_psstrings)(void *arg, struct sbuf *sb, size_t *sizep)
 		KASSERT(*sizep == size, ("invalid size"));
 		structsize = sizeof(ps_strings);
 #if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
-		ps_strings = PTROUT(p->p_sysent->sv_psstrings);
+		ps_strings = PTROUT(PROC_PS_STRINGS(p));
 #else
-		ps_strings = p->p_sysent->sv_psstrings;
+		ps_strings = PROC_PS_STRINGS(p);
 #endif
 		sbuf_bcat(sb, &structsize, sizeof(structsize));
 		sbuf_bcat(sb, &ps_strings, sizeof(ps_strings));
@@ -2735,6 +2822,7 @@ note_fctl_cb(const Elf_Note *note, void *arg0, boolean_t *res)
 	desc = (const Elf32_Word *)p;
 	*arg->has_fctl0 = TRUE;
 	*arg->fctl0 = desc[0];
+	*res = TRUE;
 	return (TRUE);
 }
 
@@ -2820,22 +2908,4 @@ __elfN(untrans_prot)(vm_prot_t prot)
 	if (prot & VM_PROT_WRITE)
 		flags |= PF_W;
 	return (flags);
-}
-
-void
-__elfN(stackgap)(struct image_params *imgp, uintptr_t *stack_base)
-{
-	uintptr_t range, rbase, gap;
-	int pct;
-
-	pct = __elfN(aslr_stack_gap);
-	if (pct == 0)
-		return;
-	if (pct > 50)
-		pct = 50;
-	range = imgp->eff_stack_sz * pct / 100;
-	arc4rand(&rbase, sizeof(rbase), 0);
-	gap = rbase % range;
-	gap &= ~(sizeof(u_long) - 1);
-	*stack_base -= gap;
 }

@@ -167,6 +167,7 @@ MAN=	aac.4 \
 	gbde.4 \
 	gdb.4 \
 	gem.4 \
+	genet.4 \
 	geom.4 \
 	geom_linux_lvm.4 \
 	geom_map.4 \
@@ -225,6 +226,7 @@ MAN=	aac.4 \
 	iicmux.4 \
 	iicsmb.4 \
 	iir.4 \
+	${_igc.4} \
 	${_imcsmb.4} \
 	inet.4 \
 	inet6.4 \
@@ -253,6 +255,8 @@ MAN=	aac.4 \
 	iwmfw.4 \
 	iwn.4 \
 	iwnfw.4 \
+	iwlwifi.4 \
+	iwlwififw.4 \
 	ixgbe.4 \
 	ixl.4 \
 	jedec_dimm.4 \
@@ -288,16 +292,19 @@ MAN=	aac.4 \
 	mac_ntpd.4 \
 	mac_partition.4 \
 	mac_portacl.4 \
+	mac_priority.4 \
 	mac_seeotheruids.4 \
 	mac_stub.4 \
 	mac_test.4 \
 	malo.4 \
+	max44009.4 \
 	md.4 \
 	mdio.4 \
 	me.4 \
 	mem.4 \
 	meteor.4 \
 	mfi.4 \
+	${_mgb.4} \
 	miibus.4 \
 	mld.4 \
 	mlx.4 \
@@ -393,6 +400,7 @@ MAN=	aac.4 \
 	ng_uni.4 \
 	ng_vjc.4 \
 	ng_vlan.4 \
+	ng_vlan_rotate.4 \
 	nmdm.4 \
 	${_ntb.4} \
 	${_ntb_hw_amd.4} \
@@ -419,9 +427,12 @@ MAN=	aac.4 \
 	owc.4 \
 	${_padlock.4} \
 	pass.4 \
+	pca954x.4 \
 	pccard.4 \
 	pccbb.4 \
 	pcf.4 \
+	pcf8574.4 \
+	pcf8591.4 \
 	${_pchtherm.4} \
 	pci.4 \
 	pcib.4 \
@@ -671,6 +682,7 @@ MLINKS+=fwe.4 if_fwe.4
 MLINKS+=fwip.4 if_fwip.4
 MLINKS+=fxp.4 if_fxp.4
 MLINKS+=gem.4 if_gem.4
+MLINKS+=genet.4 if_genet.4
 MLINKS+=geom.4 GEOM.4
 MLINKS+=gif.4 if_gif.4
 MLINKS+=gpio.4 gpiobus.4
@@ -819,11 +831,11 @@ _if_nfe.4=	if_nfe.4
 _if_urtw.4=	if_urtw.4
 _if_vmx.4=	if_vmx.4
 _if_wpi.4=	if_wpi.4
+_igc.4=		igc.4
 _imcsmb.4=	imcsmb.4
-_ipmi.4=	ipmi.4
 _io.4=		io.4
 _itwd.4=	itwd.4
-_linux.4=	linux.4
+_mgb.4=		mgb.4
 _nda.4=		nda.4
 _ndis.4=	ndis.4
 _nfe.4=		nfe.4
@@ -837,7 +849,6 @@ _ntb_transport.4=ntb_transport.4
 _nvd.4=		nvd.4
 _nvme.4=	nvme.4
 _nvram.4=	nvram.4
-_ossl.4=	ossl.4
 _padlock.4=	padlock.4
 _pchtherm.4=	pchtherm.4
 _qat.4=		qat.4
@@ -849,6 +860,7 @@ _tpm.4=		tpm.4
 _urtw.4=	urtw.4
 _viawd.4=	viawd.4
 _vmci.4=	vmci.4
+_vmd.4=		vmd.4
 _vmx.4=		vmx.4
 _wbwd.4=	wbwd.4
 _wpi.4=		wpi.4
@@ -867,7 +879,6 @@ _qlnxe.4=	qlnxe.4
 _sfxge.4=	sfxge.4
 _smartpqi.4=	smartpqi.4
 _sume.4=	sume.4
-_vmd.4=		vmd.4
 
 MLINKS+=qlxge.4 if_qlxge.4
 MLINKS+=qlxgb.4 if_qlxgb.4
@@ -889,6 +900,13 @@ _nvram2env.4=	nvram2env.4
 .if ${MACHINE_CPUARCH} == "powerpc"
 _nvd.4= 	nvd.4
 _nvme.4=	nvme.4
+.endif
+
+.if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386" || \
+	 ${MACHINE_CPUARCH} == "aarch64"
+_ipmi.4=	ipmi.4
+_linux.4=	linux.4
+_ossl.4=	ossl.4
 .endif
 
 .if ${MACHINE_CPUARCH} == "arm" || ${MACHINE_CPUARCH} == "aarch64" || \

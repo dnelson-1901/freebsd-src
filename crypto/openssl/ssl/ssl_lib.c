@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2021 The OpenSSL Project Authors. All Rights Reserved.
  * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved
  * Copyright 2005 Nokia. All rights reserved.
  *
@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include "ssl_local.h"
+#include "e_os.h"
 #include <openssl/objects.h>
 #include <openssl/x509v3.h>
 #include <openssl/rand.h>
@@ -22,6 +23,7 @@
 #include <openssl/ct.h>
 #include "internal/cryptlib.h"
 #include "internal/refcount.h"
+#include "internal/ktls.h"
 
 const char SSL_version_str[] = OPENSSL_VERSION_TEXT;
 
@@ -779,8 +781,10 @@ SSL *SSL_new(SSL_CTX *ctx)
         s->ext.ecpointformats =
             OPENSSL_memdup(ctx->ext.ecpointformats,
                            ctx->ext.ecpointformats_len);
-        if (!s->ext.ecpointformats)
+        if (!s->ext.ecpointformats) {
+            s->ext.ecpointformats_len = 0;
             goto err;
+        }
         s->ext.ecpointformats_len =
             ctx->ext.ecpointformats_len;
     }
@@ -789,8 +793,10 @@ SSL *SSL_new(SSL_CTX *ctx)
             OPENSSL_memdup(ctx->ext.supportedgroups,
                            ctx->ext.supportedgroups_len
                                 * sizeof(*ctx->ext.supportedgroups));
-        if (!s->ext.supportedgroups)
+        if (!s->ext.supportedgroups) {
+            s->ext.supportedgroups_len = 0;
             goto err;
+        }
         s->ext.supportedgroups_len = ctx->ext.supportedgroups_len;
     }
 #endif
@@ -800,8 +806,10 @@ SSL *SSL_new(SSL_CTX *ctx)
 
     if (s->ctx->ext.alpn) {
         s->ext.alpn = OPENSSL_malloc(s->ctx->ext.alpn_len);
-        if (s->ext.alpn == NULL)
+        if (s->ext.alpn == NULL) {
+            s->ext.alpn_len = 0;
             goto err;
+        }
         memcpy(s->ext.alpn, s->ctx->ext.alpn, s->ctx->ext.alpn_len);
         s->ext.alpn_len = s->ctx->ext.alpn_len;
     }
@@ -1153,11 +1161,15 @@ void SSL_free(SSL *s)
     dane_final(&s->dane);
     CRYPTO_free_ex_data(CRYPTO_EX_INDEX_SSL, s, &s->ex_data);
 
+    RECORD_LAYER_release(&s->rlayer);
+
     /* Ignore return value */
     ssl_free_wbio_buffer(s);
 
     BIO_free_all(s->wbio);
+    s->wbio = NULL;
     BIO_free_all(s->rbio);
+    s->rbio = NULL;
 
     BUF_MEM_free(s->init_buf);
 
@@ -1213,8 +1225,6 @@ void SSL_free(SSL *s)
 
     if (s->method != NULL)
         s->method->ssl_free(s);
-
-    RECORD_LAYER_release(&s->rlayer);
 
     SSL_CTX_free(s->ctx);
 
@@ -1355,6 +1365,15 @@ int SSL_set_fd(SSL *s, int fd)
     }
     BIO_set_fd(bio, fd, BIO_NOCLOSE);
     SSL_set_bio(s, bio, bio);
+#ifndef OPENSSL_NO_KTLS
+    /*
+     * The new socket is created successfully regardless of ktls_enable.
+     * ktls_enable doesn't change any functionality of the socket, except
+     * changing the setsockopt to enable the processing of ktls_start.
+     * Thus, it is not a problem to call it for non-TLS sockets.
+     */
+    ktls_enable(fd);
+#endif /* OPENSSL_NO_KTLS */
     ret = 1;
  err:
     return ret;
@@ -1374,6 +1393,15 @@ int SSL_set_wfd(SSL *s, int fd)
         }
         BIO_set_fd(bio, fd, BIO_NOCLOSE);
         SSL_set0_wbio(s, bio);
+#ifndef OPENSSL_NO_KTLS
+        /*
+         * The new socket is created successfully regardless of ktls_enable.
+         * ktls_enable doesn't change any functionality of the socket, except
+         * changing the setsockopt to enable the processing of ktls_start.
+         * Thus, it is not a problem to call it for non-TLS sockets.
+         */
+        ktls_enable(fd);
+#endif /* OPENSSL_NO_KTLS */
     } else {
         BIO_up_ref(rbio);
         SSL_set0_wbio(s, rbio);
@@ -1678,6 +1706,8 @@ static int ssl_start_async_job(SSL *s, struct ssl_async_args *args,
         if (s->waitctx == NULL)
             return -1;
     }
+
+    s->rwstate = SSL_NOTHING;
     switch (ASYNC_start_job(&s->job, s->waitctx, &ret, func, args,
                             sizeof(struct ssl_async_args))) {
     case ASYNC_ERR:
@@ -1955,6 +1985,70 @@ int ssl_write_internal(SSL *s, const void *buf, size_t num, size_t *written)
     }
 }
 
+ossl_ssize_t SSL_sendfile(SSL *s, int fd, off_t offset, size_t size, int flags)
+{
+    ossl_ssize_t ret;
+
+    if (s->handshake_func == NULL) {
+        SSLerr(SSL_F_SSL_SENDFILE, SSL_R_UNINITIALIZED);
+        return -1;
+    }
+
+    if (s->shutdown & SSL_SENT_SHUTDOWN) {
+        s->rwstate = SSL_NOTHING;
+        SSLerr(SSL_F_SSL_SENDFILE, SSL_R_PROTOCOL_IS_SHUTDOWN);
+        return -1;
+    }
+
+    if (!BIO_get_ktls_send(s->wbio)) {
+        SSLerr(SSL_F_SSL_SENDFILE, SSL_R_UNINITIALIZED);
+        return -1;
+    }
+
+    /* If we have an alert to send, lets send it */
+    if (s->s3->alert_dispatch) {
+        ret = (ossl_ssize_t)s->method->ssl_dispatch_alert(s);
+        if (ret <= 0) {
+            /* SSLfatal() already called if appropriate */
+            return ret;
+        }
+        /* if it went, fall through and send more stuff */
+    }
+
+    s->rwstate = SSL_WRITING;
+    if (BIO_flush(s->wbio) <= 0) {
+        if (!BIO_should_retry(s->wbio)) {
+            s->rwstate = SSL_NOTHING;
+        } else {
+#ifdef EAGAIN
+            set_sys_error(EAGAIN);
+#endif
+        }
+        return -1;
+    }
+
+#ifdef OPENSSL_NO_KTLS
+    SYSerr(SSL_F_SSL_SENDFILE, ERR_R_INTERNAL_ERROR);
+    ERR_add_error_data(1, "calling sendfile()");
+    return -1;
+#else
+    ret = ktls_sendfile(SSL_get_wfd(s), fd, offset, size, flags);
+    if (ret < 0) {
+#if defined(EAGAIN) && defined(EINTR) && defined(EBUSY)
+        if ((get_last_sys_error() == EAGAIN) ||
+            (get_last_sys_error() == EINTR) ||
+            (get_last_sys_error() == EBUSY))
+            BIO_set_retry_write(s->wbio);
+        else
+#endif
+            SSLerr(SSL_F_SSL_SENDFILE, SSL_R_UNINITIALIZED);
+        return ret;
+    }
+    s->rwstate = SSL_NOTHING;
+    return ret;
+#endif
+}
+
 int SSL_write(SSL *s, const void *buf, int num)
 {
     int ret;
@@ -2113,6 +2207,11 @@ int SSL_key_update(SSL *s, int updatetype)
         return 0;
     }
 
+    if (RECORD_LAYER_write_pending(&s->rlayer)) {
+        SSLerr(SSL_F_SSL_KEY_UPDATE, SSL_R_BAD_WRITE_RETRY);
+        return 0;
+    }
+
     ossl_statem_set_in_init(s, 1);
     s->key_update = updatetype;
     return 1;
@@ -2199,6 +2298,10 @@ long SSL_ctrl(SSL *s, int cmd, long larg, void *parg)
     case SSL_CTRL_SET_MAX_SEND_FRAGMENT:
         if (larg < 512 || larg > SSL3_RT_MAX_PLAIN_LENGTH)
             return 0;
+#ifndef OPENSSL_NO_KTLS
+        if (s->wbio != NULL && BIO_get_ktls_send(s->wbio))
+            return 0;
+#endif /* OPENSSL_NO_KTLS */
         s->max_send_fragment = larg;
         if (s->max_send_fragment < s->split_send_fragment)
             s->split_send_fragment = s->max_send_fragment;
@@ -2823,6 +2926,19 @@ void SSL_CTX_set_npn_select_cb(SSL_CTX *ctx,
 }
 #endif
 
+static int alpn_value_ok(const unsigned char *protos, unsigned int protos_len)
+{
+    unsigned int idx;
+
+    if (protos_len < 2 || protos == NULL)
+        return 0;
+
+    for (idx = 0; idx < protos_len; idx += protos[idx] + 1) {
+        if (protos[idx] == 0)
+            return 0;
+    }
+    return idx == protos_len;
+}
 /*
  * SSL_CTX_set_alpn_protos sets the ALPN protocol list on |ctx| to |protos|.
  * |protos| must be in wire-format (i.e. a series of non-empty, 8-bit
@@ -2831,12 +2947,25 @@ void SSL_CTX_set_npn_select_cb(SSL_CTX *ctx,
 int SSL_CTX_set_alpn_protos(SSL_CTX *ctx, const unsigned char *protos,
                             unsigned int protos_len)
 {
-    OPENSSL_free(ctx->ext.alpn);
-    ctx->ext.alpn = OPENSSL_memdup(protos, protos_len);
-    if (ctx->ext.alpn == NULL) {
+    unsigned char *alpn;
+
+    if (protos_len == 0 || protos == NULL) {
+        OPENSSL_free(ctx->ext.alpn);
+        ctx->ext.alpn = NULL;
+        ctx->ext.alpn_len = 0;
+        return 0;
+    }
+    /* Not valid per RFC */
+    if (!alpn_value_ok(protos, protos_len))
+        return 1;
+
+    alpn = OPENSSL_memdup(protos, protos_len);
+    if (alpn == NULL) {
         SSLerr(SSL_F_SSL_CTX_SET_ALPN_PROTOS, ERR_R_MALLOC_FAILURE);
         return 1;
     }
+    OPENSSL_free(ctx->ext.alpn);
+    ctx->ext.alpn = alpn;
     ctx->ext.alpn_len = protos_len;
 
     return 0;
@@ -2850,12 +2979,25 @@ int SSL_CTX_set_alpn_protos(SSL_CTX *ctx, const unsigned char *protos,
 int SSL_set_alpn_protos(SSL *ssl, const unsigned char *protos,
                         unsigned int protos_len)
 {
-    OPENSSL_free(ssl->ext.alpn);
-    ssl->ext.alpn = OPENSSL_memdup(protos, protos_len);
-    if (ssl->ext.alpn == NULL) {
+    unsigned char *alpn;
+
+    if (protos_len == 0 || protos == NULL) {
+        OPENSSL_free(ssl->ext.alpn);
+        ssl->ext.alpn = NULL;
+        ssl->ext.alpn_len = 0;
+        return 0;
+    }
+    /* Not valid per RFC */
+    if (!alpn_value_ok(protos, protos_len))
+        return 1;
+
+    alpn = OPENSSL_memdup(protos, protos_len);
+    if (alpn == NULL) {
         SSLerr(SSL_F_SSL_SET_ALPN_PROTOS, ERR_R_MALLOC_FAILURE);
         return 1;
     }
+    OPENSSL_free(ssl->ext.alpn);
+    ssl->ext.alpn = alpn;
     ssl->ext.alpn_len = protos_len;
 
     return 0;
@@ -4417,11 +4559,18 @@ int SSL_CTX_set_block_padding(SSL_CTX *ctx, size_t block_size)
     return 1;
 }
 
-void SSL_set_record_padding_callback(SSL *ssl,
+int SSL_set_record_padding_callback(SSL *ssl,
                                      size_t (*cb) (SSL *ssl, int type,
                                                    size_t len, void *arg))
 {
-    ssl->record_padding_cb = cb;
+    BIO *b;
+
+    b = SSL_get_wbio(ssl);
+    if (b == NULL || !BIO_get_ktls_send(b)) {
+        ssl->record_padding_cb = cb;
+        return 1;
+    }
+    return 0;
 }
 
 void SSL_set_record_padding_callback_arg(SSL *ssl, void *arg)
@@ -4512,8 +4661,11 @@ int ssl_handshake_hash(SSL *s, unsigned char *out, size_t outlen,
     }
 
     ctx = EVP_MD_CTX_new();
-    if (ctx == NULL)
+    if (ctx == NULL) {
+        SSLfatal(s, SSL_AD_INTERNAL_ERROR, SSL_F_SSL_HANDSHAKE_HASH,
+                 ERR_R_INTERNAL_ERROR);
         goto err;
+    }
 
     if (!EVP_MD_CTX_copy_ex(ctx, hdgst)
         || EVP_DigestFinal_ex(ctx, out, NULL) <= 0) {

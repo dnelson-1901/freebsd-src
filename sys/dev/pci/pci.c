@@ -682,11 +682,12 @@ pci_read_device(device_t pcib, device_t bus, int d, int b, int s, int f)
 	uint16_t vid, did;
 
 	vid = REG(PCIR_VENDOR, 2);
-	did = REG(PCIR_DEVICE, 2);
-	if (vid != 0xffff)
-		return (pci_fill_devinfo(pcib, bus, d, b, s, f, vid, did));
+	if (vid == PCIV_INVALID)
+		return (NULL);
 
-	return (NULL);
+	did = REG(PCIR_DEVICE, 2);
+
+	return (pci_fill_devinfo(pcib, bus, d, b, s, f, vid, did));
 }
 
 struct pci_devinfo *
@@ -1093,6 +1094,7 @@ pci_read_vpd(device_t pcib, pcicfgregs *cfg)
 	int alloc, off;		/* alloc/off for RO/W arrays */
 	int cksumvalid;
 	int dflen;
+	int firstrecord;
 	uint8_t byte;
 	uint8_t byte2;
 
@@ -1108,14 +1110,16 @@ pci_read_vpd(device_t pcib, pcicfgregs *cfg)
 	alloc = off = 0;	/* shut up stupid gcc */
 	dflen = 0;		/* shut up stupid gcc */
 	cksumvalid = -1;
+	firstrecord = 1;
 	while (state >= 0) {
 		if (vpd_nextbyte(&vrs, &byte)) {
+			pci_printf(cfg, "VPD read timed out\n");
 			state = -2;
 			break;
 		}
 #if 0
-		printf("vpd: val: %#x, off: %d, bytesinval: %d, byte: %#hhx, " \
-		    "state: %d, remain: %d, name: %#x, i: %d\n", vrs.val,
+		pci_printf(cfg, "vpd: val: %#x, off: %d, bytesinval: %d, byte: "
+		    "%#hhx, state: %d, remain: %d, name: %#x, i: %d\n", vrs.val,
 		    vrs.off, vrs.bytesinval, byte, state, remain, name, i);
 #endif
 		switch (state) {
@@ -1136,6 +1140,15 @@ pci_read_vpd(device_t pcib, pcicfgregs *cfg)
 				remain = byte & 0x7;
 				name = (byte >> 3) & 0xf;
 			}
+			if (firstrecord) {
+				if (name != 0x2) {
+					pci_printf(cfg, "VPD data does not " \
+					    "start with ident (%#x)\n", name);
+					state = -2;
+					break;
+				}
+				firstrecord = 0;
+			}
 			if (vrs.off + remain - vrs.bytesinval > 0x8000) {
 				pci_printf(cfg,
 				    "VPD data overflow, remain %#x\n", remain);
@@ -1144,6 +1157,19 @@ pci_read_vpd(device_t pcib, pcicfgregs *cfg)
 			}
 			switch (name) {
 			case 0x2:	/* String */
+				if (cfg->vpd.vpd_ident != NULL) {
+					pci_printf(cfg,
+					    "duplicate VPD ident record\n");
+					state = -2;
+					break;
+				}
+				if (remain > 255) {
+					pci_printf(cfg,
+					    "VPD ident length %d exceeds 255\n",
+					    remain);
+					state = -2;
+					break;
+				}
 				cfg->vpd.vpd_ident = malloc(remain + 1,
 				    M_DEVBUF, M_WAITOK);
 				i = 0;
@@ -1169,7 +1195,8 @@ pci_read_vpd(device_t pcib, pcicfgregs *cfg)
 				state = 5;
 				break;
 			default:	/* Invalid data, abort */
-				state = -1;
+				pci_printf(cfg, "invalid VPD name: %#x\n", name);
+				state = -2;
 				break;
 			}
 			break;
@@ -1207,8 +1234,7 @@ pci_read_vpd(device_t pcib, pcicfgregs *cfg)
 				 * if this happens, we can't trust the rest
 				 * of the VPD.
 				 */
-				pci_printf(cfg, "bad keyword length: %d\n",
-				    dflen);
+				pci_printf(cfg, "invalid VPD RV record");
 				cksumvalid = 0;
 				state = -1;
 				break;
@@ -1324,9 +1350,14 @@ pci_read_vpd(device_t pcib, pcicfgregs *cfg)
 			state = -1;
 			break;
 		}
+
+		if (cfg->vpd.vpd_ident == NULL || cfg->vpd.vpd_ident[0] == '\0') {
+			pci_printf(cfg, "no valid vpd ident found\n");
+			state = -2;
+		}
 	}
 
-	if (cksumvalid == 0 || state < -1) {
+	if (cksumvalid <= 0 || state < -1) {
 		/* read-only data bad, clean up */
 		if (cfg->vpd.vpd_ros != NULL) {
 			for (off = 0; cfg->vpd.vpd_ros[off].value; off++)
@@ -2180,6 +2211,21 @@ pci_ht_map_msi(device_t dev, uint64_t addr)
 		pci_write_config(dev, ht->ht_msimap + PCIR_HT_COMMAND,
 		    ht->ht_msictrl, 2);
 	}
+}
+
+int
+pci_get_relaxed_ordering_enabled(device_t dev)
+{
+	struct pci_devinfo *dinfo = device_get_ivars(dev);
+	int cap;
+	uint16_t val;
+
+	cap = dinfo->cfg.pcie.pcie_location;
+	if (cap == 0)
+		return (0);
+	val = pci_read_config(dev, cap + PCIER_DEVICE_CTL, 2);
+	val &= PCIEM_CTL_RELAXED_ORD_ENABLE;
+	return (val != 0);
 }
 
 int
@@ -3135,6 +3181,16 @@ pci_bar_enabled(device_t dev, struct pci_map *pm)
 	if (PCIR_IS_BIOS(&dinfo->cfg, pm->pm_reg) &&
 	    !(pm->pm_value & PCIM_BIOS_ENABLE))
 		return (0);
+#ifdef PCI_IOV
+	if ((dinfo->cfg.flags & PCICFG_VF) != 0) {
+		struct pcicfg_iov *iov;
+
+		iov = dinfo->cfg.iov;
+		cmd = pci_read_config(iov->iov_pf,
+		    iov->iov_pos + PCIR_SRIOV_CTL, 2);
+		return ((cmd & PCIM_SRIOV_VF_MSE) != 0);
+	}
+#endif
 	cmd = pci_read_config(dev, PCIR_COMMAND, 2);
 	if (PCIR_IS_BIOS(&dinfo->cfg, pm->pm_reg) || PCI_BAR_MEM(pm->pm_value))
 		return ((cmd & PCIM_CMD_MEMEN) != 0);
@@ -4115,6 +4171,10 @@ pci_add_children(device_t dev, int domain, int busno)
 		pcifunchigh = 0;
 		f = 0;
 		DELAY(1);
+
+		/* If function 0 is not present, skip to the next slot. */
+		if (REG(PCIR_VENDOR, 2) == PCIV_INVALID)
+			continue;
 		hdrtype = REG(PCIR_HDRTYPE, 1);
 		if ((hdrtype & PCIM_HDRTYPE) > PCI_MAXHDRTYPE)
 			continue;
@@ -4156,7 +4216,7 @@ pci_rescan_method(device_t dev)
 	for (s = 0; s <= maxslots; s++) {
 		/* If function 0 is not present, skip to the next slot. */
 		f = 0;
-		if (REG(PCIR_VENDOR, 2) == 0xffff)
+		if (REG(PCIR_VENDOR, 2) == PCIV_INVALID)
 			continue;
 		pcifunchigh = 0;
 		hdrtype = REG(PCIR_HDRTYPE, 1);
@@ -4165,7 +4225,7 @@ pci_rescan_method(device_t dev)
 		if (hdrtype & PCIM_MFDEV)
 			pcifunchigh = PCIB_MAXFUNCS(pcib);
 		for (f = 0; f <= pcifunchigh; f++) {
-			if (REG(PCIR_VENDOR, 2) == 0xffff)
+			if (REG(PCIR_VENDOR, 2) == PCIV_INVALID)
 				continue;
 
 			/*
@@ -4251,6 +4311,45 @@ pci_create_iov_child_method(device_t bus, device_t pf, uint16_t rid,
 	return (pci_add_iov_child(bus, pf, rid, vid, did));
 }
 #endif
+
+/*
+ * For PCIe device set Max_Payload_Size to match PCIe root's.
+ */
+static void
+pcie_setup_mps(device_t dev)
+{
+	struct pci_devinfo *dinfo = device_get_ivars(dev);
+	device_t root;
+	uint16_t rmps, mmps, mps;
+
+	if (dinfo->cfg.pcie.pcie_location == 0)
+		return;
+	root = pci_find_pcie_root_port(dev);
+	if (root == NULL)
+		return;
+	/* Check whether the MPS is already configured. */
+	rmps = pcie_read_config(root, PCIER_DEVICE_CTL, 2) &
+	    PCIEM_CTL_MAX_PAYLOAD;
+	mps = pcie_read_config(dev, PCIER_DEVICE_CTL, 2) &
+	    PCIEM_CTL_MAX_PAYLOAD;
+	if (mps == rmps)
+		return;
+	/* Check whether the device is capable of the root's MPS. */
+	mmps = (pcie_read_config(dev, PCIER_DEVICE_CAP, 2) &
+	    PCIEM_CAP_MAX_PAYLOAD) << 5;
+	if (rmps > mmps) {
+		/*
+		 * The device is unable to handle root's MPS.  Limit root.
+		 * XXX: We should traverse through all the tree, applying
+		 * it to all the devices.
+		 */
+		pcie_adjust_config(root, PCIER_DEVICE_CTL,
+		    PCIEM_CTL_MAX_PAYLOAD, mmps, 2);
+	} else {
+		pcie_adjust_config(dev, PCIER_DEVICE_CTL,
+		    PCIEM_CTL_MAX_PAYLOAD, rmps, 2);
+	}
+}
 
 static void
 pci_add_child_clear_aer(device_t dev, struct pci_devinfo *dinfo)
@@ -4339,6 +4438,7 @@ pci_add_child(device_t bus, struct pci_devinfo *dinfo)
 	pci_cfg_restore(dev, dinfo);
 	pci_print_verbose(dinfo);
 	pci_add_resources(bus, dev, 0, 0);
+	pcie_setup_mps(dev);
 	pci_child_added(dinfo->cfg.dev);
 
 	if (pci_clear_aer_on_attach)
@@ -4989,7 +5089,12 @@ pci_child_detached(device_t dev, device_t child)
 	if (resource_list_release_active(rl, dev, child, SYS_RES_IRQ) != 0)
 		pci_printf(&dinfo->cfg, "Device leaked IRQ resources\n");
 	if (dinfo->cfg.msi.msi_alloc != 0 || dinfo->cfg.msix.msix_alloc != 0) {
-		pci_printf(&dinfo->cfg, "Device leaked MSI vectors\n");
+		if (dinfo->cfg.msi.msi_alloc != 0)
+			pci_printf(&dinfo->cfg, "Device leaked %d MSI "
+			    "vectors\n", dinfo->cfg.msi.msi_alloc);
+		else
+			pci_printf(&dinfo->cfg, "Device leaked %d MSI-X "
+			    "vectors\n", dinfo->cfg.msix.msix_alloc);
 		(void)pci_release_msi(child);
 	}
 	if (resource_list_release_active(rl, dev, child, SYS_RES_MEMORY) != 0)
@@ -5304,7 +5409,7 @@ DB_SHOW_COMMAND(pciregs, db_pci_dump)
 }
 #endif /* DDB */
 
-static struct resource *
+struct resource *
 pci_reserve_map(device_t dev, device_t child, int type, int *rid,
     rman_res_t start, rman_res_t end, rman_res_t count, u_int num,
     u_int flags)

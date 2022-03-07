@@ -34,6 +34,13 @@ config.mak
 timeconst.bc
 Makefile
 
+tests/fuzzing/bc_outputs1/*
+tests/fuzzing/bc_outputs2/*
+tests/fuzzing/bc_outputs3/*
+tests/fuzzing/dc_outputs/*
+tests/bc_outputs/*
+tests/dc_outputs/*
+
 .gdb_history
 
 # Ignore the generated test files
@@ -44,11 +51,17 @@ print_results.txt
 bessel.txt
 bessel_results.txt
 prime.txt
-stream.txt
+strings2.txt
+strings2_results.txt
 tests/bc/scripts/add.txt
 tests/bc/scripts/divide.txt
 tests/bc/scripts/multiply.txt
 tests/bc/scripts/subtract.txt
+tests/bc/scripts/strings2.txt
+benchmarks/bc/*.txt
+benchmarks/dc/*.txt
+scripts/ministat
+scripts/bitgen
 perf.data
 perf.data.old
 *.gcda
@@ -57,5 +70,11 @@ perf.data.old
 *.html
 *.profraw
 
+core.*
+
 cscope*.out
 tags
+
+*.vcxproj.user
+Debug/*
+Release/*

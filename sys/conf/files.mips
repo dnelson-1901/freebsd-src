@@ -20,7 +20,6 @@ mips/mips/exception.S			standard
 mips/mips/fp.S				standard
 mips/mips/freebsd32_machdep.c		optional	compat_freebsd32
 mips/mips/gdb_machdep.c			standard
-mips/mips/in_cksum.c			optional	inet
 mips/mips/libkern_machdep.c		standard
 mips/mips/locore.S			standard	no-obj
 mips/mips/machdep.c			standard
@@ -67,6 +66,7 @@ libkern/ashldi3.c			standard
 libkern/ashrdi3.c			standard
 libkern/lshrdi3.c			standard
 libkern/memcmp.c			standard
+libkern/strlen.c			standard
 
 # cfe support
 dev/cfe/cfe_api.c			optional	cfe

@@ -141,6 +141,7 @@ _sleep(const void *ident, struct lock_object *lock, int priority,
 	int catch, pri, rval, sleepq_flags;
 	WITNESS_SAVE_DECL(lock_witness);
 
+	TSENTER();
 	td = curthread;
 #ifdef KTRACE
 	if (KTRPOINT(td, KTR_CSW))
@@ -187,6 +188,8 @@ _sleep(const void *ident, struct lock_object *lock, int priority,
 	DROP_GIANT();
 	if (lock != NULL && lock != &Giant.lock_object &&
 	    !(class->lc_flags & LC_SLEEPABLE)) {
+		KASSERT(!(class->lc_flags & LC_SPINLOCK),
+		    ("spin locks can only use msleep_spin"));
 		WITNESS_SAVE(lock, lock_witness);
 		lock_state = class->lc_unlock(lock);
 	} else
@@ -230,6 +233,7 @@ _sleep(const void *ident, struct lock_object *lock, int priority,
 		class->lc_lock(lock, lock_state);
 		WITNESS_RESTORE(lock, lock_witness);
 	}
+	TSEXIT();
 	return (rval);
 }
 
@@ -366,8 +370,7 @@ wakeup_one(const void *ident)
 	int wakeup_swapper;
 
 	sleepq_lock(ident);
-	wakeup_swapper = sleepq_signal(ident, SLEEPQ_SLEEP, 0, 0);
-	sleepq_release(ident);
+	wakeup_swapper = sleepq_signal(ident, SLEEPQ_SLEEP | SLEEPQ_DROP, 0, 0);
 	if (wakeup_swapper)
 		kick_proc0();
 }
@@ -378,9 +381,8 @@ wakeup_any(const void *ident)
 	int wakeup_swapper;
 
 	sleepq_lock(ident);
-	wakeup_swapper = sleepq_signal(ident, SLEEPQ_SLEEP | SLEEPQ_UNFAIR,
-	    0, 0);
-	sleepq_release(ident);
+	wakeup_swapper = sleepq_signal(ident, SLEEPQ_SLEEP | SLEEPQ_UNFAIR |
+	    SLEEPQ_DROP, 0, 0);
 	if (wakeup_swapper)
 		kick_proc0();
 }
@@ -681,5 +683,12 @@ sys_yield(struct thread *td, struct yield_args *uap)
 		sched_prio(td, PRI_MAX_TIMESHARE);
 	mi_switch(SW_VOL | SWT_RELINQUISH);
 	td->td_retval[0] = 0;
+	return (0);
+}
+
+int
+sys_sched_getcpu(struct thread *td, struct sched_getcpu_args *uap)
+{
+	td->td_retval[0] = td->td_oncpu;
 	return (0);
 }

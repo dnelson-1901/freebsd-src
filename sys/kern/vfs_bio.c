@@ -49,6 +49,7 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/asan.h>
 #include <sys/bio.h>
 #include <sys/bitset.h>
 #include <sys/conf.h>
@@ -132,6 +133,7 @@ struct bufdomain {
 	int		bd_lim;
 	/* atomics */
 	int		bd_wanted;
+	bool		bd_shutdown;
 	int __aligned(CACHE_LINE_SIZE)	bd_numdirtybuffers;
 	int __aligned(CACHE_LINE_SIZE)	bd_running;
 	long __aligned(CACHE_LINE_SIZE) bd_bufspace;
@@ -340,6 +342,11 @@ static struct mtx_padalign __exclusive_cache_line rbreqlock;
 static struct mtx_padalign __exclusive_cache_line bdirtylock;
 
 /*
+ * bufdaemon shutdown request and sleep channel.
+ */
+static bool bd_shutdown;
+
+/*
  * Wakeup point for bufdaemon, as well as indicator of whether it is already
  * active.  Set to 1 when the bufdaemon is already "on" the queue, 0 when it
  * is idling.
@@ -392,12 +399,6 @@ struct bufqueue __exclusive_cache_line bqempty;
  * per-cpu empty buffer cache.
  */
 uma_zone_t buf_zone;
-
-/*
- * Single global constant for BUF_WMESG, to avoid getting multiple references.
- * buf_wmesg is referred from macros.
- */
-const char *buf_wmesg = BUF_WMESG;
 
 static int
 sysctl_runningspace(SYSCTL_HANDLER_ARGS)
@@ -628,33 +629,6 @@ bufspace_daemon_wakeup(struct bufdomain *bd)
 }
 
 /*
- *	bufspace_daemon_wait:
- *
- *	Sleep until the domain falls below a limit or one second passes.
- */
-static void
-bufspace_daemon_wait(struct bufdomain *bd)
-{
-	/*
-	 * Re-check our limits and sleep.  bd_running must be
-	 * cleared prior to checking the limits to avoid missed
-	 * wakeups.  The waker will adjust one of bufspace or
-	 * freebuffers prior to checking bd_running.
-	 */
-	BD_RUN_LOCK(bd);
-	atomic_store_int(&bd->bd_running, 0);
-	if (bd->bd_bufspace < bd->bd_bufspacethresh &&
-	    bd->bd_freebuffers > bd->bd_lofreebuffers) {
-		msleep(&bd->bd_running, BD_RUN_LOCKPTR(bd), PRIBIO|PDROP,
-		    "-", hz);
-	} else {
-		/* Avoid spurious wakeups while running. */
-		atomic_store_int(&bd->bd_running, 1);
-		BD_RUN_UNLOCK(bd);
-	}
-}
-
-/*
  *	bufspace_adjust:
  *
  *	Adjust the reported bufspace for a KVA managed buffer, possibly
@@ -784,6 +758,22 @@ bufspace_wait(struct bufdomain *bd, struct vnode *vp, int gbflags,
 	BD_UNLOCK(bd);
 }
 
+static void
+bufspace_daemon_shutdown(void *arg, int howto __unused)
+{
+	struct bufdomain *bd = arg;
+	int error;
+
+	BD_RUN_LOCK(bd);
+	bd->bd_shutdown = true;
+	wakeup(&bd->bd_running);
+	error = msleep(&bd->bd_shutdown, BD_RUN_LOCKPTR(bd), 0,
+	    "bufspace_shutdown", 60 * hz);
+	BD_RUN_UNLOCK(bd);
+	if (error != 0)
+		printf("bufspacedaemon wait error: %d\n", error);
+}
+
 /*
  *	bufspace_daemon:
  *
@@ -794,14 +784,14 @@ bufspace_wait(struct bufdomain *bd, struct vnode *vp, int gbflags,
 static void
 bufspace_daemon(void *arg)
 {
-	struct bufdomain *bd;
+	struct bufdomain *bd = arg;
 
-	EVENTHANDLER_REGISTER(shutdown_pre_sync, kthread_shutdown, curthread,
+	EVENTHANDLER_REGISTER(shutdown_pre_sync, bufspace_daemon_shutdown, bd,
 	    SHUTDOWN_PRI_LAST + 100);
 
-	bd = arg;
-	for (;;) {
-		kthread_suspend_check();
+	BD_RUN_LOCK(bd);
+	while (!bd->bd_shutdown) {
+		BD_RUN_UNLOCK(bd);
 
 		/*
 		 * Free buffers from the clean queue until we meet our
@@ -851,8 +841,29 @@ bufspace_daemon(void *arg)
 			}
 			maybe_yield();
 		}
-		bufspace_daemon_wait(bd);
+
+		/*
+		 * Re-check our limits and sleep.  bd_running must be
+		 * cleared prior to checking the limits to avoid missed
+		 * wakeups.  The waker will adjust one of bufspace or
+		 * freebuffers prior to checking bd_running.
+		 */
+		BD_RUN_LOCK(bd);
+		if (bd->bd_shutdown)
+			break;
+		atomic_store_int(&bd->bd_running, 0);
+		if (bd->bd_bufspace < bd->bd_bufspacethresh &&
+		    bd->bd_freebuffers > bd->bd_lofreebuffers) {
+			msleep(&bd->bd_running, BD_RUN_LOCKPTR(bd),
+			    PRIBIO, "-", hz);
+		} else {
+			/* Avoid spurious wakeups while running. */
+			atomic_store_int(&bd->bd_running, 1);
+		}
 	}
+	wakeup(&bd->bd_shutdown);
+	BD_RUN_UNLOCK(bd);
+	kthread_exit();
 }
 
 /*
@@ -1043,6 +1054,15 @@ kern_vfs_bio_buffer_alloc(caddr_t v, long physmem_est)
 	int tuned_nbuf;
 	long maxbuf, maxbuf_sz, buf_sz,	biotmap_sz;
 
+#ifdef KASAN
+	/*
+	 * With KASAN enabled, the kernel map is shadowed.  Account for this
+	 * when sizing maps based on the amount of physical memory available.
+	 */
+	physmem_est = (physmem_est * KASAN_SHADOW_SCALE) /
+	    (KASAN_SHADOW_SCALE + 1);
+#endif
+
 	/*
 	 * physmem_est is in pages.  Convert it to kilobytes (assumes
 	 * PAGE_SIZE is >= 1K)
@@ -1149,6 +1169,12 @@ kern_vfs_bio_buffer_alloc(caddr_t v, long physmem_est)
 	return (v);
 }
 
+/*
+ * Single global constant for BUF_WMESG, to avoid getting multiple
+ * references.
+ */
+static const char buf_wmesg[] = "bufwait";
+
 /* Initialize the buffer subsystem.  Called before use of any buffers. */
 void
 bufinit(void)
@@ -1179,7 +1205,7 @@ bufinit(void)
 		bp->b_xflags = 0;
 		bp->b_data = bp->b_kvabase = unmapped_buf;
 		LIST_INIT(&bp->b_dep);
-		BUF_LOCKINIT(bp);
+		BUF_LOCKINIT(bp, buf_wmesg);
 		bq_insert(&bqempty, bp, false);
 	}
 
@@ -1433,16 +1459,28 @@ bufshutdown(int show_busybufs)
 		 */
 		printf("Giving up on %d buffers\n", nbusy);
 		DELAY(5000000);	/* 5 seconds */
+		swapoff_all();
 	} else {
 		if (!first_buf_printf)
 			printf("Final sync complete\n");
+
 		/*
-		 * Unmount filesystems
+		 * Unmount filesystems and perform swapoff, to quiesce
+		 * the system as much as possible.  In particular, no
+		 * I/O should be initiated from top levels since it
+		 * might be abruptly terminated by reset, or otherwise
+		 * erronously handled because other parts of the
+		 * system are disabled.
+		 *
+		 * Swapoff before unmount, because file-backed swap is
+		 * non-operational after unmount of the underlying
+		 * filesystem.
 		 */
-		if (!KERNEL_PANICKED())
+		if (!KERNEL_PANICKED()) {
+			swapoff_all();
 			vfs_unmountall();
+		}
 	}
-	swapoff_all();
 	DELAY(100000);		/* wait for console output to finish */
 }
 
@@ -1671,7 +1709,7 @@ buf_alloc(struct bufdomain *bd)
 	if (freebufs == bd->bd_lofreebuffers)
 		bufspace_daemon_wakeup(bd);
 
-	error = BUF_LOCK(bp, LK_EXCLUSIVE, NULL);
+	error = BUF_LOCK(bp, LK_EXCLUSIVE | LK_NOWAIT, NULL);
 	KASSERT(error == 0, ("%s: BUF_LOCK on free buf %p: %d.", __func__, bp,
 	    error));
 	(void)error;
@@ -2325,11 +2363,13 @@ void
 bufbdflush(struct bufobj *bo, struct buf *bp)
 {
 	struct buf *nbp;
+	struct bufdomain *bd;
 
-	if (bo->bo_dirty.bv_cnt > dirtybufthresh + 10) {
+	bd = &bdomain[bo->bo_domain];
+	if (bo->bo_dirty.bv_cnt > bd->bd_dirtybufthresh + 10) {
 		(void) VOP_FSYNC(bp->b_vp, MNT_NOWAIT, curthread);
 		altbufferflushes++;
-	} else if (bo->bo_dirty.bv_cnt > dirtybufthresh) {
+	} else if (bo->bo_dirty.bv_cnt > bd->bd_dirtybufthresh) {
 		BO_LOCK(bo);
 		/*
 		 * Try to find a buffer to flush.
@@ -2639,6 +2679,13 @@ brelse(struct buf *bp)
 		return;
 	}
 
+	if (LIST_EMPTY(&bp->b_dep)) {
+		bp->b_flags &= ~B_IOSTARTED;
+	} else {
+		KASSERT((bp->b_flags & B_IOSTARTED) == 0,
+		    ("brelse: SU io not finished bp %p", bp));
+	}
+
 	if ((bp->b_vflags & (BV_BKGRDINPROG | BV_BKGRDERR)) == BV_BKGRDERR) {
 		BO_LOCK(bp->b_bufobj);
 		bp->b_vflags &= ~BV_BKGRDERR;
@@ -2825,6 +2872,13 @@ bqrelse(struct buf *bp)
 	}
 	bp->b_flags &= ~(B_ASYNC | B_NOCACHE | B_AGE | B_RELBUF);
 	bp->b_xflags &= ~(BX_CVTENXIO);
+
+	if (LIST_EMPTY(&bp->b_dep)) {
+		bp->b_flags &= ~B_IOSTARTED;
+	} else {
+		KASSERT((bp->b_flags & B_IOSTARTED) == 0,
+		    ("bqrelse: SU io not finished bp %p", bp));
+	}
 
 	if (bp->b_flags & B_MANAGED) {
 		if (bp->b_flags & B_REMFREE)
@@ -3345,6 +3399,21 @@ buf_flush(struct vnode *vp, struct bufdomain *bd, int target)
 }
 
 static void
+buf_daemon_shutdown(void *arg __unused, int howto __unused)
+{
+	int error;
+
+	mtx_lock(&bdlock);
+	bd_shutdown = true;
+	wakeup(&bd_request);
+	error = msleep(&bd_shutdown, &bdlock, 0, "buf_daemon_shutdown",
+	    60 * hz);
+	mtx_unlock(&bdlock);
+	if (error != 0)
+		printf("bufdaemon wait error: %d\n", error);
+}
+
+static void
 buf_daemon()
 {
 	struct bufdomain *bd;
@@ -3355,7 +3424,7 @@ buf_daemon()
 	/*
 	 * This process needs to be suspended prior to shutdown sync.
 	 */
-	EVENTHANDLER_REGISTER(shutdown_pre_sync, kthread_shutdown, curthread,
+	EVENTHANDLER_REGISTER(shutdown_pre_sync, buf_daemon_shutdown, NULL,
 	    SHUTDOWN_PRI_LAST + 100);
 
 	/*
@@ -3375,11 +3444,9 @@ buf_daemon()
 	 */
 	curthread->td_pflags |= TDP_NORUNNINGBUF | TDP_BUFNEED;
 	mtx_lock(&bdlock);
-	for (;;) {
+	while (!bd_shutdown) {
 		bd_request = 0;
 		mtx_unlock(&bdlock);
-
-		kthread_suspend_check();
 
 		/*
 		 * Save speedupreq for this pass and reset to capture new
@@ -3417,7 +3484,9 @@ buf_daemon()
 		 * to avoid endless loops on unlockable buffers.
 		 */
 		mtx_lock(&bdlock);
-		if (!BIT_EMPTY(BUF_DOMAINS, &bdlodirty)) {
+		if (bd_shutdown)
+			break;
+		if (BIT_EMPTY(BUF_DOMAINS, &bdlodirty)) {
 			/*
 			 * We reached our low water mark, reset the
 			 * request and sleep until we are needed again.
@@ -3442,6 +3511,9 @@ buf_daemon()
 			msleep(&bd_request, &bdlock, PVM, "qsleep", hz / 10);
 		}
 	}
+	wakeup(&bd_shutdown);
+	mtx_unlock(&bdlock);
+	kthread_exit();
 }
 
 /*
@@ -3454,7 +3526,7 @@ buf_daemon()
 static int flushwithdeps = 0;
 SYSCTL_INT(_vfs, OID_AUTO, flushwithdeps, CTLFLAG_RW | CTLFLAG_STATS,
     &flushwithdeps, 0,
-    "Number of buffers flushed with dependecies that require rollbacks");
+    "Number of buffers flushed with dependencies that require rollbacks");
 
 static int
 flushbufqueues(struct vnode *lvp, struct bufdomain *bd, int target,
@@ -3876,7 +3948,8 @@ getblkx(struct vnode *vp, daddr_t blkno, daddr_t dblkno, int size, int slpflag,
 	CTR3(KTR_BUF, "getblk(%p, %ld, %d)", vp, (long)blkno, size);
 	KASSERT((flags & (GB_UNMAPPED | GB_KVAALLOC)) != GB_KVAALLOC,
 	    ("GB_KVAALLOC only makes sense with GB_UNMAPPED"));
-	ASSERT_VOP_LOCKED(vp, "getblk");
+	if (vp->v_type != VCHR)
+		ASSERT_VOP_LOCKED(vp, "getblk");
 	if (size > maxbcachebuf)
 		panic("getblk: size(%d) > maxbcachebuf(%d)\n", size,
 		    maxbcachebuf);
@@ -3914,7 +3987,10 @@ loop:
 		 * it must be on a queue.
 		 */
 		lockflags = LK_EXCLUSIVE | LK_INTERLOCK |
-		    ((flags & GB_LOCK_NOWAIT) ? LK_NOWAIT : LK_SLEEPFAIL);
+		    ((flags & GB_LOCK_NOWAIT) != 0 ? LK_NOWAIT : LK_SLEEPFAIL);
+#ifdef WITNESS
+		lockflags |= (flags & GB_NOWITNESS) != 0 ? LK_NOWITNESS : 0;
+#endif
 
 		error = BUF_TIMELOCK(bp, lockflags,
 		    BO_LOCKPTR(bo), "getblk", slpflag, slptimeo);
@@ -4356,14 +4432,14 @@ biodone(struct bio *bp)
  * Wait for a BIO to finish.
  */
 int
-biowait(struct bio *bp, const char *wchan)
+biowait(struct bio *bp, const char *wmesg)
 {
 	struct mtx *mtxp;
 
 	mtxp = mtx_pool_find(mtxpool_sleep, bp);
 	mtx_lock(mtxp);
 	while ((bp->bio_flags & BIO_DONE) == 0)
-		msleep(bp, mtxp, PRIBIO, wchan, 0);
+		msleep(bp, mtxp, PRIBIO, wmesg, 0);
 	mtx_unlock(mtxp);
 	if (bp->bio_error != 0)
 		return (bp->bio_error);
@@ -4884,9 +4960,8 @@ vm_hold_load_pages(struct buf *bp, vm_offset_t from, vm_offset_t to)
 		 * could interfere with paging I/O, no matter which
 		 * process we are.
 		 */
-		p = vm_page_alloc(NULL, 0, VM_ALLOC_SYSTEM | VM_ALLOC_NOOBJ |
-		    VM_ALLOC_WIRED | VM_ALLOC_COUNT((to - pg) >> PAGE_SHIFT) |
-		    VM_ALLOC_WAITOK);
+		p = vm_page_alloc_noobj(VM_ALLOC_SYSTEM | VM_ALLOC_WIRED |
+		    VM_ALLOC_COUNT((to - pg) >> PAGE_SHIFT) | VM_ALLOC_WAITOK);
 		pmap_qenter(pg, &p, 1);
 		bp->b_pages[index] = p;
 	}
@@ -5161,8 +5236,8 @@ vfs_bio_getpages(struct vnode *vp, vm_page_t *ma, int count,
 	struct mount *mp;
 	daddr_t lbn, lbnp;
 	vm_ooffset_t la, lb, poff, poffe;
-	long bsize;
-	int bo_bs, br_flags, error, i, pgsin, pgsin_a, pgsin_b;
+	long bo_bs, bsize;
+	int br_flags, error, i, pgsin, pgsin_a, pgsin_b;
 	bool redo, lpart;
 
 	object = vp->v_object;
@@ -5179,7 +5254,10 @@ vfs_bio_getpages(struct vnode *vp, vm_page_t *ma, int count,
 	 */
 	la += PAGE_SIZE;
 	lpart = la > object->un_pager.vnp.vnp_size;
-	bo_bs = get_blksize(vp, get_lblkno(vp, IDX_TO_OFF(ma[0]->pindex)));
+	error = get_blksize(vp, get_lblkno(vp, IDX_TO_OFF(ma[0]->pindex)),
+	    &bo_bs);
+	if (error != 0)
+		return (VM_PAGER_ERROR);
 
 	/*
 	 * Calculate read-ahead, behind and total pages.
@@ -5235,9 +5313,10 @@ again:
 				goto next_page;
 			lbnp = lbn;
 
-			bsize = get_blksize(vp, lbn);
-			error = bread_gb(vp, lbn, bsize, curthread->td_ucred,
-			    br_flags, &bp);
+			error = get_blksize(vp, lbn, &bsize);
+			if (error == 0)
+				error = bread_gb(vp, lbn, bsize,
+				    curthread->td_ucred, br_flags, &bp);
 			if (error != 0)
 				goto end_pages;
 			if (bp->b_rcred == curthread->td_ucred) {

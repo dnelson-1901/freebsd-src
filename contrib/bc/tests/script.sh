@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Copyright (c) 2018-2020 Gavin D. Howard and contributors.
+# Copyright (c) 2018-2021 Gavin D. Howard and contributors.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -33,6 +33,11 @@ script="$0"
 
 testdir=$(dirname "${script}")
 
+. "$testdir/../scripts/functions.sh"
+
+outputdir=${BC_TEST_OUTPUT_DIR:-$testdir}
+
+# Command-line processing.
 if [ "$#" -lt 2 ]; then
 	printf 'usage: %s dir script [run_extra_tests] [run_stack_tests] [generate_tests] [time_tests] [exec args...]\n' "$script"
 	exit 1
@@ -79,8 +84,7 @@ else
 	exe="$testdir/../bin/$d"
 fi
 
-out="$testdir/../.log_${d}_test.txt"
-
+# Set stuff for the correct calculator.
 if [ "$d" = "bc" ]; then
 
 	if [ "$run_stack_tests" -ne 0 ]; then
@@ -100,10 +104,12 @@ scriptdir="$testdir/$d/scripts"
 
 name="${f%.*}"
 
+# We specifically want to skip this because it is handled specially.
 if [ "$f" = "timeconst.bc" ]; then
 	exit 0
 fi
 
+# Skip the tests that require extra math if we don't have it.
 if [ "$run_extra_tests" -eq 0 ]; then
 	if [ "$f" = "rand.bc" ]; then
 		printf 'Skipping %s script: %s\n' "$d" "$f"
@@ -111,14 +117,30 @@ if [ "$run_extra_tests" -eq 0 ]; then
 	fi
 fi
 
+# Skip the tests that require global stacks flag if we are not allowed to run
+# them.
 if [ "$run_stack_tests" -eq 0 ]; then
 
-	if [ "$f" = "globals.bc" -o "$f" = "references.bc" -o "$f" = "rand.bc" ]; then
+	if [ "$f" = "globals.bc" ] || [ "$f" = "references.bc" ] || [ "$f" = "rand.bc" ]; then
 		printf 'Skipping %s script: %s\n' "$d" "$f"
 		exit 0
 	fi
 
 fi
+
+out="$outputdir/${d}_outputs/${name}_script_results.txt"
+outdir=$(dirname "$out")
+
+# Make sure the directory exists.
+if [ ! -d "$outdir" ]; then
+	mkdir -p "$outdir"
+fi
+
+# I use these, so unset them to make the tests work.
+unset BC_ENV_ARGS
+unset BC_LINE_LENGTH
+unset DC_ENV_ARGS
+unset DC_LINE_LENGTH
 
 s="$scriptdir/$f"
 orig="$testdir/$name.txt"
@@ -129,27 +151,35 @@ if [ -f "$orig" ]; then
 elif [ -f "$results" ]; then
 	res="$results"
 elif [ "$generate" -eq 0 ]; then
-	printf 'Skipping %s script %s\n' "$d" "$s"
+	printf 'Skipping %s script %s\n' "$d" "$f"
 	exit 0
 else
+	# This sed, and the script, are to remove an incompatibility with GNU bc,
+	# where GNU bc is wrong. See the development manual
+	# (manuals/development.md#script-tests) for more information.
 	printf 'Generating %s results...' "$f"
-	printf '%s\n' "$halt" | "$d" "$s" > "$results"
+	printf '%s\n' "$halt" | "$d" "$s" | sed -n -f "$testdir/script.sed" > "$results"
 	printf 'done\n'
 	res="$results"
 fi
 
+set +e
+
 printf 'Running %s script %s...' "$d" "$f"
 
+# Yes this is poor timing, but it works.
 if [ "$time_tests" -ne 0 ]; then
 	printf '\n'
 	printf '%s\n' "$halt" | /usr/bin/time -p "$exe" "$@" $options "$s" > "$out"
+	err="$?"
 	printf '\n'
 else
 	printf '%s\n' "$halt" | "$exe" "$@" $options "$s" > "$out"
+	err="$?"
 fi
 
-diff "$res" "$out"
+checktest "$d" "$err" "script $f" "$res" "$out"
 
 rm -f "$out"
 
-printf 'pass\n'
+exec printf 'pass\n'

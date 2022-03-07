@@ -199,10 +199,11 @@ linux_copyout_auxargs(struct image_params *imgp, uintptr_t base)
 	    M_WAITOK | M_ZERO);
 
 	issetugid = imgp->proc->p_flag & P_SUGID ? 1 : 0;
+	AUXARGS_ENTRY(pos, LINUX_AT_SYSINFO, linux32_vsyscall);
 	AUXARGS_ENTRY(pos, LINUX_AT_SYSINFO_EHDR,
 	    imgp->proc->p_sysent->sv_shared_page_base);
-	AUXARGS_ENTRY(pos, LINUX_AT_SYSINFO, linux32_vsyscall);
 	AUXARGS_ENTRY(pos, LINUX_AT_HWCAP, cpu_feature);
+	AUXARGS_ENTRY(pos, AT_PAGESZ, args->pagesz);
 
 	/*
 	 * Do not export AT_CLKTCK when emulating Linux kernel prior to 2.4.0,
@@ -217,21 +218,21 @@ linux_copyout_auxargs(struct image_params *imgp, uintptr_t base)
 	AUXARGS_ENTRY(pos, AT_PHDR, args->phdr);
 	AUXARGS_ENTRY(pos, AT_PHENT, args->phent);
 	AUXARGS_ENTRY(pos, AT_PHNUM, args->phnum);
-	AUXARGS_ENTRY(pos, AT_PAGESZ, args->pagesz);
+	AUXARGS_ENTRY(pos, AT_BASE, args->base);
 	AUXARGS_ENTRY(pos, AT_FLAGS, args->flags);
 	AUXARGS_ENTRY(pos, AT_ENTRY, args->entry);
-	AUXARGS_ENTRY(pos, AT_BASE, args->base);
-	AUXARGS_ENTRY(pos, LINUX_AT_SECURE, issetugid);
 	AUXARGS_ENTRY(pos, AT_UID, imgp->proc->p_ucred->cr_ruid);
 	AUXARGS_ENTRY(pos, AT_EUID, imgp->proc->p_ucred->cr_svuid);
 	AUXARGS_ENTRY(pos, AT_GID, imgp->proc->p_ucred->cr_rgid);
 	AUXARGS_ENTRY(pos, AT_EGID, imgp->proc->p_ucred->cr_svgid);
-	AUXARGS_ENTRY(pos, LINUX_AT_PLATFORM, PTROUT(linux_platform));
+	AUXARGS_ENTRY(pos, LINUX_AT_SECURE, issetugid);
 	AUXARGS_ENTRY(pos, LINUX_AT_RANDOM, PTROUT(imgp->canary));
+	AUXARGS_ENTRY(pos, LINUX_AT_HWCAP2, 0);
 	if (imgp->execpathp != 0)
 		AUXARGS_ENTRY(pos, LINUX_AT_EXECFN, PTROUT(imgp->execpathp));
 	if (args->execfd != -1)
 		AUXARGS_ENTRY(pos, AT_EXECFD, args->execfd);
+	AUXARGS_ENTRY(pos, LINUX_AT_PLATFORM, PTROUT(linux_platform));
 	AUXARGS_ENTRY(pos, AT_NULL, 0);
 
 	free(imgp->auxargs, M_TEMP);
@@ -497,9 +498,8 @@ linux_sigreturn(struct thread *td, struct linux_sigreturn_args *args)
 		return (EFAULT);
 
 	/* Check for security violations. */
-#define	EFLAGS_SECURE(ef, oef)	((((ef) ^ (oef)) & ~PSL_USERCHANGE) == 0)
 	eflags = frame.sf_sc.sc_eflags;
-	if (!EFLAGS_SECURE(eflags, regs->tf_rflags))
+	if (!EFL_SECURE(eflags, regs->tf_rflags))
 		return(EINVAL);
 
 	/*
@@ -507,7 +507,6 @@ linux_sigreturn(struct thread *td, struct linux_sigreturn_args *args)
 	 * hardware check for invalid selectors, excess privilege in
 	 * other selectors, invalid %eip's and invalid %esp's.
 	 */
-#define	CS_SECURE(cs)	(ISPL(cs) == SEL_UPL)
 	if (!CS_SECURE(frame.sf_sc.sc_cs)) {
 		ksiginfo_init_trap(&ksi);
 		ksi.ksi_signo = SIGBUS;
@@ -580,9 +579,8 @@ linux_rt_sigreturn(struct thread *td, struct linux_rt_sigreturn_args *args)
 	context = &uc.uc_mcontext;
 
 	/* Check for security violations. */
-#define	EFLAGS_SECURE(ef, oef)	((((ef) ^ (oef)) & ~PSL_USERCHANGE) == 0)
 	eflags = context->sc_eflags;
-	if (!EFLAGS_SECURE(eflags, regs->tf_rflags))
+	if (!EFL_SECURE(eflags, regs->tf_rflags))
 		return(EINVAL);
 
 	/*
@@ -590,7 +588,6 @@ linux_rt_sigreturn(struct thread *td, struct linux_rt_sigreturn_args *args)
 	 * hardware check for invalid selectors, excess privilege in
 	 * other selectors, invalid %eip's and invalid %esp's.
 	 */
-#define	CS_SECURE(cs)	(ISPL(cs) == SEL_UPL)
 	if (!CS_SECURE(context->sc_cs)) {
 		ksiginfo_init_trap(&ksi);
 		ksi.ksi_signo = SIGBUS;
@@ -722,6 +719,8 @@ linux_exec_setregs(struct thread *td, struct image_params *imgp,
 	regs->tf_cs = _ucode32sel;
 	regs->tf_rbx = (register_t)imgp->ps_strings;
 
+	x86_clear_dbregs(pcb);
+
 	fpstate_drop(td);
 
 	/* Do full restore on return so that we can change to a different %cs */
@@ -742,16 +741,11 @@ linux_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	char canary[LINUX_AT_RANDOM_LEN];
 	size_t execpath_len;
 
-	/* Calculate string base and vector table pointers. */
-	if (imgp->execpath != NULL && imgp->auxargs != NULL)
-		execpath_len = strlen(imgp->execpath) + 1;
-	else
-		execpath_len = 0;
-
 	arginfo = (struct linux32_ps_strings *)LINUX32_PS_STRINGS;
 	destp = (uintptr_t)arginfo;
 
-	if (execpath_len != 0) {
+	if (imgp->execpath != NULL && imgp->auxargs != NULL) {
+		execpath_len = strlen(imgp->execpath) + 1;
 		destp -= execpath_len;
 		destp = rounddown2(destp, sizeof(uint32_t));
 		imgp->execpathp = (void *)destp;
@@ -910,13 +904,15 @@ struct sysentvec elf_linux_sysvec = {
 	.sv_maxuser	= LINUX32_MAXUSER,
 	.sv_usrstack	= LINUX32_USRSTACK,
 	.sv_psstrings	= LINUX32_PS_STRINGS,
+	.sv_psstringssz	= sizeof(struct linux32_ps_strings),
 	.sv_stackprot	= VM_PROT_ALL,
 	.sv_copyout_auxargs = linux_copyout_auxargs,
 	.sv_copyout_strings = linux_copyout_strings,
 	.sv_setregs	= linux_exec_setregs,
 	.sv_fixlimit	= linux32_fixlimit,
 	.sv_maxssiz	= &linux32_maxssiz,
-	.sv_flags	= SV_ABI_LINUX | SV_ILP32 | SV_IA32 | SV_SHP,
+	.sv_flags	= SV_ABI_LINUX | SV_ILP32 | SV_IA32 | SV_SHP |
+	    SV_SIG_DISCIGN | SV_SIG_WAITNDQ,
 	.sv_set_syscall_retval = linux32_set_syscall_retval,
 	.sv_fetch_syscall_args = linux32_fetch_syscall_args,
 	.sv_syscallnames = NULL,
@@ -928,6 +924,7 @@ struct sysentvec elf_linux_sysvec = {
 	.sv_onexec	= linux_on_exec,
 	.sv_onexit	= linux_on_exit,
 	.sv_ontdexit	= linux_thread_dtor,
+	.sv_setid_allowed = &linux_setid_allowed_query,
 };
 
 static void
@@ -961,7 +958,8 @@ static void
 linux_vdso_deinstall(void *param)
 {
 
-	__elfN(linux_shared_page_fini)(linux_shared_page_obj);
+	__elfN(linux_shared_page_fini)(linux_shared_page_obj,
+	    linux_shared_page_mapping);
 }
 SYSUNINIT(elf_linux_vdso_uninit, SI_SUB_EXEC, SI_ORDER_FIRST,
     linux_vdso_deinstall, NULL);

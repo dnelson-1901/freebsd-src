@@ -158,6 +158,7 @@ MAC_NONE	opt_dontuse.h
 MAC_NTPD	opt_dontuse.h
 MAC_PARTITION	opt_dontuse.h
 MAC_PORTACL	opt_dontuse.h
+MAC_PRIORITY	opt_dontuse.h
 MAC_SEEOTHERUIDS	opt_dontuse.h
 MAC_STATIC	opt_mac.h
 MAC_STUB	opt_dontuse.h
@@ -229,8 +230,10 @@ ZSTDIO		opt_zstdio.h
 
 # Sanitizers
 COVERAGE	opt_global.h
+KASAN		opt_global.h
 KCOV
 KCSAN		opt_global.h
+KMSAN		opt_global.h
 KUBSAN		opt_global.h
 
 # POSIX kernel options
@@ -570,7 +573,6 @@ TI_JUMBO_HDRSPLIT	opt_ti.h
 # Misc debug flags.  Most of these should probably be replaced with
 # 'DEBUG', and then let people recompile just the interesting modules
 # with 'make CC="cc -DDEBUG"'.
-CLUSTERDEBUG		opt_debug_cluster.h
 DEBUG_1284		opt_ppb_1284.h
 LPT_DEBUG		opt_lpt.h
 PLIP_DEBUG		opt_plip.h
@@ -705,6 +707,7 @@ ACPI_DEBUG		opt_acpi.h
 ACPI_MAX_TASKS		opt_acpi.h
 ACPI_MAX_THREADS	opt_acpi.h
 DEV_ACPI		opt_acpi.h
+ACPI_EARLY_EPYC_WAR	opt_acpi.h
 
 # options for IOMMU support
 IOMMU			opt_iommu.h
@@ -723,11 +726,6 @@ DEV_PFLOG		opt_pf.h
 DEV_PFSYNC		opt_pf.h
 DEV_SPLASH		opt_splash.h
 DEV_VLAN		opt_vlan.h
-
-# ed driver
-ED_HPP			opt_ed.h
-ED_3C503		opt_ed.h
-ED_SIC			opt_ed.h
 
 # bce driver
 BCE_DEBUG		opt_bce.h
@@ -1006,6 +1004,7 @@ EKCD		opt_ekcd.h
 
 # NVME options
 NVME_USE_NVD	opt_nvme.h
+NVME_2X_RESET	opt_nvme.h
 
 # amdsbwd options
 AMDSBWD_DEBUG	opt_amdsbwd.h
@@ -1020,3 +1019,11 @@ IICHID_DEBUG	opt_hid.h
 IICHID_SAMPLING	opt_hid.h
 HKBD_DFLT_KEYMAP	opt_hkbd.h
 HIDRAW_MAKE_UHID_ALIAS	opt_hid.h
+
+# kenv options
+# The early kernel environment (loader environment, config(8)-provided static)
+# is typically cleared after the dynamic environment comes up to ensure that
+# we're not inadvertently holding on to 'secret' values in these stale envs.
+# This option is insecure except in controlled environments where the static
+# environment's contents are known to be safe.
+PRESERVE_EARLY_KENV	opt_global.h

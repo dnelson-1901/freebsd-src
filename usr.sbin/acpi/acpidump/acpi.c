@@ -219,16 +219,22 @@ acpi_get_fadt_revision(ACPI_TABLE_FADT *fadt)
 	if (addr_size == 8) {
 		fadt_revision = 2;
 
+#if defined(__i386__)
 		/*
 		 * A few systems (e.g., IBM T23) have an RSDP that claims
 		 * revision 2 but the 64 bit addresses are invalid.  If
 		 * revision 2 and the 32 bit address is non-zero but the
 		 * 32 and 64 bit versions don't match, prefer the 32 bit
 		 * version for all subsequent tables.
+		 *
+		 * The only known ACPI systems this affects are early
+		 * implementations on 32-bit x86. Because of this limit the
+		 * workaround to i386.
 		 */
 		if (fadt->Facs != 0 &&
 		    (fadt->XFacs & 0xffffffff) != fadt->Facs)
 			fadt_revision = 1;
+#endif
 	} else
 		fadt_revision = 1;
 	return (fadt_revision);
@@ -550,6 +556,7 @@ acpi_print_madt(ACPI_SUBTABLE_HEADER *mp)
 		    (uintmax_t)gicc->GicrBaseAddress);
 		printf("\tMPIDR=%jx\n", (uintmax_t)gicc->ArmMpidr);
 		printf("\tEfficency Class=%d\n", (u_int)gicc->EfficiencyClass);
+		printf("\tSPE INTR=%d\n", gicc->SpeInterrupt);
 		break;
 	case ACPI_MADT_TYPE_GENERIC_DISTRIBUTOR:
 		gicd = (ACPI_MADT_GENERIC_DISTRIBUTOR *)mp;
@@ -1562,7 +1569,8 @@ static const char *nfit_types[] = {
     [ACPI_NFIT_TYPE_SMBIOS] = "SMBIOS",
     [ACPI_NFIT_TYPE_CONTROL_REGION] = "Control Region",
     [ACPI_NFIT_TYPE_DATA_REGION] = "Data Region",
-    [ACPI_NFIT_TYPE_FLUSH_ADDRESS] = "Flush Address"
+    [ACPI_NFIT_TYPE_FLUSH_ADDRESS] = "Flush Address",
+    [ACPI_NFIT_TYPE_CAPABILITIES] = "Platform Capabilities"
 };
 
 
@@ -1579,6 +1587,7 @@ acpi_print_nfit(ACPI_NFIT_HEADER *nfit)
 	ACPI_NFIT_CONTROL_REGION *ctlreg;
 	ACPI_NFIT_DATA_REGION *datareg;
 	ACPI_NFIT_FLUSH_ADDRESS *fladdr;
+	ACPI_NFIT_CAPABILITIES *caps;
 
 	if (nfit->Type < nitems(nfit_types))
 		printf("\tType=%s\n", nfit_types[nfit->Type]);
@@ -1613,8 +1622,8 @@ acpi_print_nfit(ACPI_NFIT_HEADER *nfit)
 		break;
 	case ACPI_NFIT_TYPE_MEMORY_MAP:
 		mmap = (ACPI_NFIT_MEMORY_MAP *)nfit;
-		printf("\tDeviceHandle=%u\n", (u_int)mmap->DeviceHandle);
-		printf("\tPhysicalId=%u\n", (u_int)mmap->PhysicalId);
+		printf("\tDeviceHandle=0x%x\n", (u_int)mmap->DeviceHandle);
+		printf("\tPhysicalId=0x%04x\n", (u_int)mmap->PhysicalId);
 		printf("\tRegionId=%u\n", (u_int)mmap->RegionId);
 		printf("\tRangeIndex=%u\n", (u_int)mmap->RangeIndex);
 		printf("\tRegionIndex=%u\n", (u_int)mmap->RegionIndex);
@@ -1657,20 +1666,20 @@ acpi_print_nfit(ACPI_NFIT_HEADER *nfit)
 		printf("\tRegionIndex=%u\n", (u_int)ctlreg->RegionIndex);
 		printf("\tVendorId=0x%04x\n", (u_int)ctlreg->VendorId);
 		printf("\tDeviceId=0x%04x\n", (u_int)ctlreg->DeviceId);
-		printf("\tRevisionId=%u\n", (u_int)ctlreg->RevisionId);
+		printf("\tRevisionId=0x%02x\n", (u_int)ctlreg->RevisionId);
 		printf("\tSubsystemVendorId=0x%04x\n",
 		    (u_int)ctlreg->SubsystemVendorId);
 		printf("\tSubsystemDeviceId=0x%04x\n",
 		    (u_int)ctlreg->SubsystemDeviceId);
-		printf("\tSubsystemRevisionId=%u\n",
+		printf("\tSubsystemRevisionId=0x%02x\n",
 		    (u_int)ctlreg->SubsystemRevisionId);
 		printf("\tValidFields=0x%02x\n", (u_int)ctlreg->ValidFields);
-		printf("\tManufacturingLocation=%u\n",
+		printf("\tManufacturingLocation=0x%02x\n",
 		    (u_int)ctlreg->ManufacturingLocation);
-		printf("\tManufacturingDate=%u\n",
-		    (u_int)ctlreg->ManufacturingDate);
-		printf("\tSerialNumber=%u\n",
-		    (u_int)ctlreg->SerialNumber);
+		printf("\tManufacturingDate=%04x\n",
+		    (u_int)be16toh(ctlreg->ManufacturingDate));
+		printf("\tSerialNumber=%08X\n",
+		    (u_int)be32toh(ctlreg->SerialNumber));
 		printf("\tCode=0x%04x\n", (u_int)ctlreg->Code);
 		printf("\tWindows=%u\n", (u_int)ctlreg->Windows);
 		printf("\tWindowSize=0x%016jx\n",
@@ -1708,6 +1717,20 @@ acpi_print_nfit(ACPI_NFIT_HEADER *nfit)
 		printf("\tDeviceHandle=%u\n", (u_int)fladdr->DeviceHandle);
 		printf("\tHintCount=%u\n", (u_int)fladdr->HintCount);
 		/* XXX fladdr->HintAddress[i] output is not supported */
+		break;
+	case ACPI_NFIT_TYPE_CAPABILITIES:
+		caps = (ACPI_NFIT_CAPABILITIES *)nfit;
+		printf("\tHighestCapability=%u\n", (u_int)caps->HighestCapability);
+
+#define PRINTFLAG(var, flag)	printflag((var), ACPI_NFIT_CAPABILITY_## flag, #flag)
+
+		printf("\tCapabilities=");
+		PRINTFLAG(caps->Capabilities, CACHE_FLUSH);
+		PRINTFLAG(caps->Capabilities, MEM_FLUSH);
+		PRINTFLAG(caps->Capabilities, MEM_MIRRORING);
+		PRINTFLAG_END();
+
+#undef PRINTFLAG
 		break;
 	}
 }

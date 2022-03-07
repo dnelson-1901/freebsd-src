@@ -119,7 +119,9 @@ __FBSDID("$FreeBSD$");
  */
 
 LIST_HEAD(domainlist, domainset);
+struct domainset __read_mostly domainset_firsttouch;
 struct domainset __read_mostly domainset_fixed[MAXMEMDOM];
+struct domainset __read_mostly domainset_interleave;
 struct domainset __read_mostly domainset_prefer[MAXMEMDOM];
 struct domainset __read_mostly domainset_roundrobin;
 
@@ -130,7 +132,7 @@ static struct setlist cpuset_ids;
 static struct domainlist cpuset_domains;
 static struct unrhdr *cpuset_unr;
 static struct cpuset *cpuset_zero, *cpuset_default, *cpuset_kernel;
-static struct domainset domainset0, domainset2;
+static struct domainset *domainset0, *domainset2;
 
 /* Return the size of cpuset_t at the kernel level */
 SYSCTL_INT(_kern_sched, OID_AUTO, cpusetsize, CTLFLAG_RD | CTLFLAG_CAPRD,
@@ -324,7 +326,7 @@ cpuset_init(struct cpuset *set, struct cpuset *parent,
 	set->cs_flags = 0;
 	mtx_lock_spin(&cpuset_lock);
 	set->cs_domain = domain;
-	CPU_AND(&set->cs_mask, &parent->cs_mask);
+	CPU_AND(&set->cs_mask, &set->cs_mask, &parent->cs_mask);
 	set->cs_id = id;
 	set->cs_parent = cpuset_ref(parent);
 	LIST_INSERT_HEAD(&parent->cs_children, set, cs_siblings);
@@ -568,7 +570,7 @@ domainset_create(const struct domainset *domain)
 	if (domain->ds_policy == DOMAINSET_POLICY_PREFER &&
 	    !DOMAINSET_ISSET(domain->ds_prefer, &domain->ds_mask))
 		return (NULL);
-	if (!DOMAINSET_SUBSET(&domainset0.ds_mask, &domain->ds_mask))
+	if (!DOMAINSET_SUBSET(&domainset0->ds_mask, &domain->ds_mask))
 		return (NULL);
 	ndomain = uma_zalloc(domainset_zone, M_WAITOK | M_ZERO);
 	domainset_copy(domain, ndomain);
@@ -643,8 +645,7 @@ cpuset_testupdate(struct cpuset *set, cpuset_t *mask, int augment_mask)
 	if (set->cs_flags & CPU_SET_RDONLY)
 		return (EPERM);
 	if (augment_mask) {
-		CPU_COPY(&set->cs_mask, &newmask);
-		CPU_AND(&newmask, mask);
+		CPU_AND(&newmask, &set->cs_mask, mask);
 	} else
 		CPU_COPY(mask, &newmask);
 
@@ -666,7 +667,7 @@ cpuset_update(struct cpuset *set, cpuset_t *mask)
 	struct cpuset *nset;
 
 	mtx_assert(&cpuset_lock, MA_OWNED);
-	CPU_AND(&set->cs_mask, mask);
+	CPU_AND(&set->cs_mask, &set->cs_mask, mask);
 	LIST_FOREACH(nset, &set->cs_children, cs_siblings) 
 		cpuset_update(nset, &set->cs_mask);
 
@@ -1081,8 +1082,7 @@ cpuset_setproc_setthread_mask(struct cpuset *tdset, struct cpuset *set,
 	 * restriction to the new set, otherwise take it wholesale.
 	 */
 	if (CPU_CMP(&tdset->cs_mask, &parent->cs_mask) != 0) {
-		CPU_COPY(&tdset->cs_mask, mask);
-		CPU_AND(mask, &set->cs_mask);
+		CPU_AND(mask, &tdset->cs_mask, &set->cs_mask);
 	} else
 		CPU_COPY(&set->cs_mask, mask);
 
@@ -1151,8 +1151,7 @@ cpuset_setproc_newbase(struct thread *td, struct cpuset *set,
 	pbase = cpuset_getbase(td->td_cpuset);
 
 	/* Copy process mask, then further apply the new root mask. */
-	CPU_COPY(&pbase->cs_mask, &nmask);
-	CPU_AND(&nmask, &nroot->cs_mask);
+	CPU_AND(&nmask, &pbase->cs_mask, &nroot->cs_mask);
 
 	domainset_copy(pbase->cs_domain, &ndomain);
 	DOMAINSET_AND(&ndomain.ds_mask, &set->cs_domain->ds_mask);
@@ -1255,6 +1254,11 @@ cpuset_setproc(pid_t pid, struct cpuset *set, cpuset_t *mask,
 	 * as the parent, then we'll check if the process was previously using
 	 * the root set and, if it wasn't, create a new base with the process's
 	 * mask applied to it.
+	 *
+	 * If the new root is incompatible with the existing mask, then we allow
+	 * the process to take on the new root if and only if they have
+	 * privilege to widen their mask anyways.  Unprivileged processes get
+	 * rejected with EDEADLK.
 	 */
 	if (set != NULL && rebase && nroot != tdroot) {
 		cpusetid_t base_id, root_id;
@@ -1265,6 +1269,9 @@ cpuset_setproc(pid_t pid, struct cpuset *set, cpuset_t *mask,
 		if (base_id != root_id) {
 			error = cpuset_setproc_newbase(td, set, nroot, &base,
 			    &freelist, &domainlist);
+			if (error == EDEADLK &&
+			    priv_check(td, PRIV_SCHED_CPUSET) == 0)
+				error = 0;
 			if (error != 0)
 				goto unlock_out;
 		}
@@ -1524,6 +1531,18 @@ domainset_init(void)
 	struct domainset *dset;
 	int i;
 
+	dset = &domainset_firsttouch;
+	DOMAINSET_COPY(&all_domains, &dset->ds_mask);
+	dset->ds_policy = DOMAINSET_POLICY_FIRSTTOUCH;
+	dset->ds_prefer = -1;
+	_domainset_create(dset, NULL);
+
+	dset = &domainset_interleave;
+	DOMAINSET_COPY(&all_domains, &dset->ds_mask);
+	dset->ds_policy = DOMAINSET_POLICY_INTERLEAVE;
+	dset->ds_prefer = -1;
+	_domainset_create(dset, NULL);
+
 	dset = &domainset_roundrobin;
 	DOMAINSET_COPY(&all_domains, &dset->ds_mask);
 	dset->ds_policy = DOMAINSET_POLICY_ROUNDROBIN;
@@ -1546,7 +1565,7 @@ domainset_init(void)
 }
 
 /*
- * Create the domainset for cpuset 0, 1 and cpuset 2.
+ * Define the domainsets for cpuset 0, 1 and cpuset 2.
  */
 void
 domainset_zero(void)
@@ -1555,15 +1574,11 @@ domainset_zero(void)
 
 	mtx_init(&cpuset_lock, "cpuset", NULL, MTX_SPIN | MTX_RECURSE);
 
-	dset = &domainset0;
-	DOMAINSET_COPY(&all_domains, &dset->ds_mask);
-	dset->ds_policy = DOMAINSET_POLICY_FIRSTTOUCH;
-	dset->ds_prefer = -1;
-	curthread->td_domain.dr_policy = _domainset_create(dset, NULL);
+	domainset0 = &domainset_firsttouch;
+	curthread->td_domain.dr_policy = domainset0;
 
-	domainset_copy(dset, &domainset2);
-	domainset2.ds_policy = DOMAINSET_POLICY_INTERLEAVE;
-	kernel_object->domain.dr_policy = _domainset_create(&domainset2, NULL);
+	domainset2 = &domainset_interleave;
+	kernel_object->domain.dr_policy = domainset2;
 
 	/* Remove empty domains from the global policies. */
 	LIST_FOREACH_SAFE(dset, &cpuset_domains, ds_link, tmp)
@@ -1605,7 +1620,7 @@ cpuset_thread0(void)
 	LIST_INSERT_HEAD(&cpuset_ids, set, cs_link);
 	refcount_init(&set->cs_ref, 1);
 	set->cs_flags = CPU_SET_ROOT | CPU_SET_RDONLY;
-	set->cs_domain = &domainset0;
+	set->cs_domain = domainset0;
 	cpuset_zero = set;
 	cpuset_root = &set->cs_mask;
 
@@ -1622,7 +1637,7 @@ cpuset_thread0(void)
 	set = uma_zalloc(cpuset_zone, M_WAITOK | M_ZERO);
 	error = cpuset_init(set, cpuset_zero, NULL, NULL, 2);
 	KASSERT(error == 0, ("Error creating kernel set: %d\n", error));
-	set->cs_domain = &domainset2;
+	set->cs_domain = domainset2;
 	cpuset_kernel = set;
 
 	/*
@@ -1928,7 +1943,7 @@ kern_cpuset_getaffinity(struct thread *td, cpulevel_t level, cpuwhich_t which,
 		case CPU_WHICH_PID:
 			FOREACH_THREAD_IN_PROC(p, ttd) {
 				thread_lock(ttd);
-				CPU_OR(mask, &ttd->td_cpuset->cs_mask);
+				CPU_OR(mask, mask, &ttd->td_cpuset->cs_mask);
 				thread_unlock(ttd);
 			}
 			break;
@@ -2307,7 +2322,7 @@ kern_cpuset_setdomain(struct thread *td, cpulevel_t level, cpuwhich_t which,
 	 * across all domains.
 	 */
 	if (domainset_empty_vm(&domain))
-		domainset_copy(&domainset2, &domain);
+		domainset_copy(domainset2, &domain);
 
 	switch (level) {
 	case CPU_LEVEL_ROOT:

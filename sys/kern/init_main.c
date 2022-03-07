@@ -418,6 +418,7 @@ struct sysentvec null_sysvec = {
 	.sv_maxuser	= VM_MAXUSER_ADDRESS,
 	.sv_usrstack	= USRSTACK,
 	.sv_psstrings	= PS_STRINGS,
+	.sv_psstringssz	= sizeof(struct ps_strings),
 	.sv_stackprot	= VM_PROT_ALL,
 	.sv_copyout_strings	= NULL,
 	.sv_setregs	= NULL,
@@ -524,6 +525,7 @@ proc0_init(void *dummy __unused)
 	callout_init_mtx(&p->p_itcallout, &p->p_mtx, 0);
 	callout_init_mtx(&p->p_limco, &p->p_mtx, 0);
 	callout_init(&td->td_slpcallout, 1);
+	TAILQ_INIT(&p->p_kqtim_stop);
 
 	/* Create credentials. */
 	newcred = crget();
@@ -765,7 +767,7 @@ start_init(void *dummy)
 		 */
 		KASSERT((td->td_pflags & TDP_EXECVMSPC) == 0,
 		    ("nested execve"));
-		oldvmspace = td->td_proc->p_vmspace;
+		oldvmspace = p->p_vmspace;
 		error = kern_execve(td, &args, NULL, oldvmspace);
 		KASSERT(error != 0,
 		    ("kern_execve returned success, not EJUSTRETURN"));

@@ -33,12 +33,15 @@
 #include <sys/endian.h>
 #include <sys/stat.h>
 
+#include <ctype.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <gelf.h>
 #include <getopt.h>
 #include <libelf.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,11 +51,11 @@
 
 __FBSDID("$FreeBSD$");
 
-static bool convert_to_feature_val(char *, uint32_t *);
-static bool edit_file_features(Elf *, int, int, char *);
-static bool get_file_features(Elf *, int, int, uint32_t *, uint64_t *);
+static bool convert_to_feature_val(const char *, uint32_t *);
+static bool edit_file_features(Elf *, int, int, char *, bool);
+static bool get_file_features(Elf *, int, int, uint32_t *, uint64_t *, bool);
 static void print_features(void);
-static bool print_file_features(Elf *, int, int, char *);
+static bool print_file_features(Elf *, int, int, char *, bool);
 static void usage(void);
 
 struct ControlFeatures {
@@ -68,8 +71,6 @@ static struct ControlFeatures featurelist[] = {
 	{ "nostackgap",	NT_FREEBSD_FCTL_STKGAP_DISABLE, "Disable stack gap" },
 	{ "wxneeded",	NT_FREEBSD_FCTL_WXNEEDED, "Requires W+X mappings" },
 	{ "la48",	NT_FREEBSD_FCTL_LA48, "amd64: Limit user VA to 48bit" },
-	{ "noaslrstkgap", NT_FREEBSD_FCTL_ASG_DISABLE,
-	    "Disable ASLR stack gap" },
 };
 
 static struct option long_opts[] = {
@@ -78,9 +79,11 @@ static struct option long_opts[] = {
 };
 
 #if BYTE_ORDER == LITTLE_ENDIAN
-#define SUPPORTED_ENDIAN ELFDATA2LSB
+#define	HOST_ENDIAN	ELFDATA2LSB
+#define	SWAP_ENDIAN	ELFDATA2MSB
 #else
-#define SUPPORTED_ENDIAN ELFDATA2MSB
+#define	HOST_ENDIAN	ELFDATA2MSB
+#define	SWAP_ENDIAN	ELFDATA2LSB
 #endif
 
 static bool iflag;
@@ -93,7 +96,7 @@ main(int argc, char **argv)
 	Elf_Kind kind;
 	int ch, fd, retval;
 	char *features;
-	bool editfeatures, lflag;
+	bool editfeatures, lflag, endian_swap;
 
 	lflag = 0;
 	editfeatures = false;
@@ -113,6 +116,8 @@ main(int argc, char **argv)
 			lflag = true;
 			break;
 		case 'e':
+			if (features != NULL)
+				errx(1, "-e may be specified only once");
 			features = optarg;
 			editfeatures = true;
 			break;
@@ -162,24 +167,25 @@ main(int argc, char **argv)
 			retval = 1;
 			goto fail;
 		}
-		/*
-		 * XXX need to support cross-endian operation, but for now
-		 * exit on error rather than misbehaving.
-		 */
-		if (ehdr.e_ident[EI_DATA] != SUPPORTED_ENDIAN) {
-			warnx("file endianness must match host");
+
+		if (ehdr.e_ident[EI_DATA] == HOST_ENDIAN) {
+			endian_swap = false;
+		} else if (ehdr.e_ident[EI_DATA] == SWAP_ENDIAN) {
+			endian_swap = true;
+		} else {
+			warnx("file endianness unknown");
 			retval = 1;
 			goto fail;
 		}
 
 		if (!editfeatures) {
 			if (!print_file_features(elf, ehdr.e_phnum, fd,
-			    argv[0])) {
+			    argv[0], endian_swap)) {
 				retval = 1;
 				goto fail;
 			}
 		} else if (!edit_file_features(elf, ehdr.e_phnum, fd,
-		    features)) {
+		    features, endian_swap)) {
 			retval = 1;
 			goto fail;
 		}
@@ -216,9 +222,9 @@ usage(void)
 }
 
 static bool
-convert_to_feature_val(char *feature_str, uint32_t *feature_val)
+convert_to_feature_val(const char *feature_str, uint32_t *feature_val)
 {
-	char *feature;
+	char *feature, *feature_tmp;
 	int i, len;
 	uint32_t input;
 	char operation;
@@ -226,8 +232,14 @@ convert_to_feature_val(char *feature_str, uint32_t *feature_val)
 	input = 0;
 	operation = *feature_str;
 	feature_str++;
+
+	if (operation != '+' && operation != '-' && operation != '=')
+		errx(1, "'%c' not an operator - use '+', '-', '='", operation);
+
+	if ((feature_tmp = strdup(feature_str)) == NULL)
+		err(1, "strdup");
 	len = nitems(featurelist);
-	while ((feature = strsep(&feature_str, ",")) != NULL) {
+	while ((feature = strsep(&feature_tmp, ",")) != NULL) {
 		for (i = 0; i < len; ++i) {
 			if (strcmp(featurelist[i].alias, feature) == 0) {
 				input |= featurelist[i].value;
@@ -245,9 +257,29 @@ convert_to_feature_val(char *feature_str, uint32_t *feature_val)
 			}
 		}
 		if (i == len) {
-			warnx("%s is not a valid feature", feature);
-			if (!iflag)
-				return (false);
+			if (isdigit(feature[0])) {
+				char *eptr;
+				unsigned long long val;
+
+				errno = 0;
+				val = strtoll(feature, &eptr, 0);
+				if (eptr == feature || *eptr != '\0')
+					errno = EINVAL;
+				else if (val > UINT32_MAX)
+					errno = ERANGE;
+				if (errno != 0) {
+					warn("%s invalid", feature);
+					free(feature_tmp);
+					return (false);
+				}
+				input |= val;
+			} else {
+				warnx("%s is not a valid feature", feature);
+				if (!iflag) {
+					free(feature_tmp);
+					return (false);
+				}
+			}
 		}
 	}
 
@@ -257,27 +289,32 @@ convert_to_feature_val(char *feature_str, uint32_t *feature_val)
 		*feature_val = input;
 	} else if (operation == '-') {
 		*feature_val &= ~input;
-	} else {
-		warnx("'%c' not an operator - use '+', '-', '='",
-		    feature_str[0]);
-		return (false);
 	}
+	free(feature_tmp);
 	return (true);
 }
 
 static bool
-edit_file_features(Elf *elf, int phcount, int fd, char *val)
+edit_file_features(Elf *elf, int phcount, int fd, char *val, bool endian_swap)
 {
-	uint32_t features;
+	uint32_t features, prev_features;
 	uint64_t off;
 
-	if (!get_file_features(elf, phcount, fd, &features, &off)) {
+	if (!get_file_features(elf, phcount, fd, &features, &off,
+	    endian_swap)) {
 		warnx("NT_FREEBSD_FEATURE_CTL note not found");
 		return (false);
 	}
 
+	prev_features = features;
 	if (!convert_to_feature_val(val, &features))
 		return (false);
+	/* Avoid touching file if no change. */
+	if (features == prev_features)
+		return (true);
+
+	if (endian_swap)
+		features = bswap32(features);
 
 	if (lseek(fd, off, SEEK_SET) == -1 ||
 	    write(fd, &features, sizeof(features)) <
@@ -300,12 +337,14 @@ print_features(void)
 }
 
 static bool
-print_file_features(Elf *elf, int phcount, int fd, char *filename)
+print_file_features(Elf *elf, int phcount, int fd, char *filename,
+    bool endian_swap)
 {
 	uint32_t features;
 	unsigned long i;
 
-	if (!get_file_features(elf, phcount, fd, &features, NULL)) {
+	if (!get_file_features(elf, phcount, fd, &features, NULL,
+	    endian_swap)) {
 		return (false);
 	}
 
@@ -324,7 +363,7 @@ print_file_features(Elf *elf, int phcount, int fd, char *filename)
 
 static bool
 get_file_features(Elf *elf, int phcount, int fd, uint32_t *features,
-    uint64_t *off)
+    uint64_t *off, bool endian_swap)
 {
 	GElf_Phdr phdr;
 	Elf_Note note;
@@ -359,9 +398,15 @@ get_file_features(Elf *elf, int phcount, int fd, uint32_t *features,
 			}
 			read_total += sizeof(note);
 
+			if (endian_swap) {
+				note.n_namesz = bswap32(note.n_namesz);
+				note.n_descsz = bswap32(note.n_descsz);
+				note.n_type = bswap32(note.n_type);
+			}
+
 			/*
 			 * XXX: Name and descriptor are 4 byte aligned, however,
-			 * 	the size given doesn't include the padding.
+			 * the size given doesn't include the padding.
 			 */
 			namesz = roundup2(note.n_namesz, 4);
 			name = malloc(namesz);
@@ -400,7 +445,7 @@ get_file_features(Elf *elf, int phcount, int fd, uint32_t *features,
 
 			/*
 			 * XXX: For now we look at only 4 bytes of the
-			 * 	descriptor. This should respect descsz.
+			 * descriptor. This should respect descsz.
 			 */
 			if (note.n_descsz > sizeof(uint32_t))
 				warnx("Feature note is bigger than expected");
@@ -410,6 +455,8 @@ get_file_features(Elf *elf, int phcount, int fd, uint32_t *features,
 				free(name);
 				return (false);
 			}
+			if (endian_swap)
+				*features = bswap32(*features);
 			if (off != NULL)
 				*off = phdr.p_offset + read_total;
 			free(name);

@@ -93,6 +93,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libstdthreads \
 	libsysdecode \
 	libtacplus \
+	libthr \
 	libthread_db \
 	libucl \
 	libufs \
@@ -137,7 +138,7 @@ SUBDIR_DEPEND_libsmb= libkiconv
 SUBDIR_DEPEND_libtacplus= libmd
 SUBDIR_DEPEND_libulog= libmd
 SUBDIR_DEPEND_libunbound= ${_libldns}
-SUBDIR_DEPEND_liblzma= ${_libthr}
+SUBDIR_DEPEND_liblzma= libthr
 .if ${MK_OFED} != "no"
 SUBDIR_DEPEND_libpcap= ofed
 .endif
@@ -156,7 +157,10 @@ SUBDIR.${MK_BLUETOOTH}+=libbluetooth libsdp
 SUBDIR.${MK_BSNMP}+=	libbsnmp
 
 .if !defined(COMPAT_32BIT) && !defined(COMPAT_SOFTFP)
-SUBDIR.${MK_CLANG}+=	clang
+.if ${MK_CLANG} != "no" || ${MK_LLD} != "no" || \
+    ${MK_LLDB} != "no" || ${MK_LLVM_BINUTILS} != "no"
+SUBDIR+=	clang
+.endif
 .endif
 
 SUBDIR.${MK_CUSE}+= 	libcuse
@@ -171,10 +175,9 @@ SUBDIR.${MK_KERBEROS_SUPPORT}+=	libcom_err
 SUBDIR.${MK_LDNS}+=	libldns
 SUBDIR.${MK_STATS}+=	libstats
 
-# The libraries under libclang_rt can only be built by clang, and only make
-# sense to build when clang is enabled at all.  Furthermore, they can only be
-# built for certain architectures.
-.if ${MK_CLANG} != "no" && ${COMPILER_TYPE} == "clang" && \
+# The libraries under libclang_rt can only be built by clang and when we enable
+# C++ support.  Furthermore, they can only be built for certain architectures.
+.if ${COMPILER_TYPE} == "clang" && ${MK_CXX} != "no" && \
     (${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64" || \
     ${MACHINE_CPUARCH} == "arm" || ${MACHINE_CPUARCH} == "i386" || \
     ${MACHINE_CPUARCH} == "powerpc")
@@ -189,7 +192,6 @@ _libcplusplus+=	libc++experimental
 
 SUBDIR.${MK_EFI}+=	libefivar
 SUBDIR.${MK_GOOGLETEST}+=	googletest
-SUBDIR.${MK_LIBTHR}+=	libthr
 SUBDIR.${MK_NETGRAPH}+=	libnetgraph
 SUBDIR.${MK_NIS}+=	libypclnt
 
@@ -209,13 +211,16 @@ SUBDIR.${MK_BHYVE}+=	libvmmapi
 .if ${MACHINE_ARCH} != "powerpc"
 SUBDIR.${MK_OPENMP}+=	libomp
 .endif
+.if !defined(COMPAT_32BIT) && ${MK_USB} != "no"
+SUBDIR.${MK_OPENSSH}+=	libcbor libfido2
+.endif
 SUBDIR.${MK_OPENSSL}+=	libmp
+SUBDIR.${MK_PF}+=	libpfctl
 SUBDIR.${MK_PMC}+=	libpmc libpmcstat
 SUBDIR.${MK_RADIUS_SUPPORT}+=	libradius
 SUBDIR.${MK_SENDMAIL}+=	libmilter libsm libsmdb libsmutil
 SUBDIR.${MK_TELNET}+=	libtelnet
 SUBDIR.${MK_TESTS_SUPPORT}+=	atf
-SUBDIR.${MK_TESTS_SUPPORT}.${MK_CXX}+=	kyua
 SUBDIR.${MK_TESTS_SUPPORT}.${MK_CXX}+=	liblutok
 SUBDIR.${MK_TESTS}+=	tests
 SUBDIR.${MK_UNBOUND}+=	libunbound

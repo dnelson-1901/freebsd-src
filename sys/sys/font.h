@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2009, 2013 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Ed Schouten under sponsorship from the
  * FreeBSD Foundation.
@@ -107,7 +106,6 @@ struct fontlist {
 	STAILQ_ENTRY(fontlist)	font_next;
 };
 
-#define	BORDER_PIXELS	10	/* space from screen border */
 typedef STAILQ_HEAD(font_list, fontlist) font_list_t;
 
 #define	FONT_HEADER_MAGIC	"VFNT0002"

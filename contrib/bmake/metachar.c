@@ -1,6 +1,6 @@
-/*	$NetBSD: metachar.c,v 1.8 2020/10/30 19:14:20 rillig Exp $	*/
+/*	$NetBSD: metachar.c,v 1.10 2021/06/21 18:54:41 rillig Exp $	*/
 
-/*-
+/*
  * Copyright (c) 2015 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
@@ -39,7 +39,7 @@
 
 #include "metachar.h"
 
-MAKE_RCSID("$NetBSD: metachar.c,v 1.8 2020/10/30 19:14:20 rillig Exp $");
+MAKE_RCSID("$NetBSD: metachar.c,v 1.10 2021/06/21 18:54:41 rillig Exp $");
 
 /*
  * The following array is used to make a fast determination of which
@@ -48,7 +48,7 @@ MAKE_RCSID("$NetBSD: metachar.c,v 1.8 2020/10/30 19:14:20 rillig Exp $");
  * directly by us.
  */
 
-unsigned char _metachar[128] = {
+const unsigned char _metachar[128] = {
 /*    nul   soh   stx   etx   eot   enq   ack   bel */
 	1,    0,    0,    0,    0,    0,    0,    0,
 /*     bs    ht    nl    vt    np    cr    so    si */
@@ -82,4 +82,3 @@ unsigned char _metachar[128] = {
 /*      x     y     z     {     |     }     ~   del */
 	0,    0,    0,    1,    1,    1,    1,    0,
 };
-

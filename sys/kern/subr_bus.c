@@ -95,7 +95,7 @@ struct driverlink {
  */
 typedef TAILQ_HEAD(devclass_list, devclass) devclass_list_t;
 typedef TAILQ_HEAD(driver_list, driverlink) driver_list_t;
-typedef TAILQ_HEAD(device_list, device) device_list_t;
+typedef TAILQ_HEAD(device_list, _device) device_list_t;
 
 struct devclass {
 	TAILQ_ENTRY(devclass) link;
@@ -112,9 +112,12 @@ struct devclass {
 };
 
 /**
- * @brief Implementation of device.
+ * @brief Implementation of _device.
+ *
+ * The structure is named "_device" instead of "device" to avoid type confusion
+ * caused by other subsystems defining a (struct device).
  */
-struct device {
+struct _device {
 	/*
 	 * A device is a kernel object. The first field must be the
 	 * current ops table for the object.
@@ -124,8 +127,8 @@ struct device {
 	/*
 	 * Device hierarchy.
 	 */
-	TAILQ_ENTRY(device)	link;	/**< list of devices in parent */
-	TAILQ_ENTRY(device)	devlink; /**< global device list membership */
+	TAILQ_ENTRY(_device)	link;	/**< list of devices in parent */
+	TAILQ_ENTRY(_device)	devlink; /**< global device list membership */
 	device_t	parent;		/**< parent of this device  */
 	device_list_t	children;	/**< list of child devices */
 
@@ -243,7 +246,7 @@ devclass_sysctl_init(devclass_t dc)
 	    CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, "");
 	SYSCTL_ADD_PROC(&dc->sysctl_ctx, SYSCTL_CHILDREN(dc->sysctl_tree),
 	    OID_AUTO, "%parent",
-	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_NEEDGIANT,
+	    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE,
 	    dc, DEVCLASS_SYSCTL_PARENT, devclass_sysctl_handler, "A",
 	    "parent class");
 }
@@ -853,7 +856,7 @@ devctl_safe_quote_sb(struct sbuf *sb, const char *src)
 
 /* End of /dev/devctl code */
 
-static TAILQ_HEAD(,device)	bus_data_devices;
+static struct device_list bus_data_devices;
 static int bus_data_generation = 1;
 
 static kobj_method_t null_methods[] = {
@@ -1637,13 +1640,13 @@ devclass_alloc_unit(devclass_t dc, device_t dev, int *unitp)
 		/* Unwired device, find the next available slot for it */
 		unit = 0;
 		for (unit = 0;; unit++) {
+			/* If this device slot is already in use, skip it. */
+			if (unit < dc->maxunit && dc->devices[unit] != NULL)
+				continue;
+
 			/* If there is an "at" hint for a unit then skip it. */
 			if (resource_string_value(dc->name, unit, "at", &s) ==
 			    0)
-				continue;
-
-			/* If this device slot is already in use, skip it. */
-			if (unit < dc->maxunit && dc->devices[unit] != NULL)
 				continue;
 
 			break;
@@ -2073,6 +2076,7 @@ device_probe_child(device_t dev, device_t child)
 	driverlink_t best = NULL;
 	driverlink_t dl;
 	int result, pri = 0;
+	/* We should preserve the devclass (or lack of) set by the bus. */
 	int hasclass = (child->devclass != NULL);
 
 	GIANT_REQUIRED;
@@ -2082,10 +2086,9 @@ device_probe_child(device_t dev, device_t child)
 		panic("device_probe_child: parent device has no devclass");
 
 	/*
-	 * If the state is already probed, then return.  However, don't
-	 * return if we can rebid this object.
+	 * If the state is already probed, then return.
 	 */
-	if (child->state == DS_ALIVE && (child->flags & DF_REBID) == 0)
+	if (child->state == DS_ALIVE)
 		return (0);
 
 	for (; dc; dc = dc->parent) {
@@ -2125,11 +2128,6 @@ device_probe_child(device_t dev, device_t child)
 
 			result = DEVICE_PROBE(child);
 
-			/* Reset flags and devclass before the next probe. */
-			child->devflags = 0;
-			if (!hasclass)
-				(void)device_set_devclass(child, NULL);
-
 			/*
 			 * If the driver returns SUCCESS, there can be
 			 * no higher match for this device.
@@ -2139,6 +2137,11 @@ device_probe_child(device_t dev, device_t child)
 				pri = 0;
 				break;
 			}
+
+			/* Reset flags and devclass before the next probe. */
+			child->devflags = 0;
+			if (!hasclass)
+				(void)device_set_devclass(child, NULL);
 
 			/*
 			 * Reset DF_QUIET in case this driver doesn't
@@ -2184,62 +2187,43 @@ device_probe_child(device_t dev, device_t child)
 			break;
 	}
 
+	if (best == NULL)
+		return (ENXIO);
+
 	/*
 	 * If we found a driver, change state and initialise the devclass.
 	 */
-	/* XXX What happens if we rebid and got no best? */
-	if (best) {
-		/*
-		 * If this device was attached, and we were asked to
-		 * rescan, and it is a different driver, then we have
-		 * to detach the old driver and reattach this new one.
-		 * Note, we don't have to check for DF_REBID here
-		 * because if the state is > DS_ALIVE, we know it must
-		 * be.
-		 *
-		 * This assumes that all DF_REBID drivers can have
-		 * their probe routine called at any time and that
-		 * they are idempotent as well as completely benign in
-		 * normal operations.
-		 *
-		 * We also have to make sure that the detach
-		 * succeeded, otherwise we fail the operation (or
-		 * maybe it should just fail silently?  I'm torn).
-		 */
-		if (child->state > DS_ALIVE && best->driver != child->driver)
-			if ((result = device_detach(dev)) != 0)
-				return (result);
-
+	if (pri < 0) {
 		/* Set the winning driver, devclass, and flags. */
-		if (!child->devclass) {
-			result = device_set_devclass(child, best->driver->name);
-			if (result != 0)
-				return (result);
-		}
 		result = device_set_driver(child, best->driver);
 		if (result != 0)
 			return (result);
+		if (!child->devclass) {
+			result = device_set_devclass(child, best->driver->name);
+			if (result != 0) {
+				(void)device_set_driver(child, NULL);
+				return (result);
+			}
+		}
 		resource_int_value(best->driver->name, child->unit,
 		    "flags", &child->devflags);
 
-		if (pri < 0) {
-			/*
-			 * A bit bogus. Call the probe method again to make
-			 * sure that we have the right description.
-			 */
-			DEVICE_PROBE(child);
-#if 0
-			child->flags |= DF_REBID;
-#endif
-		} else
-			child->flags &= ~DF_REBID;
-		child->state = DS_ALIVE;
-
-		bus_data_generation_update();
-		return (0);
+		/*
+		 * A bit bogus. Call the probe method again to make sure
+		 * that we have the right description.
+		 */
+		result = DEVICE_PROBE(child);
+		if (result > 0) {
+			if (!hasclass)
+				(void)device_set_devclass(child, NULL);
+			(void)device_set_driver(child, NULL);
+			return (result);
+		}
 	}
 
-	return (ENXIO);
+	child->state = DS_ALIVE;
+	bus_data_generation_update();
+	return (0);
 }
 
 /**
@@ -2865,7 +2849,7 @@ device_probe(device_t dev)
 
 	GIANT_REQUIRED;
 
-	if (dev->state >= DS_ALIVE && (dev->flags & DF_REBID) == 0)
+	if (dev->state >= DS_ALIVE)
 		return (-1);
 
 	if (!(dev->flags & DF_ENABLED)) {
@@ -3089,6 +3073,8 @@ device_set_unit(device_t dev, int unit)
 	devclass_t dc;
 	int err;
 
+	if (unit == dev->unit)
+		return (0);
 	dc = device_get_devclass(dev);
 	if (unit < dc->maxunit && dc->devices[unit])
 		return (EBUSY);
@@ -3114,7 +3100,7 @@ resource_init_map_request_impl(struct resource_map_request *args, size_t sz)
 {
 	bzero(args, sz);
 	args->size = sz;
-	args->memattr = VM_MEMATTR_UNCACHEABLE;
+	args->memattr = VM_MEMATTR_DEVICE;
 }
 
 /**
@@ -4087,8 +4073,7 @@ bus_generic_driver_added(device_t dev, driver_t *driver)
 
 	DEVICE_IDENTIFY(driver, dev);
 	TAILQ_FOREACH(child, &dev->children, link) {
-		if (child->state == DS_NOTPRESENT ||
-		    (child->flags & DF_REBID))
+		if (child->state == DS_NOTPRESENT)
 			device_probe_and_attach(child);
 	}
 }
@@ -5314,7 +5299,7 @@ print_device_short(device_t dev, int indent)
 	if (!dev)
 		return;
 
-	indentprintf(("device %d: <%s> %sparent,%schildren,%s%s%s%s%s%s,%sivars,%ssoftc,busy=%d\n",
+	indentprintf(("device %d: <%s> %sparent,%schildren,%s%s%s%s%s,%sivars,%ssoftc,busy=%d\n",
 	    dev->unit, dev->desc,
 	    (dev->parent? "":"no "),
 	    (TAILQ_EMPTY(&dev->children)? "no ":""),
@@ -5322,7 +5307,6 @@ print_device_short(device_t dev, int indent)
 	    (dev->flags&DF_FIXEDCLASS? "fixed,":""),
 	    (dev->flags&DF_WILDCARD? "wildcard,":""),
 	    (dev->flags&DF_DESCMALLOCED? "descmalloced,":""),
-	    (dev->flags&DF_REBID? "rebiddable,":""),
 	    (dev->flags&DF_SUSPENDED? "suspended,":""),
 	    (dev->ivars? "":"no "),
 	    (dev->softc? "":"no "),
@@ -5724,7 +5708,7 @@ devctl2_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 	/* Perform the requested operation. */
 	switch (cmd) {
 	case DEV_ATTACH:
-		if (device_is_attached(dev) && (dev->flags & DF_REBID) == 0)
+		if (device_is_attached(dev))
 			error = EBUSY;
 		else if (!device_is_enabled(dev))
 			error = ENXIO;
@@ -5960,7 +5944,7 @@ devctl2_init(void)
  */
 static int obsolete_panic = 0;
 SYSCTL_INT(_debug, OID_AUTO, obsolete_panic, CTLFLAG_RWTUN, &obsolete_panic, 0,
-    "Panic when obsolete features are used (0 = never, 1 = if osbolete, "
+    "Panic when obsolete features are used (0 = never, 1 = if obsolete, "
     "2 = if deprecated)");
 
 static void

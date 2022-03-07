@@ -126,8 +126,6 @@ __DEFAULT_YES_OPTIONS = \
     LDNS_UTILS \
     LEGACY_CONSOLE \
     LIBCPLUSPLUS \
-    LIBPTHREAD \
-    LIBTHR \
     LLD \
     LLD_BOOTSTRAP \
     LLD_IS_LD \
@@ -142,10 +140,10 @@ __DEFAULT_YES_OPTIONS = \
     LOCATE \
     LPR \
     LS_COLORS \
-    LZMA_SUPPORT \
     MAIL \
     MAILWRAPPER \
     MAKE \
+    MALLOC_PRODUCTION \
     MLX5TOOL \
     NDIS \
     NETCAT \
@@ -176,7 +174,6 @@ __DEFAULT_YES_OPTIONS = \
     SOURCELESS_HOST \
     SOURCELESS_UCODE \
     STATS \
-    SVNLITE \
     SYSCONS \
     SYSTEM_COMPILER \
     SYSTEM_LINKER \
@@ -207,16 +204,17 @@ __DEFAULT_NO_OPTIONS = \
     HESIOD \
     LIBSOFT \
     LLVM_ASSERTIONS \
+    LLVM_BINUTILS \
     LOADER_FIREWIRE \
     LOADER_VERBOSE \
     LOADER_VERIEXEC_PASS_MANIFEST \
-    MALLOC_PRODUCTION \
     OFED_EXTRA \
     OPENLDAP \
     RPCBIND_WARMSTART_SUPPORT \
     SHARED_TOOLCHAIN \
     SORT_THREADS \
     SVN \
+    SVNLITE \
     ZONEINFO_LEAPSECONDS_SUPPORT \
 
 # LEFT/RIGHT. Left options which default to "yes" unless their corresponding
@@ -286,10 +284,7 @@ __DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF
 
 .include <bsd.compiler.mk>
 
-.if ${__T:Mriscv*} != ""
-BROKEN_OPTIONS+=OFED
-.endif
-.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386"
+.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || ${__T:Mpowerpc*}
 __DEFAULT_YES_OPTIONS+=LLDB
 .else
 __DEFAULT_NO_OPTIONS+=LLDB
@@ -332,6 +327,13 @@ BROKEN_OPTIONS+=LOADER_UBOOT
 BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
 .endif
 
+# Kernel TLS is enabled by default on amd64 and aarch64
+.if ${__T} == "aarch64" || ${__T} == "amd64"
+__DEFAULT_YES_OPTIONS+=OPENSSL_KTLS
+.else
+__DEFAULT_NO_OPTIONS+=OPENSSL_KTLS
+.endif
+
 .if ${__T:Mmips64*}
 # profiling won't work on MIPS64 because there is only assembly for o32
 BROKEN_OPTIONS+=PROFILE
@@ -354,18 +356,10 @@ BROKEN_OPTIONS+=NVME
 .endif
 
 .if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
-    ${__T:Mpowerpc64*} != ""
+    ${__T:Mpowerpc64*} != "" || ${__T:Mriscv64*} != ""
 __DEFAULT_YES_OPTIONS+=OPENMP
 .else
 __DEFAULT_NO_OPTIONS+=OPENMP
-.endif
-
-.if ${.MAKE.OS} != "FreeBSD"
-# Building the target compiler requires building tablegen on the host
-# which is (currently) not possible on non-FreeBSD.
-BROKEN_OPTIONS+=CLANG LLD LLDB
-# The same also applies to the bootstrap LLVM.
-BROKEN_OPTIONS+=CLANG_BOOTSTRAP LLD_BOOTSTRAP
 .endif
 
 .include <bsd.mkopt.mk>
@@ -376,10 +370,6 @@ BROKEN_OPTIONS+=CLANG_BOOTSTRAP LLD_BOOTSTRAP
 #
 .if ${MK_CAPSICUM} == "no"
 MK_CASPER:=	no
-.endif
-
-.if ${MK_LIBPTHREAD} == "no"
-MK_LIBTHR:=	no
 .endif
 
 .if ${MK_SOURCELESS} == "no"
@@ -403,6 +393,9 @@ MK_KERBEROS_SUPPORT:=	no
 .if ${MK_CXX} == "no"
 MK_CLANG:=	no
 MK_GOOGLETEST:=	no
+MK_OFED:=	no
+MK_OPENMP:=	no
+MK_PMC:=	no
 MK_TESTS:=	no
 .endif
 
@@ -432,12 +425,14 @@ MK_NLS_CATALOGS:= no
 .if ${MK_OPENSSL} == "no"
 MK_DMAGENT:=	no
 MK_OPENSSH:=	no
+MK_OPENSSL_KTLS:=	no
 MK_KERBEROS:=	no
 MK_KERBEROS_SUPPORT:=	no
 MK_LDNS:=	no
 MK_PKGBOOTSTRAP:=	no
 MK_SVN:=		no
 MK_SVNLITE:=		no
+MK_ZFS:=	no
 .endif
 
 .if ${MK_LDNS} == "no"
@@ -476,6 +471,7 @@ MK_CLANG:=	no
 MK_INCLUDES:=	no
 MK_LLD:=	no
 MK_LLDB:=	no
+MK_LLVM_BINUTILS:=	no
 .endif
 
 .if ${MK_CLANG} == "no"
@@ -483,6 +479,12 @@ MK_CLANG_EXTRAS:= no
 MK_CLANG_FORMAT:= no
 MK_CLANG_FULL:= no
 MK_LLVM_COV:= no
+.endif
+
+.if ${MK_LLVM_BINUTILS} == "yes"
+# MK_LLVM_CXXFILT is a subset of MK_LLVM_BINUTILS and should therefore be
+# enabled if MK_LLVM_BINUTILS is set.
+MK_LLVM_CXXFILT:=	yes
 .endif
 
 .if ${MK_LOADER_VERIEXEC} == "no"

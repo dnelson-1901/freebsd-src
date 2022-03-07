@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2020 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2021 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -186,9 +186,11 @@ int ssl3_get_record(SSL *s)
     size_t num_recs = 0, max_recs, j;
     PACKET pkt, sslv2pkt;
     size_t first_rec_len;
+    int is_ktls_left;
 
     rr = RECORD_LAYER_get_rrec(&s->rlayer);
     rbuf = RECORD_LAYER_get_rbuf(&s->rlayer);
+    is_ktls_left = (rbuf->left > 0);
     max_recs = s->max_pipelines;
     if (max_recs == 0)
         max_recs = 1;
@@ -207,8 +209,32 @@ int ssl3_get_record(SSL *s)
             rret = ssl3_read_n(s, SSL3_RT_HEADER_LENGTH,
                                SSL3_BUFFER_get_len(rbuf), 0,
                                num_recs == 0 ? 1 : 0, &n);
-            if (rret <= 0)
-                return rret;     /* error or non-blocking */
+            if (rret <= 0) {
+#ifndef OPENSSL_NO_KTLS
+                if (!BIO_get_ktls_recv(s->rbio) || rret == 0)
+                    return rret;     /* error or non-blocking */
+                switch (errno) {
+                case EBADMSG:
+                    SSLfatal(s, SSL_AD_BAD_RECORD_MAC,
+                             SSL_F_SSL3_GET_RECORD,
+                             SSL_R_DECRYPTION_FAILED_OR_BAD_RECORD_MAC);
+                    break;
+                case EMSGSIZE:
+                    SSLfatal(s, SSL_AD_RECORD_OVERFLOW,
+                             SSL_F_SSL3_GET_RECORD,
+                             SSL_R_PACKET_LENGTH_TOO_LONG);
+                    break;
+                case EINVAL:
+                    SSLfatal(s, SSL_AD_PROTOCOL_VERSION,
+                             SSL_F_SSL3_GET_RECORD,
+                             SSL_R_WRONG_VERSION_NUMBER);
+                    break;
+                default:
+                    break;
+                }
+#endif
+                return rret;
+            }
             RECORD_LAYER_set_rstate(&s->rlayer, SSL_ST_READ_BODY);
 
             p = RECORD_LAYER_get_packet(&s->rlayer);
@@ -386,7 +412,7 @@ int ssl3_get_record(SSL *s)
                 len -= SSL3_RT_MAX_COMPRESSED_OVERHEAD;
 #endif
 
-            if (thisrr->length > len) {
+            if (thisrr->length > len && !BIO_get_ktls_recv(s->rbio)) {
                 SSLfatal(s, SSL_AD_RECORD_OVERFLOW, SSL_F_SSL3_GET_RECORD,
                          SSL_R_ENCRYPTED_LENGTH_TOO_LONG);
                 return -1;
@@ -404,8 +430,9 @@ int ssl3_get_record(SSL *s)
         } else {
             more = thisrr->length;
         }
+
         if (more > 0) {
-            /* now s->packet_length == SSL3_RT_HEADER_LENGTH */
+            /* now s->rlayer.packet_length == SSL3_RT_HEADER_LENGTH */
 
             rret = ssl3_read_n(s, more, more, 1, 0, &n);
             if (rret <= 0)
@@ -416,9 +443,9 @@ int ssl3_get_record(SSL *s)
         RECORD_LAYER_set_rstate(&s->rlayer, SSL_ST_READ_HEADER);
 
         /*
-         * At this point, s->packet_length == SSL3_RT_HEADER_LENGTH
-         * + thisrr->length, or s->packet_length == SSL2_RT_HEADER_LENGTH
-         * + thisrr->length and we have that many bytes in s->packet
+         * At this point, s->rlayer.packet_length == SSL3_RT_HEADER_LENGTH
+         * + thisrr->length, or s->rlayer.packet_length == SSL2_RT_HEADER_LENGTH
+         * + thisrr->length and we have that many bytes in s->rlayer.packet
          */
         if (thisrr->rec_version == SSL2_VERSION) {
             thisrr->input =
@@ -429,11 +456,11 @@ int ssl3_get_record(SSL *s)
         }
 
         /*
-         * ok, we can now read from 's->packet' data into 'thisrr' thisrr->input
-         * points at thisrr->length bytes, which need to be copied into
-         * thisrr->data by either the decryption or by the decompression When
-         * the data is 'copied' into the thisrr->data buffer, thisrr->input will
-         * be pointed at the new buffer
+         * ok, we can now read from 's->rlayer.packet' data into 'thisrr'.
+         * thisrr->input points at thisrr->length bytes, which need to be copied
+         * into thisrr->data by either the decryption or by the decompression.
+         * When the data is 'copied' into the thisrr->data buffer,
+         * thisrr->input will be updated to point at the new buffer
          */
 
         /*
@@ -490,6 +517,13 @@ int ssl3_get_record(SSL *s)
 
         return 1;
     }
+
+    /*
+     * KTLS reads full records. If there is any data left,
+     * then it is from before enabling ktls
+     */
+    if (BIO_get_ktls_recv(s->rbio) && !is_ktls_left)
+        goto skip_decryption;
 
     /*
      * If in encrypt-then-mac mode calculate mac from encrypted record. All
@@ -678,6 +712,8 @@ int ssl3_get_record(SSL *s)
         return -1;
     }
 
+ skip_decryption:
+
     for (j = 0; j < num_recs; j++) {
         thisrr = &rr[j];
 
@@ -739,7 +775,7 @@ int ssl3_get_record(SSL *s)
             return -1;
         }
 
-        if (thisrr->length > SSL3_RT_MAX_PLAIN_LENGTH) {
+        if (thisrr->length > SSL3_RT_MAX_PLAIN_LENGTH && !BIO_get_ktls_recv(s->rbio)) {
             SSLfatal(s, SSL_AD_RECORD_OVERFLOW, SSL_F_SSL3_GET_RECORD,
                      SSL_R_DATA_LENGTH_TOO_LONG);
             return -1;
@@ -747,7 +783,8 @@ int ssl3_get_record(SSL *s)
 
         /* If received packet overflows current Max Fragment Length setting */
         if (s->session != NULL && USE_MAX_FRAGMENT_LENGTH_EXT(s->session)
-                && thisrr->length > GET_MAX_FRAGMENT_LENGTH(s->session)) {
+                && thisrr->length > GET_MAX_FRAGMENT_LENGTH(s->session)
+                && !BIO_get_ktls_recv(s->rbio)) {
             SSLfatal(s, SSL_AD_RECORD_OVERFLOW, SSL_F_SSL3_GET_RECORD,
                      SSL_R_DATA_LENGTH_TOO_LONG);
             return -1;
@@ -1039,7 +1076,7 @@ int tls1_enc(SSL *s, SSL3_RECORD *recs, size_t n_recs, int sending)
 
                 if (SSL_IS_DTLS(s)) {
                     /* DTLS does not support pipelining */
-                    unsigned char dtlsseq[9], *p = dtlsseq;
+                    unsigned char dtlsseq[8], *p = dtlsseq;
 
                     s2n(sending ? DTLS_RECORD_LAYER_get_w_epoch(&s->rlayer) :
                         DTLS_RECORD_LAYER_get_r_epoch(&s->rlayer), p);
@@ -1616,16 +1653,16 @@ int dtls1_process_record(SSL *s, DTLS1_BITMAP *bitmap)
     sess = s->session;
 
     /*
-     * At this point, s->packet_length == SSL3_RT_HEADER_LNGTH + rr->length,
-     * and we have that many bytes in s->packet
+     * At this point, s->rlayer.packet_length == SSL3_RT_HEADER_LNGTH + rr->length,
+     * and we have that many bytes in s->rlayer.packet
      */
     rr->input = &(RECORD_LAYER_get_packet(&s->rlayer)[DTLS1_RT_HEADER_LENGTH]);
 
     /*
-     * ok, we can now read from 's->packet' data into 'rr' rr->input points
-     * at rr->length bytes, which need to be copied into rr->data by either
-     * the decryption or by the decompression When the data is 'copied' into
-     * the rr->data buffer, rr->input will be pointed at the new buffer
+     * ok, we can now read from 's->rlayer.packet' data into 'rr'. rr->input
+     * points at rr->length bytes, which need to be copied into rr->data by
+     * either the decryption or by the decompression. When the data is 'copied'
+     * into the rr->data buffer, rr->input will be pointed at the new buffer
      */
 
     /*
@@ -1947,7 +1984,7 @@ int dtls1_get_record(SSL *s)
 
     if (rr->length >
         RECORD_LAYER_get_packet_length(&s->rlayer) - DTLS1_RT_HEADER_LENGTH) {
-        /* now s->packet_length == DTLS1_RT_HEADER_LENGTH */
+        /* now s->rlayer.packet_length == DTLS1_RT_HEADER_LENGTH */
         more = rr->length;
         rret = ssl3_read_n(s, more, more, 1, 1, &n);
         /* this packet contained a partial record, dump it */
@@ -1963,7 +2000,7 @@ int dtls1_get_record(SSL *s)
         }
 
         /*
-         * now n == rr->length, and s->packet_length ==
+         * now n == rr->length, and s->rlayer.packet_length ==
          * DTLS1_RT_HEADER_LENGTH + rr->length
          */
     }

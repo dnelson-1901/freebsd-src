@@ -1,4 +1,4 @@
-/* $NetBSD: lst.c,v 1.102 2020/12/30 10:03:16 rillig Exp $ */
+/* $NetBSD: lst.c,v 1.105 2021/03/15 16:45:30 rillig Exp $ */
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -34,7 +34,7 @@
 
 #include "make.h"
 
-MAKE_RCSID("$NetBSD: lst.c,v 1.102 2020/12/30 10:03:16 rillig Exp $");
+MAKE_RCSID("$NetBSD: lst.c,v 1.105 2021/03/15 16:45:30 rillig Exp $");
 
 static ListNode *
 LstNodeNew(ListNode *prev, ListNode *next, void *datum)
@@ -86,17 +86,6 @@ Lst_Free(List *list)
 {
 
 	Lst_Done(list);
-	free(list);
-}
-
-/*
- * Destroy a list and free all its resources. The freeProc is called with the
- * datum from each node in turn before the node is freed.
- */
-void
-Lst_Destroy(List *list, LstFreeProc freeProc)
-{
-	Lst_DoneCall(list, freeProc);
 	free(list);
 }
 
@@ -216,7 +205,7 @@ Lst_FindDatum(List *list, const void *datum)
 
 /*
  * Move all nodes from src to the end of dst.
- * The source list becomes empty but is not freed.
+ * The source list becomes indeterminate.
  */
 void
 Lst_MoveAll(List *dst, List *src)
@@ -230,6 +219,10 @@ Lst_MoveAll(List *dst, List *src)
 
 		dst->last = src->last;
 	}
+#ifdef CLEANUP
+	src->first = NULL;
+	src->last = NULL;
+#endif
 }
 
 /* Copy the element data from src to the start of dst. */
@@ -287,7 +280,7 @@ Vector_Push(Vector *v)
 }
 
 /*
- * Return the pointer to the last item in the vector.
+ * Remove the last item from the vector, return the pointer to it.
  * The returned data is valid until the next modifying operation.
  */
 void *

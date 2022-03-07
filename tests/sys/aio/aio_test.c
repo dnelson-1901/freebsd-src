@@ -734,6 +734,8 @@ aio_md_setup(void)
 	mdio.md_options = MD_AUTOUNIT | MD_COMPRESS;
 	mdio.md_mediasize = GLOBAL_MAX;
 	mdio.md_sectorsize = 512;
+	strlcpy(buf, __func__, sizeof(buf));
+	mdio.md_label = buf;
 
 	if (ioctl(mdctl_fd, MDIOCATTACH, &mdio) < 0) {
 		error = errno;
@@ -758,23 +760,26 @@ static void
 aio_md_cleanup(void)
 {
 	struct md_ioctl mdio;
-	int mdctl_fd, error, n, unit;
+	int mdctl_fd, n, unit;
 	char buf[80];
 
 	mdctl_fd = open("/dev/" MDCTL_NAME, O_RDWR, 0);
-	ATF_REQUIRE(mdctl_fd >= 0);
-	n = readlink(MDUNIT_LINK, buf, sizeof(buf));
+	if (mdctl_fd < 0) {
+		fprintf(stderr, "opening /dev/%s failed: %s\n", MDCTL_NAME,
+		    strerror(errno));
+		return;
+	}
+	n = readlink(MDUNIT_LINK, buf, sizeof(buf) - 1);
 	if (n > 0) {
+		buf[n] = '\0';
 		if (sscanf(buf, "%d", &unit) == 1 && unit >= 0) {
 			bzero(&mdio, sizeof(mdio));
 			mdio.md_version = MDIOVERSION;
 			mdio.md_unit = unit;
 			if (ioctl(mdctl_fd, MDIOCDETACH, &mdio) == -1) {
-				error = errno;
-				close(mdctl_fd);
-				errno = error;
-				atf_tc_fail("ioctl MDIOCDETACH failed: %s",
-				    strerror(errno));
+				fprintf(stderr,
+				    "ioctl MDIOCDETACH unit %d failed: %s\n",
+				    unit, strerror(errno));
 			}
 		}
 	}
@@ -919,13 +924,6 @@ aio_zvol_setup(void)
 		ZVOL_SIZE " %s", zvol_name);
 	ATF_REQUIRE_EQ_MSG(0, system(cmd),
 	    "zfs create failed: %s", strerror(errno));
-	/*
-	 * XXX Due to bug 251828, we need an extra "zfs set" here
-	 * https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=251828
-	 */
-	snprintf(cmd, sizeof(cmd), "zfs set volmode=dev %s", zvol_name);
-	ATF_REQUIRE_EQ_MSG(0, system(cmd),
-	    "zfs set failed: %s", strerror(errno));
 
 	snprintf(devname, sizeof(devname), "/dev/zvol/%s", zvol_name);
 	do {
@@ -1668,6 +1666,9 @@ ATF_TC_BODY(vectored_unaligned, tc)
 	ssize_t len, total_len;
 	int fd;
 
+	if (atf_tc_get_config_var_as_bool_wd(tc, "ci", false))
+		atf_tc_skip("https://bugs.freebsd.org/258766");
+
 	ATF_REQUIRE_KERNEL_MODULE("aio");
 	ATF_REQUIRE_UNSAFE_AIO();
 
@@ -1757,6 +1758,8 @@ ATF_TC_HEAD(vectored_zvol_poll, tc)
 }
 ATF_TC_BODY(vectored_zvol_poll, tc)
 {
+	if (atf_tc_get_config_var_as_bool_wd(tc, "ci", false))
+		atf_tc_skip("https://bugs.freebsd.org/258766");
 	aio_zvol_test(poll, NULL, true);
 }
 ATF_TC_CLEANUP(vectored_zvol_poll, tc)

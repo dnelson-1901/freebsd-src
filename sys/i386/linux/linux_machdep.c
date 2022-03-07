@@ -314,7 +314,7 @@ linux_set_cloned_tls(struct thread *td, void *desc)
 }
 
 int
-linux_set_upcall_kse(struct thread *td, register_t stack)
+linux_set_upcall(struct thread *td, register_t stack)
 {
 
 	if (stack)
@@ -504,24 +504,6 @@ linux_sigsuspend(struct thread *td, struct linux_sigsuspend_args *args)
 	LINUX_SIGEMPTYSET(mask);
 	mask.__mask = args->mask;
 	linux_to_bsd_sigset(&mask, &sigmask);
-	return (kern_sigsuspend(td, sigmask));
-}
-
-int
-linux_rt_sigsuspend(struct thread *td, struct linux_rt_sigsuspend_args *uap)
-{
-	l_sigset_t lmask;
-	sigset_t sigmask;
-	int error;
-
-	if (uap->sigsetsize != sizeof(l_sigset_t))
-		return (EINVAL);
-
-	error = copyin(uap->newset, &lmask, sizeof(l_sigset_t));
-	if (error)
-		return (error);
-
-	linux_to_bsd_sigset(&lmask, &sigmask);
 	return (kern_sigsuspend(td, sigmask));
 }
 

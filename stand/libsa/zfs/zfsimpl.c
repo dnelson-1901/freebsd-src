@@ -47,11 +47,15 @@ extern int zstd_init(void);
 #endif
 
 struct zfsmount {
-	const spa_t	*spa;
-	objset_phys_t	objset;
-	uint64_t	rootobj;
+	char			*path;
+	const spa_t		*spa;
+	objset_phys_t		objset;
+	uint64_t		rootobj;
+	STAILQ_ENTRY(zfsmount)	next;
 };
-static struct zfsmount zfsmount __unused;
+
+typedef STAILQ_HEAD(zfs_mnt_list, zfsmount) zfs_mnt_list_t;
+static zfs_mnt_list_t zfsmount = STAILQ_HEAD_INITIALIZER(zfsmount);
 
 /*
  * The indirect_child_t represents the vdev that we will read from, when we
@@ -191,8 +195,16 @@ nvlist_check_features_for_read(nvlist_t *nvl)
 
 	rc = nvlist_find(nvl, ZPOOL_CONFIG_FEATURES_FOR_READ,
 	    DATA_TYPE_NVLIST, NULL, &features, NULL);
-	if (rc != 0)
-		return (rc);
+	switch (rc) {
+	case 0:
+		break;		/* Continue with checks */
+
+	case ENOENT:
+		return (0);	/* All features are disabled */
+
+	default:
+		return (rc);	/* Error while reading nvlist */
+	}
 
 	data = (nvs_data_t *)features->nv_data;
 	nvp = &data->nvl_pair;	/* first pair in nvlist */
@@ -3313,7 +3325,7 @@ zfs_get_root(const spa_t *spa, uint64_t *objid)
 }
 
 static int
-zfs_mount(const spa_t *spa, uint64_t rootobj, struct zfsmount *mount)
+zfs_mount_impl(const spa_t *spa, uint64_t rootobj, struct zfsmount *mount)
 {
 
 	mount->spa = spa;

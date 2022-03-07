@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# Copyright (c) 2018-2020 Gavin D. Howard and contributors.
+# Copyright (c) 2018-2021 Gavin D. Howard and contributors.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -27,18 +27,29 @@
 # POSSIBILITY OF SUCH DAMAGE.
 #
 
-set -e
-
 script="$0"
 testdir=$(dirname "$script")
 
-. "$testdir/../functions.sh"
+. "$testdir/../scripts/functions.sh"
 
+# We need to figure out if we should run stuff in parallel.
+pll=1
+
+while getopts "n" opt; do
+
+	case "$opt" in
+		n) pll=0 ; shift ; set -e ;;
+		?) usage "Invalid option: $opt" ;;
+	esac
+
+done
+
+# Command-line processing.
 if [ "$#" -ge 1 ]; then
 	d="$1"
 	shift
 else
-	err_exit "usage: $script dir [run_extra_tests] [run_stack_tests] [gen_tests] [time_tests] [exec args...]" 1
+	err_exit "usage: $script [-n] dir [run_extra_tests] [run_stack_tests] [gen_tests] [time_tests] [exec args...]" 1
 fi
 
 if [ "$#" -lt 1 ]; then
@@ -79,224 +90,122 @@ fi
 stars="***********************************************************************"
 printf '%s\n' "$stars"
 
+# Set stuff for the correct calculator.
 if [ "$d" = "bc" ]; then
 	halt="quit"
 else
 	halt="q"
 fi
 
+# I use these, so unset them to make the tests work.
 unset BC_ENV_ARGS
 unset BC_LINE_LENGTH
 unset DC_ENV_ARGS
 unset DC_LINE_LENGTH
 
+# Get the list of tests that require extra math.
+extra_required=$(cat "$testdir/extra_required.txt")
+
+pids=""
+
 printf '\nRunning %s tests...\n\n' "$d"
 
+# Run the tests one at a time.
 while read t; do
 
-	if [ "$extra" -eq 0  ]; then
-		if [ "$t" = "trunc" ] || [ "$t" = "places" ] || [ "$t" = "shift" ] || \
-		   [ "$t" = "lib2" ] || [ "$t" = "scientific" ] || [ "$t" = "rand" ] || \
-		   [ "$t" = "engineering" ]
-		then
+	# If it requires extra, then skip if we don't have it.
+	if [ "$extra" -eq 0 ]; then
+		if [ -z "${extra_required##*$t*}" ]; then
 			printf 'Skipping %s %s\n' "$d" "$t"
 			continue
 		fi
 	fi
 
-	sh "$testdir/test.sh" "$d" "$t" "$generate_tests" "$time_tests" "$exe" "$@"
+	if [ "$pll" -ne 0 ]; then
+		sh "$testdir/test.sh" "$d" "$t" "$generate_tests" "$time_tests" "$exe" "$@" &
+		pids="$pids $!"
+	else
+		sh "$testdir/test.sh" "$d" "$t" "$generate_tests" "$time_tests" "$exe" "$@"
+	fi
 
 done < "$testdir/$d/all.txt"
 
-sh "$testdir/stdin.sh" "$d" "$exe" "$@"
-
-sh "$testdir/scripts.sh" "$d" "$extra" "$run_stack_tests" "$generate_tests" "$time_tests" "$exe" "$@"
-sh "$testdir/read.sh" "$d" "$exe" "$@"
-sh "$testdir/errors.sh" "$d" "$exe" "$@"
-
-num=100000000000000000000000000000000000000000000000000000000000000000000000000000
-numres="$num"
-num70="10000000000000000000000000000000000000000000000000000000000000000000\\
-0000000000"
-
-if [ "$d" = "bc" ]; then
-	halt="halt"
-	opt="x"
-	lopt="extended-register"
-	line_var="BC_LINE_LENGTH"
+# stdin tests.
+if [ "$pll" -ne 0 ]; then
+	sh "$testdir/stdin.sh" "$d" "$exe" "$@" &
+	pids="$pids $!"
 else
-	halt="q"
-	opt="l"
-	lopt="mathlib"
-	line_var="DC_LINE_LENGTH"
-	num="$num pR"
+	sh "$testdir/stdin.sh" "$d" "$exe" "$@"
 fi
 
-printf '\nRunning %s quit test...' "$d"
-
-printf '%s\n' "$halt" | "$exe" "$@" > /dev/null 2>&1
-
-if [ "$d" = bc ]; then
-	printf '%s\n' "quit" | "$exe" "$@" > /dev/null 2>&1
-	two=$("$exe" "$@" -e 1+1 -e quit)
-	if [ "$two" != "2" ]; then
-		err_exit "$d failed a quit test" 1
-	fi
-fi
-
-printf 'pass\n'
-
-base=$(basename "$exe")
-
-if [ "$base" != "bc" -a "$base" != "dc" ]; then
-	exit 0
-fi
-
-printf 'Running %s environment var tests...' "$d"
-
-if [ "$d" = "bc" ]; then
-	export BC_ENV_ARGS=" '-l' '' -q"
-	export BC_EXPR_EXIT="1"
-	printf 's(.02893)\n' | "$exe" "$@" > /dev/null
-	"$exe" -e 4 "$@" > /dev/null
+# Script tests.
+if [ "$pll" -ne 0 ]; then
+	sh "$testdir/scripts.sh" "$d" "$extra" "$run_stack_tests" "$generate_tests" \
+		"$time_tests" "$exe" "$@" &
+	pids="$pids $!"
 else
-	export DC_ENV_ARGS="'-x'"
-	export DC_EXPR_EXIT="1"
-	printf '4s stuff\n' | "$exe" "$@" > /dev/null
-	"$exe" -e 4pR "$@" > /dev/null
+	sh "$testdir/scripts.sh" -n "$d" "$extra" "$run_stack_tests" "$generate_tests" \
+		"$time_tests" "$exe" "$@"
 fi
 
-printf 'pass\n'
-
-out1="$testdir/../.log_$d.txt"
-out2="$testdir/../.log_${d}_test.txt"
-
-printf 'Running %s line length tests...' "$d"
-
-printf '%s\n' "$numres" > "$out1"
-
-export "$line_var"=80
-printf '%s\n' "$num" | "$exe" "$@" > "$out2"
-
-diff "$out1" "$out2"
-
-printf '%s\n' "$num70" > "$out1"
-
-export "$line_var"=2147483647
-printf '%s\n' "$num" | "$exe" "$@" > "$out2"
-
-diff "$out1" "$out2"
-
-printf 'pass\n'
-
-printf 'Running %s arg tests...' "$d"
-
-f="$testdir/$d/add.txt"
-exprs=$(cat "$f")
-results=$(cat "$testdir/$d/add_results.txt")
-
-printf '%s\n%s\n%s\n%s\n' "$results" "$results" "$results" "$results" > "$out1"
-
-"$exe" "$@" -e "$exprs" -f "$f" --expression "$exprs" --file "$f" -e "$halt" > "$out2"
-
-diff "$out1" "$out2"
-
-printf '%s\n' "$halt" | "$exe" "$@" -- "$f" "$f" "$f" "$f" > "$out2"
-
-diff "$out1" "$out2"
-
-if [ "$d" = "bc" ]; then
-	printf '%s\n' "$halt" | "$exe" "$@" -i > /dev/null 2>&1
+# Read tests.
+if [ "$pll" -ne 0 ]; then
+	sh "$testdir/read.sh" "$d" "$exe" "$@" &
+	pids="$pids $!"
+else
+	sh "$testdir/read.sh" "$d" "$exe" "$@"
 fi
 
-printf '%s\n' "$halt" | "$exe" "$@" -h > /dev/null
-printf '%s\n' "$halt" | "$exe" "$@" -P > /dev/null
-printf '%s\n' "$halt" | "$exe" "$@" -v > /dev/null
-printf '%s\n' "$halt" | "$exe" "$@" -V > /dev/null
+# Error tests.
+if [ "$pll" -ne 0 ]; then
+	sh "$testdir/errors.sh" "$d" "$exe" "$@" &
+	pids="$pids $!"
+else
+	sh "$testdir/errors.sh" "$d" "$exe" "$@"
+fi
 
-set +e
+# Test all the files in the errors directory. While the other error test (in
+# tests/errors.sh) does a test for every line, this does one test per file, but
+# it runs the file through stdin and as a file on the command-line.
+for testfile in $testdir/$d/errors/*.txt; do
 
-"$exe" "$@" -f "saotehasotnehasthistohntnsahxstnhalcrgxgrlpyasxtsaosysxsatnhoy.txt" > /dev/null 2> "$out2"
-err="$?"
+	b=$(basename "$testfile")
 
-checktest "$d" "$err" "invalid file argument" "$out2" "$d"
-
-"$exe" "$@" "-$opt" -e "$exprs" > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "invalid option argument" "$out2" "$d"
-
-"$exe" "$@" "--$lopt" -e "$exprs" > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "invalid long option argument" "$out2" "$d"
-
-"$exe" "$@" "-u" -e "$exprs" > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "unrecognized option argument" "$out2" "$d"
-
-"$exe" "$@" "--uniform" -e "$exprs" > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "unrecognized long option argument" "$out2" "$d"
-
-"$exe" "$@" -f > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "missing required argument to short option" "$out2" "$d"
-
-"$exe" "$@" --file > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "missing required argument to long option" "$out2" "$d"
-
-"$exe" "$@" --version=5 > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "given argument to long option with no argument" "$out2" "$d"
-
-printf 'pass\n'
-
-printf 'Running %s directory test...' "$d"
-
-"$exe" "$@" "$testdir" > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "directory" "$out2" "$d"
-
-printf 'pass\n'
-
-printf 'Running %s binary file test...' "$d"
-
-bin="/bin/sh"
-
-"$exe" "$@" "$bin" > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "binary file" "$out2" "$d"
-
-printf 'pass\n'
-
-printf 'Running %s binary stdin test...' "$d"
-
-cat "$bin" | "$exe" "$@" > /dev/null 2> "$out2"
-err="$?"
-
-checktest "$d" "$err" "binary stdin" "$out2" "$d"
-
-printf 'pass\n'
-
-if [ "$d" = "bc" ]; then
-
-	printf 'Running %s limits tests...' "$d"
-	printf 'limits\n' | "$exe" "$@" > "$out2" /dev/null 2>&1
-
-	if [ ! -s "$out2" ]; then
-		err_exit "$d did not produce output on the limits test" 1
+	if [ "$pll" -ne 0 ]; then
+		sh "$testdir/error.sh" "$d" "$b" "$@" &
+		pids="$pids $!"
+	else
+		sh "$testdir/error.sh" "$d" "$b" "$@"
 	fi
 
-	printf 'pass\n'
+done
+
+# Other tests.
+if [ "$pll" -ne 0 ]; then
+	sh "$testdir/other.sh" "$d" "$extra" "$exe" "$@" &
+	pids="$pids $!"
+else
+	sh "$testdir/other.sh" "$d" "$extra" "$exe" "$@"
+fi
+
+if [ "$pll" -ne 0 ]; then
+
+	exit_err=0
+
+	for p in $pids; do
+
+		wait "$p"
+		err="$?"
+
+		if [ "$err" -ne 0 ]; then
+			printf 'A test failed!\n'
+			exit_err=1
+		fi
+	done
+
+	if [ "$exit_err" -ne 0 ]; then
+		exit 1
+	fi
 
 fi
 

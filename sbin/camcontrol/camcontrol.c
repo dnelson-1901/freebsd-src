@@ -5520,9 +5520,14 @@ get_device_type(struct cam_device *dev, int retry_count, int timeout,
 		 * For a retry count of -1, used only the cached data to avoid
 		 * I/O to the drive. Sending the identify command to the drive
 		 * can cause issues for SATL attachaed drives since identify is
-		 * not an NCQ command.
+		 * not an NCQ command. We check for the strings that windows
+		 * displays since those will not be NULs (they are supposed
+		 * to be space padded). We could check other bits, but anything
+		 * non-zero implies SATL.
 		 */
-		if (cgd.ident_data.config != 0)
+		if (cgd.ident_data.serial[0] != 0 ||
+		    cgd.ident_data.revision[0] != 0 ||
+		    cgd.ident_data.model[0] != 0)
 			*devtype = CC_DT_SATL;
 		else
 			*devtype = CC_DT_SCSI;
@@ -8165,6 +8170,8 @@ mmcsdcmd(struct cam_device *device, int argc, char **argv, char *combinedopt,
 			break;
 		default:
 			printf("No command-specific decoder for CMD %d\n", mmc_opcode);
+			if (mmc_data_len > 0)
+				hexdump(mmc_data, mmc_data_len, NULL, 0);
 		}
 	}
 mmccmd_bailout:
@@ -9235,31 +9242,31 @@ atapm_proc_resp(struct cam_device *device, union ccb *ccb)
 
 	printf("%s%d: ", device->device_name, device->dev_unit_num);
 	switch (count) {
-	case 0x00:
+	case ATA_PM_STANDBY:
 		printf("Standby mode\n");
 		break;
-	case 0x01:
+	case ATA_PM_STANDBY_Y:
 		printf("Standby_y mode\n");
 		break;
-	case 0x40:
+	case 0x40:	/* obsolete since ACS-3 */
 		printf("NV Cache Power Mode and the spindle is spun down or spinning down\n");
 		break;
-	case 0x41:
+	case 0x41:	/* obsolete since ACS-3 */
 		printf("NV Cache Power Mode and the spindle is spun up or spinning up\n");
 		break;
-	case 0x80:
+	case ATA_PM_IDLE:
 		printf("Idle mode\n");
 		break;
-	case 0x81:
+	case ATA_PM_IDLE_A:
 		printf("Idle_a mode\n");
 		break;
-	case 0x82:
+	case ATA_PM_IDLE_B:
 		printf("Idle_b mode\n");
 		break;
-	case 0x83:
+	case ATA_PM_IDLE_C:
 		printf("Idle_c mode\n");
 		break;
-	case 0xff:
+	case ATA_PM_ACTIVE_IDLE:
 		printf("Active or Idle mode\n");
 		break;
 	default:

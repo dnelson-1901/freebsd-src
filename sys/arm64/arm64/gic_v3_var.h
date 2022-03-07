@@ -1,6 +1,5 @@
 /*-
  * Copyright (c) 2015 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Semihalf under
  * the sponsorship of the FreeBSD Foundation.
@@ -67,6 +66,11 @@ struct gic_v3_softc {
 	struct resource *	gic_dist;
 	/* Re-Distributors */
 	struct gic_redists	gic_redists;
+
+	/* Message Based Interrupts */
+	u_int			gic_mbi_start;
+	u_int			gic_mbi_end;
+	struct mtx		gic_mbi_mtx;
 
 	uint32_t		gic_pidr2;
 	u_int			gic_bus;

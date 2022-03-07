@@ -236,8 +236,8 @@ EXPORT_SYMS?=	NO
 CLEANFILES+=	export_syms
 .endif
 
-.if exists(${SYSDIR}/conf/ldscript.kmod.${MACHINE_ARCH})
-LDSCRIPT_FLAGS?= -T ${SYSDIR}/conf/ldscript.kmod.${MACHINE_ARCH}
+.if exists(${SYSDIR}/conf/ldscript.kmod.${MACHINE})
+LDSCRIPT_FLAGS?= -T ${SYSDIR}/conf/ldscript.kmod.${MACHINE}
 .endif
 
 .if ${__KLD_SHARED} == yes
@@ -309,7 +309,7 @@ ${_ILINKS}:
 	*) \
 		path=${SYSDIR}/${.TARGET:T}/include ;; \
 	esac ; \
-	path=`(cd $$path && /bin/pwd)` ; \
+	path=`realpath $$path`; \
 	${ECHO} ${.TARGET:T} "->" $$path ; \
 	ln -fns $$path ${.TARGET:T}
 

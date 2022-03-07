@@ -865,7 +865,9 @@ do_decomp(size_t uv, uchar_t *u8s, uchar_t *s, int sz,
 		start_id = u8_decomp_b4_16bit_tbl[uv][b3_tbl][b4];
 		end_id = u8_decomp_b4_16bit_tbl[uv][b3_tbl][b4 + 1];
 	} else {
+		// cppcheck-suppress arrayIndexOutOfBoundsCond
 		start_id = u8_decomp_b4_tbl[uv][b3_tbl][b4];
+		// cppcheck-suppress arrayIndexOutOfBoundsCond
 		end_id = u8_decomp_b4_tbl[uv][b3_tbl][b4 + 1];
 	}
 
@@ -884,7 +886,7 @@ do_decomp(size_t uv, uchar_t *u8s, uchar_t *s, int sz,
 	 *	| B0| B1| ... | Bm|
 	 *	+---+---+-...-+---+
 	 *
-	 *	The first byte, B0, is always less then 0xF5 (U8_DECOMP_BOTH).
+	 *	The first byte, B0, is always less than 0xF5 (U8_DECOMP_BOTH).
 	 *
 	 * (2) Canonical decomposition mappings:
 	 *
@@ -1012,7 +1014,9 @@ find_composition_start(size_t uv, uchar_t *s, size_t sz)
 		start_id = u8_composition_b4_16bit_tbl[uv][b3_tbl][b4];
 		end_id = u8_composition_b4_16bit_tbl[uv][b3_tbl][b4 + 1];
 	} else {
+		// cppcheck-suppress arrayIndexOutOfBoundsCond
 		start_id = u8_composition_b4_tbl[uv][b3_tbl][b4];
+		// cppcheck-suppress arrayIndexOutOfBoundsCond
 		end_id = u8_composition_b4_tbl[uv][b3_tbl][b4 + 1];
 	}
 
