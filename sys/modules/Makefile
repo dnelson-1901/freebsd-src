@@ -108,6 +108,7 @@ SUBDIR=	\
 	${_dpdk_lpm6} \
 	${_dpms} \
 	dummynet \
+	${_dwwdt} \
 	${_efirt} \
 	${_em} \
 	${_ena} \
@@ -375,7 +376,7 @@ SUBDIR=	\
 	unionfs \
 	usb \
 	${_vesa} \
-	${_virtio} \
+	virtio \
 	vge \
 	${_viawd} \
 	videomode \
@@ -611,6 +612,7 @@ _cxgb=		cxgb
 .if ${MACHINE_CPUARCH} == "aarch64"
 _allwinner=	allwinner
 _armv8crypto=	armv8crypto
+_dwwdt=		dwwdt
 _em=		em
 _rockchip=	rockchip
 .endif
@@ -720,7 +722,6 @@ _tpm=		tpm
 _twa=		twa
 _vesa=		vesa
 _viawd=		viawd
-_virtio=	virtio
 _wpi=		wpi
 .if ${MK_SOURCELESS_UCODE} != "no"
 _wpifw=		wpifw
@@ -792,7 +793,6 @@ _ffec=		ffec
 _nvd=		nvd
 _nvme=		nvme
 _pccard=	pccard
-_virtio=	virtio
 .endif
 
 .if ${MACHINE_ARCH:Mpowerpc64*} != ""
