@@ -276,8 +276,12 @@ fi
 if [ -n "$hg_cmd" ] ; then
 	hg=$($hg_cmd id 2>/dev/null)
 	hgsvn=$($hg_cmd id --template "{svnrev}" -r 'max(::. & fromsvn())' 2>/dev/null)
+	hggit=$($hg_cmd id --template "{gitnode|short}" -r 'max(::. & fromgit() - draft())' 2>/dev/null)
 	if [ -n "$hgsvn" ] ; then
 		svn=" r${hgsvn}"
+	fi
+	if [ -n "$hggit" ] ; then
+		git=" g${hggit}"
 	fi
 	if [ -n "$hg" ] ; then
 		hg=" ${hg}"
