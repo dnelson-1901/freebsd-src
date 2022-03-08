@@ -3,7 +3,8 @@
 # Taken from FreeBSD svn [base]/user/edwin/locale/cldr
 #
 # needs:
-# devel/p5-Tie-IxHash
+#
+# openjdk8 apache-ant p5-XML-Parser p5-Tie-IxHash p5-Text-Iconv
 #
 # Modified by John Marino to suit DragonFly needs
 #
@@ -134,7 +135,7 @@ ${UNIDIR}:
 	mkdir -p ${UNIDIR}
 .for N in CORE KEY TOOLS UCD
 ${CLDRFILES_${N}:T}:
-	fetch ${CLDRFILES_${N}}
+	fetch -m ${CLDRFILES_${N}}
 fetch: ${CLDRFILES_${N}:T}
 extract-${CLDRFILES_${N}:T}:: ${CLDRFILES_${N}:T} ${UNIDIR}
 	cd ${UNIDIR} && unzip -o ../${CLDRFILES_${N}:T}
@@ -142,9 +143,9 @@ extract: extract-${CLDRFILES_${N}:T}
 .endfor
 	echo ${CLDRVERSION} > ${UNIDIR}/cldr-version
 patch::
-.if exists(${PATCHDIR})
-	cd ${UNIDIR} && cat ${PATCHDIR}/patch-* | patch
-.endif
+#.if exists(${PATCHDIR})
+#	cd ${UNIDIR} && cat ${PATCHDIR}/patch-* | patch
+#.endif
 
 JAVA_CLDR= java -DCLDR_DIR=${UNIDIR:Q} -jar ${.OBJDIR:tA}//${CLDRFILES_TOOLS:T}
 
