@@ -1469,8 +1469,11 @@ int computeHostNumPhysicalCores() {
 // Defined in llvm/lib/Support/Windows/Threading.inc
 int computeHostNumPhysicalCores();
 #else
-// On other systems, return -1 to indicate unknown.
-static int computeHostNumPhysicalCores() { return -1; }
+// On other systems, use hardware_concurrency.
+#include <thread>
+static int computeHostNumPhysicalCores() {
+  return std::thread::hardware_concurrency();
+}
 #endif
 
 int sys::getHostNumPhysicalCores() {
