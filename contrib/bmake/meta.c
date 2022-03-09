@@ -519,7 +519,7 @@ meta_create(BuildMon *pbm, GNode *gn)
     if (cp != NULL && *cp != '\0') {
 	fprintf(fp, "OODATE %s\n", cp);
     }
-    fprintf(mf.fp, "REASON %s\n", oodateReason);
+    fprintf(fp, "REASON %s\n", oodateReason);
     free(oodateReason);
     oodateReason = NULL;
     if (metaEnv) {
