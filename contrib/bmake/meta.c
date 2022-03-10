@@ -1611,7 +1611,7 @@ meta_oodate(GNode *gn, bool oodate)
 	    DEBUG2(META, "%s: missing files: %s...\n",
 		   fname, (char *)missingFiles.first->datum);
 	    SET_OODATE_REASON("%s: missing files: %s...\n",
-		fname, (char *)missingFiles,first->datum);
+		fname, (char *)missingFiles.first->datum);
 	    oodate = true;
 	}
 	if (!oodate && !have_filemon && filemonMissing) {
