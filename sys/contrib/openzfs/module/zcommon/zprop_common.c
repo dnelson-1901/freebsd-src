@@ -463,11 +463,21 @@ zprop_width(int prop, boolean_t *fixed, zfs_type_t type)
 		if (prop == ZFS_PROP_CREATION)
 			*fixed = B_FALSE;
 		/*
+		 * 'ratio' fields are displayed as a string and not humanized.
+		 */
+		if (prop == ZFS_PROP_REFRATIO || prop == ZFS_PROP_COMPRESSRATIO)
+			*fixed = B_FALSE;
+		/*
 		 * 'health' is handled specially because it's a number
 		 * internally, but displayed as a fixed 8 character string.
 		 */
 		if (prop == ZPOOL_PROP_HEALTH)
 			ret = 8;
+		/*
+		 * 'guid' is not humanized.
+		 */
+		if (prop == ZFS_PROP_GUID)
+			*fixed = B_FALSE;
 		break;
 	case PROP_TYPE_INDEX:
 		idx = prop_tbl[prop].pd_table;
