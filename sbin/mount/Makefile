@@ -9,6 +9,6 @@ MAN=	mount.8
 
 NO_SHARED?=	YES
 
-LIBADD=	util
+LIBADD=	util xo
 
 .include <bsd.prog.mk>
