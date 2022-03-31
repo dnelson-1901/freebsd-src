@@ -133,14 +133,14 @@ vlan_parse_ethervid(const char *name)
 	 * Derive params from interface name: "parent.vid".
 	 */
 	*cp++ = '\0';
-	if ((*cp < '1') || (*cp > '9'))
-		errx(1, "invalid vlan tag");
+	if ((*cp < '0') || (*cp > '9'))
+		errx(1, "invalid vlan tag %s; must be numeric", cp);
 
 	vid = *cp++ - '0';
 	while ((*cp >= '0') && (*cp <= '9'))
 		vid = (vid * 10) + (*cp++ - '0');
 	if ((*cp != '\0') || (vid & ~0xFFF))
-		errx(1, "invalid vlan tag");
+		errx(1, "invalid vlan tag %d; must be between 0 and 4095", vid);
 
 	/*
 	 * allow "devX.Y vlandev devX vlan Y" syntax
