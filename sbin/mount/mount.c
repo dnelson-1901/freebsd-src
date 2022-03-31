@@ -680,7 +680,7 @@ prmount(struct statfs *sfp)
 			xo_emit("{D:, }{l:opts}", o->o_name);
 			flags &= ~o->o_opt;
 		}
-	printf(", <%s>",sfp->f_charspare);
+	xo_emit("{D:, <}{l:extra}{D:>}",sfp->f_charspare);
 	/*
 	 * Inform when file system is mounted by an unprivileged user
 	 * or privileged non-root user.
