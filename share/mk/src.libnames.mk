@@ -286,7 +286,7 @@ _DP_archive+=	md
 .endif
 _DP_sqlite3=	pthread
 _DP_ssl=	crypto
-_DP_ssh=	crypto crypt z
+_DP_ssh=	crypto crypt z zstd
 .if ${MK_LDNS} != "no"
 _DP_ssh+=	ldns
 .endif
