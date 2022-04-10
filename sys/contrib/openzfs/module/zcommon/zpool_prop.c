@@ -91,13 +91,13 @@ zpool_prop_init(void)
 	zprop_register_number(ZPOOL_PROP_FREEING, "freeing", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<size>", "FREEING", sfeatures);
 	zprop_register_number(ZPOOL_PROP_CHECKPOINT, "checkpoint", 0,
-	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "CKPOINT", sfeatures);
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "CKPNT", sfeatures);
 	zprop_register_number(ZPOOL_PROP_LEAKED, "leaked", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<size>", "LEAKED", sfeatures);
 	zprop_register_number(ZPOOL_PROP_ALLOCATED, "allocated", 0,
 	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "ALLOC", sfeatures);
 	zprop_register_number(ZPOOL_PROP_EXPANDSZ, "expandsize", 0,
-	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "EXPANDSZ", sfeatures);
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "EXPND", sfeatures);
 	zprop_register_number(ZPOOL_PROP_FRAGMENTATION, "fragmentation", 0,
 	    PROP_READONLY, ZFS_TYPE_POOL, "<percent>", "FRAG", sfeatures);
 	zprop_register_number(ZPOOL_PROP_CAPACITY, "capacity", 0, PROP_READONLY,
