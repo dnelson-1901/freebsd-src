@@ -2484,7 +2484,7 @@ readconfigfile(FILE *cf, int allow_includes)
 			if (*p == '@')
 				p = LocalHostName;
 			for (i = 1; i < LINE_MAX - 1; i++) {
-				if (!isalnum(*p) && *p != '.' && *p != '-'
+				if (!isalnum(*p) && *p != '.' && *p != '-' && *p != '_'
 				    && *p != ',' && *p != ':' && *p != '%')
 					break;
 				host[i] = *p++;
