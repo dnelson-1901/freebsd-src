@@ -982,8 +982,8 @@ parsemsg_remove_unsafe_characters(const char *in, char *out, size_t outlen)
 			*q++ = '-';
 		}
 		if (isascii(c) && iscntrl(c)) {
-			if (c == '\n') {
-				*q++ = ' ';
+			if (c == '\n' && *in == 0) {
+				/* eat a trailing eol */
 			} else if (c == '\t') {
 				*q++ = '\t';
 			} else {
