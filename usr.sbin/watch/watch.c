@@ -141,9 +141,11 @@ static void
 fatal(int error, const char *buf)
 {
 
+	int e = errno;
 	unset_tty();
+	errno = e;
 	if (buf)
-		errx(error, "fatal: %s", buf);
+		err(error, "fatal: %s", buf);
 	else
 		exit(error);
 }
