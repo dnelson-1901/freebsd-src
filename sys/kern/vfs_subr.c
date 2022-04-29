@@ -1588,7 +1588,7 @@ vnlru_proc(void)
 		if (usevnodes <= 0)
 			usevnodes = 1;
 		/*
-		 * The trigger value is is chosen to give a conservatively
+		 * The trigger value is chosen to give a conservatively
 		 * large value to ensure that it alone doesn't prevent
 		 * making progress.  The value can easily be so large that
 		 * it is effectively infinite in some congested and
@@ -3668,6 +3668,12 @@ vdropl_impl(struct vnode *vp, bool enqueue)
 	if (vp->v_mflag & VMP_LAZYLIST) {
 		vunlazy(vp);
 	}
+
+	if (!enqueue) {
+		VI_UNLOCK(vp);
+		return;
+	}
+
 	/*
 	 * Also unlocks the interlock. We can't assert on it as we
 	 * released our hold and by now the vnode might have been

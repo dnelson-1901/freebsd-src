@@ -2588,7 +2588,7 @@ out_unlock_free:
  *
  * TODO: this routine is a hack. It blindly removes the old entry, even if it
  * happens to match and it is doing it in an inefficient manner. It was added
- * to accomodate NFS which runs into a case where the target for a given name
+ * to accommodate NFS which runs into a case where the target for a given name
  * may change from under it. Note this does nothing to solve the following
  * race: 2 callers of cache_enter_time_flags pass a different target vnode for
  * the same [dvp, cnp]. It may be argued that code doing this is broken.
@@ -4178,7 +4178,8 @@ cache_fpl_terminated(struct cache_fpl *fpl)
 #define CACHE_FPL_SUPPORTED_CN_FLAGS \
 	(NC_NOMAKEENTRY | NC_KEEPPOSENTRY | LOCKLEAF | LOCKPARENT | WANTPARENT | \
 	 FAILIFEXISTS | FOLLOW | EMPTYPATH | LOCKSHARED | SAVENAME | SAVESTART | \
-	 WILLBEDIR | ISOPEN | NOMACCHECK | AUDITVNODE1 | AUDITVNODE2 | NOCAPCHECK)
+	 WILLBEDIR | ISOPEN | NOMACCHECK | AUDITVNODE1 | AUDITVNODE2 | NOCAPCHECK | \
+	 WANTIOCTLCAPS)
 
 #define CACHE_FPL_INTERNAL_CN_FLAGS \
 	(ISDOTDOT | MAKEENTRY | ISLASTCN)
