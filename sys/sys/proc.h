@@ -357,7 +357,7 @@ struct thread {
 	} td_state;			/* (t) thread state */
 	/* Note: td_state must be accessed using TD_{GET,SET}_STATE(). */
 	union {
-		register_t	tdu_retval[2];
+		syscallarg_t	tdu_retval[2];
 		off_t		tdu_off;
 	} td_uretoff;			/* (k) Syscall aux returns. */
 #define td_retval	td_uretoff.tdu_retval
@@ -1232,6 +1232,8 @@ void	thread_unlink(struct thread *td);
 void	thread_unsuspend(struct proc *p);
 void	thread_wait(struct proc *p);
 
+void	stop_all_proc_block(void);
+void	stop_all_proc_unblock(void);
 void	stop_all_proc(void);
 void	resume_all_proc(void);
 
