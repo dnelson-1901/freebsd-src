@@ -621,7 +621,7 @@ print_entry(struct sockaddr_dl *sdl,
 			char ether_host[MAXHOSTNAMELEN];
 			if (nflag || ether_ntohost(ether_host, (struct ether_addr *)LLADDR(sdl)))
 				strcpy(ether_host, "?");
-			xo_emit(":ether-hostname/%s (:mac-address/%s)", ether_host, ether_ntoa((struct ether_addr *)LLADDR(sdl)));
+			xo_emit("{:ether-hostname/%s} ({:mac-address/%s})", ether_host, ether_ntoa((struct ether_addr *)LLADDR(sdl)));
 		} else {
 			int n = sdl->sdl_nlen > 0 ? sdl->sdl_nlen + 1 : 0;
 
