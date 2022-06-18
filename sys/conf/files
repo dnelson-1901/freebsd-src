@@ -786,12 +786,10 @@ dev/aac/aac.c			optional aac
 dev/aac/aac_cam.c		optional aacp aac
 dev/aac/aac_debug.c		optional aac
 dev/aac/aac_disk.c		optional aac
-dev/aac/aac_linux.c		optional aac compat_linux
 dev/aac/aac_pci.c		optional aac pci
 dev/aacraid/aacraid.c		optional aacraid
 dev/aacraid/aacraid_cam.c	optional aacraid scbus
 dev/aacraid/aacraid_debug.c	optional aacraid
-dev/aacraid/aacraid_linux.c	optional aacraid compat_linux
 dev/aacraid/aacraid_pci.c	optional aacraid pci
 dev/acpi_support/acpi_wmi.c	optional acpi_wmi acpi
 dev/acpi_support/acpi_asus.c	optional acpi_asus acpi
@@ -914,7 +912,6 @@ dev/amdsmb/amdsmb.c		optional amdsmb pci
 dev/amr/amr.c			optional amr
 dev/amr/amr_cam.c		optional amrp amr
 dev/amr/amr_disk.c		optional amr
-dev/amr/amr_linux.c		optional amr compat_linux
 dev/amr/amr_pci.c		optional amr pci
 dev/an/if_an.c			optional an
 dev/an/if_an_isa.c		optional an isa
@@ -1740,33 +1737,33 @@ dev/evdev/evdev_mt.c			optional evdev
 dev/evdev/evdev_utils.c			optional evdev
 dev/evdev/uinput.c			optional evdev uinput
 dev/exca/exca.c			optional cbb
-dev/extres/clk/clk.c		optional ext_resources clk fdt
-dev/extres/clk/clkdev_if.m	optional ext_resources clk fdt
-dev/extres/clk/clknode_if.m	optional ext_resources clk fdt
-dev/extres/clk/clk_bus.c	optional ext_resources clk fdt
-dev/extres/clk/clk_div.c	optional ext_resources clk fdt
-dev/extres/clk/clk_fixed.c	optional ext_resources clk fdt
-dev/extres/clk/clk_gate.c	optional ext_resources clk fdt
-dev/extres/clk/clk_link.c	optional ext_resources clk fdt
-dev/extres/clk/clk_mux.c	optional ext_resources clk fdt
-dev/extres/phy/phy.c		optional ext_resources phy fdt
-dev/extres/phy/phydev_if.m	optional ext_resources phy fdt
-dev/extres/phy/phynode_if.m	optional ext_resources phy fdt
-dev/extres/phy/phy_usb.c	optional ext_resources phy fdt
-dev/extres/phy/phynode_usb_if.m	optional ext_resources phy fdt
-dev/extres/hwreset/hwreset.c	optional ext_resources hwreset fdt
-dev/extres/hwreset/hwreset_if.m	optional ext_resources hwreset fdt
-dev/extres/nvmem/nvmem.c	optional ext_resources nvmem fdt
-dev/extres/nvmem/nvmem_if.m	optional ext_resources nvmem fdt
-dev/extres/regulator/regdev_if.m	optional ext_resources regulator fdt
-dev/extres/regulator/regnode_if.m	optional ext_resources regulator fdt
-dev/extres/regulator/regulator.c	optional ext_resources regulator fdt
-dev/extres/regulator/regulator_bus.c	optional ext_resources regulator fdt
-dev/extres/regulator/regulator_fixed.c	optional ext_resources regulator fdt
-dev/extres/syscon/syscon.c		optional ext_resources syscon
-dev/extres/syscon/syscon_generic.c	optional ext_resources syscon fdt
-dev/extres/syscon/syscon_if.m		optional ext_resources syscon
-dev/extres/syscon/syscon_power.c	optional ext_resources syscon syscon_power fdt
+dev/extres/clk/clk.c		optional clk fdt
+dev/extres/clk/clkdev_if.m	optional clk fdt
+dev/extres/clk/clknode_if.m	optional clk fdt
+dev/extres/clk/clk_bus.c	optional clk fdt
+dev/extres/clk/clk_div.c	optional clk fdt
+dev/extres/clk/clk_fixed.c	optional clk fdt
+dev/extres/clk/clk_gate.c	optional clk fdt
+dev/extres/clk/clk_link.c	optional clk fdt
+dev/extres/clk/clk_mux.c	optional clk fdt
+dev/extres/phy/phy.c		optional phy fdt
+dev/extres/phy/phydev_if.m	optional phy fdt
+dev/extres/phy/phynode_if.m	optional phy fdt
+dev/extres/phy/phy_usb.c	optional phy fdt
+dev/extres/phy/phynode_usb_if.m	optional phy fdt
+dev/extres/hwreset/hwreset.c	optional hwreset fdt
+dev/extres/hwreset/hwreset_if.m	optional hwreset fdt
+dev/extres/nvmem/nvmem.c	optional nvmem fdt
+dev/extres/nvmem/nvmem_if.m	optional nvmem fdt
+dev/extres/regulator/regdev_if.m	optional regulator fdt
+dev/extres/regulator/regnode_if.m	optional regulator fdt
+dev/extres/regulator/regulator.c	optional regulator fdt
+dev/extres/regulator/regulator_bus.c	optional regulator fdt
+dev/extres/regulator/regulator_fixed.c	optional regulator fdt
+dev/extres/syscon/syscon.c		optional syscon
+dev/extres/syscon/syscon_generic.c	optional syscon fdt
+dev/extres/syscon/syscon_if.m		optional syscon
+dev/extres/syscon/syscon_power.c	optional syscon syscon_power fdt
 dev/fb/fbd.c			optional fbd | vt
 dev/fb/fb_if.m			standard
 dev/fb/splash.c			optional sc splash
@@ -1817,7 +1814,7 @@ dev/gpio/gpioled.c		optional gpioled !fdt
 dev/gpio/gpioled_fdt.c		optional gpioled fdt
 dev/gpio/gpiomdio.c		optional gpiomdio mii_bitbang
 dev/gpio/gpiopower.c		optional gpiopower fdt
-dev/gpio/gpioregulator.c	optional gpioregulator fdt ext_resources
+dev/gpio/gpioregulator.c	optional gpioregulator fdt
 dev/gpio/gpiospi.c		optional gpiospi
 dev/gpio/gpioths.c		optional gpioths
 dev/gpio/gpio_if.m		optional gpio
@@ -1874,7 +1871,7 @@ dev/iicbus/iiconf.c		optional iicbus
 dev/iicbus/iicsmb.c		optional iicsmb				\
 	dependency	"iicbus_if.h"
 dev/iicbus/iicoc.c		optional iicoc
-dev/iicbus/iicoc_fdt.c		optional iicoc ext_resources fdt
+dev/iicbus/iicoc_fdt.c		optional iicoc fdt
 dev/iicbus/iicoc_pci.c		optional iicoc pci
 dev/iicbus/isl12xx.c		optional isl12xx
 dev/iicbus/lm75.c		optional lm75
@@ -1892,8 +1889,8 @@ dev/iicbus/pcf8591.c		optional pcf8591
 dev/iicbus/rtc8583.c		optional rtc8583
 dev/iicbus/rtc/rx8803.c		optional rx8803 iicbus fdt
 dev/iicbus/s35390a.c		optional s35390a
-dev/iicbus/sy8106a.c		optional sy8106a ext_resources fdt
-dev/iicbus/syr827.c		optional syr827 ext_resources fdt
+dev/iicbus/sy8106a.c		optional sy8106a fdt
+dev/iicbus/syr827.c		optional syr827 fdt
 dev/iicbus/gpio/tca6416.c	optional tca6416 fdt
 dev/iir/iir.c			optional iir
 dev/iir/iir_ctrl.c		optional iir
@@ -2438,7 +2435,6 @@ dev/mfi/mfi_pci.c		optional mfi pci
 dev/mfi/mfi_disk.c		optional mfi
 dev/mfi/mfi_syspd.c		optional mfi
 dev/mfi/mfi_tbolt.c		optional mfi
-dev/mfi/mfi_linux.c		optional mfi compat_linux
 dev/mfi/mfi_cam.c		optional mfip scbus
 dev/mii/acphy.c			optional miibus | acphy
 dev/mii/amphy.c			optional miibus | amphy
@@ -2491,10 +2487,10 @@ dev/mmc/mmc.c			optional mmc !mmccam
 dev/mmc/mmcbr_if.m		standard
 dev/mmc/mmcbus_if.m		standard
 dev/mmc/mmcsd.c			optional mmcsd !mmccam
-dev/mmc/mmc_fdt_helpers.c	optional ext_resources mmc fdt | ext_resources mmccam fdt
-dev/mmc/mmc_helpers.c		optional ext_resources mmc | ext_resources mmccam
-dev/mmc/mmc_pwrseq.c		optional ext_resources mmc fdt | ext_resources mmccam fdt
-dev/mmc/mmc_pwrseq_if.m		optional ext_resources mmc fdt | ext_resources mmccam fdt
+dev/mmc/mmc_fdt_helpers.c	optional mmc regulator clk fdt | mmccam regulator clk fdt
+dev/mmc/mmc_helpers.c		optional mmc gpio regulator clk | mmccam gpio regulator clk
+dev/mmc/mmc_pwrseq.c		optional mmc clk regulator fdt | mmccam clk regulator fdt
+dev/mmc/mmc_pwrseq_if.m		optional mmc clk regulator fdt | mmccam clk regulator fdt
 dev/mmcnull/mmcnull.c		optional mmcnull
 dev/mn/if_mn.c			optional mn pci
 dev/mpr/mpr.c			optional mpr
@@ -2795,7 +2791,7 @@ dev/pwm/pwmbus.c		optional pwm | pwmbus
 dev/pwm/pwmbus_if.m		optional pwm | pwmbus
 dev/pwm/ofw_pwm.c		optional pwm fdt | pwmbus fdt
 dev/pwm/ofw_pwmbus.c		optional pwm fdt | pwmbus fdt
-dev/pwm/pwm_backlight.c		optional pwm pwm_backlight ext_resources fdt
+dev/pwm/pwm_backlight.c		optional pwm pwm_backlight fdt
 dev/quicc/quicc_core.c		optional quicc
 dev/ral/rt2560.c		optional ral
 dev/ral/rt2661.c		optional ral
@@ -3107,9 +3103,9 @@ dev/scc/scc_core.c		optional scc
 dev/scc/scc_dev_quicc.c		optional scc quicc
 dev/scc/scc_dev_z8530.c		optional scc
 dev/sdhci/sdhci.c		optional sdhci
-dev/sdhci/sdhci_fdt.c		optional sdhci fdt
+dev/sdhci/sdhci_fdt.c		optional sdhci fdt regulator clk
 dev/sdhci/sdhci_fdt_gpio.c	optional sdhci fdt gpio
-dev/sdhci/sdhci_fsl_fdt.c	optional sdhci ext_resources fdt gpio
+dev/sdhci/sdhci_fsl_fdt.c	optional sdhci fdt gpio regulator clk
 dev/sdhci/sdhci_if.m		optional sdhci
 dev/sdhci/sdhci_acpi.c		optional sdhci acpi
 dev/sdhci/sdhci_pci.c		optional sdhci pci
@@ -3241,7 +3237,6 @@ dev/syscons/syscons.c		optional sc
 dev/syscons/sysmouse.c		optional sc
 dev/syscons/warp/warp_saver.c	optional warp_saver
 dev/tcp_log/tcp_log_dev.c	optional tcp_blackbox inet | tcp_blackbox inet6
-dev/tdfx/tdfx_linux.c		optional tdfx_linux tdfx compat_linux
 dev/tdfx/tdfx_pci.c		optional tdfx pci
 dev/ti/if_ti.c			optional ti pci
 dev/twa/tw_cl_init.c		optional twa \
@@ -4976,10 +4971,25 @@ opencrypto/xform_chacha20_poly1305.c	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include -I$S/crypto/libsodium"
 opencrypto/xform_poly1305.c	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_aead/chacha20poly1305/sodium/aead_chacha20poly1305.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_aead/xchacha20poly1305/sodium/aead_xchacha20poly1305.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_core/hchacha20/core_hchacha20.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
 contrib/libsodium/src/libsodium/crypto_onetimeauth/poly1305/onetimeauth_poly1305.c \
 	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
 contrib/libsodium/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_stream/chacha20/stream_chacha20.c \
+	optional crypto \
+	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
+contrib/libsodium/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c \
 	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
 contrib/libsodium/src/libsodium/crypto_verify/sodium/verify.c \
@@ -4989,21 +4999,6 @@ crypto/libsodium/randombytes.c	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include -I$S/crypto/libsodium"
 crypto/libsodium/utils.c	optional crypto \
 	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include -I$S/crypto/libsodium"
-contrib/libsodium/src/libsodium/crypto_core/hchacha20/core_hchacha20.c \
-	optional crypto \
-	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
-contrib/libsodium/src/libsodium/crypto_stream/chacha20/stream_chacha20.c \
-	optional crypto \
-	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
-contrib/libsodium/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c \
-	optional crypto \
-	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
-contrib/libsodium/src/libsodium/crypto_aead/chacha20poly1305/sodium/aead_chacha20poly1305.c \
-	optional crypto \
-	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
-contrib/libsodium/src/libsodium/crypto_aead/xchacha20poly1305/sodium/aead_xchacha20poly1305.c \
-	optional crypto \
-	compile-with "${NORMAL_C} -I$S/contrib/libsodium/src/libsodium/include/sodium -I$S/crypto/libsodium"
 
 rpc/auth_none.c			optional krpc | nfslockd | nfscl | nfsd
 rpc/auth_unix.c			optional krpc | nfslockd | nfscl | nfsd

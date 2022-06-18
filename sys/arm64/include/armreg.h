@@ -179,6 +179,14 @@
 
 /* ESR_ELx */
 #define	ESR_ELx_ISS_MASK	0x01ffffff
+#define	 ISS_FP_TFV_SHIFT	23
+#define	 ISS_FP_TFV		(0x01 << ISS_FP_TFV_SHIFT)
+#define	 ISS_FP_IOF		0x01
+#define	 ISS_FP_DZF		0x02
+#define	 ISS_FP_OFF		0x04
+#define	 ISS_FP_UFF		0x08
+#define	 ISS_FP_IXF		0x10
+#define	 ISS_FP_IDF		0x80
 #define	 ISS_INSN_FnV		(0x01 << 10)
 #define	 ISS_INSN_EA		(0x01 << 9)
 #define	 ISS_INSN_S1PTW		(0x01 << 7)
@@ -276,6 +284,7 @@
 #define	 EXCP_SOFTSTP_EL1	0x33	/* Software Step, from same EL */
 #define	 EXCP_WATCHPT_EL0	0x34	/* Watchpoint, from lower EL */
 #define	 EXCP_WATCHPT_EL1	0x35	/* Watchpoint, from same EL */
+#define	 EXCP_BRKPT_32		0x38    /* 32bits breakpoint */
 #define	 EXCP_BRK		0x3c	/* Breakpoint */
 
 /* ICC_CTLR_EL1 */

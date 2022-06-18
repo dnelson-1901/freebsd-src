@@ -1590,12 +1590,9 @@ lkpi_sta_assoc_to_run(struct ieee80211vap *vap, enum ieee80211_state nstate, int
 	}
 
 	/* Update sta_state (ASSOC to AUTHORIZED). */
-	ni = ieee80211_ref_node(vap->iv_bss);
-	lsta = ni->ni_drv_data;
 	KASSERT(lsta != NULL, ("%s: ni %p lsta is NULL\n", __func__, ni));
 	KASSERT(lsta->state == IEEE80211_STA_ASSOC, ("%s: lsta %p state not "
 	    "ASSOC: %#x\n", __func__, lsta, lsta->state));
-	sta = LSTA_TO_STA(lsta);
 	error = lkpi_80211_mo_sta_state(hw, vif, sta, IEEE80211_STA_AUTHORIZED);
 	if (error != 0) {
 		IMPROVE("undo some changes?");
@@ -3870,6 +3867,7 @@ no_trace_beacons:
 
 	ok = ieee80211_add_rx_params(m, &rx_stats);
 	if (ok == 0) {
+		m_freem(m);
 		counter_u64_add(ic->ic_ierrors, 1);
 		goto err;
 	}
@@ -3960,8 +3958,11 @@ skip_device_ts:
 	if (ni != NULL) {
 		ok = ieee80211_input_mimo(ni, m);
 		ieee80211_free_node(ni);
+		if (ok < 0)
+			m_freem(m);
 	} else {
 		ok = ieee80211_input_mimo_all(ic, m);
+		/* mbuf got consumed. */
 	}
 	NET_EPOCH_EXIT(et);
 
@@ -4459,27 +4460,16 @@ linuxkpi_ieee80211_beacon_loss(struct ieee80211_vif *vif)
 {
 	struct lkpi_vif *lvif;
 	struct ieee80211vap *vap;
-	enum ieee80211_state nstate;
-	int arg;
 
 	lvif = VIF_TO_LVIF(vif);
 	vap = LVIF_TO_VAP(lvif);
 
-	/*
-	 * Go to scan; otherwise we need to elaborately check state and
-	 * handle accordingly, e.g., if in RUN we could call iv_bmiss.
-	 * Let the statemachine handle all neccessary changes.
-	 */
-	nstate = IEEE80211_S_SCAN;
-	arg = 0;
-
-	/* We should be in RUN.  Can we assert that? */
 #ifdef LINUXKPI_DEBUG_80211
 	if (linuxkpi_debug_80211 & D80211_TRACE || vap->iv_state != IEEE80211_S_RUN)
 		ic_printf(vap->iv_ic, "%s: vif %p vap %p state %s\n", __func__,
 		    vif, vap, ieee80211_state_name[vap->iv_state]);
 #endif
-	ieee80211_new_state(vap, nstate, arg);
+	ieee80211_beacon_miss(vap->iv_ic);
 }
 
 MODULE_VERSION(linuxkpi_wlan, 1);

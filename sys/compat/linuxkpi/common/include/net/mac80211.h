@@ -111,7 +111,7 @@ enum ieee80211_bss_changed {
 };
 
 /* 802.11 Figure 9-256 Suite selector format. [OUI(3), SUITE TYPE(1)] */
-#define	WLAN_CIPHER_SUITE_OUI(_oui, _x)	((_oui) << 8 | (_x) & 0xff)
+#define	WLAN_CIPHER_SUITE_OUI(_oui, _x)	(((_oui) << 8) | ((_x) & 0xff))
 
 /* 802.11 Table 9-131 Cipher suite selectors. */
 /* 802.1x suite B			11 */
@@ -558,23 +558,29 @@ struct ieee80211_sta_txpwr {
 	short				power;
 };
 
-#define	IEEE80211_NUM_TIDS			16	/* net80211::WME_NUM_TID */
-struct ieee80211_sta {
-	/* TODO FIXME */
-	int		max_amsdu_len, max_amsdu_subframes, max_rc_amsdu_len, max_sp;
-	int		mfp, rx_nss, smps_mode, tdls, tdls_initiator, uapsd_queues, wme;
-	enum ieee80211_sta_rx_bw		bandwidth;
+struct ieee80211_link_sta {
+	uint32_t				supp_rates[NUM_NL80211_BANDS];
 	struct ieee80211_sta_ht_cap		ht_cap;
 	struct ieee80211_sta_vht_cap		vht_cap;
 	struct ieee80211_sta_he_cap		he_cap;
 	struct ieee80211_sta_he_6ghz_capa	he_6ghz_capa;
+	uint8_t					rx_nss;
+	enum ieee80211_sta_rx_bw		bandwidth;
+	struct ieee80211_sta_txpwr		txpwr;
+};
+
+#define	IEEE80211_NUM_TIDS			16	/* net80211::WME_NUM_TID */
+struct ieee80211_sta {
+	/* TODO FIXME */
+	int		max_amsdu_len, max_amsdu_subframes, max_rc_amsdu_len, max_sp;
+	int		mfp, smps_mode, tdls, tdls_initiator, uapsd_queues, wme;
 	struct ieee80211_txq			*txq[IEEE80211_NUM_TIDS + 1];	/* iwlwifi: 8 and adds +1 to tid_data, net80211::IEEE80211_TID_SIZE */
 	struct ieee80211_sta_rates		*rates;	/* some rcu thing? */
-	struct ieee80211_sta_txpwr		txpwr;
 	uint32_t				max_tid_amsdu_len[IEEE80211_NUM_TIDS];
-	uint32_t				supp_rates[NUM_NL80211_BANDS];
 	uint8_t					addr[ETH_ALEN];
 	uint16_t				aid;
+
+	struct ieee80211_link_sta		deflink;
 
 	/* Must stay last. */
 	uint8_t					drv_priv[0] __aligned(CACHE_LINE_SIZE);
@@ -1102,8 +1108,13 @@ ieee80211_is_disassoc(__le16 fc)
 static __inline bool
 ieee80211_is_data_present(__le16 fc)
 {
-	TODO();
-	return (false);
+	__le16 v;
+
+	/* If it is a data frame and NODATA is not present. */
+	fc &= htole16(IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_NODATA);
+	v = htole16(IEEE80211_FC0_TYPE_DATA);
+
+	return (fc == v);
 }
 
 static __inline bool
@@ -1166,7 +1177,19 @@ ieee80211_is_back_req(__le16 fc)
 static __inline bool
 ieee80211_is_bufferable_mmpdu(__le16 fc)
 {
-	TODO();
+
+	/* 11.2.2 Bufferable MMPDUs, 80211-2020. */
+	/* XXX we do not care about IBSS yet. */
+
+	if (!ieee80211_is_mgmt(fc))
+		return (false);
+	if (ieee80211_is_action(fc))		/* XXX FTM? */
+		return (true);
+	if (ieee80211_is_disassoc(fc))
+		return (true);
+	if (ieee80211_is_deauth(fc))
+		return (true);
+
 	return (false);
 }
 
@@ -1691,7 +1714,8 @@ static __inline uint16_t
 ieee80211_sn_sub(uint16_t sa, uint16_t sb)
 {
 
-	return ((sa - sb) & IEEE80211_SEQ_SEQ_MASK);
+	return ((sa - sb) &
+	    (IEEE80211_SEQ_SEQ_MASK >> IEEE80211_SEQ_SEQ_SHIFT));
 }
 
 static __inline void

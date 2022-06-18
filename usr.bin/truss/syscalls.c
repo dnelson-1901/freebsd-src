@@ -423,6 +423,9 @@ static const struct syscall_decode decoded_syscalls[] = {
 		    { Fadvice, 3 } } },
 	{ .name = "posix_openpt", .ret_type = 1, .nargs = 1,
 	  .args = { { Open, 0 } } },
+	{ .name = "ppoll", .ret_type = 1, .nargs = 4,
+	  .args = { { Pollfd, 0 }, { Int, 1 }, { Timespec | IN, 2 },
+ 		    { Sigset | IN, 3 } } },
 	{ .name = "pread", .ret_type = 1, .nargs = 4,
 	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Sizet, 2 },
 		    { QuadHex, 3 } } },
@@ -733,7 +736,7 @@ struct xlat {
 static struct xlat poll_flags[] = {
 	X(POLLSTANDARD) X(POLLIN) X(POLLPRI) X(POLLOUT) X(POLLERR)
 	X(POLLHUP) X(POLLNVAL) X(POLLRDNORM) X(POLLRDBAND)
-	X(POLLWRBAND) X(POLLINIGNEOF) XEND
+	X(POLLWRBAND) X(POLLINIGNEOF) X(POLLRDHUP) XEND
 };
 
 static struct xlat sigaction_flags[] = {

@@ -18,10 +18,18 @@ ATF_TESTS_C+=	kill_zombie
 .if ${MK_OPENSSL} != "no"
 ATF_TESTS_C+=	ktls_test
 .endif
+ATF_TESTS_C+=	module_test
 ATF_TESTS_C+=	ptrace_test
 TEST_METADATA.ptrace_test+=		timeout="15"
 ATF_TESTS_C+=	reaper
+ATF_TESTS_C+=	sched_affinity
 ATF_TESTS_C+=	sigaltstack
+ATF_TESTS_C+=	sigwait
+TEST_METADATA.sigwait+=	is_exclusive="true"
+.if ${MACHINE_ARCH} != "i386" && ${MACHINE_ARCH:Mpowerpc*} == "" && \
+    ${MACHINE_CPUARCH} != "mips"
+ATF_TESTS_C+=	subr_physmem_test
+.endif
 PLAIN_TESTS_C+=	subr_unit_test
 ATF_TESTS_C+=	sysctl_kern_proc
 ATF_TESTS_C+=	sys_getrandom
@@ -56,6 +64,7 @@ LIBADD.kcov+=				pthread
 LIBADD.ktls_test+=			crypto
 LIBADD.sendfile_helper+=		pthread
 LIBADD.fdgrowtable_test+=		util pthread kvm procstat
+LIBADD.sigwait+=			rt
 
 NETBSD_ATF_TESTS_C+=	lockf_test
 NETBSD_ATF_TESTS_C+=	mqueue_test
@@ -76,6 +85,9 @@ SRCS.libkern_crc32+=	crc32_sse42.c
 .PATH: ${SRCTOP}/sys/libkern/arm64
 SRCS.libkern_crc32+=	crc32c_armv8.S
 .endif
+
+CFLAGS.subr_physmem.c+=	-D_WANT_FREEBSD_BITSET
+SRCS.subr_physmem_test+= subr_physmem_test.c subr_physmem.c
 
 # subr_unit.c contains functions whose prototypes lie in headers that cannot be
 # included in userland.  But as far as subr_unit_test goes, they're effectively
