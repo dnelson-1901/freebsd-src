@@ -811,7 +811,7 @@ aclmode(char *buf, const FTSENT *p)
 			type = ACL_TYPE_NFS4;
 			supports_acls = 1;
 		} else if (ret < 0 && errno != EINVAL) {
-			warn("%s", name);
+			warn("lpathconf(%s, _PC_ACL_NFS4) failed", name);
 			return;
 		}
 		if (supports_acls == 0) {
@@ -820,7 +820,7 @@ aclmode(char *buf, const FTSENT *p)
 				type = ACL_TYPE_ACCESS;
 				supports_acls = 1;
 			} else if (ret < 0 && errno != EINVAL) {
-				warn("%s", name);
+				warn("lpathconf(%s, _PC_ACL_EXTENDED) failed", name);
 				return;
 			}
 		}
@@ -829,12 +829,12 @@ aclmode(char *buf, const FTSENT *p)
 		return;
 	facl = acl_get_link_np(name, type);
 	if (facl == NULL) {
-		warn("%s", name);
+		warn("acl_get_link_np(%s) failed", name);
 		return;
 	}
 	if (acl_is_trivial_np(facl, &trivial)) {
 		acl_free(facl);
-		warn("%s", name);
+		warn("acl_is_trivial(%s) failed", name);
 		return;
 	}
 	if (!trivial)
