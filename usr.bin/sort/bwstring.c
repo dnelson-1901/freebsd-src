@@ -488,7 +488,7 @@ bwsfgetln(FILE *f, size_t *len, bool zero_ended, struct reader_buffer *rb)
 
 		if (ret == NULL) {
 			if (!feof(f))
-				err(2, NULL);
+				err(2, "fgetwln() offset %ld", ftello(f));
 			return (NULL);
 		}
 		if (*len > 0) {
