@@ -127,6 +127,7 @@ void	restore_wp(bool old_wp);
 void	finishidentcpu(void);
 void	identify_cpu1(void);
 void	identify_cpu2(void);
+void	identify_cpu_ext_features(void);
 void	identify_cpu_fixup_bsp(void);
 void	identify_hypervisor(void);
 void	initializecpu(void);
@@ -172,5 +173,11 @@ void	x86_set_fork_retval(struct thread *td);
 #define	MSR_OP_CPUID(id)	((id) << 8)
 
 void x86_msr_op(u_int msr, u_int op, uint64_t arg1, uint64_t *res);
+
+#if defined(__i386__) && defined(INVARIANTS)
+void	trap_check_kstack(void);
+#else
+#define	trap_check_kstack()
+#endif
 
 #endif

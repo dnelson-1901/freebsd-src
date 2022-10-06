@@ -94,6 +94,10 @@ LINUXKPI_GENSRCS+= \
 	backlight_if.h \
 	bus_if.h \
 	device_if.h \
+	iicbus_if.h \
+	iicbb_if.h \
+	lkpi_iic_if.c \
+	lkpi_iic_if.h \
 	pci_if.h \
 	pci_iov_if.h \
 	pcib_if.h \
@@ -197,7 +201,7 @@ ${_firmw:C/\:.*$/.fwo/:T}:	${_firmw:C/\:.*$//} ${SYSDIR}/kern/firmw.S
 	${CC:N${CCACHE_BIN}} -c -x assembler-with-cpp -DLOCORE 	\
 	    ${CFLAGS} ${WERROR} 				\
 	    -DFIRMW_FILE="${.ALLSRC:M*${_firmw:C/\:.*$//}}" 	\
-	    -DFIRMW_SYMBOL="${_firmw:C/\:.*$//:C/[-.\/]/_/g}"	\
+	    -DFIRMW_SYMBOL="${_firmw:C/\:.*$//:C/[-.\/@]/_/g}"	\
 	    ${SYSDIR}/kern/firmw.S -o ${.TARGET}
 
 OBJS+=	${_firmw:C/\:.*$/.fwo/:T}
@@ -215,7 +219,7 @@ OBJS+=	${SRCS:N*.h:R:S/$/.o/g}
 PROG=	${KMOD}.ko
 .endif
 
-.if !defined(DEBUG_FLAGS) || ${MK_KERNEL_SYMBOLS} == "no"
+.if !defined(DEBUG_FLAGS) || ${MK_SPLIT_KERNEL_DEBUG} == "no"
 FULLPROG=	${PROG}
 .else
 FULLPROG=	${PROG}.full
@@ -319,7 +323,7 @@ ${_ILINKS}:
 
 CLEANFILES+= ${PROG} ${KMOD}.kld ${OBJS}
 
-.if defined(DEBUG_FLAGS) && ${MK_KERNEL_SYMBOLS} != "no"
+.if defined(DEBUG_FLAGS) && ${MK_SPLIT_KERNEL_DEBUG} != "no"
 CLEANFILES+= ${FULLPROG} ${PROG}.debug
 .endif
 

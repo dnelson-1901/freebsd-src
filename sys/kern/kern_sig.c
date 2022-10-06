@@ -288,16 +288,13 @@ sigqueue_start(void)
 }
 
 ksiginfo_t *
-ksiginfo_alloc(int wait)
+ksiginfo_alloc(int mwait)
 {
-	int flags;
+	MPASS(mwait == M_WAITOK || mwait == M_NOWAIT);
 
-	flags = M_ZERO;
-	if (! wait)
-		flags |= M_NOWAIT;
-	if (ksiginfo_zone != NULL)
-		return ((ksiginfo_t *)uma_zalloc(ksiginfo_zone, flags));
-	return (NULL);
+	if (ksiginfo_zone == NULL)
+		return (NULL);
+	return (uma_zalloc(ksiginfo_zone, mwait | M_ZERO));
 }
 
 void
@@ -306,14 +303,14 @@ ksiginfo_free(ksiginfo_t *ksi)
 	uma_zfree(ksiginfo_zone, ksi);
 }
 
-static __inline int
+static __inline bool
 ksiginfo_tryfree(ksiginfo_t *ksi)
 {
-	if (!(ksi->ksi_flags & KSI_EXT)) {
+	if ((ksi->ksi_flags & KSI_EXT) == 0) {
 		uma_zfree(ksiginfo_zone, ksi);
-		return (1);
+		return (true);
 	}
-	return (0);
+	return (false);
 }
 
 void
@@ -438,7 +435,7 @@ sigqueue_add(sigqueue_t *sq, int signo, ksiginfo_t *si)
 	if (p != NULL && p->p_pendingcnt >= max_pending_per_proc) {
 		signal_overflow++;
 		ret = EAGAIN;
-	} else if ((ksi = ksiginfo_alloc(0)) == NULL) {
+	} else if ((ksi = ksiginfo_alloc(M_NOWAIT)) == NULL) {
 		signal_alloc_fail++;
 		ret = EAGAIN;
 	} else {
@@ -2210,7 +2207,7 @@ tdsendsignal(struct proc *p, struct thread *td, int sig, ksiginfo_t *ksi)
 	 * IEEE Std 1003.1-2001: return success when killing a zombie.
 	 */
 	if (p->p_state == PRS_ZOMBIE) {
-		if (ksi && (ksi->ksi_flags & KSI_INS))
+		if (ksi != NULL && (ksi->ksi_flags & KSI_INS) != 0)
 			ksiginfo_tryfree(ksi);
 		return (ret);
 	}
@@ -2240,7 +2237,7 @@ tdsendsignal(struct proc *p, struct thread *td, int sig, ksiginfo_t *ksi)
 			SDT_PROBE3(proc, , , signal__discard, td, p, sig);
 
 			mtx_unlock(&ps->ps_mtx);
-			if (ksi && (ksi->ksi_flags & KSI_INS))
+			if (ksi != NULL && (ksi->ksi_flags & KSI_INS) != 0)
 				ksiginfo_tryfree(ksi);
 			return (ret);
 		} else {
@@ -2273,7 +2270,7 @@ tdsendsignal(struct proc *p, struct thread *td, int sig, ksiginfo_t *ksi)
 		if ((prop & SIGPROP_TTYSTOP) != 0 &&
 		    (p->p_pgrp->pg_flags & PGRP_ORPHANED) != 0 &&
 		    action == SIG_DFL) {
-			if (ksi && (ksi->ksi_flags & KSI_INS))
+			if (ksi != NULL && (ksi->ksi_flags & KSI_INS) != 0)
 				ksiginfo_tryfree(ksi);
 			return (ret);
 		}
@@ -2948,7 +2945,7 @@ sigprocess(struct thread *td, int sig)
 
 	/*
 	 * We should allow pending but ignored signals below
-	 * only if there is sigwait() active, or P_TRACED was
+	 * if there is sigwait() active, or P_TRACED was
 	 * on when they were posted.
 	 */
 	if (SIGISMEMBER(ps->ps_sigignore, sig) &&
@@ -2956,6 +2953,16 @@ sigprocess(struct thread *td, int sig)
 	    (td->td_flags & TDF_SIGWAIT) == 0) {
 		return (SIGSTATUS_IGNORE);
 	}
+
+	/*
+	 * If the process is going to single-thread mode to prepare
+	 * for exit, there is no sense in delivering any signal
+	 * to usermode.  Another important consequence is that
+	 * msleep(..., PCATCH, ...) now is only interruptible by a
+	 * suspend request.
+	 */
+	if ((p->p_flag2 & P2_WEXIT) != 0)
+		return (SIGSTATUS_IGNORE);
 
 	if ((p->p_flag & (P_TRACED | P_PPTRACE)) == P_TRACED) {
 		/*
@@ -3426,6 +3433,8 @@ sigexit(struct thread *td, int sig)
 	struct proc *p = td->td_proc;
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
+	proc_set_p2_wexit(p);
+
 	p->p_acflag |= AXSIG;
 	/*
 	 * We must be single-threading to generate a core dump.  This

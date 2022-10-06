@@ -2908,7 +2908,7 @@ usbd_enum_lock(struct usb_device *udev)
 	 * are locked before locking Giant. Else the lock can be
 	 * locked multiple times.
 	 */
-	mtx_lock(&Giant);
+	bus_topo_lock();
 	return (1);
 }
 
@@ -2928,7 +2928,7 @@ usbd_enum_lock_sig(struct usb_device *udev)
 		sx_xunlock(&udev->enum_sx);
 		return (255);
 	}
-	mtx_lock(&Giant);
+	bus_topo_lock();
 	return (1);
 }
 #endif
@@ -2938,7 +2938,7 @@ usbd_enum_lock_sig(struct usb_device *udev)
 void
 usbd_enum_unlock(struct usb_device *udev)
 {
-	mtx_unlock(&Giant);
+	bus_topo_unlock();
 	sx_xunlock(&udev->enum_sx);
 	sx_xunlock(&udev->sr_sx);
 }
@@ -2954,7 +2954,7 @@ usbd_sr_lock(struct usb_device *udev)
 	 * are locked before locking Giant. Else the lock can be
 	 * locked multiple times.
 	 */
-	mtx_lock(&Giant);
+	bus_topo_lock();
 }
 
 /* The following function unlocks suspend and resume. */
@@ -2962,7 +2962,7 @@ usbd_sr_lock(struct usb_device *udev)
 void
 usbd_sr_unlock(struct usb_device *udev)
 {
-	mtx_unlock(&Giant);
+	bus_topo_unlock();
 	sx_xunlock(&udev->sr_sx);
 }
 

@@ -859,7 +859,7 @@ igc_if_init(if_ctx_t ctx)
 	}
 
 	/* Don't lose promiscuous settings */
-	igc_if_set_promisc(ctx, IFF_PROMISC);
+	igc_if_set_promisc(ctx, if_getflags(ifp));
 	igc_clear_hw_cntrs_base_generic(&adapter->hw);
 
 	if (adapter->intr_type == IFLIB_INTR_MSIX) /* Set up queue routing */
@@ -1071,16 +1071,16 @@ igc_if_media_change(if_ctx_t ctx)
 		adapter->hw.phy.autoneg_advertised = ADVERTISE_1000_FULL;
 		break;
 	case IFM_100_TX:
-		if ((ifm->ifm_media & IFM_GMASK) == IFM_HDX)
-			adapter->hw.phy.autoneg_advertised = ADVERTISE_100_HALF;
-		else
+		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX)
 			adapter->hw.phy.autoneg_advertised = ADVERTISE_100_FULL;
+		else
+			adapter->hw.phy.autoneg_advertised = ADVERTISE_100_HALF;
 		break;
 	case IFM_10_T:
-		if ((ifm->ifm_media & IFM_GMASK) == IFM_HDX)
-			adapter->hw.phy.autoneg_advertised = ADVERTISE_10_HALF;
-		else
+		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX)
 			adapter->hw.phy.autoneg_advertised = ADVERTISE_10_FULL;
+		else
+			adapter->hw.phy.autoneg_advertised = ADVERTISE_10_HALF;
 		break;
 	default:
 		device_printf(adapter->dev, "Unsupported media type\n");

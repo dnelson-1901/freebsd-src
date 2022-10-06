@@ -4979,7 +4979,7 @@ rack_cc_after_idle(struct tcp_rack *rack, struct tcpcb *tp)
 		i_cwnd = rc_init_window(rack);
 
 	/*
-	 * Being idle is no differnt than the initial window. If the cc
+	 * Being idle is no different than the initial window. If the cc
 	 * clamps it down below the initial window raise it to the initial
 	 * window.
 	 */
@@ -15590,7 +15590,7 @@ rack_fast_rsm_output(struct tcpcb *tp, struct tcp_rack *rack, struct rack_sendma
 		/*
 		 * We have no pacing set or we
 		 * are using old-style rack or
-		 * we are overriden to use the old 1ms pacing.
+		 * we are overridden to use the old 1ms pacing.
 		 */
 		slot = rack->r_ctl.rc_min_to;
 	}
@@ -15709,7 +15709,9 @@ rack_fast_output(struct tcpcb *tp, struct tcp_rack *rack, uint64_t ts_val,
 	struct tcpopt to;
 	u_char opt[TCP_MAXOLEN];
 	uint32_t hdrlen, optlen;
+#ifdef TCP_ACCOUNTING
 	int cnt_thru = 1;
+#endif
 	int32_t slot, segsiz, len, max_val, tso = 0, sb_offset, error = 0, flags, ulen = 0;
 	uint32_t us_cts, s_soff;
 	uint32_t if_hw_tsomaxsegcount = 0, startseq;
@@ -16077,7 +16079,9 @@ again:
 		max_val -= len;
 		len = segsiz;
 		th = rack->r_ctl.fsb.th;
+#ifdef TCP_ACCOUNTING
 		cnt_thru++;
+#endif
 		goto again;
 	}
 	tp->t_flags &= ~(TF_ACKNOW | TF_DELACK);
@@ -16971,7 +16975,7 @@ again:
 	    ipoptlen == 0)
 		tso = 1;
 	{
-		uint32_t outstanding;
+		uint32_t outstanding __unused;
 
 		outstanding = tp->snd_max - tp->snd_una;
 		if (tp->t_flags & TF_SENTFIN) {
@@ -18611,7 +18615,7 @@ enobufs:
 			/*
 			 * We have no pacing set or we
 			 * are using old-style rack or
-			 * we are overriden to use the old 1ms pacing.
+			 * we are overridden to use the old 1ms pacing.
 			 */
 			slot = rack->r_ctl.rc_min_to;
 		}

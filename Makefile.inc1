@@ -1389,12 +1389,8 @@ distributeworld installworld stageworld: _installcheck_world .PHONY
 		fi; \
 	    done); \
 	if [ -z "${CROSSBUILD_HOST}" ] ; then \
-		libs=$$(ldd -f "%o %p\n" -f "%o %p\n" $$progs 2>/dev/null | sort -u | \
+		libs=$$(ldd -f "%o %p\n" -f "%o %p\n" $$progs 2>/dev/null | sort -u | grep -Ev '\[.*]' | \
 		    while read line; do \
-			case $$line in \
-			"["*"]") \
-				continue;; \
-			esac; \
 			set -- $$line; \
 			if [ "$$2 $$3" != "not found" ]; then \
 				echo $$2; \
@@ -2309,9 +2305,10 @@ _crunchide=	usr.sbin/crunch/crunchide
 _bootstrap_tools_links+=crunchide
 .endif
 
-# 1300115: Higher WARNS fixes
-.if ${BOOTSTRAPPING} < 1202502 || \
-	(${BOOTSTRAPPING} > 1300000 && ${BOOTSTRAPPING} < 1300131)
+# 1400052, 1300526, 1203507: Removed -dc from linker invocation
+.if ${BOOTSTRAPPING} < 1203507 || \
+	(${BOOTSTRAPPING} > 1300000 && ${BOOTSTRAPPING} < 1300526) || \
+	(${BOOTSTRAPPING} > 1400000 && ${BOOTSTRAPPING} < 1400052)
 _crunchgen=	usr.sbin/crunch/crunchgen
 .else
 _bootstrap_tools_links+=crunchgen
@@ -3190,7 +3187,8 @@ SUBDIR_PARALLEL=
 .if make(check-old) || make(check-old-dirs) || \
     make(check-old-files) || make(check-old-libs) || \
     make(delete-old) || make(delete-old-dirs) || \
-    make(delete-old-files) || make(delete-old-libs)
+    make(delete-old-files) || make(delete-old-libs) || \
+    make(list-old-dirs) || make(list-old-files) || make(list-old-libs)
 
 #
 # check for / delete old files section
@@ -3209,6 +3207,13 @@ RM_I=-i
 RM_I=-v
 .endif
 
+list-old-files: .PHONY
+	@cd ${.CURDIR}; \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
+	    -V "OLD_FILES:ts\n" -V "OLD_FILES:Musr/share/*.gz:R:ts\n" \
+	    -V "OLD_FILES:Mlib/*.so.*:S,^lib,usr/lib32,:ts\n" \
+	    -V "OLD_FILES:Musr/lib/*:S,^usr/lib,usr/lib32,:ts\n" | sort
+
 delete-old-files: .PHONY
 	@echo ">>> Removing old files (only deletes safe to delete libs)"
 # Ask for every old file if the user really wants to remove it.
@@ -3219,8 +3224,7 @@ delete-old-files: .PHONY
 	@exec 3<&0; \
 	cd ${.CURDIR}; \
 	OLDTMP=$$(mktemp -t old); \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V "OLD_FILES:ts\n" -V "OLD_FILES:Musr/share/*.gz:R:ts\n" | sort > $$OLDTMP; \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-files > $$OLDTMP \
 	while read file; do \
 		if [ -f "${DESTDIR}/$${file}" -o -L "${DESTDIR}/$${file}" ]; then \
 			chflags noschg "${DESTDIR}/$${file}" 2>/dev/null || true; \
@@ -3251,8 +3255,7 @@ check-old-files: .PHONY
 	@echo ">>> Checking for old files"
 	@cd ${.CURDIR}; \
 	OLDTMP=$$(mktemp -t old); \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V "OLD_FILES:ts\n" -V "OLD_FILES:Musr/share/*.gz:R:ts\n" > $$OLDTMP; \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-files > $$OLDTMP \
 	while read file; do \
 		if [ -f "${DESTDIR}/$${file}" -o -L "${DESTDIR}/$${file}" ]; then \
 		 	echo "${DESTDIR}/$${file}"; \
@@ -3262,7 +3265,7 @@ check-old-files: .PHONY
 			  echo "${DESTDIR}${DEBUGDIR}/$${file}.$${ext}"; \
 		  fi; \
 		done; \
-	done < $$OLDTMP | sort; \
+	done < $$OLDTMP; \
 	rm -f $$OLDTMP
 # Check for catpages without corresponding manpages.
 	@find ${DESTDIR}/usr/share/man/cat* ! -type d 2>/dev/null | \
@@ -3274,13 +3277,20 @@ check-old-files: .PHONY
 	        fi; \
 	done | sort
 
+list-old-libs: .PHONY
+	@cd ${.CURDIR}; \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
+	    -V OLD_LIBS -V MOVED_LIBS -V "OLD_LIBS:Mlib/*:S,^lib,usr/lib32," \
+	    -V "OLD_LIBS:Musr/lib/*:S,^usr/lib,usr/lib32," \
+	    -V "OLD_LIBS:Mlib/casper/*:S,^lib/casper,usr/lib32," | \
+	    xargs -n1 | sort
+
 delete-old-libs: .PHONY
 	@echo ">>> Removing old libraries"
 	@echo "${OLD_LIBS_MESSAGE}" | fmt
 	@exec 3<&0; \
 	cd ${.CURDIR}; \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V OLD_LIBS | xargs -n1 | sort | \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-libs | \
 	while read file; do \
 		if [ -f "${DESTDIR}/$${file}" -o -L "${DESTDIR}/$${file}" ]; then \
 			chflags noschg "${DESTDIR}/$${file}" 2>/dev/null || true; \
@@ -3299,8 +3309,7 @@ delete-old-libs: .PHONY
 check-old-libs: .PHONY
 	@echo ">>> Checking for old libraries"
 	@cd ${.CURDIR}; \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V OLD_LIBS | xargs -n1 | \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-libs | \
 	while read file; do \
 		if [ -f "${DESTDIR}/$${file}" -o -L "${DESTDIR}/$${file}" ]; then \
 			echo "${DESTDIR}/$${file}"; \
@@ -3310,13 +3319,17 @@ check-old-libs: .PHONY
 			  echo "${DESTDIR}${DEBUGDIR}/$${file}.$${ext}"; \
 		  fi; \
 		done; \
-	done | sort
+	done
+
+list-old-dirs: .PHONY
+	@cd ${.CURDIR}; \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
+	    -V OLD_DIRS | xargs -n1 | sort -r
 
 delete-old-dirs: .PHONY
 	@echo ">>> Removing old directories"
 	@cd ${.CURDIR}; \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V OLD_DIRS | xargs -n1 | sort -r | \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-dirs | \
 	while read dir; do \
 		if [ -d "${DESTDIR}/$${dir}" ]; then \
 			rmdir -v "${DESTDIR}/$${dir}" || true; \
@@ -3334,8 +3347,7 @@ delete-old-dirs: .PHONY
 check-old-dirs: .PHONY
 	@echo ">>> Checking for old directories"
 	@cd ${.CURDIR}; \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} ${.TARGET} \
-	    -V OLD_DIRS | xargs -n1 | sort -r | \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-dirs | \
 	while read dir; do \
 		if [ -d "${DESTDIR}/$${dir}" ]; then \
 			echo "${DESTDIR}/$${dir}"; \

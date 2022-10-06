@@ -172,19 +172,32 @@ SYSCTL_NODE(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO, aslr,
     "");
 #define	ASLR_NODE_OID	__CONCAT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), _aslr)
 
-static int __elfN(aslr_enabled) = 0;
+/*
+ * Enable ASLR by default for 64-bit non-PIE binaries.  32-bit architectures
+ * have limited address space (which can cause issues for applications with
+ * high memory use) so we leave it off there.
+ */
+static int __elfN(aslr_enabled) = __ELF_WORD_SIZE == 64;
 SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, enable, CTLFLAG_RWTUN,
     &__elfN(aslr_enabled), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
     ": enable address map randomization");
 
-static int __elfN(pie_aslr_enabled) = 0;
+/*
+ * Enable ASLR by default for 64-bit PIE binaries.
+ */
+static int __elfN(pie_aslr_enabled) = __ELF_WORD_SIZE == 64;
 SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, pie_enable, CTLFLAG_RWTUN,
     &__elfN(pie_aslr_enabled), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
     ": enable address map randomization for PIE binaries");
 
-static int __elfN(aslr_honor_sbrk) = 1;
+/*
+ * Sbrk is deprecated and it can be assumed that in most cases it will not be
+ * used anyway. This setting is valid only with ASLR enabled, and allows ASLR
+ * to use the bss grow region.
+ */
+static int __elfN(aslr_honor_sbrk) = 0;
 SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, honor_sbrk, CTLFLAG_RW,
     &__elfN(aslr_honor_sbrk), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": assume sbrk is used");
@@ -1202,9 +1215,16 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 				goto ret;
 			break;
 		case PT_GNU_STACK:
-			if (__elfN(nxstack))
+			if (__elfN(nxstack)) {
 				imgp->stack_prot =
 				    __elfN(trans_prot)(phdr[i].p_flags);
+				if ((imgp->stack_prot & VM_PROT_RW) !=
+				    VM_PROT_RW) {
+					uprintf("Invalid PT_GNU_STACK\n");
+					error = ENOEXEC;
+					goto ret;
+				}
+			}
 			imgp->stack_sz = phdr[i].p_memsz;
 			break;
 		case PT_PHDR: 	/* Program header table info */
@@ -1419,10 +1439,14 @@ __elfN(freebsd_copyout_auxargs)(struct image_params *imgp, uintptr_t base)
 {
 	Elf_Auxargs *args = (Elf_Auxargs *)imgp->auxargs;
 	Elf_Auxinfo *argarray, *pos;
-	int error;
+	struct vmspace *vmspace;
+	rlim_t stacksz;
+	int error, bsdflags, oc;
 
 	argarray = pos = malloc(AT_COUNT * sizeof(*pos), M_TEMP,
 	    M_WAITOK | M_ZERO);
+
+	vmspace = imgp->proc->p_vmspace;
 
 	if (args->execfd != -1)
 		AUXARGS_ENTRY(pos, AT_EXECFD, args->execfd);
@@ -1458,8 +1482,12 @@ __elfN(freebsd_copyout_auxargs)(struct image_params *imgp, uintptr_t base)
 		AUXARGS_ENTRY(pos, AT_HWCAP, *imgp->sysent->sv_hwcap);
 	if (imgp->sysent->sv_hwcap2 != NULL)
 		AUXARGS_ENTRY(pos, AT_HWCAP2, *imgp->sysent->sv_hwcap2);
-	AUXARGS_ENTRY(pos, AT_BSDFLAGS, __elfN(sigfastblock) ?
-	    ELF_BSDF_SIGFASTBLK : 0);
+	bsdflags = 0;
+	bsdflags |= __elfN(sigfastblock) ? ELF_BSDF_SIGFASTBLK : 0;
+	oc = atomic_load_int(&vm_overcommit);
+	bsdflags |= (oc & (SWAP_RESERVE_FORCE_ON | SWAP_RESERVE_RLIMIT_ON)) !=
+	    0 ? ELF_BSDF_VMNOOVERCOMMIT : 0;
+	AUXARGS_ENTRY(pos, AT_BSDFLAGS, bsdflags);
 	AUXARGS_ENTRY(pos, AT_ARGC, imgp->args->argc);
 	AUXARGS_ENTRY_PTR(pos, AT_ARGV, imgp->argv);
 	AUXARGS_ENTRY(pos, AT_ENVC, imgp->args->envc);
@@ -1469,6 +1497,9 @@ __elfN(freebsd_copyout_auxargs)(struct image_params *imgp, uintptr_t base)
 		AUXARGS_ENTRY(pos, AT_FXRNG, imgp->sysent->sv_fxrng_gen_base);
 	if (imgp->sysent->sv_vdso_base != 0 && __elfN(vdso) != 0)
 		AUXARGS_ENTRY(pos, AT_KPRELOAD, imgp->sysent->sv_vdso_base);
+	AUXARGS_ENTRY(pos, AT_USRSTACKBASE, round_page(vmspace->vm_stacktop));
+	stacksz = imgp->proc->p_limit->pl_rlimit[RLIMIT_STACK].rlim_cur;
+	AUXARGS_ENTRY(pos, AT_USRSTACKLIM, stacksz);
 	AUXARGS_ENTRY(pos, AT_NULL, 0);
 
 	free(imgp->auxargs, M_TEMP);
@@ -1529,8 +1560,6 @@ static void __elfN(putnote)(struct thread *td, struct note_info *, struct sbuf *
 
 static void __elfN(note_prpsinfo)(void *, struct sbuf *, size_t *);
 static void __elfN(note_threadmd)(void *, struct sbuf *, size_t *);
-static void __elfN(note_thrmisc)(void *, struct sbuf *, size_t *);
-static void __elfN(note_ptlwpinfo)(void *, struct sbuf *, size_t *);
 static void __elfN(note_procstat_auxv)(void *, struct sbuf *, size_t *);
 static void __elfN(note_procstat_proc)(void *, struct sbuf *, size_t *);
 static void __elfN(note_procstat_psstrings)(void *, struct sbuf *, size_t *);
@@ -1832,10 +1861,6 @@ __elfN(prepare_notes)(struct thread *td, struct note_info_list *list,
 	thr = td;
 	while (thr != NULL) {
 		size += __elfN(prepare_register_notes)(td, list, thr);
-		size += __elfN(register_note)(td, list, NT_THRMISC,
-		    __elfN(note_thrmisc), thr);
-		size += __elfN(register_note)(td, list, NT_PTLWPINFO,
-		    __elfN(note_ptlwpinfo), thr);
 		size += __elfN(register_note)(td, list, -1,
 		    __elfN(note_threadmd), thr);
 
@@ -2132,6 +2157,7 @@ typedef struct fpreg32 elf_prfpregset_t;
 typedef struct fpreg32 elf_fpregset_t;
 typedef struct reg32 elf_gregset_t;
 typedef struct thrmisc32 elf_thrmisc_t;
+typedef struct ptrace_lwpinfo32 elf_lwpinfo_t;
 #define ELF_KERN_PROC_MASK	KERN_PROC_MASK32
 typedef struct kinfo_proc32 elf_kinfo_proc_t;
 typedef uint32_t elf_ps_strings_t;
@@ -2142,6 +2168,7 @@ typedef prfpregset_t elf_prfpregset_t;
 typedef prfpregset_t elf_fpregset_t;
 typedef gregset_t elf_gregset_t;
 typedef thrmisc_t elf_thrmisc_t;
+typedef struct ptrace_lwpinfo elf_lwpinfo_t;
 #define ELF_KERN_PROC_MASK	0
 typedef struct kinfo_proc elf_kinfo_proc_t;
 typedef vm_offset_t elf_ps_strings_t;
@@ -2179,13 +2206,16 @@ __elfN(note_prpsinfo)(void *arg, struct sbuf *sb, size_t *sizep)
 			    sizeof(psinfo->pr_psargs), SBUF_FIXEDLEN);
 			error = proc_getargv(curthread, p, &sbarg);
 			PRELE(p);
-			if (sbuf_finish(&sbarg) == 0)
-				len = sbuf_len(&sbarg) - 1;
-			else
+			if (sbuf_finish(&sbarg) == 0) {
+				len = sbuf_len(&sbarg);
+				if (len > 0)
+					len--;
+			} else {
 				len = sizeof(psinfo->pr_psargs) - 1;
+			}
 			sbuf_delete(&sbarg);
 		}
-		if (error || len == 0)
+		if (error != 0 || len == 0 || (ssize_t)len == -1)
 			strlcpy(psinfo->pr_psargs, p->p_comm,
 			    sizeof(psinfo->pr_psargs));
 		else {
@@ -2304,6 +2334,72 @@ static struct regset __elfN(regset_fpregset) = {
 };
 ELF_REGSET(__elfN(regset_fpregset));
 
+static bool
+__elfN(get_thrmisc)(struct regset *rs, struct thread *td, void *buf,
+    size_t *sizep)
+{
+	elf_thrmisc_t *thrmisc;
+
+	if (buf != NULL) {
+		KASSERT(*sizep == sizeof(*thrmisc),
+		    ("%s: invalid size", __func__));
+		thrmisc = buf;
+		bzero(thrmisc, sizeof(*thrmisc));
+		strcpy(thrmisc->pr_tname, td->td_name);
+	}
+	*sizep = sizeof(*thrmisc);
+	return (true);
+}
+
+static struct regset __elfN(regset_thrmisc) = {
+	.note = NT_THRMISC,
+	.size = sizeof(elf_thrmisc_t),
+	.get = __elfN(get_thrmisc),
+};
+ELF_REGSET(__elfN(regset_thrmisc));
+
+static bool
+__elfN(get_lwpinfo)(struct regset *rs, struct thread *td, void *buf,
+    size_t *sizep)
+{
+	elf_lwpinfo_t pl;
+	size_t size;
+	int structsize;
+
+	size = sizeof(structsize) + sizeof(pl);
+	if (buf != NULL) {
+		KASSERT(*sizep == size, ("%s: invalid size", __func__));
+		structsize = sizeof(pl);
+		memcpy(buf, &structsize, sizeof(structsize));
+		bzero(&pl, sizeof(pl));
+		pl.pl_lwpid = td->td_tid;
+		pl.pl_event = PL_EVENT_NONE;
+		pl.pl_sigmask = td->td_sigmask;
+		pl.pl_siglist = td->td_siglist;
+		if (td->td_si.si_signo != 0) {
+			pl.pl_event = PL_EVENT_SIGNAL;
+			pl.pl_flags |= PL_FLAG_SI;
+#if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
+			siginfo_to_siginfo32(&td->td_si, &pl.pl_siginfo);
+#else
+			pl.pl_siginfo = td->td_si;
+#endif
+		}
+		strcpy(pl.pl_tdname, td->td_name);
+		/* XXX TODO: supply more information in struct ptrace_lwpinfo*/
+		memcpy((int *)buf + 1, &pl, sizeof(pl));
+	}
+	*sizep = size;
+	return (true);
+}
+
+static struct regset __elfN(regset_lwpinfo) = {
+	.note = NT_PTLWPINFO,
+	.size = sizeof(int) + sizeof(elf_lwpinfo_t),
+	.get = __elfN(get_lwpinfo),
+};
+ELF_REGSET(__elfN(regset_lwpinfo));
+
 static size_t
 __elfN(prepare_register_notes)(struct thread *td, struct note_info_list *list,
     struct thread *target_td)
@@ -2335,61 +2431,6 @@ __elfN(prepare_register_notes)(struct thread *td, struct note_info_list *list,
 		    target_td);
 	}
 	return (size);
-}
-
-static void
-__elfN(note_thrmisc)(void *arg, struct sbuf *sb, size_t *sizep)
-{
-	struct thread *td;
-	elf_thrmisc_t thrmisc;
-
-	td = arg;
-	if (sb != NULL) {
-		KASSERT(*sizep == sizeof(thrmisc), ("invalid size"));
-		bzero(&thrmisc, sizeof(thrmisc));
-		strcpy(thrmisc.pr_tname, td->td_name);
-		sbuf_bcat(sb, &thrmisc, sizeof(thrmisc));
-	}
-	*sizep = sizeof(thrmisc);
-}
-
-static void
-__elfN(note_ptlwpinfo)(void *arg, struct sbuf *sb, size_t *sizep)
-{
-	struct thread *td;
-	size_t size;
-	int structsize;
-#if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
-	struct ptrace_lwpinfo32 pl;
-#else
-	struct ptrace_lwpinfo pl;
-#endif
-
-	td = arg;
-	size = sizeof(structsize) + sizeof(pl);
-	if (sb != NULL) {
-		KASSERT(*sizep == size, ("invalid size"));
-		structsize = sizeof(pl);
-		sbuf_bcat(sb, &structsize, sizeof(structsize));
-		bzero(&pl, sizeof(pl));
-		pl.pl_lwpid = td->td_tid;
-		pl.pl_event = PL_EVENT_NONE;
-		pl.pl_sigmask = td->td_sigmask;
-		pl.pl_siglist = td->td_siglist;
-		if (td->td_si.si_signo != 0) {
-			pl.pl_event = PL_EVENT_SIGNAL;
-			pl.pl_flags |= PL_FLAG_SI;
-#if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
-			siginfo_to_siginfo32(&td->td_si, &pl.pl_siginfo);
-#else
-			pl.pl_siginfo = td->td_si;
-#endif
-		}
-		strcpy(pl.pl_tdname, td->td_name);
-		/* XXX TODO: supply more information in struct ptrace_lwpinfo*/
-		sbuf_bcat(sb, &pl, sizeof(pl));
-	}
-	*sizep = size;
 }
 
 /*
