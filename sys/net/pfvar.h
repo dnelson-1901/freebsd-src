@@ -305,6 +305,8 @@ pf_counter_u64_zero(struct pf_counter_u64 *pfcu64)
 		critical_exit();					\
 	} while (0)
 
+#define pf_timestamp_pcpu_zone	(sizeof(time_t) == 4 ? pcpu_zone_4 : pcpu_zone_8)
+_Static_assert(sizeof(time_t) == 4 || sizeof(time_t) == 8, "unexpected time_t size");
 
 SYSCTL_DECL(_net_pf);
 MALLOC_DECLARE(M_PFHASH);
@@ -672,12 +674,16 @@ struct pf_keth_rule {
 	uint16_t		 proto;
 	struct pf_keth_rule_addr src, dst;
 	struct pf_rule_addr	 ipsrc, ipdst;
+	char			 match_tagname[PF_TAG_NAME_SIZE];
+	uint16_t		 match_tag;
+	bool			 match_tag_not;
+
 
 	/* Stats */
 	counter_u64_t		 evaluations;
 	counter_u64_t		 packets[2];
 	counter_u64_t		 bytes[2];
-	uint32_t		*timestamp;
+	time_t			*timestamp;
 
 	/* Action */
 	char			 qname[PF_QNAME_SIZE];
@@ -717,7 +723,7 @@ struct pf_krule {
 	struct pf_counter_u64	 evaluations;
 	struct pf_counter_u64	 packets[2];
 	struct pf_counter_u64	 bytes[2];
-	uint32_t		*timestamp;
+	time_t			*timestamp;
 
 	struct pfi_kkif		*kif;
 	struct pf_kanchor	*anchor;
@@ -1063,7 +1069,7 @@ struct pfsync_state {
 
 #ifdef _KERNEL
 /* pfsync */
-typedef int		pfsync_state_import_t(struct pfsync_state *, u_int8_t);
+typedef int		pfsync_state_import_t(struct pfsync_state *, int);
 typedef	void		pfsync_insert_state_t(struct pf_kstate *);
 typedef	void		pfsync_update_state_t(struct pf_kstate *);
 typedef	void		pfsync_delete_state_t(struct pf_kstate *);

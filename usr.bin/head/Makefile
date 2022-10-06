@@ -5,6 +5,7 @@
 
 PROG=	head
 NO_SHARED?=	YES
+LIBADD=	util
 
 HAS_TESTS=
 SUBDIR.${MK_TESTS}+= tests

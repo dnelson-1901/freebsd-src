@@ -94,12 +94,15 @@ struct pfctl_eth_rule {
 	uint16_t		 proto;
 	struct pfctl_eth_addr	 src, dst;
 	struct pf_rule_addr	 ipsrc, ipdst;
+	char			 match_tagname[PF_TAG_NAME_SIZE];
+	uint16_t		 match_tag;
+	bool			 match_tag_not;
 
 	/* Stats */
 	uint64_t		 evaluations;
 	uint64_t		 packets[2];
 	uint64_t		 bytes[2];
-	uint32_t		 last_active_timestamp;
+	time_t			 last_active_timestamp;
 
 	/* Action */
 	char			 qname[PF_QNAME_SIZE];
@@ -172,7 +175,7 @@ struct pfctl_rule {
 	uint64_t		 evaluations;
 	uint64_t		 packets[2];
 	uint64_t		 bytes[2];
-	uint32_t		 last_active_timestamp;
+	time_t			 last_active_timestamp;
 
 	struct pfi_kif		*kif;
 	struct pfctl_anchor	*anchor;
