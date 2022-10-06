@@ -3224,7 +3224,7 @@ delete-old-files: .PHONY
 	@exec 3<&0; \
 	cd ${.CURDIR}; \
 	OLDTMP=$$(mktemp -t old); \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-files > $$OLDTMP \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-files > $$OLDTMP; \
 	while read file; do \
 		if [ -f "${DESTDIR}/$${file}" -o -L "${DESTDIR}/$${file}" ]; then \
 			chflags noschg "${DESTDIR}/$${file}" 2>/dev/null || true; \
@@ -3255,7 +3255,7 @@ check-old-files: .PHONY
 	@echo ">>> Checking for old files"
 	@cd ${.CURDIR}; \
 	OLDTMP=$$(mktemp -t old); \
-	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-files > $$OLDTMP \
+	${MAKE} -f ${.CURDIR}/Makefile.inc1 ${.MAKEFLAGS} list-old-files > $$OLDTMP; \
 	while read file; do \
 		if [ -f "${DESTDIR}/$${file}" -o -L "${DESTDIR}/$${file}" ]; then \
 		 	echo "${DESTDIR}/$${file}"; \
