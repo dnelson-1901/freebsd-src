@@ -244,7 +244,7 @@ IsOODateRegular(GNode *gn)
 			    GNode_Path(gn->youngestChild));
 			SET_OODATE_REASON("modified before source %s (%s > %s)...",
 			    GNode_Path(gn->youngestChild),
-			    Targ_FmtTime(gn->youngestChild->mtime), Targ_FmtTime(gn->youngestChild->mtime));
+			    Targ_FmtTime(gn->youngestChild->mtime), Targ_FmtTime(gn->mtime));
 			return true;
 		}
 		return false;
