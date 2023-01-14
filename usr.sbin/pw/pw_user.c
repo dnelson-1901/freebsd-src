@@ -80,8 +80,7 @@ static uid_t	 pw_gidpolicy(struct userconf *cnf, char *grname, char *nam,
 static char	*pw_homepolicy(struct userconf * cnf, char *homedir,
     const char *user);
 static char	*pw_shellpolicy(struct userconf * cnf);
-static char	*pw_password(struct userconf * cnf, char const * user,
-    bool dryrun);
+static char	*pw_password(struct userconf * cnf, char const * user);
 static char	*shell_path(char const * path, char *shells[], char *sh);
 static void	rmat(uid_t uid);
 static void	rmopie(char const * name);
@@ -511,7 +510,7 @@ pw_pwcrypt(char *password)
 }
 
 static char *
-pw_password(struct userconf * cnf, char const * user, bool dryrun)
+pw_password(struct userconf * cnf, char const * user)
 {
 	int             i, l;
 	char            pwbuf[32];
@@ -528,7 +527,7 @@ pw_password(struct userconf * cnf, char const * user, bool dryrun)
 		/*
 		 * We give this information back to the user
 		 */
-		if (conf.fd == -1 && !dryrun) {
+		if (conf.fd == -1) {
 			if (isatty(STDOUT_FILENO))
 				printf("Password for '%s' is: ", user);
 			printf("%s\n", pwbuf);
@@ -754,6 +753,8 @@ pw_user_next(int argc, char **argv, char *name __unused)
 		case 'q':
 			quiet = true;
 			break;
+		default:
+			exit(EX_USAGE);
 		}
 	}
 
@@ -816,6 +817,8 @@ pw_user_show(int argc, char **argv, char *arg1)
 		case '7':
 			v7 = true;
 			break;
+		default:
+			exit(EX_USAGE);
 		}
 	}
 
@@ -897,6 +900,8 @@ pw_user_del(int argc, char **argv, char *arg1)
 		case 'Y':
 			nis = true;
 			break;
+		default:
+			exit(EX_USAGE);
 		}
 	}
 
@@ -1038,6 +1043,8 @@ pw_user_lock(int argc, char **argv, char *arg1)
 		case 'q':
 			/* compatibility */
 			break;
+		default:
+			exit(EX_USAGE);
 		}
 	}
 
@@ -1055,6 +1062,8 @@ pw_user_unlock(int argc, char **argv, char *arg1)
 		case 'q':
 			/* compatibility */
 			break;
+		default:
+			exit(EX_USAGE);
 		}
 	}
 
@@ -1322,6 +1331,8 @@ pw_user_add(int argc, char **argv, char *arg1)
 		case 'Y':
 			nis = true;
 			break;
+		default:
+			exit(EX_USAGE);
 		}
 	}
 
@@ -1398,7 +1409,7 @@ pw_user_add(int argc, char **argv, char *arg1)
 	if (lc == NULL || login_setcryptfmt(lc, "sha512", NULL) == NULL)
 		warn("setting crypt(3) format");
 	login_close(lc);
-	pwd->pw_passwd = pw_password(cmdcnf, pwd->pw_name, dryrun);
+	pwd->pw_passwd = pw_password(cmdcnf, pwd->pw_name);
 	if (pwd->pw_uid == 0 && strcmp(pwd->pw_name, "root") != 0)
 		warnx("WARNING: new account `%s' has a uid of 0 "
 		    "(superuser access!)", pwd->pw_name);
@@ -1630,6 +1641,8 @@ pw_user_mod(int argc, char **argv, char *arg1)
 		case 'Y':
 			nis = true;
 			break;
+		default:
+			exit(EX_USAGE);
 		}
 	}
 
@@ -1745,7 +1758,7 @@ pw_user_mod(int argc, char **argv, char *arg1)
 		login_close(lc);
 		cnf->default_password = passwd_val(passwd,
 		    cnf->default_password);
-		pwd->pw_passwd = pw_password(cnf, pwd->pw_name, dryrun);
+		pwd->pw_passwd = pw_password(cnf, pwd->pw_name);
 		edited = true;
 	}
 

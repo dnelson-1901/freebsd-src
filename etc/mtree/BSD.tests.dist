@@ -421,6 +421,8 @@
         atf
             atf-check
             ..
+            atf-pytest-wrapper
+            ..
             atf-sh
             ..
         ..
@@ -803,6 +805,8 @@
         mqueue
         ..
         net
+            routing
+            ..
         ..
         netgraph
         ..
@@ -1044,6 +1048,8 @@
         ..
         mkimg
         ..
+        mktemp
+        ..
         ncal
         ..
         opensm
@@ -1055,6 +1061,8 @@
         printf
         ..
         procstat
+        ..
+        renice
         ..
         rs
         ..
@@ -1069,6 +1077,8 @@
         soelim
         ..
         sort
+        ..
+        split
         ..
         stat
         ..

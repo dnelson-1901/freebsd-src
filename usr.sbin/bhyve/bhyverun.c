@@ -46,6 +46,7 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #include <amd64/vmm/intel/vmcs.h>
+#include <x86/apicreg.h>
 
 #include <machine/atomic.h>
 #include <machine/segments.h>
@@ -185,7 +186,7 @@ typedef int (*vmexit_handler_t)(struct vmctx *, struct vm_exit *, int *vcpu);
 extern int vmexit_task_switch(struct vmctx *, struct vm_exit *, int *vcpu);
 
 int guest_ncpus;
-uint16_t cores, maxcpus, sockets, threads;
+uint16_t cpu_cores, cpu_sockets, cpu_threads;
 
 int raw_stdio = 0;
 
@@ -236,6 +237,7 @@ usage(int code)
 		"       -H: vmexit from the guest on HLT\n"
 		"       -h: help\n"
 		"       -k: key=value flat config file\n"
+		"       -K: PS2 keyboard layout\n"
 		"       -l: LPC device configuration\n"
 		"       -m: memory size\n"
 		"       -o: set config 'var' to 'value'\n"
@@ -331,7 +333,7 @@ parse_int_value(const char *key, const char *value, int minval, int maxval)
  * vm_set_topology().  vmm.ko may enforce tighter limits.
  */
 static void
-calc_topolopgy(void)
+calc_topology(void)
 {
 	const char *value;
 	bool explicit_cpus;
@@ -347,25 +349,25 @@ calc_topolopgy(void)
 	}
 	value = get_config_value("cores");
 	if (value != NULL)
-		cores = parse_int_value("cores", value, 1, UINT16_MAX);
+		cpu_cores = parse_int_value("cores", value, 1, UINT16_MAX);
 	else
-		cores = 1;
+		cpu_cores = 1;
 	value = get_config_value("threads");
 	if (value != NULL)
-		threads = parse_int_value("threads", value, 1, UINT16_MAX);
+		cpu_threads = parse_int_value("threads", value, 1, UINT16_MAX);
 	else
-		threads = 1;
+		cpu_threads = 1;
 	value = get_config_value("sockets");
 	if (value != NULL)
-		sockets = parse_int_value("sockets", value, 1, UINT16_MAX);
+		cpu_sockets = parse_int_value("sockets", value, 1, UINT16_MAX);
 	else
-		sockets = guest_ncpus;
+		cpu_sockets = guest_ncpus;
 
 	/*
 	 * Compute sockets * cores * threads avoiding overflow.  The
 	 * range check above insures these are 16 bit values.
 	 */
-	ncpus = (uint64_t)sockets * cores * threads;
+	ncpus = (uint64_t)cpu_sockets * cpu_cores * cpu_threads;
 	if (ncpus > UINT16_MAX)
 		errx(4, "Computed number of vCPUs too high: %ju",
 		    (uintmax_t)ncpus);
@@ -373,7 +375,8 @@ calc_topolopgy(void)
 	if (explicit_cpus) {
 		if (guest_ncpus != ncpus)
 			errx(4, "Topology (%d sockets, %d cores, %d threads) "
-			    "does not match %d vCPUs", sockets, cores, threads,
+			    "does not match %d vCPUs",
+			    cpu_sockets, cpu_cores, cpu_threads,
 			    guest_ncpus);
 	} else
 		guest_ncpus = ncpus;
@@ -545,12 +548,10 @@ fbsdrun_start_thread(void *param)
 	return (NULL);
 }
 
-void
-fbsdrun_addcpu(struct vmctx *ctx, int fromcpu, int newcpu, uint64_t rip)
+static void
+fbsdrun_addcpu(struct vmctx *ctx, int newcpu, uint64_t rip, bool suspend)
 {
 	int error;
-
-	assert(fromcpu == BSP);
 
 	/*
 	 * The 'newcpu' must be activated in the context of 'fromcpu'. If
@@ -563,6 +564,9 @@ fbsdrun_addcpu(struct vmctx *ctx, int fromcpu, int newcpu, uint64_t rip)
 		err(EX_OSERR, "could not activate CPU %d", newcpu);
 
 	CPU_SET_ATOMIC(newcpu, &cpumask);
+
+	if (suspend)
+		vm_suspend_cpu(ctx, newcpu);
 
 	/*
 	 * Set up the vmexit struct to allow execution to start
@@ -686,8 +690,7 @@ static int
 vmexit_spinup_ap(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 {
 
-	(void)spinup_ap(ctx, *pvcpu,
-		    vme->u.spinup_ap.vcpu, vme->u.spinup_ap.rip);
+	(void)spinup_ap(ctx, vme->u.spinup_ap.vcpu, vme->u.spinup_ap.rip);
 
 	return (VMEXIT_CONTINUE);
 }
@@ -934,6 +937,35 @@ vmexit_breakpoint(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
 	return (VMEXIT_CONTINUE);
 }
 
+static int
+vmexit_ipi(struct vmctx *ctx, struct vm_exit *vmexit, int *pvcpu)
+{
+	int error = -1;
+	int i;
+	switch (vmexit->u.ipi.mode) {
+	case APIC_DELMODE_INIT:
+		CPU_FOREACH_ISSET (i, &vmexit->u.ipi.dmask) {
+			error = vm_suspend_cpu(ctx, i);
+			if (error) {
+				warnx("%s: failed to suspend cpu %d\n",
+				    __func__, i);
+				break;
+			}
+		}
+		break;
+	case APIC_DELMODE_STARTUP:
+		CPU_FOREACH_ISSET (i, &vmexit->u.ipi.dmask) {
+			spinup_ap(ctx, i, vmexit->u.ipi.vector << PAGE_SHIFT);
+		}
+		error = 0;
+		break;
+	default:
+		break;
+	}
+
+	return (error);
+}
+
 static vmexit_handler_t handler[VM_EXITCODE_MAX] = {
 	[VM_EXITCODE_INOUT]  = vmexit_inout,
 	[VM_EXITCODE_INOUT_STR]  = vmexit_inout,
@@ -950,6 +982,7 @@ static vmexit_handler_t handler[VM_EXITCODE_MAX] = {
 	[VM_EXITCODE_TASK_SWITCH] = vmexit_task_switch,
 	[VM_EXITCODE_DEBUG] = vmexit_debug,
 	[VM_EXITCODE_BPT] = vmexit_breakpoint,
+	[VM_EXITCODE_IPI] = vmexit_ipi,
 };
 
 static void
@@ -1068,11 +1101,6 @@ do_open(const char *vmname)
 	struct vmctx *ctx;
 	int error;
 	bool reinit, romboot;
-#ifndef WITHOUT_CAPSICUM
-	cap_rights_t rights;
-	const cap_ioctl_t *cmds;	
-	size_t ncmds;
-#endif
 
 	reinit = romboot = false;
 
@@ -1112,16 +1140,8 @@ do_open(const char *vmname)
 	}
 
 #ifndef WITHOUT_CAPSICUM
-	cap_rights_init(&rights, CAP_IOCTL, CAP_MMAP_RW);
-	if (caph_rights_limit(vm_get_device_fd(ctx), &rights) == -1) 
-		errx(EX_OSERR, "Unable to apply rights for sandbox");
-	vm_get_ioctls(&ncmds);
-	cmds = vm_get_ioctls(NULL);
-	if (cmds == NULL)
-		errx(EX_OSERR, "out of memory");
-	if (caph_ioctls_limit(vm_get_device_fd(ctx), cmds, ncmds) == -1)
-		errx(EX_OSERR, "Unable to apply rights for sandbox");
-	free((cap_ioctl_t *)cmds);
+	if (vm_limit_rights(ctx) != 0)
+		err(EX_OSERR, "vm_limit_rights");
 #endif
  
 	if (reinit) {
@@ -1131,14 +1151,15 @@ do_open(const char *vmname)
 			exit(4);
 		}
 	}
-	error = vm_set_topology(ctx, sockets, cores, threads, maxcpus);
+	error = vm_set_topology(ctx, cpu_sockets, cpu_cores, cpu_threads,
+	    0 /* maxcpus, unimplemented */);
 	if (error)
 		errx(EX_OSERR, "vm_set_topology");
 	return (ctx);
 }
 
-void
-spinup_vcpu(struct vmctx *ctx, int vcpu)
+static void
+spinup_vcpu(struct vmctx *ctx, int vcpu, bool suspend)
 {
 	int error;
 	uint64_t rip;
@@ -1150,7 +1171,10 @@ spinup_vcpu(struct vmctx *ctx, int vcpu)
 	error = vm_set_capability(ctx, vcpu, VM_CAP_UNRESTRICTED_GUEST, 1);
 	assert(error == 0);
 
-	fbsdrun_addcpu(ctx, BSP, vcpu, rip);
+	error = vm_set_capability(ctx, vcpu, VM_CAP_IPI_EXIT, 1);
+	assert(error == 0);
+
+	fbsdrun_addcpu(ctx, vcpu, rip, suspend);
 }
 
 static bool
@@ -1198,6 +1222,30 @@ parse_simple_config_file(const char *path)
 }
 
 static void
+parse_gdb_options(char *optarg)
+{
+	const char *sport;
+	char *colon;
+
+	if (optarg[0] == 'w') {
+		set_config_bool("gdb.wait", true);
+		optarg++;
+	}
+
+	colon = strrchr(optarg, ':');
+	if (colon == NULL) {
+		sport = optarg;
+	} else {
+		*colon = '\0';
+		colon++;
+		sport = colon;
+		set_config_value("gdb.address", optarg);
+	}
+
+	set_config_value("gdb.port", sport);
+}
+
+static void
 set_defaults(void)
 {
 
@@ -1229,9 +1277,9 @@ main(int argc, char *argv[])
 	progname = basename(argv[0]);
 
 #ifdef BHYVE_SNAPSHOT
-	optstr = "aehuwxACDHIPSWYk:o:p:G:c:s:m:l:U:r:";
+	optstr = "aehuwxACDHIPSWYk:o:p:G:c:s:m:l:K:U:r:";
 #else
-	optstr = "aehuwxACDHIPSWYk:o:p:G:c:s:m:l:U:";
+	optstr = "aehuwxACDHIPSWYk:o:p:G:c:s:m:l:K:U:";
 #endif
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
@@ -1260,14 +1308,13 @@ main(int argc, char *argv[])
 			set_config_bool("memory.guest_in_core", true);
 			break;
 		case 'G':
-			if (optarg[0] == 'w') {
-				set_config_bool("gdb.wait", true);
-				optarg++;
-			}
-			set_config_value("gdb.port", optarg);
+			parse_gdb_options(optarg);
 			break;
 		case 'k':
 			parse_simple_config_file(optarg);
+			break;
+		case 'K':
+			set_config_value("keyboard.layout", optarg);
 			break;
 		case 'l':
 			if (strncmp(optarg, "help", strlen(optarg)) == 0) {
@@ -1375,7 +1422,7 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-	calc_topolopgy();
+	calc_topology();
 	build_vcpumaps();
 
 	value = get_config_value("memory.size");
@@ -1451,10 +1498,7 @@ main(int argc, char *argv[])
 	if (get_config_bool("acpi_tables"))
 		vmgenc_init(ctx);
 
-	value = get_config_value("gdb.port");
-	if (value != NULL)
-		init_gdb(ctx, atoi(value), get_config_bool_default("gdb.wait",
-		    false));
+	init_gdb(ctx);
 
 	if (lpc_bootrom()) {
 		if (vm_set_capability(ctx, BSP, VM_CAP_UNRESTRICTED_GUEST, 1)) {
@@ -1559,25 +1603,16 @@ main(int argc, char *argv[])
 	mt_vmm_info = calloc(guest_ncpus, sizeof(*mt_vmm_info));
 
 	/*
-	 * Add CPU 0
+	 * Add all vCPUs.
 	 */
-	fbsdrun_addcpu(ctx, BSP, BSP, rip);
-
+	for (int vcpu = 0; vcpu < guest_ncpus; vcpu++) {
+		bool suspend = (vcpu != BSP);
 #ifdef BHYVE_SNAPSHOT
-	/*
-	 * If we restore a VM, start all vCPUs now (including APs), otherwise,
-	 * let the guest OS to spin them up later via vmexits.
-	 */
-	if (restore_file != NULL) {
-		for (vcpu = 0; vcpu < guest_ncpus; vcpu++) {
-			if (vcpu == BSP)
-				continue;
-
-			fprintf(stdout, "spinning up vcpu no %d...\r\n", vcpu);
-			spinup_vcpu(ctx, vcpu);
-		}
-	}
+		if (restore_file != NULL)
+			suspend = false;
 #endif
+		spinup_vcpu(ctx, vcpu, suspend);
+	}
 
 	/*
 	 * Head off to the main event dispatch loop

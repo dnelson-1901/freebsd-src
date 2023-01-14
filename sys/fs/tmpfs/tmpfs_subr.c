@@ -350,17 +350,17 @@ tmpfs_pages_used(struct tmpfs_mount *tmp)
 	return (meta_pages + tmp->tm_pages_used);
 }
 
-static size_t
+static bool
 tmpfs_pages_check_avail(struct tmpfs_mount *tmp, size_t req_pages)
 {
 	if (tmpfs_mem_avail() < req_pages)
-		return (0);
+		return (false);
 
 	if (tmp->tm_pages_max != ULONG_MAX &&
 	    tmp->tm_pages_max < req_pages + tmpfs_pages_used(tmp))
-			return (0);
+		return (false);
 
-	return (1);
+	return (true);
 }
 
 static int
@@ -468,7 +468,7 @@ tmpfs_alloc_node(struct mount *mp, struct tmpfs_mount *tmp, enum vtype type,
 
 	if (tmp->tm_nodes_inuse >= tmp->tm_nodes_max)
 		return (ENOSPC);
-	if (tmpfs_pages_check_avail(tmp, 1) == 0)
+	if (!tmpfs_pages_check_avail(tmp, 1))
 		return (ENOSPC);
 
 	if ((mp->mnt_kern_flag & MNTK_UNMOUNT) != 0) {
@@ -1745,7 +1745,7 @@ tmpfs_reg_resize(struct vnode *vp, off_t newsize, boolean_t ignerr)
 	}
 
 	if (newpages > oldpages &&
-	    tmpfs_pages_check_avail(tmp, newpages - oldpages) == 0)
+	    !tmpfs_pages_check_avail(tmp, newpages - oldpages))
 		return (ENOSPC);
 
 	VM_OBJECT_WLOCK(uobj);
@@ -2161,29 +2161,19 @@ tmpfs_itimes(struct vnode *vp, const struct timespec *acc,
 int
 tmpfs_truncate(struct vnode *vp, off_t length)
 {
-	int error;
 	struct tmpfs_node *node;
+	int error;
 
-	node = VP_TO_TMPFS_NODE(vp);
-
-	if (length < 0) {
-		error = EINVAL;
-		goto out;
-	}
-
-	if (node->tn_size == length) {
-		error = 0;
-		goto out;
-	}
-
+	if (length < 0)
+		return (EINVAL);
 	if (length > VFS_TO_TMPFS(vp->v_mount)->tm_maxfilesize)
 		return (EFBIG);
 
-	error = tmpfs_reg_resize(vp, length, FALSE);
+	node = VP_TO_TMPFS_NODE(vp);
+	error = node->tn_size == length ? 0 : tmpfs_reg_resize(vp, length,
+	    FALSE);
 	if (error == 0)
 		node->tn_status |= TMPFS_NODE_CHANGED | TMPFS_NODE_MODIFIED;
-
-out:
 	tmpfs_update(vp);
 
 	return (error);

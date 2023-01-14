@@ -440,8 +440,11 @@ ffs_mount(struct mount *mp)
 	/*
 	 * If this is a snapshot request, take the snapshot.
 	 */
-	if (mp->mnt_flag & MNT_SNAPSHOT)
+	if (mp->mnt_flag & MNT_SNAPSHOT) {
+		if ((mp->mnt_flag & MNT_UPDATE) == 0)
+			return (EINVAL);
 		return (ffs_snapshot(mp, fspec));
+	}
 
 	/*
 	 * Must not call namei() while owning busy ref.
@@ -628,11 +631,12 @@ ffs_mount(struct mount *mp)
 				     (FS_SUJ | FS_NEEDSFSCK)) == 0 &&
 				     (fs->fs_flags & FS_DOSOFTDEP))) {
 					printf("WARNING: %s was not properly "
-					   "dismounted\n", fs->fs_fsmnt);
+					   "dismounted\n",
+					   mp->mnt_stat.f_mntonname);
 				} else {
 					vfs_mount_error(mp,
 					   "R/W mount of %s denied. %s.%s",
-					   fs->fs_fsmnt,
+					   mp->mnt_stat.f_mntonname,
 					   "Filesystem is not clean - run fsck",
 					   (fs->fs_flags & FS_SUJ) == 0 ? "" :
 					   " Forced mount will invalidate"
@@ -833,8 +837,8 @@ ffs_reload(struct mount *mp, int flags)
 	UFS_LOCK(ump);
 	if (fs->fs_pendingblocks != 0 || fs->fs_pendinginodes != 0) {
 		printf("WARNING: %s: reload pending error: blocks %jd "
-		    "files %d\n", fs->fs_fsmnt, (intmax_t)fs->fs_pendingblocks,
-		    fs->fs_pendinginodes);
+		    "files %d\n", mp->mnt_stat.f_mntonname,
+		    (intmax_t)fs->fs_pendingblocks, fs->fs_pendinginodes);
 		fs->fs_pendingblocks = 0;
 		fs->fs_pendinginodes = 0;
 	}
@@ -997,10 +1001,11 @@ ffs_mountfs(struct vnode *odevvp, struct mount *mp, struct thread *td)
 		    ((fs->fs_flags & (FS_SUJ | FS_NEEDSFSCK)) == 0 &&
 		     (fs->fs_flags & FS_DOSOFTDEP))) {
 			printf("WARNING: %s was not properly dismounted\n",
-			    fs->fs_fsmnt);
+			    mp->mnt_stat.f_mntonname);
 		} else {
-			vfs_mount_error(mp, "R/W mount of %s denied. %s%s",
-			    fs->fs_fsmnt, "Filesystem is not clean - run fsck.",
+			vfs_mount_error(mp, "R/W mount on %s denied. "
+			    "Filesystem is not clean - run fsck.%s",
+			    mp->mnt_stat.f_mntonname,
 			    (fs->fs_flags & FS_SUJ) == 0 ? "" :
 			    " Forced mount will invalidate journal contents");
 			error = EPERM;
@@ -1009,7 +1014,8 @@ ffs_mountfs(struct vnode *odevvp, struct mount *mp, struct thread *td)
 		if ((fs->fs_pendingblocks != 0 || fs->fs_pendinginodes != 0) &&
 		    (mp->mnt_flag & MNT_FORCE)) {
 			printf("WARNING: %s: lost blocks %jd files %d\n",
-			    fs->fs_fsmnt, (intmax_t)fs->fs_pendingblocks,
+			    mp->mnt_stat.f_mntonname,
+			    (intmax_t)fs->fs_pendingblocks,
 			    fs->fs_pendinginodes);
 			fs->fs_pendingblocks = 0;
 			fs->fs_pendinginodes = 0;
@@ -1017,8 +1023,8 @@ ffs_mountfs(struct vnode *odevvp, struct mount *mp, struct thread *td)
 	}
 	if (fs->fs_pendingblocks != 0 || fs->fs_pendinginodes != 0) {
 		printf("WARNING: %s: mount pending error: blocks %jd "
-		    "files %d\n", fs->fs_fsmnt, (intmax_t)fs->fs_pendingblocks,
-		    fs->fs_pendinginodes);
+		    "files %d\n", mp->mnt_stat.f_mntonname,
+		    (intmax_t)fs->fs_pendingblocks, fs->fs_pendinginodes);
 		fs->fs_pendingblocks = 0;
 		fs->fs_pendinginodes = 0;
 	}
@@ -1945,40 +1951,48 @@ ffs_vgetf(struct mount *mp,
 		MPASS((ffs_flags & FFSV_REPLACE) == 0);
 		return (0);
 	}
-
-	/* Read in the disk contents for the inode, copy into the inode. */
-	dbn = fsbtodb(fs, ino_to_fsba(fs, ino));
-	error = ffs_breadz(ump, ump->um_devvp, dbn, dbn, (int)fs->fs_bsize,
-	    NULL, NULL, 0, NOCRED, 0, NULL, &bp);
-	if (error != 0) {
-		/*
-		 * The inode does not contain anything useful, so it would
-		 * be misleading to leave it on its hash chain. With mode
-		 * still zero, it will be unlinked and returned to the free
-		 * list by vput().
-		 */
-		vgone(vp);
-		vput(vp);
-		*vpp = NULL;
-		return (error);
-	}
 	if (I_IS_UFS1(ip))
 		ip->i_din1 = uma_zalloc(uma_ufs1, M_WAITOK);
 	else
 		ip->i_din2 = uma_zalloc(uma_ufs2, M_WAITOK);
-	if ((error = ffs_load_inode(bp, ip, fs, ino)) != 0) {
+
+	if ((ffs_flags & FFSV_NEWINODE) != 0) {
+		/* New inode, just zero out its contents. */
+		if (I_IS_UFS1(ip))
+			memset(ip->i_din1, 0, sizeof(struct ufs1_dinode));
+		else
+			memset(ip->i_din2, 0, sizeof(struct ufs2_dinode));
+	} else {
+		/* Read the disk contents for the inode, copy into the inode. */
+		dbn = fsbtodb(fs, ino_to_fsba(fs, ino));
+		error = ffs_breadz(ump, ump->um_devvp, dbn, dbn,
+		    (int)fs->fs_bsize, NULL, NULL, 0, NOCRED, 0, NULL, &bp);
+		if (error != 0) {
+			/*
+			 * The inode does not contain anything useful, so it
+			 * would be misleading to leave it on its hash chain.
+			 * With mode still zero, it will be unlinked and
+			 * returned to the free list by vput().
+			 */
+			vgone(vp);
+			vput(vp);
+			*vpp = NULL;
+			return (error);
+		}
+		if ((error = ffs_load_inode(bp, ip, fs, ino)) != 0) {
+			bqrelse(bp);
+			vgone(vp);
+			vput(vp);
+			*vpp = NULL;
+			return (error);
+		}
 		bqrelse(bp);
-		vgone(vp);
-		vput(vp);
-		*vpp = NULL;
-		return (error);
 	}
 	if (DOINGSOFTDEP(vp) && (!fs->fs_ronly ||
 	    (ffs_flags & FFSV_FORCEINODEDEP) != 0))
 		softdep_load_inodeblock(ip);
 	else
 		ip->i_effnlink = ip->i_nlink;
-	bqrelse(bp);
 
 	/*
 	 * Initialize the vnode from the inode, check for aliases.

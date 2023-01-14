@@ -106,6 +106,10 @@ LINUXKPI_GENSRCS+= \
 	opt_usb.h \
 	opt_stack.h
 
+LINUXKPI_INCLUDES+= \
+	-I${SYSDIR}/compat/linuxkpi/common/include \
+	-I${SYSDIR}/compat/linuxkpi/dummy/include
+
 CFLAGS+=	${WERROR}
 CFLAGS+=	-D_KERNEL
 CFLAGS+=	-DKLD_MODULE
@@ -279,8 +283,6 @@ ${FULLPROG}: ${OBJS}
 	${OBJCOPY} --strip-debug ${.TARGET}
 .endif
 
-_MAP_DEBUG_PREFIX= yes
-
 _ILINKS=machine
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64"
 _ILINKS+=x86
@@ -299,12 +301,10 @@ beforebuild: ${_ILINKS}
 .if !exists(${.OBJDIR}/${_link})
 OBJS_DEPEND_GUESS+=	${_link}
 .endif
-.if defined(_MAP_DEBUG_PREFIX)
 .if ${_link} == "machine"
 CFLAGS+= -fdebug-prefix-map=./machine=${SYSDIR}/${MACHINE}/include
 .else
 CFLAGS+= -fdebug-prefix-map=./${_link}=${SYSDIR}/${_link}/include
-.endif
 .endif
 .endfor
 
