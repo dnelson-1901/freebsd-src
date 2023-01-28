@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/acl.h>
+#include <sys/extattr.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
 
@@ -811,6 +812,43 @@ finish_execplus(void)
 		p = p->e_next;
 	}
 }
+
+/*
+ * -extattr function --
+ *
+ *	Show files with extended attributes.
+ */
+int
+f_extattr(PLAN *plan __unused, FTSENT *entry)
+{
+	int size;
+
+	size = extattr_list_link(entry->fts_accpath, EXTATTR_NAMESPACE_SYSTEM, 
+	    NULL, 0);
+	if (size > 0) {
+		return (1);
+	} else if (size < 0) {
+		warn("%s", entry->fts_accpath);
+		return (0);
+	}
+	size = extattr_list_link(entry->fts_accpath, EXTATTR_NAMESPACE_USER, 
+	    NULL, 0);
+	if (size > 0) {
+		return (1);
+	} else if (size < 0) {
+		warn("%s", entry->fts_accpath);
+		return (0);
+	}
+	return (0);
+}
+
+PLAN *
+c_extattr(OPTION *option, char ***argvp __unused)
+{
+	ftsoptions &= ~FTS_NOSTAT;
+	return (palloc(option));
+}
+
 
 #if HAVE_STRUCT_STAT_ST_FLAGS
 int
