@@ -62,6 +62,8 @@
         ..
         test
         ..
+        timeout
+        ..
     ..
     cddl
         lib
@@ -262,6 +264,8 @@
     etc
         rc.d
         ..
+    ..
+    examples
     ..
     games
     ..
@@ -820,6 +824,8 @@
             tunnel
             ..
         ..
+        netlink
+        ..
         netmap
         ..
         netpfil
@@ -1085,8 +1091,6 @@
         tail
         ..
         tar
-        ..
-        timeout
         ..
         tr
         ..

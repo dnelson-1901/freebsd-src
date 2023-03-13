@@ -843,6 +843,9 @@ sysctl_net_inet_tcp_udp_tunneling_port_check(SYSCTL_HANDLER_ARGS)
 			}
 			if (new != 0) {
 				error = tcp_over_udp_start();
+				if (error != 0) {
+					V_tcp_udp_tunneling_port = 0;
+				}
 			}
 		}
 	}
@@ -1450,8 +1453,6 @@ tcp_init(void)
 	    NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
 
 	tcp_fastopen_init();
-
-	V_tcp_msl = TCPTV_MSL;
 
 	V_tcp_msl = TCPTV_MSL;
 

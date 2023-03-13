@@ -52,6 +52,16 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20230308: machine-id merged into hostid_save
+OLD_FILES+=etc/rc.d/machine-id
+
+# 20230203: loader help files renamed
+OLD_FILES+=boot/loader.help
+
+# 20230201: timeout moved from /usr/bin to /bin
+OLD_FILES+=usr/tests/usr.bin/timeout/Kyuafile
+OLD_FILES+=usr/tests/usr.bin/timeout/timeout_test
+
 # 20221015: update the ithread(9) man page
 OLD_FILES+=usr/share/man/man9/ithread.9.gz
 OLD_FILES+=usr/share/man/man9/ithread_add_handler.9.gz
@@ -3269,10 +3279,6 @@ OLD_FILES+=usr/include/crypto/skipjack.h
 
 # 20200511: Remove ubsec(4)
 OLD_FILES+=usr/share/man/man4/ubsec.4.gz
-
-# 20200506: GNU objdump 2.17.50 retired
-OLD_FILES+=usr/bin/objdump
-OLD_FILES+=usr/share/man/man1/objdump.1.gz
 
 # 20200428: route_var.h moved to net/route
 OLD_FILES+=usr/include/net/route_var.h
