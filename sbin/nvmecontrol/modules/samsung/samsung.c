@@ -143,11 +143,11 @@ print_samsung_extended_smart(const struct nvme_controller_data *cdata __unused, 
 	    uint128_to_str(to128(temp->lur), cbuf, sizeof(cbuf)));
 	printf("   Lifetime Retired Block Count             : %u\n", le32dec(&temp->lrbc));
 	printf("   Current Temperature                      : ");
-	print_temp(le16dec(&temp->ct));
+	print_temp_K(le16dec(&temp->ct));
 	printf("   Capacitor Health                         : %u\n", le16dec(&temp->ch));
 	printf("   Reserved Erase Block Count               : %u\n", le32dec(&temp->luurb));
-	printf("   Read Reclaim Count                       : %lu\n", le64dec(&temp->rrc));
-	printf("   Lifetime Uncorrectable ECC Count         : %lu\n", le64dec(&temp->lueccc));
+	printf("   Read Reclaim Count                       : %ju\n", (uintmax_t) le64dec(&temp->rrc));
+	printf("   Lifetime Uncorrectable ECC Count         : %ju\n", (uintmax_t) le64dec(&temp->lueccc));
 	printf("   Reallocated Block Count                  : %u\n", le32dec(&temp->lurb));
 	printf("   Power on Hours                           : %s\n",
 	    uint128_to_str(to128(temp->poh), cbuf, sizeof(cbuf)));

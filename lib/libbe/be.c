@@ -318,7 +318,7 @@ be_promote_dependent_clones(zfs_handle_t *zfs_hdl, struct be_destroy_data *bdd)
 	struct promote_entry *entry;
 
 	snprintf(bdd->target_name, BE_MAXPATHLEN, "%s/", zfs_get_name(zfs_hdl));
-	err = zfs_iter_dependents(zfs_hdl, true, be_dependent_clone_cb, bdd);
+	err = zfs_iter_dependents(zfs_hdl, 0, true, be_dependent_clone_cb, bdd);
 
 	/*
 	 * Drain the list and walk away from it if we're only deleting a
@@ -360,13 +360,13 @@ be_destroy_cb(zfs_handle_t *zfs_hdl, void *data)
 
 	bdd = (struct be_destroy_data *)data;
 	if (bdd->snapname == NULL) {
-		err = zfs_iter_children(zfs_hdl, be_destroy_cb, data);
+		err = zfs_iter_children(zfs_hdl, 0, be_destroy_cb, data);
 		if (err != 0)
 			return (err);
 		return (zfs_destroy(zfs_hdl, false));
 	}
 	/* If we're dealing with snapshots instead, delete that one alone */
-	err = zfs_iter_filesystems(zfs_hdl, be_destroy_cb, data);
+	err = zfs_iter_filesystems(zfs_hdl, 0, be_destroy_cb, data);
 	if (err != 0)
 		return (err);
 	/*
@@ -745,11 +745,11 @@ be_clone_cb(zfs_handle_t *ds, void *data)
 
 	/* construct the boot environment path from the dataset we're cloning */
 	if (be_get_path(ldc, dspath, be_path, sizeof(be_path)) != BE_ERR_SUCCESS)
-		return (set_error(ldc->lbh, BE_ERR_UNKNOWN));
+		return (BE_ERR_UNKNOWN);
 
 	/* the dataset to be created (i.e. the boot environment) already exists */
 	if (zfs_dataset_exists(ldc->lbh->lzh, be_path, ZFS_TYPE_DATASET))
-		return (set_error(ldc->lbh, BE_ERR_EXISTS));
+		return (BE_ERR_EXISTS);
 
 	/* no snapshot found for this dataset, silently skip it */
 	if (!zfs_dataset_exists(ldc->lbh->lzh, snap_path, ZFS_TYPE_SNAPSHOT))
@@ -757,7 +757,7 @@ be_clone_cb(zfs_handle_t *ds, void *data)
 
 	if ((snap_hdl =
 	    zfs_open(ldc->lbh->lzh, snap_path, ZFS_TYPE_SNAPSHOT)) == NULL)
-		return (set_error(ldc->lbh, BE_ERR_ZFSOPEN));
+		return (BE_ERR_ZFSOPEN);
 
 	nvlist_alloc(&props, NV_UNIQUE_NAME, KM_SLEEP);
 	nvlist_add_string(props, "canmount", "noauto");
@@ -770,18 +770,18 @@ be_clone_cb(zfs_handle_t *ds, void *data)
 		return (-1);
 
 	if ((err = zfs_clone(snap_hdl, be_path, props)) != 0)
-		return (set_error(ldc->lbh, BE_ERR_ZFSCLONE));
+		return (BE_ERR_ZFSCLONE);
 
 	nvlist_free(props);
 	zfs_close(snap_hdl);
 
 	if (ldc->depth_limit == -1 || ldc->depth < ldc->depth_limit) {
 		ldc->depth++;
-		err = zfs_iter_filesystems(ds, be_clone_cb, ldc);
+		err = zfs_iter_filesystems(ds, 0, be_clone_cb, ldc);
 		ldc->depth--;
 	}
 
-	return (set_error(ldc->lbh, err));
+	return (err);
 }
 
 /*
