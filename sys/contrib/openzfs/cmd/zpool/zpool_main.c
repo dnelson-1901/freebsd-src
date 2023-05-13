@@ -477,12 +477,12 @@ print_pool_prop_cb(int prop, void *cb)
 	FILE *fp = cb;
 	const char *name, *colname;
 
-	name = zfs_prop_to_name(prop);
-	colname = zfs_prop_column_name(prop);
+	name = zpool_prop_to_name(prop);
+	colname = zpool_prop_column_name(prop);
 
 	(void) fprintf(fp, "\t%-19s", name);
 	(void) fprintf(fp, " %-8s", strcasecmp(name, colname) ? colname : "");
-	(void) fprintf(fp, " %4s", zfs_prop_readonly(prop) ? "NO" : "YES");
+	(void) fprintf(fp, " %4s", zpool_prop_readonly(prop) ? "NO" : "YES");
 
 	if (zpool_prop_values(prop) == NULL)
 		(void) fprintf(fp, "  -\n");
