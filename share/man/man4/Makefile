@@ -1,5 +1,4 @@
 #	@(#)Makefile	8.1 (Berkeley) 6/18/93
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -84,7 +83,6 @@ MAN=	aac.4 \
 	bnxt.4 \
 	bpf.4 \
 	bridge.4 \
-	bt.4 \
 	bwi.4 \
 	bwn.4 \
 	${_bytgpio.4} \
@@ -175,6 +173,7 @@ MAN=	aac.4 \
 	geom_map.4 \
 	geom_uzip.4 \
 	gif.4 \
+	${_gve.4} \
 	gpio.4 \
 	gpioiic.4 \
 	gpiokeys.4 \
@@ -306,7 +305,6 @@ MAN=	aac.4 \
 	mdio.4 \
 	me.4 \
 	mem.4 \
-	meteor.4 \
 	mfi.4 \
 	${_mgb.4} \
 	miibus.4 \
@@ -680,7 +678,9 @@ MLINKS+=disc.4 if_disc.4
 MLINKS+=edsc.4 if_edsc.4
 MLINKS+=em.4 if_em.4 \
 	em.4 igb.4 \
-	em.4 if_igb.4
+	em.4 if_igb.4 \
+	em.4 lem.4 \
+	em.4 if_lem.4
 MLINKS+=enc.4 if_enc.4
 MLINKS+=epair.4 if_epair.4
 MLINKS+=et.4 if_et.4
@@ -917,6 +917,7 @@ _nvme.4=	nvme.4
 
 .if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386" || \
 	 ${MACHINE_CPUARCH} == "aarch64"
+_gve.4=		gve.4
 _ipmi.4=	ipmi.4
 _linux.4=	linux.4
 _ossl.4=	ossl.4

@@ -27,7 +27,6 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSection.h"
-#include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/Alignment.h"
@@ -36,15 +35,17 @@
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LEB128.h"
-#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
 #include <cstdint>
-#include <cstring>
 #include <tuple>
 #include <utility>
 
 using namespace llvm;
+
+namespace llvm {
+class MCSubtargetInfo;
+}
 
 #define DEBUG_TYPE "assembler"
 
@@ -272,7 +273,7 @@ bool MCAssembler::evaluateFixup(const MCAsmLayout &Layout,
     "FKF_IsAlignedDownTo32Bits is only allowed on PC-relative fixups!");
 
   if (IsPCRel) {
-    uint32_t Offset = Layout.getFragmentOffset(DF) + Fixup.getOffset();
+    uint64_t Offset = Layout.getFragmentOffset(DF) + Fixup.getOffset();
 
     // A number of ARM fixups in Thumb mode require that the effective PC
     // address be determined as the 32-bit aligned version of the actual offset.
@@ -285,6 +286,13 @@ bool MCAssembler::evaluateFixup(const MCAsmLayout &Layout,
     IsResolved = false;
     WasForced = true;
   }
+
+  // A linker relaxation target may emit ADD/SUB relocations for A-B+C. Let
+  // recordRelocation handle non-VK_None cases like A@plt-B+C.
+  if (!IsResolved && Target.getSymA() && Target.getSymB() &&
+      Target.getSymA()->getKind() == MCSymbolRefExpr::VK_None &&
+      getBackend().handleAddSubRelocations(Layout, *DF, Fixup, Target, Value))
+    return true;
 
   return IsResolved;
 }
@@ -302,7 +310,7 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
   case MCFragment::FT_Fill: {
     auto &FF = cast<MCFillFragment>(F);
     int64_t NumValues = 0;
-    if (!FF.getNumValues().evaluateAsAbsolute(NumValues, Layout)) {
+    if (!FF.getNumValues().evaluateKnownAbsolute(NumValues, Layout)) {
       getContext().reportError(FF.getLoc(),
                                "expected assembly-time absolute expression");
       return 0;
@@ -330,11 +338,11 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
   case MCFragment::FT_Align: {
     const MCAlignFragment &AF = cast<MCAlignFragment>(F);
     unsigned Offset = Layout.getFragmentOffset(&AF);
-    unsigned Size = offsetToAlignment(Offset, Align(AF.getAlignment()));
+    unsigned Size = offsetToAlignment(Offset, AF.getAlignment());
 
     // Insert extra Nops for code alignment if the target define
     // shouldInsertExtraNopBytesForCodeAlign target hook.
-    if (AF.getParent()->UseCodeAlign() && AF.hasEmitNops() &&
+    if (AF.getParent()->useCodeAlign() && AF.hasEmitNops() &&
         getBackend().shouldInsertExtraNopBytesForCodeAlign(AF, Size))
       return Size;
 
@@ -342,7 +350,7 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
     // minimum nop size.
     if (Size > 0 && AF.hasEmitNops()) {
       while (Size % getBackend().getMinimumNopSize())
-        Size += AF.getAlignment();
+        Size += AF.getAlignment().value();
     }
     if (Size > AF.getMaxBytesToEmit())
       return 0;
@@ -463,14 +471,13 @@ void MCAsmLayout::layoutFragment(MCFragment *F) {
   }
 }
 
-void MCAssembler::registerSymbol(const MCSymbol &Symbol, bool *Created) {
-  bool New = !Symbol.isRegistered();
-  if (Created)
-    *Created = New;
-  if (New) {
+bool MCAssembler::registerSymbol(const MCSymbol &Symbol) {
+  bool Changed = !Symbol.isRegistered();
+  if (Changed) {
     Symbol.setIsRegistered(true);
     Symbols.push_back(&Symbol);
   }
+  return Changed;
 }
 
 void MCAssembler::writeFragmentPadding(raw_ostream &OS,
@@ -873,7 +880,7 @@ void MCAssembler::layout(MCAsmLayout &Layout) {
         MCAlignFragment &AF = cast<MCAlignFragment>(Frag);
         // Insert fixup type for code alignment if the target define
         // shouldInsertFixupForCodeAlign target hook.
-        if (Sec.UseCodeAlign() && AF.hasEmitNops())
+        if (Sec.useCodeAlign() && AF.hasEmitNops())
           getBackend().shouldInsertFixupForCodeAlign(*this, Layout, AF);
         continue;
       }
@@ -990,19 +997,11 @@ bool MCAssembler::relaxInstruction(MCAsmLayout &Layout,
   getBackend().relaxInstruction(Relaxed, *F.getSubtargetInfo());
 
   // Encode the new instruction.
-  //
-  // FIXME-PERF: If it matters, we could let the target do this. It can
-  // probably do so more efficiently in many cases.
-  SmallVector<MCFixup, 4> Fixups;
-  SmallString<256> Code;
-  raw_svector_ostream VecOS(Code);
-  getEmitter().encodeInstruction(Relaxed, VecOS, Fixups, *F.getSubtargetInfo());
-
-  // Update the fragment.
   F.setInst(Relaxed);
-  F.getContents() = Code;
-  F.getFixups() = Fixups;
-
+  F.getFixups().clear();
+  F.getContents().clear();
+  getEmitter().encodeInstruction(Relaxed, F.getContents(), F.getFixups(),
+                                 *F.getSubtargetInfo());
   return true;
 }
 
@@ -1104,11 +1103,10 @@ bool MCAssembler::relaxDwarfLineAddr(MCAsmLayout &Layout,
   LineDelta = DF.getLineDelta();
   SmallVectorImpl<char> &Data = DF.getContents();
   Data.clear();
-  raw_svector_ostream OSE(Data);
   DF.getFixups().clear();
 
-  MCDwarfLineAddr::Encode(Context, getDWARFLinetableParams(), LineDelta,
-                          AddrDelta, OSE);
+  MCDwarfLineAddr::encode(Context, getDWARFLinetableParams(), LineDelta,
+                          AddrDelta, Data);
   return OldSize != Data.size();
 }
 
@@ -1119,17 +1117,21 @@ bool MCAssembler::relaxDwarfCallFrameFragment(MCAsmLayout &Layout,
     return WasRelaxed;
 
   MCContext &Context = Layout.getAssembler().getContext();
-  uint64_t OldSize = DF.getContents().size();
-  int64_t AddrDelta;
-  bool Abs = DF.getAddrDelta().evaluateKnownAbsolute(AddrDelta, Layout);
-  assert(Abs && "We created call frame with an invalid expression");
-  (void) Abs;
+  int64_t Value;
+  bool Abs = DF.getAddrDelta().evaluateAsAbsolute(Value, Layout);
+  if (!Abs) {
+    getContext().reportError(DF.getAddrDelta().getLoc(),
+                             "invalid CFI advance_loc expression");
+    DF.setAddrDelta(MCConstantExpr::create(0, Context));
+    return false;
+  }
+
   SmallVectorImpl<char> &Data = DF.getContents();
+  uint64_t OldSize = Data.size();
   Data.clear();
-  raw_svector_ostream OSE(Data);
   DF.getFixups().clear();
 
-  MCDwarfFrameEmitter::EncodeAdvanceLoc(Context, AddrDelta, OSE);
+  MCDwarfFrameEmitter::encodeAdvanceLoc(Context, Value, Data);
   return OldSize != Data.size();
 }
 

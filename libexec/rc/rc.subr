@@ -1,5 +1,4 @@
 # $NetBSD: rc.subr,v 1.67 2006/10/07 11:25:15 elad Exp $
-# $FreeBSD$
 #
 # Copyright (c) 1997-2004 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -803,6 +802,8 @@ startmsg()
 #
 #	${name}_oomprotect n	Don't kill ${command} when swap space is exhausted.
 #
+#	${name}_umask	n	The file creation mask to run ${command} with.
+#
 #	${name}_user	n	User to run ${command} as, using su(1) if not
 #				using ${name}_chroot.
 #				Requires /usr to be mounted.
@@ -815,6 +816,8 @@ startmsg()
 #				Requires /usr to be mounted.
 #
 #	${name}_prepend	n	Command added before ${command}.
+#
+#	${name}_setup	n	Command executed before ${command}.
 #
 #	${name}_login_class n	Login class to use, else "daemon".
 #
@@ -876,7 +879,7 @@ startmsg()
 #			($sig_stop defaults to TERM.)
 #
 #	reload		Similar to stop, except use $sig_reload instead,
-#			and doesn't wait_for_pids.
+#			and don't wait_for_pids.
 #			$sig_reload defaults to HUP.
 #			Note that `reload' isn't provided by default,
 #			it should be enabled via $extra_commands.
@@ -1000,8 +1003,9 @@ run_rc_command()
 	    _group=\$${name}_group	_groups=\$${name}_groups \
 	    _fib=\$${name}_fib		_env=\$${name}_env \
 	    _prepend=\$${name}_prepend	_login_class=\${${name}_login_class:-daemon} \
-	    _limits=\$${name}_limits    _oomprotect=\$${name}_oomprotect \
-	    _env_file=\$${name}_env_file
+	    _limits=\$${name}_limits	_oomprotect=\$${name}_oomprotect \
+	    _setup=\$${name}_setup	_env_file=\$${name}_env_file \
+	    _umask=\$${name}_umask
 
 	if [ -n "$_env_file" ] && [ -r "${_env_file}" ]; then	# load env from file
 		set -a
@@ -1022,13 +1026,14 @@ run_rc_command()
 			continue
 		fi
 					# if ${rcvar} is set, $1 is not "rcvar", "describe",
-					# "enable" or "delete", and ${rc_pid} is not set, run:
+					# "enable", "delete" or "status", and ${rc_pid} is
+					# not set, run:
 					#	checkyesno ${rcvar}
 					# and return if that failed
 					#
 		if [ -n "${rcvar}" -a "$rc_arg" != "rcvar" -a "$rc_arg" != "stop" \
 		    -a "$rc_arg" != "delete" -a "$rc_arg" != "enable" \
-		    -a "$rc_arg" != "describe" ] ||
+		    -a "$rc_arg" != "describe" -a "$rc_arg" != "status" ] ||
 		    [ -n "${rcvar}" -a "$rc_arg" = "stop" -a -z "${rc_pid}" ]; then
 			if ! checkyesno ${rcvar}; then
 				if [ -n "${rc_quiet}" ]; then
@@ -1153,6 +1158,12 @@ $command $rc_flags $command_args"
 				fi
 				if [ -n "$_prepend" ]; then
 					_doit="$_prepend $_doit"
+				fi
+			fi
+
+			if [ -n "$_setup" ]; then
+				if ! _run_rc_doit "$_setup"; then
+					warn "failed to setup ${name}"
 				fi
 			fi
 
@@ -1356,9 +1367,14 @@ _run_rc_postcmd()
 
 _run_rc_doit()
 {
+	local _m
+
 	debug "run_rc_command: doit: $*"
+	_m=$(umask)
+	${_umask:+umask ${_umask}}
 	eval "$@"
 	_return=$?
+	umask ${_m}
 
 	# If command failed and force isn't set, request exit.
 	if [ $_return -ne 0 ] && [ -z "$rc_force" ]; then
@@ -2172,7 +2188,7 @@ check_kern_features()
 # check_namevarlist var
 #	Return "0" if ${name}_var is reserved in rc.subr.
 
-_rc_namevarlist="program chroot chdir env flags fib nice user group groups prepend"
+_rc_namevarlist="program chroot chdir env flags fib nice user group groups prepend setup"
 check_namevarlist()
 {
 	local _v

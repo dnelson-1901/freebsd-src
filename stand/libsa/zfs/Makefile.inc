@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .PATH:		${ZFSSRC}
 .PATH:		${SYSDIR}/crypto/skein
@@ -42,3 +41,5 @@ CFLAGS+=	-I${SYSDIR}/contrib/openzfs/include/os/freebsd/zfs
 CFLAGS.zfs.c+=	-I${SYSDIR}/cddl/contrib/opensolaris/common/lz4
 
 CFLAGS+=	-Wformat -Wall
+
+CWARNFLAGS.zfs.c+= ${NO_WDANGLING_POINTER}

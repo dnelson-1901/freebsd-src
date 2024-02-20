@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003-2004
  *	Hartmut Brandt
@@ -29,8 +29,6 @@
  * SUCH DAMAGE.
  *
  * Customisation of call control source to the NG environment.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>

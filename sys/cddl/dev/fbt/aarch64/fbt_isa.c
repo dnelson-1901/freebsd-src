@@ -22,8 +22,6 @@
  * Portions Copyright 2013 Justin Hibbits jhibbits@freebsd.org
  * Portions Copyright 2013 Howard Su howardsu@freebsd.org
  * Portions Copyright 2015 Ruslan Bukin <br@bsdpad.com>
- *
- * $FreeBSD$
  */
 
 /*
@@ -42,8 +40,6 @@
 #define	AARCH64_BRK_IMM16_SHIFT	5
 #define	AARCH64_BRK_IMM16_VAL	(0x40d << AARCH64_BRK_IMM16_SHIFT)
 #define	FBT_PATCHVAL		(AARCH64_BRK | AARCH64_BRK_IMM16_VAL)
-#define	FBT_ENTRY	"entry"
-#define	FBT_RETURN	"return"
 #define	FBT_AFRAMES	4
 
 int

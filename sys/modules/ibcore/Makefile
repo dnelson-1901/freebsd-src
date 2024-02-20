@@ -1,4 +1,3 @@
-# $FreeBSD$
 .PATH:  ${SRCTOP}/sys/ofed/drivers/infiniband/core
 
 KMOD=	ibcore
@@ -43,4 +42,4 @@ EXPORT_SYMS=	YES
 
 .include <bsd.kmod.mk>
 
-CWARNFLAGS+= -Wno-cast-qual -Wno-pointer-arith -Wno-redundant-decls
+CWARNFLAGS+= -Wno-cast-qual -Wno-pointer-arith

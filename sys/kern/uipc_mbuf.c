@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_param.h"
 #include "opt_mbuf_stress_test.h"
 #include "opt_mbuf_profiling.h"
@@ -204,10 +202,10 @@ mb_dupcl(struct mbuf *n, struct mbuf *m)
 {
 	volatile u_int *refcnt;
 
-	KASSERT(m->m_flags & (M_EXT|M_EXTPG),
-	    ("%s: M_EXT|M_EXTPG not set on %p", __func__, m));
-	KASSERT(!(n->m_flags & (M_EXT|M_EXTPG)),
-	    ("%s: M_EXT|M_EXTPG set on %p", __func__, n));
+	KASSERT(m->m_flags & (M_EXT | M_EXTPG),
+	    ("%s: M_EXT | M_EXTPG not set on %p", __func__, m));
+	KASSERT(!(n->m_flags & (M_EXT | M_EXTPG)),
+	    ("%s: M_EXT | M_EXTPG set on %p", __func__, n));
 
 	/*
 	 * Cache access optimization.
@@ -537,7 +535,7 @@ m_copym(struct mbuf *m, int off0, int len, int wait)
 			copyhdr = 0;
 		}
 		n->m_len = min(len, m->m_len - off);
-		if (m->m_flags & (M_EXT|M_EXTPG)) {
+		if (m->m_flags & (M_EXT | M_EXTPG)) {
 			n->m_data = m->m_data + off;
 			mb_dupcl(n, m);
 		} else
@@ -579,7 +577,7 @@ m_copypacket(struct mbuf *m, int how)
 	if (!m_dup_pkthdr(n, m, how))
 		goto nospace;
 	n->m_len = m->m_len;
-	if (m->m_flags & (M_EXT|M_EXTPG)) {
+	if (m->m_flags & (M_EXT | M_EXTPG)) {
 		n->m_data = m->m_data;
 		mb_dupcl(n, m);
 	} else {
@@ -597,7 +595,7 @@ m_copypacket(struct mbuf *m, int how)
 		n = n->m_next;
 
 		n->m_len = m->m_len;
-		if (m->m_flags & (M_EXT|M_EXTPG)) {
+		if (m->m_flags & (M_EXT | M_EXTPG)) {
 			n->m_data = m->m_data;
 			mb_dupcl(n, m);
 		} else {
@@ -1038,7 +1036,7 @@ m_split(struct mbuf *m0, int len0, int wait)
 			n->m_pkthdr.rcvif = m0->m_pkthdr.rcvif;
 		n->m_pkthdr.len = m0->m_pkthdr.len - len0;
 		m0->m_pkthdr.len = len0;
-		if (m->m_flags & (M_EXT|M_EXTPG))
+		if (m->m_flags & (M_EXT | M_EXTPG))
 			goto extpacket;
 		if (remain > MHLEN) {
 			/* m can't be the lead packet */
@@ -1064,7 +1062,7 @@ m_split(struct mbuf *m0, int len0, int wait)
 		M_ALIGN(n, remain);
 	}
 extpacket:
-	if (m->m_flags & (M_EXT|M_EXTPG)) {
+	if (m->m_flags & (M_EXT | M_EXTPG)) {
 		n->m_data = m->m_data + len;
 		mb_dupcl(n, m);
 	} else {
@@ -1293,7 +1291,7 @@ m_apply_extpg_one(struct mbuf *m, int off, int len,
 		pglen = m_epg_pagelen(m, i, pgoff);
 		if (off < pglen) {
 			count = min(pglen - off, len);
-			p = (void *)PHYS_TO_DMAP(m->m_epg_pa[i] + pgoff);
+			p = (void *)PHYS_TO_DMAP(m->m_epg_pa[i] + pgoff + off);
 			rval = f(arg, p, count);
 			if (rval)
 				return (rval);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Flavius Anton
  * Copyright (c) 2016 Mihai Tiganus
@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #ifndef WITHOUT_CAPSICUM
 #include <sys/capsicum.h>
@@ -47,7 +45,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/un.h>
 
 #include <machine/atomic.h>
-#include <machine/segments.h>
 
 #ifndef WITHOUT_CAPSICUM
 #include <capsicum_helpers.h>
@@ -119,10 +116,10 @@ static sig_t old_winch_handler;
 
 #define	SNAPSHOT_BUFFER_SIZE (20 * MB)
 
-#define	JSON_STRUCT_ARR_KEY		"structs"
+#define	JSON_KERNEL_ARR_KEY		"kern_structs"
 #define	JSON_DEV_ARR_KEY		"devices"
 #define	JSON_BASIC_METADATA_KEY 	"basic metadata"
-#define	JSON_SNAPSHOT_REQ_KEY		"snapshot_req"
+#define	JSON_SNAPSHOT_REQ_KEY		"device"
 #define	JSON_SIZE_KEY			"size"
 #define	JSON_FILE_OFFSET_KEY		"file_offset"
 
@@ -155,7 +152,6 @@ static const struct vm_snapshot_dev_info snapshot_devs[] = {
 static const struct vm_snapshot_kern_info snapshot_kern_structs[] = {
 	{ "vhpet",	STRUCT_VHPET	},
 	{ "vm",		STRUCT_VM	},
-	{ "vmx",	STRUCT_VMX	},
 	{ "vioapic",	STRUCT_VIOAPIC	},
 	{ "vlapic",	STRUCT_VLAPIC	},
 	{ "vmcx",	STRUCT_VMCX	},
@@ -184,13 +180,13 @@ strcat_extension(const char *base_str, const char *ext)
 	ext_len = strnlen(ext, NAME_MAX);
 
 	if (base_len + ext_len > NAME_MAX) {
-		fprintf(stderr, "Filename exceeds maximum length.\n");
+		EPRINTLN("Filename exceeds maximum length.");
 		return (NULL);
 	}
 
 	res = malloc(base_len + ext_len + 1);
 	if (res == NULL) {
-		perror("Failed to allocate memory.");
+		EPRINTLN("Failed to allocate memory: %s", strerror(errno));
 		return (NULL);
 	}
 
@@ -205,7 +201,7 @@ void
 destroy_restore_state(struct restore_state *rstate)
 {
 	if (rstate == NULL) {
-		fprintf(stderr, "Attempting to destroy NULL restore struct.\n");
+		EPRINTLN("Attempting to destroy NULL restore struct.");
 		return;
 	}
 
@@ -424,16 +420,16 @@ lookup_struct(enum snapshot_req struct_id, struct restore_state *rstate,
 	ucl_object_iter_t it = NULL;
 	int64_t snapshot_req, size, file_offset;
 
-	structs = ucl_object_lookup(rstate->meta_root_obj, JSON_STRUCT_ARR_KEY);
+	structs = ucl_object_lookup(rstate->meta_root_obj, JSON_KERNEL_ARR_KEY);
 	if (structs == NULL) {
 		fprintf(stderr, "Failed to find '%s' object.\n",
-			JSON_STRUCT_ARR_KEY);
+			JSON_KERNEL_ARR_KEY);
 		return (NULL);
 	}
 
 	if (ucl_object_type(structs) != UCL_ARRAY) {
 		fprintf(stderr, "Object '%s' is not an array.\n",
-		JSON_STRUCT_ARR_KEY);
+		JSON_KERNEL_ARR_KEY);
 		return (NULL);
 	}
 
@@ -928,7 +924,7 @@ vm_restore_kern_structs(struct vmctx *ctx, struct restore_state *rstate)
 }
 
 static int
-vm_restore_user_dev(struct vmctx *ctx, struct restore_state *rstate,
+vm_restore_device(struct vmctx *ctx, struct restore_state *rstate,
 		    const struct vm_snapshot_dev_info *info)
 {
 	void *dev_ptr;
@@ -973,15 +969,14 @@ vm_restore_user_dev(struct vmctx *ctx, struct restore_state *rstate,
 	return (0);
 }
 
-
 int
-vm_restore_user_devs(struct vmctx *ctx, struct restore_state *rstate)
+vm_restore_devices(struct vmctx *ctx, struct restore_state *rstate)
 {
 	size_t i;
 	int ret;
 
 	for (i = 0; i < nitems(snapshot_devs); i++) {
-		ret = vm_restore_user_dev(ctx, rstate, &snapshot_devs[i]);
+		ret = vm_restore_device(ctx, rstate, &snapshot_devs[i]);
 		if (ret != 0)
 			return (ret);
 	}
@@ -990,7 +985,7 @@ vm_restore_user_devs(struct vmctx *ctx, struct restore_state *rstate)
 }
 
 int
-vm_pause_user_devs(void)
+vm_pause_devices(void)
 {
 	const struct vm_snapshot_dev_info *info;
 	size_t i;
@@ -1010,7 +1005,7 @@ vm_pause_user_devs(void)
 }
 
 int
-vm_resume_user_devs(void)
+vm_resume_devices(void)
 {
 	const struct vm_snapshot_dev_info *info;
 	size_t i;
@@ -1062,7 +1057,7 @@ vm_snapshot_kern_struct(int data_fd, xo_handle_t *xop, const char *array_key,
 		  meta->dev_req);
 	xo_emit_h(xop, "{:" JSON_SIZE_KEY "/%lu}\n", data_size);
 	xo_emit_h(xop, "{:" JSON_FILE_OFFSET_KEY "/%lu}\n", *offset);
-	xo_close_instance_h(xop, JSON_STRUCT_ARR_KEY);
+	xo_close_instance_h(xop, JSON_KERNEL_ARR_KEY);
 
 	*offset += data_size;
 
@@ -1098,7 +1093,7 @@ vm_snapshot_kern_structs(struct vmctx *ctx, int data_fd, xo_handle_t *xop)
 		.op = VM_SNAPSHOT_SAVE,
 	};
 
-	xo_open_list_h(xop, JSON_STRUCT_ARR_KEY);
+	xo_open_list_h(xop, JSON_KERNEL_ARR_KEY);
 	for (i = 0; i < nitems(snapshot_kern_structs); i++) {
 		meta->dev_name = snapshot_kern_structs[i].struct_name;
 		meta->dev_req  = snapshot_kern_structs[i].req;
@@ -1114,7 +1109,7 @@ vm_snapshot_kern_structs(struct vmctx *ctx, int data_fd, xo_handle_t *xop)
 			goto err_vm_snapshot_kern_data;
 		}
 	}
-	xo_close_list_h(xop, JSON_STRUCT_ARR_KEY);
+	xo_close_list_h(xop, JSON_KERNEL_ARR_KEY);
 
 err_vm_snapshot_kern_data:
 	if (buffer != NULL)
@@ -1165,7 +1160,7 @@ vm_snapshot_dev_write_data(int data_fd, xo_handle_t *xop, const char *array_key,
 }
 
 static int
-vm_snapshot_user_dev(const struct vm_snapshot_dev_info *info,
+vm_snapshot_device(const struct vm_snapshot_dev_info *info,
 		     int data_fd, xo_handle_t *xop,
 		     struct vm_snapshot_meta *meta, off_t *offset)
 {
@@ -1187,7 +1182,7 @@ vm_snapshot_user_dev(const struct vm_snapshot_dev_info *info,
 }
 
 static int
-vm_snapshot_user_devs(struct vmctx *ctx, int data_fd, xo_handle_t *xop)
+vm_snapshot_devices(struct vmctx *ctx, int data_fd, xo_handle_t *xop)
 {
 	int ret;
 	off_t offset;
@@ -1229,7 +1224,7 @@ vm_snapshot_user_devs(struct vmctx *ctx, int data_fd, xo_handle_t *xop)
 		meta->buffer.buf = meta->buffer.buf_start;
 		meta->buffer.buf_rem = meta->buffer.buf_size;
 
-		ret = vm_snapshot_user_dev(&snapshot_devs[i], data_fd, xop,
+		ret = vm_snapshot_device(&snapshot_devs[i], data_fd, xop,
 					   meta, &offset);
 		if (ret != 0)
 			goto snapshot_err;
@@ -1367,7 +1362,7 @@ vm_checkpoint(struct vmctx *ctx, const char *checkpoint_file, bool stop_vm)
 
 	vm_vcpu_pause(ctx);
 
-	ret = vm_pause_user_devs();
+	ret = vm_pause_devices();
 	if (ret != 0) {
 		fprintf(stderr, "Could not pause devices\r\n");
 		error = ret;
@@ -1396,7 +1391,7 @@ vm_checkpoint(struct vmctx *ctx, const char *checkpoint_file, bool stop_vm)
 		goto done;
 	}
 
-	ret = vm_snapshot_user_devs(ctx, kdata_fd, xop);
+	ret = vm_snapshot_devices(ctx, kdata_fd, xop);
 	if (ret != 0) {
 		fprintf(stderr, "Failed to snapshot device state.\n");
 		error = -1;
@@ -1411,7 +1406,7 @@ vm_checkpoint(struct vmctx *ctx, const char *checkpoint_file, bool stop_vm)
 	}
 
 done:
-	ret = vm_resume_user_devs();
+	ret = vm_resume_devices();
 	if (ret != 0)
 		fprintf(stderr, "Could not resume devices\r\n");
 	vm_vcpu_resume(ctx);
@@ -1518,6 +1513,9 @@ init_checkpoint_thread(struct vmctx *ctx)
 	int socket_fd;
 	pthread_t checkpoint_pthread;
 	int err;
+#ifndef WITHOUT_CAPSICUM
+	cap_rights_t rights;
+#endif
 
 	memset(&addr, 0, sizeof(addr));
 
@@ -1548,6 +1546,13 @@ init_checkpoint_thread(struct vmctx *ctx)
 		goto fail;
 	}
 
+#ifndef WITHOUT_CAPSICUM
+	cap_rights_init(&rights, CAP_ACCEPT, CAP_READ, CAP_RECV, CAP_WRITE,
+	    CAP_SEND, CAP_GETSOCKOPT);
+
+	if (caph_rights_limit(socket_fd, &rights) == -1)
+		errx(EX_OSERR, "Unable to apply rights for sandbox");
+#endif
 	checkpoint_info = calloc(1, sizeof(*checkpoint_info));
 	checkpoint_info->ctx = ctx;
 	checkpoint_info->socket_fd = socket_fd;

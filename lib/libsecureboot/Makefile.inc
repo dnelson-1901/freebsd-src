@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .if empty(BEARSSL)
 .include "../libbearssl/Makefile.inc"
@@ -10,6 +9,8 @@ _${__this}_:
 libsecureboot_src:= ${.PARSEDIR}
 
 CFLAGS+= -I${libsecureboot_src}/h
+
+CFLAGS+= -DHAVE_BR_X509_TIME_CHECK
 
 .PATH: ${.PARSEDIR}
 

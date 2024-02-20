@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 .include "${SRCTOP}/secure/ssh.mk"
@@ -39,6 +38,7 @@ PACKAGE=	ssh
 SRCS+=	bcrypt_pbkdf.c blowfish.c bsd-misc.c bsd-signal.c explicit_bzero.c \
 	fmt_scaled.c freezero.c glob.c \
 	libressl-api-compat.c \
+	mktemp.c \
 	openssl-compat.c port-net.c \
 	recallocarray.c strtonum.c timingsafe_bcmp.c vis.c xcrypt.c
 

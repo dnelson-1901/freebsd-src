@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: BSD-2-Clause-NetBSD AND BSD-3-Clause */
+/* SPDX-License-Identifier: BSD-2-Clause AND BSD-3-Clause */
 
 /*
  * Copyright (c) 2019 Internet Initiative Japan, Inc.
@@ -55,7 +55,6 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* $FreeBSD$ */
 
 #ifndef _DEV_PCI_QAT_DH895XCCREG_H_
 #define _DEV_PCI_QAT_DH895XCCREG_H_

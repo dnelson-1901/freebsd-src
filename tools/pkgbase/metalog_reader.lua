@@ -1,6 +1,6 @@
 #!/usr/libexec/flua
 
--- SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+-- SPDX-License-Identifier: BSD-2-Clause
 --
 -- Copyright(c) 2020 The FreeBSD Foundation.
 --
@@ -25,7 +25,6 @@
 -- OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 -- SUCH DAMAGE.
 
--- $FreeBSD$
 
 function main(args)
 	if #args == 0 then usage() end
@@ -86,13 +85,14 @@ function main(args)
 
 	local sess = Analysis_session(filename, verbose, w_notagdirs)
 
+	local errors
 	if printall then
 		io.write('--- PACKAGE REPORTS ---\n')
 		io.write(sess.pkg_report_full())
 		io.write('--- LINTING REPORTS ---\n')
-		print_lints(sess)
+		errors = print_lints(sess)
 	elseif checkonly then
-		print_lints(sess)
+		errors = print_lints(sess)
 	elseif pkgonly then
 		io.write(sess.pkg_report_simple(dcount, dsize, {
 			fuid and sess.pkg_issetuid or nil,
@@ -102,6 +102,10 @@ function main(args)
 	else
 		io.stderr:write('This text should not be displayed.')
 		usage()
+	end
+
+	if errors then
+		return 1
 	end
 end
 
@@ -151,6 +155,7 @@ function print_lints(sess)
 	local inodewarn, inodeerr = sess.inode_report()
 	io.write(inodewarn)
 	io.write(inodeerr)
+	return #duperr > 0 or #inodeerr > 0
 end
 
 --- @param t table
@@ -386,12 +391,18 @@ function Analysis_session(metalog, verbose, w_notagdirs)
 			if #rows == 1 then goto continue end
 			local iseq, offby = metalogrows_all_equal(rows)
 			if iseq then -- repeated line, just a warning
-				warn[#warn+1] = 'warning: '..filename
-					.. ' ' .. rows[1].attrs.type
-					..' repeated with same meta: line '
-					..table.concat(
-						table_map(rows, function(e) return e.linenum end), ',')
-				warn[#warn+1] = '\n'
+				local dupmsg = filename .. ' ' ..
+				    rows[1].attrs.type ..
+				    ' repeated with same meta: line ' ..
+				    table.concat(table_map(rows, function(e) return e.linenum end), ',')
+				if rows[1].attrs.type == "dir" then
+					if verbose then
+						warn[#warn+1] = 'warning: ' .. dupmsg .. '\n'
+					end
+				else
+					-- XXX downgrade to warning until instances in the tree are fixed (PR271178)
+					warn[#warn+1] = 'error: ' .. dupmsg .. '\n'
+				end
 			elseif not metalogrows_all_equal(rows, false, true) then
 			-- same filename (possibly different tags), different metadata, an error
 				errs[#errs+1] = 'error: '..filename
@@ -520,4 +531,4 @@ function Analysis_session(metalog, verbose, w_notagdirs)
 	}
 end
 
-main(arg)
+os.exit(main(arg))

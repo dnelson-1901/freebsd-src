@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020 Vladimir Kondratyev <wulf@FreeBSD.org>
  *
@@ -23,8 +23,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _HID_HIDRAW_H
@@ -35,23 +33,9 @@
 #define	HIDRAW_BUFFER_SIZE	64	/* number of input reports buffered */
 #define	HID_MAX_DESCRIPTOR_SIZE	4096	/* artificial limit taken from Linux */
 
-/*
- * Align IOCTL structures to hide differences when running 32-bit
- * programs under 64-bit kernels:
- */
-#ifdef COMPAT_32BIT
-#define	HIDRAW_IOCTL_STRUCT_ALIGN(n) __aligned(n)
-#else
-#define	HIDRAW_IOCTL_STRUCT_ALIGN(n)
-#endif
-
 /* Compatible with usb_gen_descriptor structure */
 struct hidraw_gen_descriptor {
-#ifdef COMPAT_32BIT
-	uint64_t hgd_data;
-#else
 	void   *hgd_data;
-#endif
 	uint16_t hgd_lang_id;
 	uint16_t hgd_maxlen;
 	uint16_t hgd_actlen;
@@ -63,18 +47,32 @@ struct hidraw_gen_descriptor {
 	uint8_t hgd_endpt_index;
 	uint8_t hgd_report_type;
 	uint8_t reserved[8];
-} HIDRAW_IOCTL_STRUCT_ALIGN(8);
+};
+
+/* Compatible with usb_device_info structure */
+struct hidraw_device_info {
+	uint16_t	hdi_product;
+	uint16_t	hdi_vendor;
+	uint16_t	hdi_version;
+	uint8_t		occupied[18];	/* by usb_device_info */
+	uint16_t	hdi_bustype;
+	uint8_t		reserved[14];	/* leave space for the future */
+	char		hdi_name[128];
+	char		hdi_phys[128];
+	char		hdi_uniq[64];
+	char		hdi_release[8];	/* decrypted USB bcdDevice */
+};
 
 struct hidraw_report_descriptor {
 	uint32_t	size;
 	uint8_t		value[HID_MAX_DESCRIPTOR_SIZE];
-} HIDRAW_IOCTL_STRUCT_ALIGN(4);
+};
 
 struct hidraw_devinfo {
 	uint32_t	bustype;
 	int16_t		vendor;
 	int16_t		product;
-} HIDRAW_IOCTL_STRUCT_ALIGN(4);
+};
 
 /* FreeBSD uhid(4)-compatible ioctl interface */
 #define	HIDRAW_GET_REPORT_DESC	_IOWR('U', 21, struct hidraw_gen_descriptor)
@@ -83,6 +81,7 @@ struct hidraw_devinfo {
 #define	HIDRAW_SET_REPORT	_IOW ('U', 24, struct hidraw_gen_descriptor)
 #define	HIDRAW_GET_REPORT_ID	_IOR ('U', 25, int)
 #define	HIDRAW_SET_REPORT_DESC	_IOW ('U', 26, struct hidraw_gen_descriptor)
+#define	HIDRAW_GET_DEVICEINFO	_IOR ('U', 112, struct hidraw_device_info)
 
 /* Linux hidraw-compatible ioctl interface */
 #define	HIDIOCGRDESCSIZE	_IOR('U', 30, int)

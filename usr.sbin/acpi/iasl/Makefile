@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 PROG=	iasl
 
@@ -146,5 +145,9 @@ prparserparse.c prparserparse.h: prparser.y
 
 prparser.y.h: prparserparse.h .NOMETA
 	ln -f ${.ALLSRC} ${.TARGET}
+
+# AcpiUtInitStackPtrTrace intentionally leaks a pointer to an
+# on-stack variable.
+CWARNFLAGS.utdebug.c+= ${NO_WDANGLING_POINTER}
 
 .include <bsd.prog.mk>

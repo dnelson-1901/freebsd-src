@@ -1,5 +1,4 @@
 /*
- * $FreeBSD$
  */
 
 /* zfs_config.h.  Generated from zfs_config.h.in by configure.  */
@@ -92,7 +91,13 @@
 /* #undef HAVE_BDEV_CHECK_MEDIA_CHANGE */
 
 /* bdev_*_io_acct() available */
-/* #undef HAVE_BDEV_IO_ACCT */
+/* #undef HAVE_BDEV_IO_ACCT_63 */
+
+/* bdev_*_io_acct() available */
+/* #undef HAVE_BDEV_IO_ACCT_OLD */
+
+/* bdev_kobj() exists */
+/* #undef HAVE_BDEV_KOBJ */
 
 /* bdev_max_discard_sectors() is available */
 /* #undef HAVE_BDEV_MAX_DISCARD_SECTORS */
@@ -139,6 +144,9 @@
 /* bio_set_op_attrs is available */
 /* #undef HAVE_BIO_SET_OP_ATTRS */
 
+/* blkdev_get_by_path() exists and takes 4 args */
+/* #undef HAVE_BLKDEV_GET_BY_PATH_4ARG */
+
 /* blkdev_get_by_path() handles ERESTARTSYS */
 /* #undef HAVE_BLKDEV_GET_ERESTARTSYS */
 
@@ -147,6 +155,9 @@
 
 /* blkdev_issue_secure_erase() is available */
 /* #undef HAVE_BLKDEV_ISSUE_SECURE_ERASE */
+
+/* blkdev_put() accepts void* as arg 2 */
+/* #undef HAVE_BLKDEV_PUT_HOLDER */
 
 /* blkdev_reread_part() exists */
 /* #undef HAVE_BLKDEV_REREAD_PART */
@@ -168,6 +179,9 @@
 
 /* blk_cleanup_disk() exists */
 /* #undef HAVE_BLK_CLEANUP_DISK */
+
+/* blk_mode_t is defined */
+/* #undef HAVE_BLK_MODE_T */
 
 /* blk queue backing_dev_info is dynamic */
 /* #undef HAVE_BLK_QUEUE_BDI_DYNAMIC */
@@ -202,6 +216,12 @@
 /* blk_queue_write_cache() is GPL-only */
 /* #undef HAVE_BLK_QUEUE_WRITE_CACHE_GPL_ONLY */
 
+/* BLK_STS_RESV_CONFLICT is defined */
+/* #undef HAVE_BLK_STS_RESV_CONFLICT */
+
+/* Define if release() in block_device_operations takes 1 arg */
+/* #undef HAVE_BLOCK_DEVICE_OPERATIONS_RELEASE_1ARG */
+
 /* Define if revalidate_disk() in block_device_operations */
 /* #undef HAVE_BLOCK_DEVICE_OPERATIONS_REVALIDATE_DISK */
 
@@ -229,8 +249,14 @@
 /* copy_from_iter() is available */
 /* #undef HAVE_COPY_FROM_ITER */
 
+/* copy_splice_read exists */
+/* #undef HAVE_COPY_SPLICE_READ */
+
 /* copy_to_iter() is available */
 /* #undef HAVE_COPY_TO_ITER */
+
+/* cpu_has_feature() is GPL-only */
+/* #undef HAVE_CPU_HAS_FEATURE_GPL_ONLY */
 
 /* yes */
 /* #undef HAVE_CPU_HOTPLUG */
@@ -256,6 +282,9 @@
 
 /* sops->dirty_inode() wants flags */
 /* #undef HAVE_DIRTY_INODE_WITH_FLAGS */
+
+/* disk_check_media_change() exists */
+/* #undef HAVE_DISK_CHECK_MEDIA_CHANGE */
 
 /* disk_*_io_acct() available */
 /* #undef HAVE_DISK_IO_ACCT */
@@ -287,6 +316,9 @@
 /* fault_in_iov_iter_readable() is available */
 /* #undef HAVE_FAULT_IN_IOV_ITER_READABLE */
 
+/* filemap_range_has_page() is available */
+/* #undef HAVE_FILEMAP_RANGE_HAS_PAGE */
+
 /* fops->aio_fsync() exists */
 /* #undef HAVE_FILE_AIO_FSYNC */
 
@@ -295,6 +327,9 @@
 
 /* file_inode() is available */
 /* #undef HAVE_FILE_INODE */
+
+/* flush_dcache_page() is GPL-only */
+/* #undef HAVE_FLUSH_DCACHE_PAGE_GPL_ONLY */
 
 /* iops->follow_link() cookie */
 /* #undef HAVE_FOLLOW_LINK_COOKIE */
@@ -307,6 +342,9 @@
 
 /* fops->fsync() without dentry */
 /* #undef HAVE_FSYNC_WITHOUT_DENTRY */
+
+/* generic_fillattr requires struct mnt_idmap* */
+/* #undef HAVE_GENERIC_FILLATTR_IDMAP */
 
 /* generic_fillattr requires struct user_namespace* */
 /* #undef HAVE_GENERIC_FILLATTR_USERNS */
@@ -353,6 +391,15 @@
 /* Define if you have the iconv() function and it works. */
 #define HAVE_ICONV 1
 
+/* iops->getattr() takes struct mnt_idmap* */
+/* #undef HAVE_IDMAP_IOPS_GETATTR */
+
+/* iops->setattr() takes struct mnt_idmap* */
+/* #undef HAVE_IDMAP_IOPS_SETATTR */
+
+/* Define if compiler supports -Wimplicit-fallthrough */
+/* #define HAVE_IMPLICIT_FALLTHROUGH 1 */
+
 /* Define if compiler supports -Winfinite-recursion */
 /* #undef HAVE_INFINITE_RECURSION */
 
@@ -362,8 +409,11 @@
 /* inode_owner_or_capable() exists */
 /* #undef HAVE_INODE_OWNER_OR_CAPABLE */
 
+/* inode_owner_or_capable() takes mnt_idmap */
+/* #undef HAVE_INODE_OWNER_OR_CAPABLE_IDMAP */
+
 /* inode_owner_or_capable() takes user_ns */
-/* #undef HAVE_INODE_OWNER_OR_CAPABLE_IDMAPPED */
+/* #undef HAVE_INODE_OWNER_OR_CAPABLE_USERNS */
 
 /* inode_set_flags() exists */
 /* #undef HAVE_INODE_SET_FLAGS */
@@ -383,17 +433,35 @@
 /* in_compat_syscall() is available */
 /* #undef HAVE_IN_COMPAT_SYSCALL */
 
+/* iops->create() takes struct mnt_idmap* */
+/* #undef HAVE_IOPS_CREATE_IDMAP */
+
 /* iops->create() takes struct user_namespace* */
 /* #undef HAVE_IOPS_CREATE_USERNS */
+
+/* iops->mkdir() takes struct mnt_idmap* */
+/* #undef HAVE_IOPS_MKDIR_IDMAP */
 
 /* iops->mkdir() takes struct user_namespace* */
 /* #undef HAVE_IOPS_MKDIR_USERNS */
 
+/* iops->mknod() takes struct mnt_idmap* */
+/* #undef HAVE_IOPS_MKNOD_IDMAP */
+
 /* iops->mknod() takes struct user_namespace* */
 /* #undef HAVE_IOPS_MKNOD_USERNS */
 
+/* iops->rename() takes struct mnt_idmap* */
+/* #undef HAVE_IOPS_RENAME_IDMAP */
+
 /* iops->rename() takes struct user_namespace* */
 /* #undef HAVE_IOPS_RENAME_USERNS */
+
+/* iops->setattr() exists */
+/* #undef HAVE_IOPS_SETATTR */
+
+/* iops->symlink() takes struct mnt_idmap* */
+/* #undef HAVE_IOPS_SYMLINK_IDMAP */
 
 /* iops->symlink() takes struct user_namespace* */
 /* #undef HAVE_IOPS_SYMLINK_USERNS */
@@ -421,6 +489,9 @@
 
 /* Define to 1 if you have the `issetugid' function. */
 #define HAVE_ISSETUGID 1
+
+/* iter_iov() is available */
+/* #undef HAVE_ITER_IOV */
 
 /* kernel has kernel_fpu_* functions */
 /* #undef HAVE_KERNEL_FPU */
@@ -533,6 +604,9 @@
 /* folio_wait_bit() exists */
 /* #undef HAVE_PAGEMAP_FOLIO_WAIT_BIT */
 
+/* part_to_dev() exists */
+/* #undef HAVE_PART_TO_DEV */
+
 /* iops->getattr() takes a path */
 /* #undef HAVE_PATH_IOPS_GETATTR */
 
@@ -578,8 +652,14 @@
 /* qat is enabled and existed */
 /* #undef HAVE_QAT */
 
+/* struct reclaim_state has reclaimed */
+/* #undef HAVE_RECLAIM_STATE_RECLAIMED */
+
 /* register_shrinker is vararg */
 /* #undef HAVE_REGISTER_SHRINKER_VARARG */
+
+/* register_sysctl_table exists */
+/* #undef HAVE_REGISTER_SYSCTL_TABLE */
 
 /* iops->rename() wants flags */
 /* #undef HAVE_RENAME_WANTS_FLAGS */
@@ -620,6 +700,9 @@
 /* Define to 1 if you have the <security/pam_modules.h> header file. */
 #define HAVE_SECURITY_PAM_MODULES_H 1
 
+/* setattr_prepare() accepts mnt_idmap */
+/* #undef HAVE_SETATTR_PREPARE_IDMAP */
+
 /* setattr_prepare() is available, doesn't accept user_namespace */
 /* #undef HAVE_SETATTR_PREPARE_NO_USERNS */
 
@@ -628,6 +711,9 @@
 
 /* iops->set_acl() exists, takes 3 args */
 /* #undef HAVE_SET_ACL */
+
+/* iops->set_acl() takes 4 args, arg1 is struct mnt_idmap * */
+/* #undef HAVE_SET_ACL_IDMAP_DENTRY */
 
 /* iops->set_acl() takes 4 args */
 /* #undef HAVE_SET_ACL_USERNS */
@@ -727,6 +813,9 @@
 /* i_op->tmpfile() uses old dentry signature */
 /* #undef HAVE_TMPFILE_DENTRY */
 
+/* i_op->tmpfile() has mnt_idmap */
+/* #undef HAVE_TMPFILE_IDMAP */
+
 /* i_op->tmpfile() has userns */
 /* #undef HAVE_TMPFILE_USERNS */
 
@@ -747,6 +836,9 @@
 
 /* iops->getattr() takes struct user_namespace* */
 /* #undef HAVE_USERNS_IOPS_GETATTR */
+
+/* iops->setattr() takes struct user_namespace* */
+/* #undef HAVE_USERNS_IOPS_SETATTR */
 
 /* iops->getattr() takes a vfsmount */
 /* #undef HAVE_VFSMOUNT_IOPS_GETATTR */
@@ -802,6 +894,9 @@
 /* wq_head->head and wq_entry->entry exist */
 /* #undef HAVE_WAIT_QUEUE_HEAD_ENTRY */
 
+/* int (*writepage_t)() takes struct folio* */
+/* #undef HAVE_WRITEPAGE_T_FOLIO */
+
 /* xattr_handler->get() wants dentry */
 /* #undef HAVE_XATTR_GET_DENTRY */
 
@@ -834,6 +929,9 @@
 
 /* xattr_handler->set() wants xattr_handler */
 /* #undef HAVE_XATTR_SET_HANDLER */
+
+/* xattr_handler->set() takes mnt_idmap */
+/* #undef HAVE_XATTR_SET_IDMAP */
 
 /* xattr_handler->set() takes user_namespace */
 /* #undef HAVE_XATTR_SET_USERNS */
@@ -944,7 +1042,7 @@
 /* #undef ZFS_IS_GPL_COMPATIBLE */
 
 /* Define the project alias string. */
-#define ZFS_META_ALIAS "zfs-2.1.9-FreeBSD_g92e0d9d18"
+#define ZFS_META_ALIAS "zfs-2.1.14-FreeBSD_gd99134be8"
 
 /* Define the project author. */
 #define ZFS_META_AUTHOR "OpenZFS"
@@ -953,7 +1051,7 @@
 /* #undef ZFS_META_DATA */
 
 /* Define the maximum compatible kernel version. */
-#define ZFS_META_KVER_MAX "6.1"
+#define ZFS_META_KVER_MAX "6.5"
 
 /* Define the minimum compatible kernel version. */
 #define ZFS_META_KVER_MIN "3.10"
@@ -974,10 +1072,10 @@
 #define ZFS_META_NAME "zfs"
 
 /* Define the project release. */
-#define ZFS_META_RELEASE "FreeBSD_g92e0d9d18"
+#define ZFS_META_RELEASE "FreeBSD_gd99134be8"
 
 /* Define the project version. */
-#define ZFS_META_VERSION "2.1.9"
+#define ZFS_META_VERSION "2.1.14"
 
 /* count is located in percpu_ref.data */
 /* #undef ZFS_PERCPU_REF_COUNT_IN_DATA */

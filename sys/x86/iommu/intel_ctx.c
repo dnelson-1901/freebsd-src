@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 The FreeBSD Foundation
  *
@@ -29,8 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -240,6 +238,9 @@ domain_init_rmrr(struct dmar_domain *domain, device_t dev, int bus,
 	iommu_gaddr_t start, end;
 	vm_pindex_t size, i;
 	int error, error1;
+
+	if (!dmar_rmrr_enable)
+		return (0);
 
 	error = 0;
 	TAILQ_INIT(&rmrr_entries);

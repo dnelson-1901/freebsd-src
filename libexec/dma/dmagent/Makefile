@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -23,7 +22,7 @@ CONFS=	dma.conf
 CONFSDIR=	${CONFDIR}/dma
 YFLAGS+=	-i
 CLEANFILES=	aliases_parse.i
-FILES=	mailer.conf
+FILES=	auth.conf mailer.conf
 FILESDIR=	${SHAREDIR}/examples/dma
 .if ${MK_SENDMAIL} == no
 CONFGROUPS=	CONFS MAILER

@@ -1,6 +1,5 @@
 #!/bin/sh
 #
-# $FreeBSD$
 #
 
 set -e
@@ -14,9 +13,9 @@ export PORTSDIR="${PORTSDIR:-/usr/ports}"
 
 _DVD_PACKAGES="archivers/unzip
 devel/git
-emulators/linux_base-c6
-graphics/drm-legacy-kmod
-graphics/drm-stable-kmod
+emulators/linux_base-c7
+graphics/drm-kmod
+graphics/drm-510-kmod
 misc/freebsd-doc-all
 net/mpd5
 net/rsync
@@ -30,7 +29,7 @@ sysutils/tmux
 www/firefox
 www/links
 x11-drivers/xf86-video-vmware
-x11/gnome3
+x11/gnome
 x11/kde5
 x11/xorg"
 

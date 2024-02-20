@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MACHINE_FRAME_H_
@@ -48,11 +46,6 @@ struct trapframe {
 	uint32_t tf_spsr;
 	uint32_t tf_esr;
 	uint64_t tf_x[30];
-};
-
-struct arm64_frame {
-	struct arm64_frame	*f_frame;
-	u_long			f_retaddr;
 };
 
 /*

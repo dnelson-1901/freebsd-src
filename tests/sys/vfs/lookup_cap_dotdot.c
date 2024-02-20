@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/capsicum.h>
 #include <sys/sysctl.h>
@@ -80,7 +78,7 @@ check_capsicum(void)
 {
 	ATF_REQUIRE_FEATURE("security_capabilities");
 	ATF_REQUIRE_FEATURE("security_capability_mode");
-	ATF_REQUIRE_SYSCTL_INT("kern.trap_enotcap", 0);
+	ATF_REQUIRE_SYSCTL_BOOL("kern.trap_enotcap", false);
 }
 
 /*

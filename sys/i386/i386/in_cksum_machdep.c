@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/mbuf.h>
@@ -260,10 +258,7 @@ u_int in_cksum_hdr(const struct ip *ip)
  * other calculations.
  */
 u_short
-in_cksum_skip(m, len, skip)
-	struct mbuf *m;
-	int len;
-	int skip;
+in_cksum_skip(struct mbuf *m, int len, int skip)
 {
 	u_short *w;
 	unsigned sum = 0;

@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef __SYSDECODE_H__
@@ -144,6 +142,7 @@ bool	sysdecode_shmflags(FILE *_fp, int _flags, int *_rem);
 bool	sysdecode_linux_atflags(FILE *_fp, int _flag, int *_rem);
 void	sysdecode_linux_clockid(FILE *_fp, clockid_t _which);
 bool	sysdecode_linux_clock_flags(FILE *_fp, int _flags, int *_rem);
+bool	sysdecode_linux_clone_flags(FILE *_fp, int _flags, int *_rem);
 bool	sysdecode_linux_open_flags(FILE *_fp, int _flags, int *_rem);
 const char *sysdecode_linux_signal(int _sig);
 const char *sysdecode_linux_sigprocmask_how(int _how);

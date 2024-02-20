@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015  Peter Grehan <grehan@freebsd.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -33,8 +31,6 @@
  * but with a request/response messaging protocol.
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/errno.h>
@@ -67,12 +63,10 @@ __FBSDID("$FreeBSD$");
  * Back-end state-machine
  */
 static enum state {
-	DORMANT,
-	IDENT_WAIT,
-	IDENT_SEND,
+	IDENT,
 	REQ,
 	RESP
-} be_state = DORMANT;
+} be_state;
 
 static uint8_t sig[] = { 'B', 'H', 'Y', 'V' };
 static u_int ident_idx;
@@ -80,7 +74,7 @@ static u_int ident_idx;
 struct op_info {
 	int op;
 	int  (*op_start)(uint32_t len);
-	void (*op_data)(uint32_t data, uint32_t len);
+	void (*op_data)(uint32_t data);
 	int  (*op_result)(struct iovec **data);
 	void (*op_done)(struct iovec *data);
 };
@@ -125,7 +119,7 @@ errop_start(uint32_t len __unused)
 }
 
 static void
-errop_data(uint32_t data __unused, uint32_t len __unused)
+errop_data(uint32_t data __unused)
 {
 
 	/* ignore */
@@ -197,9 +191,10 @@ fget_start(uint32_t len)
 }
 
 static void
-fget_data(uint32_t data, uint32_t len __unused)
+fget_data(uint32_t data)
 {
 
+	assert(fget_cnt + sizeof(uint32_t) <= sizeof(fget_str));
 	memcpy(&fget_str[fget_cnt], &data, sizeof(data));
 	fget_cnt += sizeof(uint32_t);
 }
@@ -344,13 +339,14 @@ static int
 fwctl_request_data(uint32_t value)
 {
 
-	/* Make sure remaining size is >= 0 */
+	/* Make sure remaining size is > 0 */
+	assert(rinfo.req_size > 0);
 	if (rinfo.req_size <= sizeof(uint32_t))
 		rinfo.req_size = 0;
 	else
 		rinfo.req_size -= sizeof(uint32_t);
 
-	(*rinfo.req_op->op_data)(value, rinfo.req_size);
+	(*rinfo.req_op->op_data)(value);
 
 	if (rinfo.req_size < sizeof(uint32_t)) {
 		fwctl_request_done();
@@ -363,7 +359,6 @@ fwctl_request_data(uint32_t value)
 static int
 fwctl_request(uint32_t value)
 {
-
 	int ret;
 
 	ret = 0;
@@ -441,6 +436,27 @@ fwctl_response(uint32_t *retval)
 	return (0);
 }
 
+static void
+fwctl_reset(void)
+{
+
+	switch (be_state) {
+	case RESP:
+		/* If a response was generated but not fully read, discard it. */
+		fwctl_response_done();
+		break;
+	case REQ:
+		/* Discard partially-received request. */
+		memset(&rinfo, 0, sizeof(rinfo));
+		break;
+	case IDENT:
+		break;
+	}
+
+	be_state = IDENT;
+	ident_idx = 0;
+}
+
 
 /*
  * i/o port handling.
@@ -453,7 +469,7 @@ fwctl_inb(void)
 	retval = 0xff;
 
 	switch (be_state) {
-	case IDENT_SEND:
+	case IDENT:
 		retval = sig[ident_idx++];
 		if (ident_idx >= sizeof(sig))
 			be_state = REQ;
@@ -468,18 +484,13 @@ fwctl_inb(void)
 static void
 fwctl_outw(uint16_t val)
 {
-	if (be_state == DORMANT) {
-		return;
-	}
-
 	if (val == 0) {
 		/*
 		 * The guest wants to read the signature. It's possible that the
 		 * guest is unaware of the fwctl state at this moment. For that
 		 * reason, reset the state machine unconditionally.
 		 */
-		be_state = IDENT_SEND;
-		ident_idx = 0;
+		fwctl_reset();
 	}
 }
 
@@ -566,5 +577,5 @@ fwctl_init(void)
 	ops[OP_GET_LEN] = &fgetlen_info;
 	ops[OP_GET]     = &fgetval_info;
 
-	be_state = IDENT_WAIT;
+	be_state = IDENT;
 }

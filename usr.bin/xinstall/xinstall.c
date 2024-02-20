@@ -43,8 +43,6 @@ static char sccsid[] = "@(#)xinstall.c	8.1 (Berkeley) 7/21/93";
 #endif
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
@@ -191,6 +189,7 @@ main(int argc, char *argv[])
 
 	fset = 0;
 	iflags = 0;
+	set = NULL;
 	group = owner = NULL;
 	while ((ch = getopt(argc, argv, "B:bCcD:df:g:h:l:M:m:N:o:pSsT:Uv")) !=
 	     -1)
@@ -257,11 +256,10 @@ main(int argc, char *argv[])
 			break;
 		case 'm':
 			haveopt_m = 1;
+			free(set);
 			if (!(set = setmode(optarg)))
 				errx(EX_USAGE, "invalid file mode: %s",
 				     optarg);
-			mode = getmode(set, 0);
-			free(set);
 			break;
 		case 'N':
 			if (!setup_getid(optarg))
@@ -302,6 +300,14 @@ main(int argc, char *argv[])
 		warnx("-d and -s may not be specified together");
 		usage();
 	}
+
+	/*
+	 * Default permissions based on whether we're a directory or not, since
+	 * an +X may mean that we need to set the execute bit.
+	 */
+	if (set != NULL)
+		mode = getmode(set, dodir ? S_IFDIR : 0) & ~S_IFDIR;
+	free(set);
 
 	if (getenv("DONTSTRIP") != NULL) {
 		warnx("DONTSTRIP set - will not strip installed binaries");

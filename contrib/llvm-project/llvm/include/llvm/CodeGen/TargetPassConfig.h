@@ -345,6 +345,9 @@ protected:
   // Helper to verify the analysis is really immutable.
   void setOpt(bool &Opt, bool Val);
 
+  /// Return true if register allocator is specified by -regalloc=override.
+  bool isCustomizedRegAlloc();
+
   /// Methods with trivial inline returns are convenient points in the common
   /// codegen pass pipeline where targets may insert passes. Methods with
   /// out-of-line standard implementations are major CodeGen stages called by
@@ -434,6 +437,10 @@ protected:
   /// This pass may be implemented by targets that want to run passes
   /// immediately before machine code is emitted.
   virtual void addPreEmitPass() { }
+
+  /// This pass may be implemented by targets that want to run passes
+  /// immediately after basic block sections are assigned.
+  virtual void addPostBBSections() {}
 
   /// Targets may add passes immediately before machine code is emitted in this
   /// callback. This is called even later than `addPreEmitPass`.

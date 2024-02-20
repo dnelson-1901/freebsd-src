@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_PSCI_SMCCC_H_
@@ -82,6 +80,8 @@ struct arm_smccc_res {
 #define	SMCCC_RET_NOT_SUPPORTED		-1
 #define	SMCCC_RET_NOT_REQUIRED		-2
 
+void smccc_init(void);
+uint32_t smccc_get_version(void);
 int32_t smccc_arch_features(uint32_t);
 int smccc_arch_workaround_1(void);
 int smccc_arch_workaround_2(int);

@@ -25,9 +25,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\" $FreeBSD$
-.\"
-.Dd October 20, 2021
+.Dd December 28, 2023
 .Dt CAMCONTROL 8
 .Os
 .Sh NAME
@@ -52,6 +50,12 @@
 .Ic tur
 .Op device id
 .Op generic args
+.Nm
+.Ic sense
+.Op device id
+.Op generic args
+.Op Fl D
+.Op Fl x
 .Nm
 .Ic inquiry
 .Op device id
@@ -370,9 +374,10 @@
 .Sh DESCRIPTION
 The
 .Nm
-utility is designed to provide a way for users to access and control the
+utility allows users to access and control the
 .Fx
-CAM subsystem.
+CAM subsystem described in
+.Xr cam 4 .
 .Pp
 The
 .Nm
@@ -482,6 +487,15 @@ Send the SCSI test unit ready (0x00) command to the given device.
 The
 .Nm
 utility will report whether the device is ready or not.
+.It Ic sense
+Send a SCSI REQUEST SENSE command (0x03) to a device.
+The decoded sense (or hexdump) is printed to stdout.
+.Bl -tag -width 4n
+.It Fl D
+Request descriptor sense instead of fixed sense.
+.It Fl x
+Do a hexdump of the returned sense data.
+.El
 .It Ic inquiry
 Send a SCSI inquiry command (0x12) to a device.
 By default,
@@ -1679,6 +1693,8 @@ Tested with Constellation ES (ST32000444SS), ES.2 (ST33000651SS) and
 ES.3 (ST1000NM0023) drives.
 .It SmrtStor
 Tested with 400GB Optimus SSDs (TXA2D20400GA6001).
+.It TOSHIBA
+Tested with 22TB MG10SFA22TE SAS drives.
 .El
 .Pp
 .Em WARNING! WARNING! WARNING!
@@ -1796,7 +1812,7 @@ One of those two options is required.
 Persistent reservations are complex, and fully explaining them is outside
 the scope of this manual.
 Please visit
-http://www.t10.org
+https://www.t10.org
 and download the latest SPC spec for a full explanation of persistent
 reservations.
 .Bl -tag -width 8n
@@ -2910,6 +2926,7 @@ that was created using this format string.
 .Xr cam 4 ,
 .Xr pass 4 ,
 .Xr xpt 4 ,
+.Xr diskinfo 8 ,
 .Xr trim 8 ,
 .Xr zonectl 8
 .Sh HISTORY

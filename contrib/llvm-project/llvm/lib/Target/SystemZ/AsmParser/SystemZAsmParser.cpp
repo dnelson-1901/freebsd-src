@@ -13,12 +13,14 @@
 #include "TargetInfo/SystemZTargetInfo.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstBuilder.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/MC/MCParser/MCAsmParserExtension.h"
@@ -235,7 +237,7 @@ public:
     return Kind == KindImm;
   }
   bool isImm(int64_t MinValue, int64_t MaxValue) const {
-    return Kind == KindImm && inRange(Imm, MinValue, MaxValue);
+    return Kind == KindImm && inRange(Imm, MinValue, MaxValue, true);
   }
   const MCExpr *getImm() const {
     assert(Kind == KindImm && "Not an immediate");
@@ -378,7 +380,6 @@ public:
   bool isU2Imm() const { return isImm(0, 3); }
   bool isU3Imm() const { return isImm(0, 7); }
   bool isU4Imm() const { return isImm(0, 15); }
-  bool isU6Imm() const { return isImm(0, 63); }
   bool isU8Imm() const { return isImm(0, 255); }
   bool isS8Imm() const { return isImm(-128, 127); }
   bool isU12Imm() const { return isImm(0, 4095); }
@@ -431,6 +432,7 @@ private:
 
   bool ParseDirectiveInsn(SMLoc L);
   bool ParseDirectiveMachine(SMLoc L);
+  bool ParseGNUAttribute(SMLoc L);
 
   OperandMatchResultTy parseAddress(OperandVector &Operands,
                                     MemoryKind MemKind,
@@ -492,11 +494,12 @@ public:
   }
 
   // Override MCTargetAsmParser.
-  bool ParseDirective(AsmToken DirectiveID) override;
-  bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc) override;
-  bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc,
+  ParseStatus parseDirective(AsmToken DirectiveID) override;
+  bool parseRegister(MCRegister &RegNo, SMLoc &StartLoc,
+                     SMLoc &EndLoc) override;
+  bool ParseRegister(MCRegister &RegNo, SMLoc &StartLoc, SMLoc &EndLoc,
                      bool RestoreOnFailure);
-  OperandMatchResultTy tryParseRegister(unsigned &RegNo, SMLoc &StartLoc,
+  OperandMatchResultTy tryParseRegister(MCRegister &RegNo, SMLoc &StartLoc,
                                         SMLoc &EndLoc) override;
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                         SMLoc NameLoc, OperandVector &Operands) override;
@@ -1216,15 +1219,17 @@ SystemZAsmParser::parseAddress(OperandVector &Operands, MemoryKind MemKind,
   return MatchOperand_Success;
 }
 
-bool SystemZAsmParser::ParseDirective(AsmToken DirectiveID) {
+ParseStatus SystemZAsmParser::parseDirective(AsmToken DirectiveID) {
   StringRef IDVal = DirectiveID.getIdentifier();
 
   if (IDVal == ".insn")
     return ParseDirectiveInsn(DirectiveID.getLoc());
   if (IDVal == ".machine")
     return ParseDirectiveMachine(DirectiveID.getLoc());
+  if (IDVal.startswith(".gnu_attribute"))
+    return ParseGNUAttribute(DirectiveID.getLoc());
 
-  return true;
+  return ParseStatus::NoMatch;
 }
 
 /// ParseDirectiveInsn
@@ -1341,12 +1346,12 @@ bool SystemZAsmParser::ParseDirectiveMachine(SMLoc L) {
   MCAsmParser &Parser = getParser();
   if (Parser.getTok().isNot(AsmToken::Identifier) &&
       Parser.getTok().isNot(AsmToken::String))
-    return Error(L, "unexpected token in '.machine' directive");
+    return TokError("unexpected token in '.machine' directive");
 
   StringRef CPU = Parser.getTok().getIdentifier();
   Parser.Lex();
-  if (parseToken(AsmToken::EndOfStatement))
-    return addErrorSuffix(" in '.machine' directive");
+  if (parseEOL())
+    return true;
 
   MCSubtargetInfo &STI = copySTI();
   STI.setDefaultFeatures(CPU, /*TuneCPU*/ CPU, "");
@@ -1357,7 +1362,22 @@ bool SystemZAsmParser::ParseDirectiveMachine(SMLoc L) {
   return false;
 }
 
-bool SystemZAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
+bool SystemZAsmParser::ParseGNUAttribute(SMLoc L) {
+  int64_t Tag;
+  int64_t IntegerValue;
+  if (!Parser.parseGNUAttribute(L, Tag, IntegerValue))
+    return Error(L, "malformed .gnu_attribute directive");
+
+  // Tag_GNU_S390_ABI_Vector tag is '8' and can be 0, 1, or 2.
+  if (Tag != 8 || (IntegerValue < 0 || IntegerValue > 2))
+    return Error(L, "unrecognized .gnu_attribute tag/value pair.");
+
+  Parser.getStreamer().emitGNUAttribute(Tag, IntegerValue);
+
+  return parseEOL();
+}
+
+bool SystemZAsmParser::ParseRegister(MCRegister &RegNo, SMLoc &StartLoc,
                                      SMLoc &EndLoc, bool RestoreOnFailure) {
   Register Reg;
   if (parseRegister(Reg, RestoreOnFailure))
@@ -1377,12 +1397,12 @@ bool SystemZAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
   return false;
 }
 
-bool SystemZAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
+bool SystemZAsmParser::parseRegister(MCRegister &RegNo, SMLoc &StartLoc,
                                      SMLoc &EndLoc) {
   return ParseRegister(RegNo, StartLoc, EndLoc, /*RestoreOnFailure=*/false);
 }
 
-OperandMatchResultTy SystemZAsmParser::tryParseRegister(unsigned &RegNo,
+OperandMatchResultTy SystemZAsmParser::tryParseRegister(MCRegister &RegNo,
                                                         SMLoc &StartLoc,
                                                         SMLoc &EndLoc) {
   bool Result =
@@ -1589,9 +1609,11 @@ SystemZAsmParser::parsePCRel(OperandVector &Operands, int64_t MinVal,
   if (getParser().parseExpression(Expr))
     return MatchOperand_NoMatch;
 
-  auto isOutOfRangeConstant = [&](const MCExpr *E) -> bool {
+  auto isOutOfRangeConstant = [&](const MCExpr *E, bool Negate) -> bool {
     if (auto *CE = dyn_cast<MCConstantExpr>(E)) {
       int64_t Value = CE->getValue();
+      if (Negate)
+        Value = -Value;
       if ((Value & 1) || Value < MinVal || Value > MaxVal)
         return true;
     }
@@ -1605,7 +1627,7 @@ SystemZAsmParser::parsePCRel(OperandVector &Operands, int64_t MinVal,
       Error(StartLoc, "Expected PC-relative expression");
       return MatchOperand_ParseFail;
     }
-    if (isOutOfRangeConstant(CE)) {
+    if (isOutOfRangeConstant(CE, false)) {
       Error(StartLoc, "offset out of range");
       return MatchOperand_ParseFail;
     }
@@ -1620,8 +1642,9 @@ SystemZAsmParser::parsePCRel(OperandVector &Operands, int64_t MinVal,
   // For consistency with the GNU assembler, conservatively assume that a
   // constant offset must by itself be within the given size range.
   if (const auto *BE = dyn_cast<MCBinaryExpr>(Expr))
-    if (isOutOfRangeConstant(BE->getLHS()) ||
-        isOutOfRangeConstant(BE->getRHS())) {
+    if (isOutOfRangeConstant(BE->getLHS(), false) ||
+        isOutOfRangeConstant(BE->getRHS(),
+                             BE->getOpcode() == MCBinaryExpr::Sub)) {
       Error(StartLoc, "offset out of range");
       return MatchOperand_ParseFail;
     }

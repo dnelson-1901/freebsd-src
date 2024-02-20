@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997-2000 Doug Rabson
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ddb.h"
 #include "opt_kld.h"
 #include "opt_hwpmc_hooks.h"
@@ -448,8 +446,11 @@ linker_load_file(const char *filename, linker_file_t *result)
 		 * If we got something other than ENOENT, then it exists but
 		 * we cannot load it for some other reason.
 		 */
-		if (error != ENOENT)
+		if (error != ENOENT) {
 			foundfile = 1;
+			if (error == EEXIST)
+				break;
+		}
 		if (lf) {
 			error = linker_file_register_modules(lf);
 			if (error == EEXIST) {

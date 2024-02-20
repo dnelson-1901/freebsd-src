@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_ipsec.h"
 #include "opt_kern_tls.h"
@@ -677,6 +675,12 @@ again:
 sendit:
 #if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	if (IPSEC_ENABLED(ipv4)) {
+		m = mb_unmapped_to_ext(m);
+		if (m == NULL) {
+			IPSTAT_INC(ips_odropped);
+			error = ENOBUFS;
+			goto bad;
+		}
 		if ((error = IPSEC_OUTPUT(ipv4, m, inp)) != 0) {
 			if (error == EINPROGRESS)
 				error = 0;
@@ -705,6 +709,7 @@ sendit:
 
 		case 0: /* Continue normally */
 			ip = mtod(m, struct ip *);
+			ip_len = ntohs(ip->ip_len);
 			break;
 
 		case -1: /* Need to try again */

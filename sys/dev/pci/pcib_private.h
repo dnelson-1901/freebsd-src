@@ -28,8 +28,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef __PCIB_PRIVATE_H__
@@ -134,6 +132,7 @@ struct pcib_softc
     uint16_t	pcie_link_sta;
     uint16_t	pcie_slot_sta;
     uint32_t	pcie_slot_cap;
+    struct resource *pcie_mem;
     struct resource *pcie_irq;
     void	*pcie_ihand;
     struct task	pcie_hp_task;
@@ -149,7 +148,8 @@ struct pcib_softc
 
 #define	PCIB_SUPPORTED_ARI_VER	1
 
-typedef uint32_t pci_read_config_fn(int b, int s, int f, int reg, int width);
+typedef uint32_t pci_read_config_fn(int d, int b, int s, int f, int reg,
+    int width);
 
 int		host_pcib_get_busno(pci_read_config_fn read_config, int bus,
     int slot, int func, uint8_t *busnum);

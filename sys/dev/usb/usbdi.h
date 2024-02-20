@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Andrew Thompson
  *
@@ -22,8 +22,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef _USB_USBDI_H_
 #define _USB_USBDI_H_
@@ -218,6 +216,7 @@ struct usb_xfer_flags {
 					 * option only has effect for
 					 * ISOCHRONOUS transfers.
 					 */
+	uint8_t send_zlp:1;		/* send a zero length packet first */
 };
 
 /*
@@ -655,6 +654,8 @@ void	usbd_xfer_set_frame_len(struct usb_xfer *xfer, usb_frcount_t frindex,
 	    usb_frlength_t len);
 void	usbd_xfer_set_timeout(struct usb_xfer *xfer, int timeout);
 void	usbd_xfer_set_frames(struct usb_xfer *xfer, usb_frcount_t n);
+void	usbd_xfer_set_zlp(struct usb_xfer *xfer);
+uint8_t	usbd_xfer_get_and_clr_zlp(struct usb_xfer *xfer);
 void	usbd_xfer_set_stall(struct usb_xfer *xfer);
 int	usbd_xfer_is_stalled(struct usb_xfer *xfer);
 void	usbd_xfer_set_flag(struct usb_xfer *xfer, int flag);

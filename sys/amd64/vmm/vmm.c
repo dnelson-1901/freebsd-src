@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,13 +24,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bhyve_snapshot.h"
 
 #include <sys/param.h>
@@ -254,7 +250,6 @@ DEFINE_VMMOPS_IFUNC(void, vmspace_free, (struct vmspace *vmspace))
 DEFINE_VMMOPS_IFUNC(struct vlapic *, vlapic_init, (void *vcpui))
 DEFINE_VMMOPS_IFUNC(void, vlapic_cleanup, (struct vlapic *vlapic))
 #ifdef BHYVE_SNAPSHOT
-DEFINE_VMMOPS_IFUNC(int, snapshot, (void *vmi, struct vm_snapshot_meta *meta))
 DEFINE_VMMOPS_IFUNC(int, vcpu_snapshot, (void *vcpui,
     struct vm_snapshot_meta *meta))
 DEFINE_VMMOPS_IFUNC(int, restore_tsc, (void *vcpui, uint64_t now))
@@ -2859,6 +2854,8 @@ vm_snapshot_vcpus(struct vm *vm, struct vm_snapshot_meta *meta)
 		 */
 		tsc = now + vcpu->tsc_offset;
 		SNAPSHOT_VAR_OR_LEAVE(tsc, meta, ret, done);
+		if (meta->op == VM_SNAPSHOT_RESTORE)
+			vcpu->tsc_offset = tsc;
 	}
 
 done:
@@ -2915,9 +2912,6 @@ vm_snapshot_req(struct vm *vm, struct vm_snapshot_meta *meta)
 	int ret = 0;
 
 	switch (meta->dev_req) {
-	case STRUCT_VMX:
-		ret = vmmops_snapshot(vm->cookie, meta);
-		break;
 	case STRUCT_VMCX:
 		ret = vm_snapshot_vcpu(vm, meta);
 		break;

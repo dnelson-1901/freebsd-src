@@ -44,8 +44,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_hwpmc_hooks.h"
 #include "opt_ktrace.h"
 #include "opt_sched.h"
@@ -188,7 +186,7 @@ userret(struct thread *td, struct trapframe *frame)
 		KASSERT(0, ("userret: Returning with sleep disabled"));
 	}
 	KASSERT(td->td_pinned == 0 || (td->td_pflags & TDP_CALLCHAIN) != 0,
-	    ("userret: Returning with with pinned thread"));
+	    ("userret: Returning with pinned thread"));
 	KASSERT(td->td_vp_reserved == NULL,
 	    ("userret: Returning with preallocated vnode"));
 	KASSERT((td->td_flags & (TDF_SBDRY | TDF_SEINTR | TDF_SERESTART)) == 0,

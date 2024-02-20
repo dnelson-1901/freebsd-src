@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,13 +24,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/cpuset.h>
@@ -86,8 +82,7 @@ usage(bool cpu_intel)
 	"       [--create]\n"
 	"       [--destroy]\n"
 #ifdef BHYVE_SNAPSHOT
-	"       [--checkpoint=<filename>]\n"
-	"       [--suspend=<filename>]\n"
+	"       [--checkpoint=<filename> | --suspend=<filename>]\n"
 #endif
 	"       [--get-all]\n"
 	"       [--get-stats]\n"
@@ -191,6 +186,7 @@ usage(bool cpu_intel)
 	"       [--set-rtc-nvram=<val>]\n"
 	"       [--rtc-nvram-offset=<offset>]\n"
 	"       [--get-active-cpus]\n"
+	"       [--get-debug-cpus]\n"
 	"       [--get-suspended-cpus]\n"
 	"       [--get-intinfo]\n"
 	"       [--get-eptp]\n"
@@ -266,7 +262,7 @@ static int force_reset, force_poweroff;
 static const char *capname;
 static int create, destroy, get_memmap, get_memseg;
 static int get_intinfo;
-static int get_active_cpus, get_suspended_cpus;
+static int get_active_cpus, get_debug_cpus, get_suspended_cpus;
 static uint64_t memsize;
 static int set_cr0, get_cr0, set_cr2, get_cr2, set_cr3, get_cr3;
 static int set_cr4, get_cr4;
@@ -299,7 +295,6 @@ static int unassign_pptdev, bus, slot, func;
 static int run;
 static int get_cpu_topology;
 #ifdef BHYVE_SNAPSHOT
-static int vm_checkpoint_opt;
 static int vm_suspend_opt;
 #endif
 
@@ -1452,6 +1447,7 @@ setup_options(bool cpu_intel)
 		{ "force-reset",	NO_ARG,	&force_reset,		1 },
 		{ "force-poweroff", 	NO_ARG,	&force_poweroff, 	1 },
 		{ "get-active-cpus", 	NO_ARG,	&get_active_cpus, 	1 },
+		{ "get-debug-cpus",	NO_ARG,	&get_debug_cpus,	1 },
 		{ "get-suspended-cpus", NO_ARG,	&get_suspended_cpus, 	1 },
 		{ "get-intinfo", 	NO_ARG,	&get_intinfo,		1 },
 		{ "get-cpu-topology",	NO_ARG, &get_cpu_topology,	1 },
@@ -1679,12 +1675,12 @@ static int
 send_message(const char *vmname, nvlist_t *nvl)
 {
 	struct sockaddr_un addr;
-	int err, socket_fd;
+	int err = 0, socket_fd;
 
 	socket_fd = socket(PF_UNIX, SOCK_STREAM, 0);
 	if (socket_fd < 0) {
 		perror("Error creating bhyvectl socket");
-		err = -1;
+		err = errno;
 		goto done;
 	}
 
@@ -1700,12 +1696,14 @@ send_message(const char *vmname, nvlist_t *nvl)
 		goto done;
 	}
 
-	if (nvlist_send(socket_fd, nvl) < 0)
+	if (nvlist_send(socket_fd, nvl) < 0) {
 		perror("nvlist_send() failed");
+		err = errno;
+	}
+done:
 	nvlist_destroy(nvl);
 
-done:
-	if (socket_fd > 0)
+	if (socket_fd >= 0)
 		close(socket_fd);
 	return (err);
 }
@@ -1741,7 +1739,7 @@ main(int argc, char *argv[])
 	struct tm tm;
 	struct option *opts;
 #ifdef BHYVE_SNAPSHOT
-	char *checkpoint_file, *suspend_file;
+	char *checkpoint_file = NULL;
 #endif
 
 	cpu_intel = cpu_vendor_intel();
@@ -1903,12 +1901,12 @@ main(int argc, char *argv[])
 			break;
 #ifdef BHYVE_SNAPSHOT
 		case SET_CHECKPOINT_FILE:
-			vm_checkpoint_opt = 1;
-			checkpoint_file = optarg;
-			break;
 		case SET_SUSPEND_FILE:
-			vm_suspend_opt = 1;
-			suspend_file = optarg;
+			if (checkpoint_file != NULL)
+				usage(cpu_intel);
+
+			checkpoint_file = optarg;
+			vm_suspend_opt = (ch == SET_SUSPEND_FILE);
 			break;
 #endif
 		default:
@@ -2324,6 +2322,12 @@ main(int argc, char *argv[])
 			print_cpus("active cpus", &cpus);
 	}
 
+	if (!error && (get_debug_cpus || get_all)) {
+		error = vm_debug_cpus(ctx, &cpus);
+		if (!error)
+			print_cpus("debug cpus", &cpus);
+	}
+
 	if (!error && (get_suspended_cpus || get_all)) {
 		error = vm_suspended_cpus(ctx, &cpus);
 		if (!error)
@@ -2383,11 +2387,8 @@ main(int argc, char *argv[])
 		vm_destroy(ctx);
 
 #ifdef BHYVE_SNAPSHOT
-	if (!error && vm_checkpoint_opt)
-		error = snapshot_request(vmname, checkpoint_file, false);
-
-	if (!error && vm_suspend_opt)
-		error = snapshot_request(vmname, suspend_file, true);
+	if (!error && checkpoint_file)
+		error = snapshot_request(vmname, checkpoint_file, vm_suspend_opt);
 #endif
 
 	free (opts);

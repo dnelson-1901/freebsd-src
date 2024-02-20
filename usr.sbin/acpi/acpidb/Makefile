@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 PROG=	acpidb
 SRCS=	acpidb.c
@@ -90,3 +89,7 @@ LIBADD=	pthread
 .if ${COMPILER_TYPE} == "clang"
 CWARNFLAGS+=	-Wno-null-pointer-arithmetic
 .endif
+
+# AcpiUtInitStackPtrTrace intentionally leaks a pointer to an
+# on-stack variable.
+CWARNFLAGS.utdebug.c+= ${NO_WDANGLING_POINTER}

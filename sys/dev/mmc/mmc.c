@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 Bernd Walter.  All rights reserved.
  * Copyright (c) 2006 M. Warner Losh <imp@FreeBSD.org>
@@ -54,8 +54,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -2242,6 +2240,15 @@ clock:
 		/* Set clock (must be done before initial tuning). */
 		mmcbr_set_clock(dev, max_dtr);
 		mmcbr_update_ios(dev);
+
+		/*
+		 * Don't call into the bridge driver for timings definitely
+		 * not requiring tuning.  Note that it's up to the upper
+		 * layer to actually execute tuning otherwise.
+		 */
+		if (timing <= bus_timing_uhs_sdr25 ||
+		    timing == bus_timing_mmc_ddr52)
+			goto power_class;
 
 		if (mmcbr_tune(dev, hs400) != 0) {
 			device_printf(dev, "Card at relative address %d "

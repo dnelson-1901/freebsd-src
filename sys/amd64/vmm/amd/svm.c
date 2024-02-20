@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013, Anish Gupta (akgupt3@gmail.com)
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bhyve_snapshot.h"
 
 #include <sys/param.h>
@@ -43,6 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 
 #include <vm/vm.h>
+#include <vm/vm_extern.h>
 #include <vm/pmap.h>
 
 #include <machine/cpufunc.h>
@@ -123,10 +122,8 @@ SYSCTL_UINT(_hw_vmm_svm, OID_AUTO, num_asids, CTLFLAG_RDTUN, &nasid, 0,
 /* Current ASID generation for each host cpu */
 static struct asid asid[MAXCPU];
 
-/* 
- * SVM host state saved area of size 4KB for each core.
- */
-static uint8_t hsave[MAXCPU][PAGE_SIZE] __aligned(PAGE_SIZE);
+/* SVM host state saved area of size 4KB for each physical core. */
+static uint8_t *hsave;
 
 static VMM_STAT_AMD(VCPU_EXITINTINFO, "VM exits during event delivery");
 static VMM_STAT_AMD(VCPU_INTINFO_INJECTED, "Events pending at VM entry");
@@ -167,6 +164,10 @@ svm_modcleanup(void)
 {
 
 	smp_rendezvous(NULL, svm_disable, NULL, NULL);
+
+	if (hsave != NULL)
+		kmem_free((vm_offset_t)hsave, (mp_maxid + 1) * PAGE_SIZE);
+
 	return (0);
 }
 
@@ -214,7 +215,7 @@ svm_enable(void *arg __unused)
 	efer |= EFER_SVM;
 	wrmsr(MSR_EFER, efer);
 
-	wrmsr(MSR_VM_HSAVE_PA, vtophys(hsave[curcpu]));
+	wrmsr(MSR_VM_HSAVE_PA, vtophys(&hsave[curcpu * PAGE_SIZE]));
 }
 
 /*
@@ -269,6 +270,7 @@ svm_modinit(int ipinum)
 	svm_npt_init(ipinum);
 
 	/* Enable SVM on all CPUs */
+	hsave = (void *)kmem_malloc((mp_maxid + 1) * PAGE_SIZE, M_WAITOK | M_ZERO);
 	smp_rendezvous(NULL, svm_enable, NULL, NULL);
 
 	return (0);
@@ -2416,15 +2418,6 @@ svm_vlapic_cleanup(struct vlapic *vlapic)
 
 #ifdef BHYVE_SNAPSHOT
 static int
-svm_snapshot(void *vmi, struct vm_snapshot_meta *meta)
-{
-	if (meta->op == VM_SNAPSHOT_RESTORE)
-		flush_by_asid();
-
-	return (0);
-}
-
-static int
 svm_vcpu_snapshot(void *vcpui, struct vm_snapshot_meta *meta)
 {
 	struct svm_vcpu *vcpu;
@@ -2656,7 +2649,6 @@ const struct vmm_ops vmm_ops_amd = {
 	.vlapic_init	= svm_vlapic_init,
 	.vlapic_cleanup	= svm_vlapic_cleanup,
 #ifdef BHYVE_SNAPSHOT
-	.snapshot	= svm_snapshot,
 	.vcpu_snapshot	= svm_vcpu_snapshot,
 	.restore_tsc	= svm_restore_tsc,
 #endif

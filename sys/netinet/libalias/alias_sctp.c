@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008
  *	Swinburne University of Technology, Melbourne, Australia.
@@ -70,7 +70,6 @@
  * - Dynamic control of hash-table size
  */
 
-/* $FreeBSD$ */
 
 #ifdef _KERNEL
 #include <machine/stdarg.h>

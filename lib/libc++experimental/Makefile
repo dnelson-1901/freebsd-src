@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -9,9 +8,9 @@ LIB=		c++experimental
 NO_PIC=
 MK_PROFILE=	no
 
-.PATH:		${SRCDIR}/src/experimental
+.PATH:		${SRCDIR}/src
 
-SRCS+=		memory_resource.cpp
+SRCS+=		experimental/memory_resource.cpp
 
 WARNS?=		0
 CXXFLAGS+=	${PICFLAG}
@@ -21,6 +20,6 @@ CXXFLAGS+=	-nostdinc++
 CXXFLAGS+=	-nostdlib
 CXXFLAGS+=	-D_LIBCPP_BUILDING_LIBRARY
 CXXFLAGS+=	-DLIBCXXRT
-CXXSTD?=	c++14
+CXXSTD?=	c++20
 
 .include <bsd.lib.mk>

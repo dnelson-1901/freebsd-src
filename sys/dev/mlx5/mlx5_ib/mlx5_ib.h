@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef MLX5_IB_H
@@ -576,18 +574,12 @@ struct mlx5_cache_ent {
 	spinlock_t		lock;
 
 
-	struct dentry	       *dir;
 	char                    name[4];
 	u32                     order;
 	u32			size;
 	u32                     cur;
 	u32                     miss;
 	u32			limit;
-
-	struct dentry          *fsize;
-	struct dentry          *fcur;
-	struct dentry          *fmiss;
-	struct dentry          *flimit;
 
 	struct mlx5_ib_dev     *dev;
 	struct work_struct	work;
@@ -599,7 +591,6 @@ struct mlx5_mr_cache {
 	struct workqueue_struct *wq;
 	struct mlx5_cache_ent	ent[MAX_MR_CACHE_ENTRIES];
 	int			stopped;
-	struct dentry		*root;
 	unsigned long		last_add;
 };
 

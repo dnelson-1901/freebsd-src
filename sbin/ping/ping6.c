@@ -78,8 +78,6 @@ static char sccsid[] = "@(#)ping.c	8.1 (Berkeley) 6/5/93";
 #endif
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Using the InterNet Control Message Protocol (ICMP) "ECHO" facility,
  * measure round-trip-delays and packet loss across network paths.
@@ -679,14 +677,15 @@ ping6(int argc, char *argv[])
 
 	error = cap_getaddrinfo(capdns, target, NULL, &hints, &res);
 	if (error)
-		errx(1, "%s", gai_strerror(error));
+		errx(EX_NOHOST, "cannot resolve %s: %s",
+		    target, gai_strerror(error));
 	if (res->ai_canonname)
 		hostname = strdup(res->ai_canonname);
 	else
 		hostname = target;
 
 	if (!res->ai_addr)
-		errx(1, "cap_getaddrinfo failed");
+		errx(EX_NOHOST, "cannot resolve %s", target);
 
 	(void)memcpy(&dst, res->ai_addr, res->ai_addrlen);
 
@@ -2351,10 +2350,10 @@ summary(void)
 		/* Only display average to microseconds */
 		double num = nreceived + nrepeats;
 		double avg = tsum / num;
-		double dev = sqrt(tsumsq / num - avg * avg);
+		double stddev = sqrt(fmax(0, tsumsq / num - avg * avg));
 		(void)printf(
 		    "round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
-		    tmin, avg, tmax, dev);
+		    tmin, avg, tmax, stddev);
 		(void)fflush(stdout);
 	}
 	(void)fflush(stdout);

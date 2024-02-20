@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 PACKAGE=	tests
 
@@ -21,17 +20,24 @@ ATF_TESTS_SH+=	altq \
 		pass_block \
 		pfsync	\
 		proxy \
-		rdr \
 		ridentifier \
 		route_to \
 		rules_counter \
+		sctp \
 		set_skip \
 		set_tos \
 		src_track \
 		syncookie \
 		synproxy \
 		table \
+		tcp \
 		tos
+
+ATF_TESTS_PYTEST+=	frag6.py
+ATF_TESTS_PYTEST+=	sctp.py
+
+# Tests reuse jail names and so cannot run in parallel.
+TEST_METADATA+=	is_exclusive=true
 
 ${PACKAGE}FILES+=	CVE-2019-5597.py \
 			CVE-2019-5598.py \

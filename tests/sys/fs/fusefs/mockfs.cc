@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 The FreeBSD Foundation
  *
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 extern "C" {
@@ -431,7 +429,6 @@ MockFS::MockFS(int max_readahead, bool allow_other, bool default_permissions,
 	const bool trueval = true;
 
 	m_daemon_id = NULL;
-	m_expected_write_errno = 0;
 	m_kernel_minor_version = kernel_minor_version;
 	m_maxreadahead = max_readahead;
 	m_maxwrite = MIN(max_write, max_max_write);
@@ -801,7 +798,6 @@ void MockFS::loop() {
 
 		bzero(in.get(), sizeof(*in));
 		read_request(*in, buflen);
-		m_expected_write_errno = 0;
 		if (m_quit)
 			break;
 		if (verbosity > 0)
@@ -1034,9 +1030,9 @@ void MockFS::write_response(const mockfs_buf_out &out) {
 		FAIL() << "not yet implemented";
 	}
 	r = write(m_fuse_fd, &out, out.header.len);
-	if (m_expected_write_errno) {
+	if (out.expected_errno) {
 		ASSERT_EQ(-1, r);
-		ASSERT_EQ(m_expected_write_errno, errno) << strerror(errno);
+		ASSERT_EQ(out.expected_errno, errno) << strerror(errno);
 	} else {
 		ASSERT_TRUE(r > 0 || errno == EAGAIN) << strerror(errno);
 	}

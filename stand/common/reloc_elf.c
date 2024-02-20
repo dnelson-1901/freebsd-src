@@ -28,14 +28,11 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #include <machine/elf.h>
 
 #include <stand.h>
 
-#define FREEBSD_ELF
 #include <sys/link_elf.h>
 
 #include "bootstrap.h"

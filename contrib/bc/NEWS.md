@@ -1,5 +1,110 @@
 # News
 
+## 6.7.5
+
+This is a production release to fix one small bug.
+
+The bug is that sometimes numbers are printed to incorrect line lengths. The
+number is always correct; the line is just longer than the limit.
+
+Users who do not care do not need to update.
+
+## 6.7.4
+
+This is a production release to fix problems in the `bc` manual.
+
+Users only need to update if desired.
+
+## 6.7.3
+
+This is a production release to fix the library build on Mac OSX.
+
+Users on other platforms do *not* need to update.
+
+## 6.7.2
+
+This is a production release to remove some debugging code that I accidentally
+committed.
+
+## 6.7.1
+
+This is a production release with a bug fix for `SIGINT` only being handled
+once.
+
+## 6.7.0
+
+This is a production release with three new functions in the [extended math
+library][16]: `min()`, `max()`, and `i2rand()`.
+
+## 6.6.1
+
+This is a production release with an improved `p()` function in the [extended
+math library][16].
+
+Users who don't care do not need to upgrade.
+
+## 6.6.0
+
+This is a production release with two bug fixes and one change.
+
+The first bug fix is to fix the build on Mac OSX.
+
+The second bug was to remove printing a leading zero in scientific or
+engineering output modes.
+
+The change was that the implementation of `irand()` was improved to call the
+PRNG less.
+
+## 6.5.0
+
+This is a production release that fixes an infinite loop bug in `root()` and
+`cbrt()`, fixes a bug with `BC_LINE_LENGTH=0`, and adds the `fib()` function to
+the extended math library to calculate Fibonacci numbers.
+
+## 6.4.0
+
+This is a production release that fixes a `read()`/`?` bug and adds features to
+`bcl`.
+
+The bug was that multiple read calls could repeat old data.
+
+The new features in `bcl` are functions to preserve `BclNumber` arguments and
+not free them.
+
+***WARNING for `bcl` Users***: The `bcl_rand_seedWithNum()` function used to not
+consume its arguments. Now it does. This change could have made this version
+`7.0.0`, but I'm 99.9% confident that there are no `bcl` users, or if there are,
+they probably don't use the PRNG. So I took a risk and didn't update the major
+version.
+
+`bcl` now includes more capacity to check for invalid numbers when built to run
+under Valgrind.
+
+## 6.3.1
+
+This is a production release that fixes a `bc` dependency loop for minimal
+environments and Linux from Scratch.
+
+## 6.3.0
+
+This is a production release with a couple of fixes for manuals and a new
+feature for `dc`: there is now a command to query whether extended registers are
+enabled or not.
+
+Users who don't care do not need to upgrade.
+
+## 6.2.6
+
+This is a production release that fixes an install bug that affected locale
+installation of all locales when using `mksh`. Users do ***NOT*** need to
+upgrade if they don't use `mksh` and/or don't need to install all locales.
+
+## 6.2.5
+
+This is a production release that fixes a test bug that affected Android and
+`mksh`. Users do ***NOT*** need to upgrade unless they use `mksh` or another
+affected shell and need to run the test suite.
+
 ## 6.2.4
 
 This is a production release that fixes a test failure that happens when
@@ -689,7 +794,7 @@ function, `strdup()`, which is not in POSIX 2001, and it is in the X/Open System
 Interfaces group 2001. It is, however, in POSIX 2008, and since POSIX 2008 is
 old enough to be supported anywhere that I care, that should be the requirement.
 
-Second, the BcVm global variable was put into `bss`. This actually slightly
+Second, the `BcVm` global variable was put into `bss`. This actually slightly
 reduces the size of the executable from a massive code shrink, and it will stop
 `bc` from allocating a large set of memory when `bc` starts.
 

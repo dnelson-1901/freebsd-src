@@ -1,5 +1,5 @@
 --
--- SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+-- SPDX-License-Identifier: BSD-2-Clause
 --
 -- Copyright (c) 2015 Pedro Souza <pedrosouza@freebsd.org>
 -- Copyright (c) 2018 Kyle Evans <kevans@FreeBSD.org>
@@ -25,8 +25,6 @@
 -- LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 -- OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 -- SUCH DAMAGE.
---
--- $FreeBSD$
 --
 
 local config = require("config")
@@ -206,17 +204,18 @@ function core.kernelList()
 		return core.cached_kernels
 	end
 
-	local k = loader.getenv("kernel")
+	local default_kernel = loader.getenv("kernel")
 	local v = loader.getenv("kernels")
 	local autodetect = loader.getenv("kernels_autodetect") or ""
 
 	local kernels = {}
 	local unique = {}
 	local i = 0
-	if k ~= nil then
+
+	if default_kernel then
 		i = i + 1
-		kernels[i] = k
-		unique[k] = true
+		kernels[i] = default_kernel
+		unique[default_kernel] = true
 	end
 
 	if v ~= nil then
@@ -243,6 +242,8 @@ function core.kernelList()
 		core.cached_kernels = kernels
 		return core.cached_kernels
 	end
+
+	local present = {}
 
 	-- Automatically detect other bootable kernel directories using a
 	-- heuristic.  Any directory in /boot that contains an ordinary file
@@ -272,8 +273,25 @@ function core.kernelList()
 			unique[file] = true
 		end
 
+		present[file] = true
+
 		::continue::
 	end
+
+	-- If we found more than one kernel, prune the "kernel" specified kernel
+	-- off of the list if it wasn't found during traversal.  If we didn't
+	-- actually find any kernels, we just assume that they know what they're
+	-- doing and leave it alone.
+	if default_kernel and not present[default_kernel] and #kernels > 1 then
+		for i = 1, #kernels do
+			if i == #kernels then
+				kernels[i] = nil
+			else
+				kernels[i] = kernels[i + 1]
+			end
+		end
+	end
+
 	core.cached_kernels = kernels
 	return core.cached_kernels
 end
@@ -382,6 +400,15 @@ function core.boot(argstr)
 	end
 	core.loadEntropy()
 	loader.perform(composeLoaderCmd("boot", argstr))
+end
+
+function core.hasFeature(name)
+	if not loader.has_feature then
+		-- Loader too old, no feature support
+		return nil, "No feature support in loaded loader"
+	end
+
+	return loader.has_feature(name)
 end
 
 function core.isSingleUserBoot()

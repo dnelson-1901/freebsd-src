@@ -38,8 +38,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bpf.h"
 #include "opt_ddb.h"
 #include "opt_netgraph.h"
@@ -101,7 +99,7 @@ __FBSDID("$FreeBSD$");
 
 MALLOC_DEFINE(M_BPF, "BPF", "BPF data");
 
-static struct bpf_if_ext dead_bpf_if = {
+static const struct bpf_if_ext dead_bpf_if = {
 	.bif_dlist = CK_LIST_HEAD_INITIALIZER()
 };
 
@@ -643,7 +641,15 @@ bpf_movein(struct uio *uio, int linktype, struct ifnet *ifp, struct mbuf **mp,
 	if (len < hlen || len - hlen > ifp->if_mtu)
 		return (EMSGSIZE);
 
-	m = m_get2(len, M_WAITOK, MT_DATA, M_PKTHDR);
+	/* Allocate a mbuf for our write, since m_get2 fails if len >= to MJUMPAGESIZE, use m_getjcl for bigger buffers */
+	if (len < MJUMPAGESIZE)
+		m = m_get2(len, M_WAITOK, MT_DATA, M_PKTHDR);
+	else if (len <= MJUM9BYTES)
+		m = m_getjcl(M_WAITOK, MT_DATA, M_PKTHDR, MJUM9BYTES);
+	else if (len <= MJUM16BYTES)
+		m = m_getjcl(M_WAITOK, MT_DATA, M_PKTHDR, MJUM16BYTES);
+	else
+		m = NULL;
 	if (m == NULL)
 		return (EIO);
 	m->m_pkthdr.len = m->m_len = len;
@@ -2790,7 +2796,7 @@ bpfdetach(struct ifnet *ifp)
 			continue;
 
 		CK_LIST_REMOVE(bp, bif_next);
-		*bp->bif_bpf = (struct bpf_if *)&dead_bpf_if;
+		*bp->bif_bpf = __DECONST(struct bpf_if *, &dead_bpf_if);
 
 		CTR4(KTR_NET,
 		    "%s: sheduling free for encap %d (%p) for if %p",
@@ -3070,7 +3076,7 @@ void
 bpfattach2(struct ifnet *ifp, u_int dlt, u_int hdrlen, struct bpf_if **driverp)
 {
 
-	*driverp = (struct bpf_if *)&dead_bpf_if;
+	*driverp = __DECONST(struct bpf_if *, &dead_bpf_if);
 }
 
 void

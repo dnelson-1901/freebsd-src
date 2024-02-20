@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ktrace.h"
 
 #include <sys/param.h>
@@ -776,7 +774,7 @@ lsiginfo_to_siginfo(struct thread *td, const l_siginfo_t *lsi,
 
 	switch (lsi->lsi_code) {
 	case LINUX_SI_TKILL:
-		if (linux_kernver(td) >= LINUX_KERNVER_2006039) {
+		if (linux_kernver(td) >= LINUX_KERNVER(2,6,39)) {
 			linux_msg(td, "SI_TKILL forbidden since 2.6.39");
 			return (EPERM);
 		}

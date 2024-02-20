@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,13 +24,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #ifndef WITHOUT_CAPSICUM
 #include <sys/capsicum.h>
@@ -91,6 +87,7 @@ __FBSDID("$FreeBSD$");
 #include "config.h"
 #include "inout.h"
 #include "debug.h"
+#include "e820.h"
 #include "fwctl.h"
 #include "gdb.h"
 #include "ioapic.h"
@@ -101,6 +98,7 @@ __FBSDID("$FreeBSD$");
 #include "pci_emul.h"
 #include "pci_irq.h"
 #include "pci_lpc.h"
+#include "qemu_fwcfg.h"
 #include "smbiostbl.h"
 #ifdef BHYVE_SNAPSHOT
 #include "snapshot.h"
@@ -291,10 +289,6 @@ topology_parse(const char *opt)
 			set_config_value("cores", cp + strlen("cores="));
 		else if (strncmp(cp, "threads=", strlen("threads=")) == 0)
 			set_config_value("threads", cp + strlen("threads="));
-#ifdef notyet  /* Do not expose this until vmm.ko implements it */
-		else if (strncmp(cp, "maxcpus=", strlen("maxcpus=")) == 0)
-			set_config_value("maxcpus", cp + strlen("maxcpus="));
-#endif
 		else if (strchr(cp, '=') != NULL)
 			goto out;
 		else
@@ -552,7 +546,7 @@ fbsdrun_start_thread(void *param)
 }
 
 static void
-fbsdrun_addcpu(struct vmctx *ctx, int newcpu, bool suspend)
+fbsdrun_addcpu(struct vmctx *ctx, int newcpu)
 {
 	int error;
 
@@ -562,8 +556,7 @@ fbsdrun_addcpu(struct vmctx *ctx, int newcpu, bool suspend)
 
 	CPU_SET_ATOMIC(newcpu, &cpumask);
 
-	if (suspend)
-		vm_suspend_cpu(ctx, newcpu);
+	vm_suspend_cpu(ctx, newcpu);
 
 	mt_vmm_info[newcpu].mt_ctx = ctx;
 	mt_vmm_info[newcpu].mt_vcpu = newcpu;
@@ -578,7 +571,7 @@ fbsdrun_deletecpu(int vcpu)
 {
 
 	if (!CPU_ISSET(vcpu, &cpumask)) {
-		fprintf(stderr, "Attempting to delete unknown cpu %d\n", vcpu);
+		EPRINTLN("Attempting to delete unknown cpu %d", vcpu);
 		exit(4);
 	}
 
@@ -620,7 +613,7 @@ vmexit_inout(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 
 	error = emulate_inout(ctx, vcpu, vme);
 	if (error) {
-		fprintf(stderr, "Unhandled %s%c 0x%04x at 0x%lx\n",
+		EPRINTLN("Unhandled %s%c 0x%04x at 0x%lx",
 		    in ? "in" : "out",
 		    bytes == 1 ? 'b' : (bytes == 2 ? 'w' : 'l'),
 		    port, vme->rip);
@@ -640,7 +633,7 @@ vmexit_rdmsr(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 	val = 0;
 	error = emulate_rdmsr(ctx, *pvcpu, vme->u.msr.code, &val);
 	if (error != 0) {
-		fprintf(stderr, "rdmsr to register %#x on vcpu %d\n",
+		EPRINTLN("rdmsr to register %#x on vcpu %d",
 		    vme->u.msr.code, *pvcpu);
 		if (get_config_bool("x86.strictmsr")) {
 			vm_inject_gp(ctx, *pvcpu);
@@ -666,7 +659,7 @@ vmexit_wrmsr(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 
 	error = emulate_wrmsr(ctx, *pvcpu, vme->u.msr.code, vme->u.msr.wval);
 	if (error != 0) {
-		fprintf(stderr, "wrmsr to register %#x(%#lx) on vcpu %d\n",
+		EPRINTLN("wrmsr to register %#x(%#lx) on vcpu %d",
 		    vme->u.msr.code, vme->u.msr.wval, *pvcpu);
 		if (get_config_bool("x86.strictmsr")) {
 			vm_inject_gp(ctx, *pvcpu);
@@ -698,17 +691,17 @@ static int
 vmexit_vmx(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 {
 
-	fprintf(stderr, "vm exit[%d]\n", *pvcpu);
-	fprintf(stderr, "\treason\t\tVMX\n");
-	fprintf(stderr, "\trip\t\t0x%016lx\n", vme->rip);
-	fprintf(stderr, "\tinst_length\t%d\n", vme->inst_length);
-	fprintf(stderr, "\tstatus\t\t%d\n", vme->u.vmx.status);
-	fprintf(stderr, "\texit_reason\t%u (%s)\n", vme->u.vmx.exit_reason,
+	EPRINTLN("vm exit[%d]", *pvcpu);
+	EPRINTLN("\treason\t\tVMX");
+	EPRINTLN("\trip\t\t0x%016lx", vme->rip);
+	EPRINTLN("\tinst_length\t%d", vme->inst_length);
+	EPRINTLN("\tstatus\t\t%d", vme->u.vmx.status);
+	EPRINTLN("\texit_reason\t%u (%s)", vme->u.vmx.exit_reason,
 	    vmexit_vmx_desc(vme->u.vmx.exit_reason));
-	fprintf(stderr, "\tqualification\t0x%016lx\n",
+	EPRINTLN("\tqualification\t0x%016lx",
 	    vme->u.vmx.exit_qualification);
-	fprintf(stderr, "\tinst_type\t\t%d\n", vme->u.vmx.inst_type);
-	fprintf(stderr, "\tinst_error\t\t%d\n", vme->u.vmx.inst_error);
+	EPRINTLN("\tinst_type\t\t%d", vme->u.vmx.inst_type);
+	EPRINTLN("\tinst_error\t\t%d", vme->u.vmx.inst_error);
 #ifdef DEBUG_EPT_MISCONFIG
 	if (vme->u.vmx.exit_reason == EXIT_REASON_EPT_MISCONFIG) {
 		vm_get_register(ctx, *pvcpu,
@@ -716,9 +709,9 @@ vmexit_vmx(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 		    &ept_misconfig_gpa);
 		vm_get_gpa_pmap(ctx, ept_misconfig_gpa, ept_misconfig_pte,
 		    &ept_misconfig_ptenum);
-		fprintf(stderr, "\tEPT misconfiguration:\n");
-		fprintf(stderr, "\t\tGPA: %#lx\n", ept_misconfig_gpa);
-		fprintf(stderr, "\t\tPTE(%d): %#lx %#lx %#lx %#lx\n",
+		EPRINTLN("\tEPT misconfiguration:");
+		EPRINTLN("\t\tGPA: %#lx", ept_misconfig_gpa);
+		EPRINTLN("\t\tPTE(%d): %#lx %#lx %#lx %#lx",
 		    ept_misconfig_ptenum, ept_misconfig_pte[0],
 		    ept_misconfig_pte[1], ept_misconfig_pte[2],
 		    ept_misconfig_pte[3]);
@@ -731,13 +724,13 @@ static int
 vmexit_svm(struct vmctx *ctx __unused, struct vm_exit *vme, int *pvcpu)
 {
 
-	fprintf(stderr, "vm exit[%d]\n", *pvcpu);
-	fprintf(stderr, "\treason\t\tSVM\n");
-	fprintf(stderr, "\trip\t\t0x%016lx\n", vme->rip);
-	fprintf(stderr, "\tinst_length\t%d\n", vme->inst_length);
-	fprintf(stderr, "\texitcode\t%#lx\n", vme->u.svm.exitcode);
-	fprintf(stderr, "\texitinfo1\t%#lx\n", vme->u.svm.exitinfo1);
-	fprintf(stderr, "\texitinfo2\t%#lx\n", vme->u.svm.exitinfo2);
+	EPRINTLN("vm exit[%d]", *pvcpu);
+	EPRINTLN("\treason\t\tSVM");
+	EPRINTLN("\trip\t\t0x%016lx", vme->rip);
+	EPRINTLN("\tinst_length\t%d", vme->inst_length);
+	EPRINTLN("\texitcode\t%#lx", vme->u.svm.exitcode);
+	EPRINTLN("\texitinfo1\t%#lx", vme->u.svm.exitinfo1);
+	EPRINTLN("\texitinfo2\t%#lx", vme->u.svm.exitinfo2);
 	return (VMEXIT_ABORT);
 }
 
@@ -893,7 +886,7 @@ vmexit_suspend(struct vmctx *ctx, struct vm_exit *vme, int *pvcpu)
 	case VM_SUSPEND_TRIPLEFAULT:
 		exit(3);
 	default:
-		fprintf(stderr, "vmexit_suspend: invalid reason %d\n", how);
+		EPRINTLN("vmexit_suspend: invalid reason %d", how);
 		exit(100);
 	}
 	return (0);	/* NOTREACHED */
@@ -911,6 +904,11 @@ vmexit_debug(struct vmctx *ctx __unused, struct vm_exit *vme __unused,
 #ifdef BHYVE_SNAPSHOT
 	checkpoint_cpu_resume(*pvcpu);
 #endif
+	/*
+	 * XXX-MJ sleep for a short period to avoid chewing up the CPU in the
+	 * window between activation of the vCPU thread and the STARTUP IPI.
+	 */
+	usleep(1000);
 	return (VMEXIT_CONTINUE);
 }
 
@@ -1003,7 +1001,7 @@ vm_loop(struct vmctx *ctx, int vcpu)
 			exit(4);
 		}
 	}
-	fprintf(stderr, "vm_run error %d, errno %d\n", error, errno);
+	EPRINTLN("vm_run error %d, errno %d", error, errno);
 }
 
 static int
@@ -1035,7 +1033,7 @@ fbsdrun_set_capabilities(struct vmctx *ctx, int cpu)
 	if (get_config_bool_default("x86.vmexit_on_hlt", false)) {
 		err = vm_get_capability(ctx, cpu, VM_CAP_HALT_EXIT, &tmp);
 		if (err < 0) {
-			fprintf(stderr, "VM exit on HLT not supported\n");
+			EPRINTLN("VM exit on HLT not supported");
 			exit(4);
 		}
 		vm_set_capability(ctx, cpu, VM_CAP_HALT_EXIT, 1);
@@ -1049,8 +1047,7 @@ fbsdrun_set_capabilities(struct vmctx *ctx, int cpu)
 		 */
 		err = vm_get_capability(ctx, cpu, VM_CAP_PAUSE_EXIT, &tmp);
 		if (err < 0) {
-			fprintf(stderr,
-			    "SMP mux requested, no pause support\n");
+			EPRINTLN("SMP mux requested, no pause support");
 			exit(4);
 		}
 		vm_set_capability(ctx, cpu, VM_CAP_PAUSE_EXIT, 1);
@@ -1064,7 +1061,7 @@ fbsdrun_set_capabilities(struct vmctx *ctx, int cpu)
 		err = vm_set_x2apic_state(ctx, cpu, X2APIC_DISABLED);
 
 	if (err) {
-		fprintf(stderr, "Unable to set x2apic state (%d)\n", err);
+		EPRINTLN("Unable to set x2apic state (%d)", err);
 		exit(4);
 	}
 
@@ -1130,15 +1127,14 @@ do_open(const char *vmname)
 			exit(4);
 		}
 	}
-	error = vm_set_topology(ctx, cpu_sockets, cpu_cores, cpu_threads,
-	    0 /* maxcpus, unimplemented */);
+	error = vm_set_topology(ctx, cpu_sockets, cpu_cores, cpu_threads, 0);
 	if (error)
 		errx(EX_OSERR, "vm_set_topology");
 	return (ctx);
 }
 
 static void
-spinup_vcpu(struct vmctx *ctx, int vcpu, bool suspend)
+spinup_vcpu(struct vmctx *ctx, int vcpu)
 {
 	int error;
 
@@ -1154,7 +1150,7 @@ spinup_vcpu(struct vmctx *ctx, int vcpu, bool suspend)
 		assert(error == 0);
 	}
 
-	fbsdrun_addcpu(ctx, vcpu, suspend);
+	fbsdrun_addcpu(ctx, vcpu);
 }
 
 static bool
@@ -1232,14 +1228,16 @@ set_defaults(void)
 	set_config_bool("acpi_tables", false);
 	set_config_value("memory.size", "256M");
 	set_config_bool("x86.strictmsr", true);
+	set_config_value("lpc.fwcfg", "bhyve");
 }
 
 int
 main(int argc, char *argv[])
 {
-	int c, error, err;
+	int c, error;
 	int max_vcpus, memflags;
 	struct vmctx *ctx;
+	struct qemu_fwcfg_item *e820_fwcfg_item;
 	uint64_t rip;
 	size_t memsize;
 	const char *optstr, *value, *vmname;
@@ -1255,9 +1253,9 @@ main(int argc, char *argv[])
 	progname = basename(argv[0]);
 
 #ifdef BHYVE_SNAPSHOT
-	optstr = "aehuwxACDHIPSWYk:o:p:G:c:s:m:l:K:U:r:";
+	optstr = "aehuwxACDHIPSWYk:f:o:p:G:c:s:m:l:K:U:r:";
 #else
-	optstr = "aehuwxACDHIPSWYk:o:p:G:c:s:m:l:K:U:";
+	optstr = "aehuwxACDHIPSWYk:f:o:p:G:c:s:m:l:K:U:";
 #endif
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
@@ -1284,6 +1282,11 @@ main(int argc, char *argv[])
 			break;
 		case 'C':
 			set_config_bool("memory.guest_in_core", true);
+			break;
+		case 'f':
+			if (qemu_fwcfg_parse_cmdline_arg(optarg) != 0) {
+			    errx(EX_USAGE, "invalid fwcfg item '%s'", optarg);
+			}
 			break;
 		case 'G':
 			parse_gdb_options(optarg);
@@ -1438,8 +1441,8 @@ main(int argc, char *argv[])
 	if (get_config_bool_default("memory.guest_in_core", false))
 		memflags |= VM_MEM_F_INCORE;
 	vm_set_memflags(ctx, memflags);
-	err = vm_setup_memory(ctx, memsize, VM_MMAP_ALL);
-	if (err) {
+	error = vm_setup_memory(ctx, memsize, VM_MMAP_ALL);
+	if (error) {
 		fprintf(stderr, "Unable to setup memory (%d)\n", errno);
 		exit(4);
 	}
@@ -1461,11 +1464,28 @@ main(int argc, char *argv[])
 	rtc_init(ctx);
 	sci_init(ctx);
 
+	if (qemu_fwcfg_init(ctx) != 0) {
+		fprintf(stderr, "qemu fwcfg initialization error\n");
+		exit(4);
+	}
+
+	if (qemu_fwcfg_add_file("opt/bhyve/hw.ncpu", sizeof(guest_ncpus),
+	    &guest_ncpus) != 0) {
+		fprintf(stderr, "Could not add qemu fwcfg opt/bhyve/hw.ncpu\n");
+		exit(4);
+	}
+
+	if (e820_init(ctx) != 0) {
+		fprintf(stderr, "Unable to setup E820");
+		exit(4);
+	}
+
 	/*
 	 * Exit if a device emulation finds an error in its initilization
 	 */
 	if (init_pci(ctx) != 0) {
-		perror("device emulation initialization error");
+		EPRINTLN("Device emulation initialization error: %s",
+		    strerror(errno));
 		exit(4);
 	}
 
@@ -1480,43 +1500,53 @@ main(int argc, char *argv[])
 
 	if (lpc_bootrom()) {
 		if (vm_set_capability(ctx, BSP, VM_CAP_UNRESTRICTED_GUEST, 1)) {
-			fprintf(stderr, "ROM boot failed: unrestricted guest "
-			    "capability not available\n");
+			EPRINTLN("ROM boot failed: unrestricted guest "
+			    "capability not available");
 			exit(4);
 		}
 		error = vcpu_reset(ctx, BSP);
 		assert(error == 0);
 	}
 
+	/* Allocate per-VCPU resources. */
+	mt_vmm_info = calloc(guest_ncpus, sizeof(*mt_vmm_info));
+
+	/*
+	 * Add all vCPUs.
+	 */
+	for (int vcpu = 0; vcpu < guest_ncpus; vcpu++) {
+		spinup_vcpu(ctx, vcpu);
+	}
+
 #ifdef BHYVE_SNAPSHOT
 	if (restore_file != NULL) {
-		fprintf(stdout, "Pausing pci devs...\r\n");
-		if (vm_pause_user_devs() != 0) {
-			fprintf(stderr, "Failed to pause PCI device state.\n");
+		FPRINTLN(stdout, "Pausing pci devs...");
+		if (vm_pause_devices() != 0) {
+			EPRINTLN("Failed to pause PCI device state.");
 			exit(1);
 		}
 
-		fprintf(stdout, "Restoring vm mem...\r\n");
+		FPRINTLN(stdout, "Restoring vm mem...");
 		if (restore_vm_mem(ctx, &rstate) != 0) {
-			fprintf(stderr, "Failed to restore VM memory.\n");
+			EPRINTLN("Failed to restore VM memory.");
 			exit(1);
 		}
 
-		fprintf(stdout, "Restoring pci devs...\r\n");
-		if (vm_restore_user_devs(ctx, &rstate) != 0) {
-			fprintf(stderr, "Failed to restore PCI device state.\n");
+		FPRINTLN(stdout, "Restoring pci devs...");
+		if (vm_restore_devices(ctx, &rstate) != 0) {
+			EPRINTLN("Failed to restore PCI device state.");
 			exit(1);
 		}
 
-		fprintf(stdout, "Restoring kernel structs...\r\n");
+		FPRINTLN(stdout, "Restoring kernel structs...");
 		if (vm_restore_kern_structs(ctx, &rstate) != 0) {
-			fprintf(stderr, "Failed to restore kernel structs.\n");
+			EPRINTLN("Failed to restore kernel structs.");
 			exit(1);
 		}
 
-		fprintf(stdout, "Resuming pci devs...\r\n");
-		if (vm_resume_user_devs() != 0) {
-			fprintf(stderr, "Failed to resume PCI device state.\n");
+		FPRINTLN(stdout, "Resuming pci devs...");
+		if (vm_resume_devices() != 0) {
+			EPRINTLN("Failed to resume PCI device state.");
 			exit(1);
 		}
 	}
@@ -1545,13 +1575,37 @@ main(int argc, char *argv[])
 		assert(error == 0);
 	}
 
-	if (lpc_bootrom())
+	e820_fwcfg_item = e820_get_fwcfg_item();
+	if (e820_fwcfg_item == NULL) {
+		EPRINTLN("invalid e820 table");
+		exit(4);
+	}
+	if (qemu_fwcfg_add_file("etc/e820", e820_fwcfg_item->size,
+		e820_fwcfg_item->data) != 0) {
+		EPRINTLN("could not add qemu fwcfg etc/e820");
+		exit(4);
+	}
+	free(e820_fwcfg_item);
+
+	if (lpc_bootrom() && strcmp(lpc_fwcfg(), "bhyve") == 0) {
 		fwctl_init();
+	}
 
 	/*
 	 * Change the proc title to include the VM name.
 	 */
 	setproctitle("%s", vmname);
+
+#ifdef BHYVE_SNAPSHOT
+	/* initialize mutex/cond variables */
+	init_snapshot();
+
+	/*
+	 * checkpointing thread for communication with bhyvectl
+	 */
+	if (init_checkpoint_thread(ctx) != 0)
+		errx(EX_OSERR, "Failed to start checkpoint thread");
+#endif
 
 #ifndef WITHOUT_CAPSICUM
 	caph_cache_catpages();
@@ -1564,36 +1618,19 @@ main(int argc, char *argv[])
 #endif
 
 #ifdef BHYVE_SNAPSHOT
-	if (restore_file != NULL)
+	if (restore_file != NULL) {
 		destroy_restore_state(&rstate);
+		if (vm_restore_time(ctx) < 0)
+			err(EX_OSERR, "Unable to restore time");
 
-	/* initialize mutex/cond variables */
-	init_snapshot();
-
-	/*
-	 * checkpointing thread for communication with bhyvectl
-	 */
-	if (init_checkpoint_thread(ctx) < 0)
-		printf("Failed to start checkpoint thread!\r\n");
-
-	if (restore_file != NULL)
-		vm_restore_time(ctx);
-#endif
-
-	/* Allocate per-VCPU resources. */
-	mt_vmm_info = calloc(guest_ncpus, sizeof(*mt_vmm_info));
-
-	/*
-	 * Add all vCPUs.
-	 */
-	for (int vcpu = 0; vcpu < guest_ncpus; vcpu++) {
-		bool suspend = (vcpu != BSP);
-#ifdef BHYVE_SNAPSHOT
-		if (restore_file != NULL)
-			suspend = false;
-#endif
-		spinup_vcpu(ctx, vcpu, suspend);
+		for (int i = 0; i < guest_ncpus; i++) {
+			if (i == BSP)
+				continue;
+			vm_resume_cpu(ctx, i);
+		}
 	}
+#endif
+	vm_resume_cpu(ctx, BSP);
 
 	/*
 	 * Head off to the main event dispatch loop

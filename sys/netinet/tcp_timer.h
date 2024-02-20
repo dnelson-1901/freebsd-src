@@ -29,11 +29,16 @@
  * SUCH DAMAGE.
  *
  *	@(#)tcp_timer.h	8.1 (Berkeley) 6/10/93
- * $FreeBSD$
  */
 
 #ifndef _NETINET_TCP_TIMER_H_
 #define _NETINET_TCP_TIMER_H_
+
+#define	TCPT_REXMT	0		/* retransmit */
+#define	TCPT_PERSIST	1		/* retransmit persistance */
+#define	TCPT_KEEP	2		/* keep alive */
+#define	TCPT_2MSL	3		/* 2*msl quiet time timer */
+#define	TCPT_DELACK	4		/* delay ack */
 
 /*
  * The TCPT_REXMT timer is used to force retransmissions.

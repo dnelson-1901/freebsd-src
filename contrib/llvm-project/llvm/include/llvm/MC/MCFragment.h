@@ -17,7 +17,6 @@
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/Alignment.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/SMLoc.h"
 #include <cstdint>
 #include <utility>
@@ -76,6 +75,7 @@ private:
 
 protected:
   bool HasInstructions;
+  bool LinkerRelaxable = false;
 
   MCFragment(FragmentType Kind, bool HasInstructions,
              MCSection *Parent = nullptr);
@@ -247,6 +247,9 @@ public:
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_Data;
   }
+
+  bool isLinkerRelaxable() const { return LinkerRelaxable; }
+  void setLinkerRelaxable() { LinkerRelaxable = true; }
 };
 
 /// This is a compact (memory-size-wise) fragment for holding an encoded
@@ -294,7 +297,7 @@ public:
 
 class MCAlignFragment : public MCFragment {
   /// The alignment to ensure, in bytes.
-  unsigned Alignment;
+  Align Alignment;
 
   /// Flag to indicate that (optimal) NOPs should be emitted instead
   /// of using the provided value. The exact interpretation of this flag is
@@ -312,15 +315,15 @@ class MCAlignFragment : public MCFragment {
   unsigned MaxBytesToEmit;
 
   /// When emitting Nops some subtargets have specific nop encodings.
-  const MCSubtargetInfo *STI;
+  const MCSubtargetInfo *STI = nullptr;
 
 public:
-  MCAlignFragment(unsigned Alignment, int64_t Value, unsigned ValueSize,
+  MCAlignFragment(Align Alignment, int64_t Value, unsigned ValueSize,
                   unsigned MaxBytesToEmit, MCSection *Sec = nullptr)
       : MCFragment(FT_Align, false, Sec), Alignment(Alignment), EmitNops(false),
         Value(Value), ValueSize(ValueSize), MaxBytesToEmit(MaxBytesToEmit) {}
 
-  unsigned getAlignment() const { return Alignment; }
+  Align getAlignment() const { return Alignment; }
 
   int64_t getValue() const { return Value; }
 
@@ -489,6 +492,7 @@ public:
         AddrDelta(&AddrDelta) {}
 
   const MCExpr &getAddrDelta() const { return *AddrDelta; }
+  void setAddrDelta(const MCExpr *E) { AddrDelta = E; }
 
   static bool classof(const MCFragment *F) {
     return F->getKind() == MCFragment::FT_DwarfFrame;

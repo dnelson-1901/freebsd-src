@@ -29,8 +29,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MACHINE_PMAP_H_
@@ -151,6 +149,8 @@ extern struct pmap	kernel_pmap_store;
 	(uint64_t)(asid) << TTBR_ASID_SHIFT;			\
 })
 
+#define	PMAP_WANT_ACTIVE_CPUS_NAIVE
+
 extern vm_offset_t virtual_avail;
 extern vm_offset_t virtual_end;
 
@@ -179,6 +179,7 @@ int	pmap_pinit_stage(pmap_t, enum pmap_stage, int);
 bool	pmap_ps_enabled(pmap_t pmap);
 uint64_t pmap_to_ttbr0(pmap_t pmap);
 void	pmap_disable_promotion(vm_offset_t sva, vm_size_t size);
+void	pmap_map_delete(pmap_t, vm_offset_t, vm_offset_t);
 
 void	*pmap_mapdev(vm_offset_t, vm_size_t);
 void	*pmap_mapbios(vm_paddr_t, vm_size_t);

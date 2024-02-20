@@ -79,7 +79,7 @@ do { \
 } while (0)
 
 
-#if !(defined(_WIN32) && !defined(__CYGWIN__))
+#if !(defined(_WIN32) && !defined(__CYGWIN__)) && !defined(__wasm__)
 // Use sigprocmask() to set the signal mask in single-threaded programs.
 #include <signal.h>
 
@@ -300,8 +300,8 @@ static inline void
 mythread_condtime_set(mythread_condtime *condtime, const mythread_cond *cond,
 		uint32_t timeout_ms)
 {
-	condtime->tv_sec = timeout_ms / 1000;
-	condtime->tv_nsec = (timeout_ms % 1000) * 1000000;
+	condtime->tv_sec = (time_t)(timeout_ms / 1000);
+	condtime->tv_nsec = (long)((timeout_ms % 1000) * 1000000);
 
 #ifdef HAVE_CLOCK_GETTIME
 	struct timespec now;
@@ -378,7 +378,7 @@ typedef struct {
 			abort(); \
 		if (pending_) { \
 			func(); \
-			if (!InitOnceComplete(&once, 0, NULL)) \
+			if (!InitOnceComplete(&once_, 0, NULL)) \
 				abort(); \
 		} \
 	} while (0)

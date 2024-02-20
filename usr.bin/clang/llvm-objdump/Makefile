@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -8,6 +7,7 @@ SRCDIR=		llvm/tools/llvm-objdump
 SRCS+=		COFFDump.cpp
 SRCS+=		ELFDump.cpp
 SRCS+=		MachODump.cpp
+SRCS+=		OffloadDump.cpp
 SRCS+=		SourcePrinter.cpp
 SRCS+=		WasmDump.cpp
 SRCS+=		XCOFFDump.cpp
@@ -25,17 +25,11 @@ ${hdr}.inc: ${LLVM_BASE}/${SRCDIR}/${hdr}.td
 TGHDRS+=	${hdr}.inc
 .endfor
 
-${TGHDRS}: ${LLVM_TBLGEN_BIN}
-
 DEPENDFILES+=	${TGHDRS:C/$/.d/}
 DPSRCS+=	${TGHDRS}
 CLEANFILES+=	${TGHDRS} ${TGHDRS:C/$/.d/}
 
-LIBADD+=	z
-
-.if ${MK_LLVM_BINUTILS} != "no"
 LINKS=		${BINDIR}/llvm-objdump ${BINDIR}/objdump
 MLINKS=		llvm-objdump.1 objdump.1
-.endif
 
 .include "../llvm.prog.mk"

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020 Microsoft Corp.
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/domain.h>
@@ -778,7 +776,7 @@ out:
 	SOCKBUF_UNLOCK(sb);
 	SOCK_IO_RECV_UNLOCK(so);
 
-	/* We recieved a FIN in this call */
+	/* We received a FIN in this call */
 	if (so->so_error == ESHUTDOWN) {
 		if (so->so_snd.sb_state & SBS_CANTSENDMORE) {
 			/* Send has already closed */

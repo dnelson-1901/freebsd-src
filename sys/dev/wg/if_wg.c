@@ -566,7 +566,7 @@ wg_aip_add(struct wg_softc *sc, struct wg_peer *peer, sa_family_t af, const void
 		node = root->rnh_lookup(&aip->a_addr, &aip->a_mask, &root->rh);
 	if (!node) {
 		free(aip, M_WG);
-		return (ENOMEM);
+		ret = ENOMEM;
 	} else if (node != aip->a_nodes) {
 		free(aip, M_WG);
 		aip = (struct wg_aip *)node;
@@ -1465,8 +1465,12 @@ calculate_padding(struct wg_packet *pkt)
 {
 	unsigned int padded_size, last_unit = pkt->p_mbuf->m_pkthdr.len;
 
-	if (__predict_false(!pkt->p_mtu))
-		return (last_unit + (WG_PKT_PADDING - 1)) & ~(WG_PKT_PADDING - 1);
+	/* Keepalive packets don't set p_mtu, but also have a length of zero. */
+	if (__predict_false(pkt->p_mtu == 0)) {
+		padded_size = (last_unit + (WG_PKT_PADDING - 1)) &
+		    ~(WG_PKT_PADDING - 1);
+		return (padded_size - last_unit);
+	}
 
 	if (__predict_false(last_unit > pkt->p_mtu))
 		last_unit %= pkt->p_mtu;
@@ -1474,7 +1478,7 @@ calculate_padding(struct wg_packet *pkt)
 	padded_size = (last_unit + (WG_PKT_PADDING - 1)) & ~(WG_PKT_PADDING - 1);
 	if (pkt->p_mtu < padded_size)
 		padded_size = pkt->p_mtu;
-	return padded_size - last_unit;
+	return (padded_size - last_unit);
 }
 
 static void
@@ -2872,6 +2876,7 @@ wg_clone_destroy(struct if_clone *ifc, struct ifnet *ifp, uint32_t flags)
 
 	if (cred != NULL)
 		crfree(cred);
+	bpfdetach(sc->sc_ifp);
 	if_detach(sc->sc_ifp);
 	if_free(sc->sc_ifp);
 
@@ -2986,38 +2991,27 @@ static inline bool wg_run_selftests(void) { return true; }
 static int
 wg_module_init(void)
 {
-	int ret = ENOMEM;
-
+	int ret;
 	osd_method_t methods[PR_MAXMETHOD] = {
 		[PR_METHOD_REMOVE] = wg_prison_remove,
 	};
 
 	if ((wg_packet_zone = uma_zcreate("wg packet", sizeof(struct wg_packet),
 	     NULL, NULL, NULL, NULL, 0, 0)) == NULL)
-		goto free_none;
+		return (ENOMEM);
 	ret = crypto_init();
 	if (ret != 0)
-		goto free_zone;
-	if (cookie_init() != 0)
-		goto free_crypto;
+		return (ret);
+	ret = cookie_init();
+	if (ret != 0)
+		return (ret);
 
 	wg_osd_jail_slot = osd_jail_register(NULL, methods);
 
-	ret = ENOTRECOVERABLE;
 	if (!wg_run_selftests())
-		goto free_all;
+		return (ENOTRECOVERABLE);
 
 	return (0);
-
-free_all:
-	osd_jail_deregister(wg_osd_jail_slot);
-	cookie_deinit();
-free_crypto:
-	crypto_deinit();
-free_zone:
-	uma_zdestroy(wg_packet_zone);
-free_none:
-	return (ret);
 }
 
 static void
@@ -3035,10 +3029,12 @@ wg_module_deinit(void)
 	VNET_LIST_RUNLOCK();
 	NET_EPOCH_WAIT();
 	MPASS(LIST_EMPTY(&wg_list));
-	osd_jail_deregister(wg_osd_jail_slot);
+	if (wg_osd_jail_slot != 0)
+		osd_jail_deregister(wg_osd_jail_slot);
 	cookie_deinit();
 	crypto_deinit();
-	uma_zdestroy(wg_packet_zone);
+	if (wg_packet_zone != NULL)
+		uma_zdestroy(wg_packet_zone);
 }
 
 static int

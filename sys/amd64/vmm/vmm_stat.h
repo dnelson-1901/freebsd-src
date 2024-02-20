@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _VMM_STAT_H_
@@ -57,8 +55,6 @@ struct vmm_stat_type {
 };
 
 void	vmm_stat_register(void *arg);
-
-#define	VMM_STAT_NELEMS_VCPU	(-1)
 
 #define	VMM_STAT_FDEFINE(type, nelems, desc, func, scope)		\
 	struct vmm_stat_type type[1] = {				\

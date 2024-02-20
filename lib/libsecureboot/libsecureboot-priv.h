@@ -23,7 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 /*
- * $FreeBSD$
  */
 #ifndef _LIBSECUREBOOT_PRIV_H_
 #define _LIBSECUREBOOT_PRIV_H_
@@ -37,6 +36,9 @@ typedef struct {
 	unsigned char	*data;
 	size_t		hash_size;
 } hash_data;
+
+int ve_check_hash(br_hash_compat_context *, const br_hash_class *,
+    const char *, const char *, size_t);
 
 size_t ve_trust_anchors_add(br_x509_certificate *, size_t);
 size_t ve_forbidden_anchors_add(br_x509_certificate *, size_t);

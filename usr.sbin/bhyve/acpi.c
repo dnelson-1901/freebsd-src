@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 NetApp, Inc.
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -39,8 +37,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/endian.h>
 #include <sys/errno.h>
@@ -245,7 +241,7 @@ basl_fwrite_dsdt(FILE *fp)
 
 	const struct acpi_device_list_entry *entry;
 	SLIST_FOREACH(entry, &acpi_devices, chain) {
-		acpi_device_write_dsdt(entry->dev);
+		BASL_EXEC(acpi_device_write_dsdt(entry->dev));
 	}
 
 	dsdt_line("}");
@@ -810,6 +806,13 @@ acpi_build(struct vmctx *ctx, int ncpu)
 	BASL_EXEC(build_mcfg(ctx));
 	BASL_EXEC(build_facs(ctx));
 	BASL_EXEC(build_spcr(ctx));
+
+	/* Build ACPI device-specific tables such as a TPM2 table. */
+	const struct acpi_device_list_entry *entry;
+	SLIST_FOREACH(entry, &acpi_devices, chain) {
+		BASL_EXEC(acpi_device_build_table(entry->dev));
+	}
+
 	BASL_EXEC(build_dsdt(ctx));
 
 	BASL_EXEC(basl_finish());

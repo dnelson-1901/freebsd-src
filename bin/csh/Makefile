@@ -1,4 +1,3 @@
-# $FreeBSD$
 #	@(#)Makefile	8.1 (Berkeley) 5/31/93
 #
 # C Shell with process control; VM/UNIX VAX Makefile
@@ -12,6 +11,7 @@ CONFGROUPS=	ETC ROOT
 ETC=	csh.cshrc csh.login csh.logout
 ROOT=	dot.cshrc dot.login
 ROOTDIR=	/root
+ROOTDIR_MODE=	0750
 ROOTNAME_dot.cshrc=	.cshrc
 ROOTNAME_dot.login=	.login
 PACKAGE=runtime
@@ -159,6 +159,9 @@ beforeinstallconfig:
 	rm -f ${DESTDIR}/.cshrc
 
 afterinstallconfig:
-	${INSTALL_LINK} ${TAG_ARGS} ${DESTDIR}/root/.cshrc ${DESTDIR}/.cshrc
+	# XXX Set link mode explicitly via -m.  We cannot use LINKMODE for this
+	# link, as it would also apply to the tcsh link above.
+	${INSTALL_LINK} ${TAG_ARGS} -m ${CONFMODE} ${DESTDIR}/root/.cshrc \
+	    ${DESTDIR}/.cshrc
 
 .include <bsd.prog.mk>

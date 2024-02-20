@@ -1,4 +1,3 @@
-$FreeBSD$
 /* $NetBSD: usbdevs,v 1.392 2004/12/29 08:38:44 imp Exp $ */
 
 /*-
@@ -777,6 +776,7 @@ vendor ARDUINO		0x2341	Arduino SA
 vendor TPLINK		0x2357	TP-Link
 vendor WESTMOUNTAIN	0x2405	West Mountain Radio
 vendor TRIPPLITE	0x2478	Tripp-Lite
+vendor NORELSYS	0x2537	NOREL Systems Ltd.
 vendor TENDA2		0x2604	Tenda
 vendor HIROSE		0x2631	Hirose Electric
 vendor NHJ		0x2770	NHJ
@@ -1193,6 +1193,7 @@ product APPLE WELLSPRING8_JIS	0x0292	Apple Internal Keyboard/Trackpad
 product APPLE WELLSPRING9_ANSI	0x0272	Apple Internal Keyboard/Trackpad
 product APPLE WELLSPRING9_ISO	0x0273	Apple Internal Keyboard/Trackpad
 product APPLE WELLSPRING9_JIS	0x0274	Apple Internal Keyboard/Trackpad
+product APPLE MAGIC_TRACKPAD2	0x0265	Apple Magic Trackpad 2
 product APPLE MOUSE		0x0301	Mouse M4848
 product APPLE OPTMOUSE		0x0302	Optical mouse
 product APPLE MIGHTYMOUSE	0x0304	Mighty Mouse
@@ -1948,6 +1949,7 @@ product EPSON 1270		0x0120	Perfection 1270 scanner
 product EPSON 2480		0x0121	Perfection 2480 scanner
 product EPSON 3590		0x0122	Perfection 3590 scanner
 product EPSON 4990		0x012a	Perfection 4990 Photo scanner
+product EPSON TMU220B		0x0202	TM-U220B
 product EPSON CRESSI_EDY	0x0521	Cressi Edy diving computer
 product EPSON N2ITION3		0x0522	Zeagle N2iTion3 diving computer
 product EPSON STYLUS_875DC	0x0601	Stylus Photo 875DC Card Reader
@@ -2293,6 +2295,7 @@ product GENESYS GL3520_SS	0x0616	GL3520 4-Port USB 3.0 DataPath
 product GENESYS GL641USB	0x0700	GL641USB CompactFlash Card Reader
 product GENESYS GL641USB2IDE_2	0x0701	GL641USB USB-IDE Bridge No 2
 product GENESYS GL641USB2IDE	0x0702	GL641USB USB-IDE Bridge
+product GENESYS GL3220		0x0732	GL3220 USB 3.1 AiO Card Reader
 product GENESYS GL3233		0x0743	GL3233 USB 3.0 AiO Card Reader
 product GENESYS GL641USB_2	0x0760	GL641USB 6-in-1 Card Reader
 
@@ -2824,10 +2827,12 @@ product LENOVO GIGALAN		0x304b	USB 3.0 Ethernet
 product LENOVO ETHERNET		0x7203	USB 2.0 Ethernet
 product LENOVO RTL8153		0x7205	USB 3.0 Ethernet
 product LENOVO ONELINK		0x720a	USB 3.0 Ethernet
+product LENOVO RTL8153_04	0x720c	USB 3.0 Ethernet
 product LENOVO TBT3LAN		0x3069	LAN port in Thinkpad TB3 dock
 product LENOVO USBCLAN		0x3062	LAN port in Thinkpad USB-C dock
 product LENOVO TBT3LANGEN2	0x3082  LAN port in Thinkpad TB3 dock gen2 
-product LENOVO USBCLANGEN2	0xa387  LAN port in Thinkpad UBS-C dock gen2
+product LENOVO USBCLANGEN2	0xa387  LAN port in Thinkpad USB-C dock gen2
+product LENOVO USBCLANHYBRID	0xa359  LAN port in Thinkpad Hybrid USB-C with USB-A dock
 
 /* Lexar products */
 product LEXAR JUMPSHOT		0x0001	jumpSHOT CompactFlash Reader
@@ -3497,6 +3502,9 @@ product NOVATECH RTL8188CU	0x9071	RTL8188CU
 product NOKIA N958GB		0x0070	Nokia N95 8GBc
 product NOKIA2 CA42		0x1234	CA-42 cable
 
+/* NOREL Systems Ltd. products */
+product NORELSYS NS1081	0x1081	NS1081 USB 3.0 Flash Card Reader
+
 /* Novatel Wireless products */
 product NOVATEL V640		0x1100	Merlin V620
 product NOVATEL CDMA_MODEM	0x1110	Novatel Wireless Merlin CDMA
@@ -4013,6 +4021,7 @@ product RALINK RT3573		0x3573	RT3573
 product RALINK RT5370		0x5370	RT5370
 product RALINK RT5372		0x5372	RT5372
 product RALINK RT5572		0x5572	RT5572
+product RALINK RT7601		0x7601	RT7601
 product RALINK RT8070		0x8070	RT8070
 product RALINK RT2570_3		0x9020	RT2500USB Wireless Adapter
 product RALINK RT2573_2		0x9021	RT2501USB Wireless Adapter
@@ -4915,6 +4924,7 @@ product WESTERN MYPASSPORTES_06	0x0750	MyPassport Essential External HDD
 product WESTERN MYPASSPORTES_07	0x0752	MyPassport Essential External HDD
 product WESTERN MYPASSPORTES_08	0x07A0	MyPassport Essential External HDD
 product WESTERN MYPASSPORTES_09	0x07A2	MyPassport Essential External HDD
+product WESTERN MYPASSPORTUL_00	0x0743	MyPassport Ultra External HDD
 
 /* WeTelecom products */
 product WETELECOM WM_D200	0x6801	WM-D200

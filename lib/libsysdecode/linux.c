@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #include <sys/proc.h>
 #include <stdbool.h>
@@ -52,6 +50,7 @@ __FBSDID("$FreeBSD$");
 
 #include <compat/linux/linux.h>
 #include <compat/linux/linux_file.h>
+#include <compat/linux/linux_fork.h>
 #include <compat/linux/linux_time.h>
 
 #define	X(a,b)	{ a, #b },
@@ -238,5 +237,22 @@ sysdecode_linux_open_flags(FILE *fp, int flags, int *rem)
 	print_mask_part(fp, openflags, &val, &printed);
 	if (rem != NULL)
 		*rem = val | mode;
+	return (printed);
+}
+
+bool
+sysdecode_linux_clone_flags(FILE *fp, int flags, int *rem)
+{
+	uintmax_t val;
+	bool printed;
+	int sig;
+
+	sig = flags & LINUX_CSIGNAL;
+	if (sig != 0)
+		fprintf(fp, "(%s)", sysdecode_linux_signal(sig));
+	val = (unsigned)flags & ~LINUX_CSIGNAL;
+	print_mask_part(fp, cloneflags, &val, &printed);
+	if (rem != NULL)
+		*rem = val;
 	return (printed);
 }

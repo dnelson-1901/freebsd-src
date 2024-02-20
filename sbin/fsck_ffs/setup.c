@@ -35,8 +35,6 @@ static const char sccsid[] = "@(#)setup.c	8.10 (Berkeley) 5/9/95";
 #endif /* not lint */
 #endif
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/disk.h>
 #include <sys/stat.h>
@@ -58,10 +56,11 @@ __FBSDID("$FreeBSD$");
 
 #include "fsck.h"
 
-struct inoinfo **inphead, **inpsort;	/* info about all inodes */
-struct inode snaplist[FSMAXSNAP + 1];	/* list of active snapshots */
-int snapcnt;				/* number of active snapshots */
-char *copybuf;				/* buffer to copy snapshot blocks */
+struct inohash *inphash;	       /* hash list of directory inode info */
+struct inoinfo **inpsort;	       /* disk order list of directory inodes */
+struct inode snaplist[FSMAXSNAP + 1];  /* list of active snapshots */
+int snapcnt;			       /* number of active snapshots */
+char *copybuf;			       /* buffer to copy snapshot blocks */
 
 #define POWEROF2(num)	(((num) & ((num) - 1)) == 0)
 
@@ -188,14 +187,14 @@ setup(char *dev)
 		    (unsigned)(sizeof(struct inostatlist) * (sblock.fs_ncg)));
 		goto badsb;
 	}
-	numdirs = MAX(sblock.fs_cstotal.cs_ndir, 128);
-	dirhash = numdirs;
+	numdirs = sblock.fs_cstotal.cs_ndir;
+	dirhash = MAX(numdirs / 2, 1);
 	inplast = 0;
 	listmax = numdirs + 10;
 	inpsort = (struct inoinfo **)Calloc(listmax, sizeof(struct inoinfo *));
-	inphead = (struct inoinfo **)Calloc(numdirs, sizeof(struct inoinfo *));
-	if (inpsort == NULL || inphead == NULL) {
-		printf("cannot alloc %ju bytes for inphead\n",
+	inphash = (struct inohash *)Calloc(dirhash, sizeof(struct inohash));
+	if (inpsort == NULL || inphash == NULL) {
+		printf("cannot alloc %ju bytes for inphash\n",
 		    (uintmax_t)numdirs * sizeof(struct inoinfo *));
 		goto badsb;
 	}
@@ -319,6 +318,8 @@ checksnapinfo(struct inode *snapip)
 	size = fragroundup(fs,
 	    DIP(snapip->i_dp, di_size) - lblktosize(fs, lbn));
 	bp = getdatablk(idesc.id_parent, size, BT_DATA);
+	if (bp->b_errs != 0)
+		return (0);
 	snapblklist = (daddr_t *)bp->b_un.b_buf;
 	/*
 	 * snapblklist[0] is the size of the list
@@ -398,14 +399,14 @@ openfilesys(char *dev)
 	if ((statb.st_mode & S_IFMT) != S_IFCHR &&
 	    (statb.st_mode & S_IFMT) != S_IFBLK) {
 		if (bkgrdflag != 0 && (statb.st_flags & SF_SNAPSHOT) == 0) {
-			pfatal("BACKGROUND FSCK LACKS A SNAPSHOT\n");
-			exit(EEXIT);
+			pwarn("BACKGROUND FSCK LACKS A SNAPSHOT\n");
+			return (0);
 		}
 		if (bkgrdflag != 0) {
 			cursnapshot = statb.st_ino;
 		} else {
-			pfatal("%s IS NOT A DISK DEVICE\n", dev);
-			if (reply("CONTINUE") == 0)
+			pwarn("%s IS NOT A DISK DEVICE\n", dev);
+			if (preen || reply("CONTINUE") == 0)
 				return (0);
 		}
 	}

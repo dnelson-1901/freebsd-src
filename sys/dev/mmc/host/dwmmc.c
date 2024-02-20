@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
@@ -880,7 +878,7 @@ dwmmc_update_ios(device_t brdev, device_t reqdev)
 	sc = device_get_softc(brdev);
 	ios = &sc->host.ios;
 
-	dprintf("Setting up clk %u bus_width %d, timming: %d\n",
+	dprintf("Setting up clk %u bus_width %d, timing: %d\n",
 		ios->clock, ios->bus_width, ios->timing);
 
 	switch (ios->power_mode) {

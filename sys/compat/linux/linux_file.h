@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007 Roman Divacky
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _LINUX_FILE_H_
@@ -196,5 +194,12 @@ struct l_file_handle {
 	l_int handle_type;
 	unsigned char f_handle[0];
 };
+
+/*
+ * Look at linux_close_range() for an explanation.
+ *
+ * #define	LINUX_CLOSE_RANGE_UNSHARE	(1U << 1)
+ */
+#define	LINUX_CLOSE_RANGE_CLOEXEC	(1U << 2)
 
 #endif	/* !_LINUX_FILE_H_ */

@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 /*
@@ -674,10 +672,10 @@ nfsrvd_lookup(struct nfsrv_descript *nd, __unused int isdgram,
 		goto out;
 	}
 	if (nd->nd_flag & ND_NFSV2) {
-		(void) nfsm_fhtom(nd, (u_int8_t *)fhp, 0, 0);
+		(void)nfsm_fhtom(NULL, nd, (u_int8_t *)fhp, 0, 0);
 		nfsrv_fillattr(nd, &nva);
 	} else if (nd->nd_flag & ND_NFSV3) {
-		(void) nfsm_fhtom(nd, (u_int8_t *)fhp, 0, 0);
+		(void)nfsm_fhtom(NULL, nd, (u_int8_t *)fhp, 0, 0);
 		nfsrv_postopattr(nd, 0, &nva);
 		nfsrv_postopattr(nd, dattr_ret, &dattr);
 	}
@@ -1284,7 +1282,7 @@ nfsrvd_create(struct nfsrv_descript *nd, __unused int isdgram,
 	}
 	if (nd->nd_flag & ND_NFSV2) {
 		if (!nd->nd_repstat) {
-			(void) nfsm_fhtom(nd, (u_int8_t *)&fh, 0, 0);
+			(void)nfsm_fhtom(NULL, nd, (u_int8_t *)&fh, 0, 0);
 			nfsrv_fillattr(nd, &nva);
 		}
 	} else {
@@ -1294,7 +1292,7 @@ nfsrvd_create(struct nfsrv_descript *nd, __unused int isdgram,
 		diraft_ret = nfsvno_getattr(dirp, &diraft, nd, p, 0, NULL);
 		vrele(dirp);
 		if (!nd->nd_repstat) {
-			(void) nfsm_fhtom(nd, (u_int8_t *)&fh, 0, 1);
+			(void)nfsm_fhtom(NULL, nd, (u_int8_t *)&fh, 0, 1);
 			nfsrv_postopattr(nd, 0, &nva);
 		}
 		nfsrv_wcc(nd, dirfor_ret, &dirfor, diraft_ret, &diraft);
@@ -1494,7 +1492,7 @@ nfsrvd_mknod(struct nfsrv_descript *nd, __unused int isdgram,
 	vrele(dirp);
 	if (!nd->nd_repstat) {
 		if (nd->nd_flag & ND_NFSV3) {
-			(void) nfsm_fhtom(nd, (u_int8_t *)fhp, 0, 1);
+			(void)nfsm_fhtom(NULL, nd, (u_int8_t *)fhp, 0, 1);
 			nfsrv_postopattr(nd, 0, &nva);
 		} else {
 			NFSM_BUILD(tl, u_int32_t *, 5 * NFSX_UNSIGNED);
@@ -1949,7 +1947,7 @@ nfsrvd_symlink(struct nfsrv_descript *nd, __unused int isdgram,
 
 	if (nd->nd_flag & ND_NFSV3) {
 		if (!nd->nd_repstat) {
-			(void) nfsm_fhtom(nd, (u_int8_t *)fhp, 0, 1);
+			(void)nfsm_fhtom(NULL, nd, (u_int8_t *)fhp, 0, 1);
 			nfsrv_postopattr(nd, 0, &nva);
 		}
 		nfsrv_wcc(nd, dirfor_ret, &dirfor, diraft_ret, &diraft);
@@ -2074,12 +2072,12 @@ nfsrvd_mkdir(struct nfsrv_descript *nd, __unused int isdgram,
 
 	if (nd->nd_flag & ND_NFSV3) {
 		if (!nd->nd_repstat) {
-			(void) nfsm_fhtom(nd, (u_int8_t *)fhp, 0, 1);
+			(void)nfsm_fhtom(NULL, nd, (u_int8_t *)fhp, 0, 1);
 			nfsrv_postopattr(nd, 0, &nva);
 		}
 		nfsrv_wcc(nd, dirfor_ret, &dirfor, diraft_ret, &diraft);
 	} else if (!nd->nd_repstat) {
-		(void) nfsm_fhtom(nd, (u_int8_t *)fhp, 0, 0);
+		(void)nfsm_fhtom(NULL, nd, (u_int8_t *)fhp, 0, 0);
 		nfsrv_fillattr(nd, &nva);
 	}
 
@@ -3005,11 +3003,17 @@ nfsrvd_open(struct nfsrv_descript *nd, __unused int isdgram,
 	 */
 	NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 	claim = fxdr_unsigned(int, *tl);
-	if (claim == NFSV4OPEN_CLAIMDELEGATECUR || claim ==
-	    NFSV4OPEN_CLAIMDELEGATECURFH) {
+	if (claim == NFSV4OPEN_CLAIMDELEGATECUR) {
 		NFSM_DISSECT(tl, u_int32_t *, NFSX_STATEID);
 		stateid.seqid = fxdr_unsigned(u_int32_t, *tl++);
 		NFSBCOPY((caddr_t)tl,(caddr_t)stateid.other,NFSX_STATEIDOTHER);
+		stp->ls_flags |= NFSLCK_DELEGCUR;
+	} else if (claim == NFSV4OPEN_CLAIMDELEGATECURFH) {
+		/* Fill in most of the stateid from the clientid. */
+		stateid.seqid = 0;
+		stateid.other[0] = clientid.lval[0];
+		stateid.other[1] = clientid.lval[1];
+		stateid.other[2] = 0;
 		stp->ls_flags |= NFSLCK_DELEGCUR;
 	} else if (claim == NFSV4OPEN_CLAIMDELEGATEPREV || claim ==
 	    NFSV4OPEN_CLAIMDELEGATEPREVFH) {
@@ -3463,7 +3467,7 @@ nfsrvd_getfh(struct nfsrv_descript *nd, __unused int isdgram,
 	nd->nd_repstat = nfsvno_getfh(vp, &fh, p);
 	vput(vp);
 	if (!nd->nd_repstat)
-		(void) nfsm_fhtom(nd, (u_int8_t *)&fh, 0, 0);
+		(void)nfsm_fhtom(NULL, nd, (u_int8_t *)&fh, 0, 0);
 	NFSEXITCODE2(0, nd);
 	return (0);
 }

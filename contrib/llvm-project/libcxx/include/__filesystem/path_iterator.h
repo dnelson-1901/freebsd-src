@@ -10,22 +10,24 @@
 #ifndef _LIBCPP___FILESYSTEM_PATH_ITERATOR_H
 #define _LIBCPP___FILESYSTEM_PATH_ITERATOR_H
 
+#include <__assert>
 #include <__availability>
 #include <__config>
-#include <__debug>
 #include <__filesystem/path.h>
 #include <__iterator/iterator_traits.h>
 #include <cstddef>
 #include <string>
 #include <string_view>
 
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
 #ifndef _LIBCPP_CXX03_LANG
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
 
-_LIBCPP_AVAILABILITY_FILESYSTEM_PUSH
-
-class _LIBCPP_TYPE_VIS path::iterator {
+class _LIBCPP_EXPORTED_FROM_ABI path::iterator {
 public:
   enum _ParserState : unsigned char {
     _Singular,
@@ -52,10 +54,10 @@ public:
       : __stashed_elem_(), __path_ptr_(nullptr), __entry_(),
         __state_(_Singular) {}
 
-  iterator(const iterator&) = default;
-  ~iterator() = default;
+  _LIBCPP_HIDE_FROM_ABI iterator(const iterator&) = default;
+  _LIBCPP_HIDE_FROM_ABI ~iterator() = default;
 
-  iterator& operator=(const iterator&) = default;
+  _LIBCPP_HIDE_FROM_ABI iterator& operator=(const iterator&) = default;
 
   _LIBCPP_INLINE_VISIBILITY
   reference operator*() const { return __stashed_elem_; }
@@ -65,10 +67,10 @@ public:
 
   _LIBCPP_INLINE_VISIBILITY
   iterator& operator++() {
-    _LIBCPP_ASSERT(__state_ != _Singular,
-                   "attempting to increment a singular iterator");
-    _LIBCPP_ASSERT(__state_ != _AtEnd,
-                   "attempting to increment the end iterator");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__state_ != _Singular,
+                                 "attempting to increment a singular iterator");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__state_ != _AtEnd,
+                                 "attempting to increment the end iterator");
     return __increment();
   }
 
@@ -81,10 +83,10 @@ public:
 
   _LIBCPP_INLINE_VISIBILITY
   iterator& operator--() {
-    _LIBCPP_ASSERT(__state_ != _Singular,
-                   "attempting to decrement a singular iterator");
-    _LIBCPP_ASSERT(__entry_.data() != __path_ptr_->native().data(),
-                   "attempting to decrement the begin iterator");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__state_ != _Singular,
+                                 "attempting to decrement a singular iterator");
+    _LIBCPP_ASSERT_UNCATEGORIZED(__entry_.data() != __path_ptr_->native().data(),
+                                 "attempting to decrement the begin iterator");
     return __decrement();
   }
 
@@ -110,18 +112,18 @@ private:
   _ParserState __state_;
 };
 
+_LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY
 inline _LIBCPP_INLINE_VISIBILITY bool operator==(const path::iterator& __lhs,
                                                  const path::iterator& __rhs) {
   return __lhs.__path_ptr_ == __rhs.__path_ptr_ &&
          __lhs.__entry_.data() == __rhs.__entry_.data();
 }
 
+_LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY
 inline _LIBCPP_INLINE_VISIBILITY bool operator!=(const path::iterator& __lhs,
                                                  const path::iterator& __rhs) {
   return !(__lhs == __rhs);
 }
-
-_LIBCPP_AVAILABILITY_FILESYSTEM_POP
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 

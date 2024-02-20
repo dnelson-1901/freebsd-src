@@ -39,9 +39,6 @@
 #include <machine/asm.h>
 #include <machine/riscvreg.h>
 #include <machine/pte.h>
-
-__FBSDID("$FreeBSD$");
-
 #ifdef FPE
 .macro __fpe_state_save p
 	/*
@@ -369,8 +366,6 @@ ENTRY(cpu_switch)
 #endif
 
 	ret
-.Lcpu_switch_panic_str:
-	.asciz "cpu_switch: %p\0"
 END(cpu_switch)
 
 /*

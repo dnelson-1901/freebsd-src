@@ -27,8 +27,6 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 /*-
  * Copyright (C) 1995, 1996 Wolfgang Solfrank.
@@ -325,6 +323,7 @@ const char	*pmap_mmu_name(void);
 bool		pmap_ps_enabled(pmap_t pmap);
 int		pmap_nofault(pmap_t pmap, vm_offset_t va, vm_prot_t flags);
 boolean_t	pmap_page_is_mapped(vm_page_t m);
+#define	pmap_map_delete(pmap, sva, eva)	pmap_remove(pmap, sva, eva)
 
 void		pmap_page_array_startup(long count);
 

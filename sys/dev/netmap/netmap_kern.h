@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2011-2014 Matteo Landi, Luigi Rizzo
  * Copyright (C) 2013-2016 Universita` di Pisa
@@ -28,7 +28,6 @@
  */
 
 /*
- * $FreeBSD$
  *
  * The header contains the definitions of constants and function
  * prototypes used only in kernelspace.
@@ -987,11 +986,8 @@ struct netmap_generic_adapter {	/* emulated device */
 	struct netmap_adapter *prev;
 
 	/* Emulated netmap adapters support:
-	 *  - save_if_input saves the if_input hook (FreeBSD);
 	 *  - mit implements rx interrupt mitigation;
 	 */
-	void (*save_if_input)(struct ifnet *, struct mbuf *);
-
 	struct nm_generic_mit *mit;
 #ifdef linux
         netdev_tx_t (*save_start_xmit)(struct mbuf *, struct ifnet *);

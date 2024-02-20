@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997, Stefan Esser <se@freebsd.org>
  * Copyright (c) 2000, Michael Smith <msmith@freebsd.org>
@@ -29,8 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_acpi.h"
 #include "opt_iommu.h"
 #include "opt_bus.h"
@@ -420,6 +418,11 @@ static int pci_clear_aer_on_attach = 0;
 SYSCTL_INT(_hw_pci, OID_AUTO, clear_aer_on_attach, CTLFLAG_RWTUN,
     &pci_clear_aer_on_attach, 0,
     "Clear port and device AER state on driver attach");
+
+static bool pci_enable_mps_tune = true;
+SYSCTL_BOOL(_hw_pci, OID_AUTO, enable_mps_tune, CTLFLAG_RWTUN,
+    &pci_enable_mps_tune, 1,
+    "Enable tuning of MPS(maximum payload size)." );
 
 static int
 pci_has_quirk(uint32_t devid, int quirk)
@@ -2461,6 +2464,8 @@ pci_remap_intr_method(device_t bus, device_t dev, u_int irq)
 	 * through all the slots that use this IRQ and update them.
 	 */
 	if (cfg->msix.msix_alloc > 0) {
+		bool found = false;
+
 		for (i = 0; i < cfg->msix.msix_alloc; i++) {
 			mv = &cfg->msix.msix_vectors[i];
 			if (mv->mv_irq == irq) {
@@ -2480,9 +2485,10 @@ pci_remap_intr_method(device_t bus, device_t dev, u_int irq)
 					pci_enable_msix(dev, j, addr, data);
 					pci_unmask_msix(dev, j);
 				}
+				found = true;
 			}
 		}
-		return (ENOENT);
+		return (found ? 0 : ENOENT);
 	}
 
 	return (ENOENT);
@@ -4453,7 +4459,8 @@ pci_add_child(device_t bus, struct pci_devinfo *dinfo)
 	pci_cfg_restore(dev, dinfo);
 	pci_print_verbose(dinfo);
 	pci_add_resources(bus, dev, 0, 0);
-	pcie_setup_mps(dev);
+	if (pci_enable_mps_tune)
+		pcie_setup_mps(dev);
 	pci_child_added(dinfo->cfg.dev);
 
 	if (pci_clear_aer_on_attach)

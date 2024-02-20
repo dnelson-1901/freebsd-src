@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -12,6 +11,10 @@
 
 .ifndef SRCDIR
 .error Please define SRCDIR before including this file
+.endif
+
+.ifndef OS_REVISION
+.error Please define OS_REVISION before including this file
 .endif
 
 .PATH:		${LLVM_BASE}/${SRCDIR}
@@ -44,10 +47,9 @@ TARGET_ABI=	-gnueabi
 TARGET_ABI=
 .endif
 VENDOR=		unknown
-OS_VERSION=	freebsd13.2
 
-LLVM_TARGET_TRIPLE?=	${TARGET_ARCH:C/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${VENDOR}-${OS_VERSION}${TARGET_ABI}
-LLVM_BUILD_TRIPLE?=	${BUILD_ARCH:C/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${VENDOR}-${OS_VERSION}
+LLVM_TARGET_TRIPLE?=	${TARGET_ARCH:C/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${VENDOR}-freebsd${OS_REVISION}${TARGET_ABI}
+LLVM_BUILD_TRIPLE?=	${BUILD_ARCH:C/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${VENDOR}-freebsd${OS_REVISION}
 
 CFLAGS+=	-DLLVM_DEFAULT_TARGET_TRIPLE=\"${LLVM_TARGET_TRIPLE}\"
 CFLAGS+=	-DLLVM_HOST_TRIPLE=\"${LLVM_BUILD_TRIPLE}\"
@@ -111,7 +113,7 @@ LDFLAGS+=	-Wl,-dead_strip
 LDFLAGS+=	-Wl,--gc-sections
 .endif
 
-CXXSTD?=	c++14
+CXXSTD?=	c++17
 CXXFLAGS+=	-fno-exceptions
 CXXFLAGS+=	-fno-rtti
 .if ${.MAKE.OS} == "FreeBSD" || !defined(BOOTSTRAPPING)
@@ -132,7 +134,7 @@ STATIC_CXXFLAGS+= -mxgot
 # Link clang and tools with LTO for a 10% speed boost.  May need to disable
 # during clang version or base system jumps, because LTO bitcode changes
 # across versions and required shlibs may not be available
-.if ${COMPILER_TYPE} == "clang" && exists(/usr/bin/llvm-ar) && exists(/usr/bin/llvm-objcopy)
+.if ${COMPILER_TYPE} == "zclang" && exists(/usr/bin/llvm-ar) && exists(/usr/bin/llvm-objcopy)
 # Build with LTO
 CFLAGS+=	-flto=thin
 CXXFLAGS+=	-flto=thin

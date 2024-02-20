@@ -37,8 +37,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_capsicum.h"
 #include "opt_ddb.h"
 #include "opt_ktrace.h"
@@ -483,7 +481,7 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 	struct vnode *vp;
 	struct mount *mp;
 	struct kinfo_file *kif;
-	int error, flg, kif_sz, seals, tmp;
+	int error, flg, kif_sz, seals, tmp, got_set, got_cleared;
 	uint64_t bsize;
 	off_t foffset;
 
@@ -561,12 +559,12 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 			tmp &= ~FCNTLFLAGS;
 			tmp |= FFLAGS(arg & ~O_ACCMODE) & FCNTLFLAGS;
 		} while (atomic_cmpset_int(&fp->f_flag, flg, tmp) == 0);
+		got_set = tmp & ~flg;
+		got_cleared = flg & ~tmp;
 		tmp = fp->f_flag & FNONBLOCK;
 		error = fo_ioctl(fp, FIONBIO, &tmp, td->td_ucred, td);
-		if (error != 0) {
-			fdrop(fp, td);
-			break;
-		}
+		if (error != 0)
+			goto revert_f_setfl;
 		tmp = fp->f_flag & FASYNC;
 		error = fo_ioctl(fp, FIOASYNC, &tmp, td->td_ucred, td);
 		if (error == 0) {
@@ -576,6 +574,13 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		atomic_clear_int(&fp->f_flag, FNONBLOCK);
 		tmp = 0;
 		(void)fo_ioctl(fp, FIONBIO, &tmp, td->td_ucred, td);
+revert_f_setfl:
+		do {
+			tmp = flg = fp->f_flag;
+			tmp &= ~FCNTLFLAGS;
+			tmp |= got_cleared;
+			tmp &= ~got_set;
+		} while (atomic_cmpset_int(&fp->f_flag, flg, tmp) == 0);
 		fdrop(fp, td);
 		break;
 
@@ -2250,7 +2255,7 @@ fdinit(struct filedesc *fdp, bool prepfiles, int *lastfile)
  * Build a pwddesc structure from another.
  * Copy the current, root, and jail root vnode references.
  *
- * If pdp is not NULL, return with it shared locked.
+ * If pdp is not NULL and keeplock is true, return with it (exclusively) locked.
  */
 struct pwddesc *
 pdinit(struct pwddesc *pdp, bool keeplock)
@@ -3047,6 +3052,38 @@ get_locked:
 		error = EBADF;
 	FILEDESC_SUNLOCK(fdp);
 #endif
+	return (error);
+}
+
+int
+fget_remote(struct thread *td, struct proc *p, int fd, struct file **fpp)
+{
+	struct filedesc *fdp;
+	struct file *fp;
+	int error;
+
+	if (p == td->td_proc)	/* curproc */
+		return (fget_unlocked(p->p_fd, fd, &cap_no_rights, fpp));
+
+	PROC_LOCK(p);
+	fdp = fdhold(p);
+	PROC_UNLOCK(p);
+	if (fdp == NULL)
+		return (ENOENT);
+	FILEDESC_SLOCK(fdp);
+	if (refcount_load(&fdp->fd_refcnt) != 0) {
+		fp = fget_locked(fdp, fd);
+		if (fp != NULL && fhold(fp)) {
+			*fpp = fp;
+			error = 0;
+		} else {
+			error = EBADF;
+		}
+	} else {
+		error = ENOENT;
+	}
+	FILEDESC_SUNLOCK(fdp);
+	fddrop(fdp);
 	return (error);
 }
 
@@ -5106,10 +5143,11 @@ DB_SHOW_COMMAND(files, db_show_files)
 }
 #endif
 
-SYSCTL_INT(_kern, KERN_MAXFILESPERPROC, maxfilesperproc, CTLFLAG_RW,
+SYSCTL_INT(_kern, KERN_MAXFILESPERPROC, maxfilesperproc,
+    CTLFLAG_RWTUN | CTLFLAG_NOFETCH,
     &maxfilesperproc, 0, "Maximum files allowed open per process");
 
-SYSCTL_INT(_kern, KERN_MAXFILES, maxfiles, CTLFLAG_RW,
+SYSCTL_INT(_kern, KERN_MAXFILES, maxfiles, CTLFLAG_RWTUN | CTLFLAG_NOFETCH,
     &maxfiles, 0, "Maximum number of files");
 
 SYSCTL_INT(_kern, OID_AUTO, openfiles, CTLFLAG_RD,
@@ -5267,6 +5305,7 @@ struct fileops path_fileops = {
 	.fo_chown = badfo_chown,
 	.fo_sendfile = badfo_sendfile,
 	.fo_fill_kinfo = vn_fill_kinfo,
+	.fo_cmp = vn_cmp,
 	.fo_flags = DFLAG_PASSABLE,
 };
 

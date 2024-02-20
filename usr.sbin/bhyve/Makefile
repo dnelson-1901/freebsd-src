@@ -1,5 +1,4 @@
 #
-# $FreeBSD$
 #
 
 .include <src.opts.mk>
@@ -28,6 +27,7 @@ SRCS=	\
 	console.c		\
 	ctl_util.c		\
 	ctl_scsi_all.c		\
+	e820.c			\
 	fwctl.c			\
 	gdb.c			\
 	hda_codec.c		\
@@ -44,6 +44,7 @@ SRCS=	\
 	pci_emul.c		\
 	pci_hda.c		\
 	pci_fbuf.c		\
+	pci_gvt-d.c		\
 	pci_hostbridge.c	\
 	pci_irq.c		\
 	pci_lpc.c		\
@@ -63,6 +64,8 @@ SRCS=	\
 	post.c			\
 	ps2kbd.c		\
 	ps2mouse.c		\
+	qemu_fwcfg.c		\
+	qemu_loader.c		\
 	rfb.c			\
 	rtc.c			\
 	smbiostbl.c		\

@@ -67,8 +67,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_vm.h"
 
 #include <sys/param.h>
@@ -200,6 +198,11 @@ vm_page_init(void *dummy)
 	bogus_page = vm_page_alloc_noobj(VM_ALLOC_WIRED);
 }
 
+static int pgcache_zone_max_pcpu;
+SYSCTL_INT(_vm, OID_AUTO, pgcache_zone_max_pcpu,
+    CTLFLAG_RDTUN | CTLFLAG_NOFETCH, &pgcache_zone_max_pcpu, 0,
+    "Per-CPU page cache size");
+
 /*
  * The cache page zone is initialized later since we need to be able to allocate
  * pages before UMA is fully initialized.
@@ -211,9 +214,8 @@ vm_page_init_cache_zones(void *dummy __unused)
 	struct vm_pgcache *pgcache;
 	int cache, domain, maxcache, pool;
 
-	maxcache = 0;
-	TUNABLE_INT_FETCH("vm.pgcache_zone_max_pcpu", &maxcache);
-	maxcache *= mp_ncpus;
+	TUNABLE_INT_FETCH("vm.pgcache_zone_max_pcpu", &pgcache_zone_max_pcpu);
+	maxcache = pgcache_zone_max_pcpu * mp_ncpus;
 	for (domain = 0; domain < vm_ndomains; domain++) {
 		vmd = VM_DOMAIN(domain);
 		for (pool = 0; pool < VM_NFREEPOOL; pool++) {
@@ -327,7 +329,7 @@ vm_page_blacklist_add(vm_paddr_t pa, bool verbose)
 {
 	struct vm_domain *vmd;
 	vm_page_t m;
-	int ret;
+	bool found;
 
 	m = vm_phys_paddr_to_vm_page(pa);
 	if (m == NULL)
@@ -335,15 +337,15 @@ vm_page_blacklist_add(vm_paddr_t pa, bool verbose)
 
 	vmd = vm_pagequeue_domain(m);
 	vm_domain_free_lock(vmd);
-	ret = vm_phys_unfree_page(m);
+	found = vm_phys_unfree_page(m);
 	vm_domain_free_unlock(vmd);
-	if (ret != 0) {
+	if (found) {
 		vm_domain_freecnt_inc(vmd, -1);
 		TAILQ_INSERT_TAIL(&blacklist_head, m, listq);
 		if (verbose)
 			printf("Skipping page with pa 0x%jx\n", (uintmax_t)pa);
 	}
-	return (ret);
+	return (found);
 }
 
 /*

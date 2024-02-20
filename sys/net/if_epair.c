@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008 The FreeBSD Foundation
  * Copyright (c) 2009-2021 Bjoern A. Zeeb <bz@FreeBSD.org>
@@ -38,14 +38,14 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_rss.h"
 #include "opt_inet.h"
 #include "opt_inet6.h"
 
 #include <sys/param.h>
+#include <sys/bus.h>
 #include <sys/hash.h>
+#include <sys/interrupt.h>
 #include <sys/jail.h>
 #include <sys/kernel.h>
 #include <sys/libkern.h>
@@ -59,10 +59,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/taskqueue.h>
-#include <sys/types.h>
-#include <sys/buf_ring.h>
-#include <sys/bus.h>
-#include <sys/interrupt.h>
 
 #include <net/bpf.h>
 #include <net/ethernet.h>
@@ -138,12 +134,18 @@ static struct epair_tasks_t epair_tasks;
 static void
 epair_clear_mbuf(struct mbuf *m)
 {
+	M_ASSERTPKTHDR(m);
+
 	/* Remove any CSUM_SND_TAG as ether_input will barf. */
 	if (m->m_pkthdr.csum_flags & CSUM_SND_TAG) {
 		m_snd_tag_rele(m->m_pkthdr.snd_tag);
 		m->m_pkthdr.snd_tag = NULL;
 		m->m_pkthdr.csum_flags &= ~CSUM_SND_TAG;
 	}
+
+	/* Clear vlan information. */
+	m->m_flags &= ~M_VLANTAG;
+	m->m_pkthdr.ether_vtag = 0;
 
 	m_tag_delete_nonpersistent(m);
 }
@@ -178,7 +180,7 @@ epair_tx_start_deferred(void *arg, int pending)
 	 * end up starving ourselves in a multi-epair routing configuration.
 	 */
 	mtx_lock(&q->mtx);
-	if (mbufq_len(&q->q) > 0) {
+	if (!mbufq_empty(&q->q)) {
 		resched = true;
 		q->state = EPAIR_QUEUE_WAKING;
 	} else {
@@ -223,7 +225,7 @@ epair_select_queue(struct epair_softc *sc, struct mbuf *m)
 			break;
 		}
 	}
-	bucket %= osc->num_queues;
+	bucket %= sc->num_queues;
 #else
 	bucket = 0;
 #endif
@@ -804,7 +806,7 @@ VNET_SYSUNINIT(vnet_epair_uninit, SI_SUB_INIT_IF, SI_ORDER_ANY,
     vnet_epair_uninit, NULL);
 
 static int
-epair_mod_init()
+epair_mod_init(void)
 {
 	char name[32];
 	epair_tasks.tasks = 0;
@@ -849,7 +851,7 @@ epair_mod_init()
 }
 
 static void
-epair_mod_cleanup()
+epair_mod_cleanup(void)
 {
 
 	for (int i = 0; i < epair_tasks.tasks; i++) {

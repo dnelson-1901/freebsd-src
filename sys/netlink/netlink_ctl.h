@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
  *
@@ -80,6 +80,7 @@ bool netlink_unregister_proto(int proto);
 /* Common helpers */
 bool nl_has_listeners(int netlink_family, uint32_t groups_mask);
 bool nlp_has_priv(struct nlpcb *nlp, int priv);
+struct ucred *nlp_get_cred(struct nlpcb *nlp);
 
 /* netlink_generic.c */
 struct genl_cmd {

@@ -1,6 +1,5 @@
-# $FreeBSD$
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2018 Orange Business Services
 #
@@ -87,7 +86,7 @@ common_body()
 	sleep 2
 
 	if ! jexec two pfctl -s states | grep icmp | grep 198.51.100.1 | \
-	    grep 198.51.100.2 ; then
+	    grep 198.51.100.254 ; then
 		atf_fail "state not found on synced host"
 	fi
 }
@@ -149,6 +148,7 @@ defer_body()
 	route add -net 203.0.113.0/24 198.51.100.1
 
 	# Enable pf
+	jexec alcatraz sysctl net.pf.filter_local=0
 	jexec alcatraz pfctl -e
 	pft_set_rules alcatraz \
 		"set skip on ${epair_sync}a" \
@@ -584,6 +584,39 @@ pbr_common_cleanup()
 	pft_cleanup
 }
 
+atf_test_case "timeout" "cleanup"
+timeout_head()
+{
+	atf_set descr 'Trigger pfsync_timeout()'
+	atf_set require.user root
+}
+
+timeout_body()
+{
+	pft_init
+
+	vnet_mkjail one
+
+	jexec one ifconfig lo0 127.0.0.1/8 up
+	jexec one ifconfig lo0 inet6 ::1/128 up
+
+	pft_set_rules one \
+		"pass all"
+	jexec one pfctl -e
+	jexec one ifconfig pfsync0 defer up
+
+	jexec one ping -c 1 ::1
+	jexec one ping -c 1 127.0.0.1
+
+	# Give pfsync_timeout() time to fire (a callout on a 1 second delay)
+	sleep 2
+}
+
+timeout_cleanup()
+{
+	pft_cleanup
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case "basic"
@@ -592,4 +625,5 @@ atf_init_test_cases()
 	atf_add_test_case "bulk"
 	atf_add_test_case "pbr"
 	atf_add_test_case "pfsync_pbr"
+	atf_add_test_case "timeout"
 }

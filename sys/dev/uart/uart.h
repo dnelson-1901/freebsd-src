@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 Marcel Moolenaar
  * All rights reserved.
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _DEV_UART_H_
@@ -56,6 +54,11 @@ uart_getreg(struct uart_bas *bas, int reg)
 	uint32_t ret;
 
 	switch (uart_regiowidth(bas)) {
+#if !defined(__i386__)
+	case 8:
+		ret = bus_space_read_8(bas->bst, bas->bsh, uart_regofs(bas, reg));
+		break;
+#endif
 	case 4:
 		ret = bus_space_read_4(bas->bst, bas->bsh, uart_regofs(bas, reg));
 		break;
@@ -71,10 +74,15 @@ uart_getreg(struct uart_bas *bas, int reg)
 }
 
 static inline void
-uart_setreg(struct uart_bas *bas, int reg, int value)
+uart_setreg(struct uart_bas *bas, int reg, uint32_t value)
 {
 
 	switch (uart_regiowidth(bas)) {
+#if !defined(__i386__)
+	case 8:
+		bus_space_write_8(bas->bst, bas->bsh, uart_regofs(bas, reg), value);
+		break;
+#endif
 	case 4:
 		bus_space_write_4(bas->bst, bas->bsh, uart_regofs(bas, reg), value);
 		break;

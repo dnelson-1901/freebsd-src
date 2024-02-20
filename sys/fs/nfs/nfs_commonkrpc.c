@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Socket operations for use by nfs
  */
@@ -160,6 +158,87 @@ static int nfsv2_procid[NFS_V3NPROCS] = {
 	NFSV2PROC_NOOP,
 	NFSV2PROC_NOOP,
 	NFSV2PROC_NOOP,
+};
+
+/*
+ * This static array indicates that a NFSv4 RPC should use
+ * RPCSEC_GSS, if the mount indicates that via sec=krb5[ip].
+ * System RPCs that do not use file handles will be false
+ * in this array so that they will use AUTH_SYS when the
+ * "syskrb5" mount option is specified, along with
+ * "sec=krb5[ip]".
+ */
+static bool nfscl_use_gss[NFSV42_NPROCS] = {
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	false,		/* SetClientID */
+	false,		/* SetClientIDConfirm */
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	false,		/* Renew */
+	true,
+	false,		/* ReleaseLockOwn */
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	false,		/* ExchangeID */
+	false,		/* CreateSession */
+	false,		/* DestroySession */
+	false,		/* DestroyClientID */
+	false,		/* FreeStateID */
+	true,
+	true,
+	true,
+	true,
+	false,		/* ReclaimComplete */
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	true,
+	false,		/* BindConnectionToSession */
+	true,
+	true,
+	true,
+	true,
 };
 
 /*
@@ -679,7 +758,8 @@ newnfs_request(struct nfsrv_descript *nd, struct nfsmount *nmp,
 		}
 		NFSUNLOCKSTATE();
 	} else if (nmp != NULL && NFSHASKERB(nmp) &&
-	     nd->nd_procnum != NFSPROC_NULL) {
+	     nd->nd_procnum != NFSPROC_NULL && (!NFSHASSYSKRB5(nmp) ||
+	     nfscl_use_gss[nd->nd_procnum])) {
 		if (NFSHASALLGSSNAME(nmp) && nmp->nm_krbnamelen > 0)
 			nd->nd_flag |= ND_USEGSSNAME;
 		if ((nd->nd_flag & ND_USEGSSNAME) != 0) {
@@ -720,7 +800,7 @@ newnfs_request(struct nfsrv_descript *nd, struct nfsmount *nmp,
 		else
 			secflavour = RPCSEC_GSS_KRB5;
 		srv_principal = NFSMNT_SRVKRBNAME(nmp);
-	} else if (nmp != NULL && !NFSHASKERB(nmp) &&
+	} else if (nmp != NULL && (!NFSHASKERB(nmp) || NFSHASSYSKRB5(nmp)) &&
 	    nd->nd_procnum != NFSPROC_NULL &&
 	    (nd->nd_flag & ND_USEGSSNAME) != 0) {
 		/*
@@ -960,6 +1040,22 @@ tryagain:
 			NFSINCRGLOBAL(nfsstatsv1.rpcinvalid);
 			error = ENXIO;
 		}
+	} else if (stat == RPC_AUTHERROR) {
+		/* Check for a session slot that needs to be free'd. */
+		if ((nd->nd_flag & (ND_NFSV41 | ND_HASSLOTID)) ==
+		    (ND_NFSV41 | ND_HASSLOTID) && nmp != NULL &&
+		    nd->nd_procnum != NFSPROC_NULL) {
+			/*
+			 * This can occur when a Kerberos/RPCSEC_GSS session
+			 * expires, due to TGT expiration.
+			 * Free the slot, resetting the slot's sequence#.
+			 */
+			if (sep == NULL)
+				sep = nfsmnt_mdssession(nmp);
+			nfsv4_freeslot(sep, nd->nd_slotid, true);
+		}
+		NFSINCRGLOBAL(nfsstatsv1.rpcinvalid);
+		error = EACCES;
 	} else {
 		NFSINCRGLOBAL(nfsstatsv1.rpcinvalid);
 		error = EACCES;
@@ -1128,6 +1224,14 @@ tryagain:
 				NFSCL_DEBUG(1, "Got badsession\n");
 				NFSLOCKCLSTATE();
 				NFSLOCKMNT(nmp);
+				if (TAILQ_EMPTY(&nmp->nm_sess)) {
+					NFSUNLOCKMNT(nmp);
+					NFSUNLOCKCLSTATE();
+					printf("If server has not rebooted, "
+					    "check NFS clients for unique "
+					    "/etc/hostid's\n");
+					goto out;
+				}
 				sep = NFSMNT_MDSSESSION(nmp);
 				if (bcmp(sep->nfsess_sessionid, nd->nd_sequence,
 				    NFSX_V4SESSIONID) == 0) {
@@ -1212,7 +1316,8 @@ tryagain:
 			     nd->nd_procnum != NFSPROC_LOCKU))) ||
 			    (nd->nd_repstat == NFSERR_DELAY &&
 			     (nd->nd_flag & ND_NFSV4) == 0) ||
-			    nd->nd_repstat == NFSERR_RESOURCE) {
+			    nd->nd_repstat == NFSERR_RESOURCE ||
+			    nd->nd_repstat == NFSERR_RETRYUNCACHEDREP) {
 				/* Clip at NFS_TRYLATERDEL. */
 				if (timespeccmp(&trylater_delay,
 				    &nfs_trylater_max, >))
@@ -1308,6 +1413,7 @@ tryagain:
 				nd->nd_repstat = NFSERR_STALEDONTRECOVER;
 		}
 	}
+out:
 
 #ifdef KDTRACE_HOOKS
 	if (nmp != NULL && dtrace_nfscl_nfs234_done_probe != NULL) {

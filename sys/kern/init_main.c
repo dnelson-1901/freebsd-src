@@ -44,8 +44,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ddb.h"
 #include "opt_kdb.h"
 #include "opt_init_path.h"
@@ -388,6 +386,15 @@ SYSINIT(diagwarn2, SI_SUB_LAST, SI_ORDER_FIFTH,
     print_caddr_t, diag_warn);
 #endif
 
+#if __SIZEOF_LONG__ == 4
+static char ilp32_warn[] =
+    "WARNING: 32-bit kernels are deprecated and may be removed in FreeBSD 15.0.\n";
+SYSINIT(ilp32warn, SI_SUB_COPYRIGHT, SI_ORDER_FIFTH,
+    print_caddr_t, ilp32_warn);
+SYSINIT(ilp32warn2, SI_SUB_LAST, SI_ORDER_FIFTH,
+    print_caddr_t, ilp32_warn);
+#endif
+
 static int
 null_fetch_syscall_args(struct thread *td __unused)
 {
@@ -489,6 +496,7 @@ proc0_init(void *dummy __unused)
 	LIST_INSERT_HEAD(&allproc, p, p_list);
 	LIST_INSERT_HEAD(PIDHASH(0), p, p_hash);
 	mtx_init(&pgrp0.pg_mtx, "process group", NULL, MTX_DEF | MTX_DUPOK);
+	sx_init(&pgrp0.pg_killsx, "killpg racer");
 	p->p_pgrp = &pgrp0;
 	LIST_INSERT_HEAD(PGRPHASH(0), &pgrp0, pg_hash);
 	LIST_INIT(&pgrp0.pg_members);

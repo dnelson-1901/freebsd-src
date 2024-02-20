@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001-2003
  *	Fraunhofer Institute for Open Communication Systems (FhG Fokus).
@@ -29,8 +29,6 @@
  * SUCH DAMAGE.
  *
  * Customisation of the SSCFU code to ng_sscfu.
- *
- * $FreeBSD$
  */
 #include <sys/param.h>
 #include <sys/types.h>

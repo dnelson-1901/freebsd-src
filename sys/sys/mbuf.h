@@ -30,7 +30,6 @@
  * SUCH DAMAGE.
  *
  *	@(#)mbuf.h	8.5 (Berkeley) 2/19/95
- * $FreeBSD$
  */
 
 #ifndef _SYS_MBUF_H_
@@ -1562,6 +1561,12 @@ mbufq_last(const struct mbufq *mq)
 {
 
 	return (STAILQ_LAST(&mq->mq_head, mbuf, m_stailqpkt));
+}
+
+static inline bool
+mbufq_empty(const struct mbufq *mq)
+{
+	return (mq->mq_len == 0);
 }
 
 static inline int

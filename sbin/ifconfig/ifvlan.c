@@ -4,7 +4,7 @@
  * Copyright (c) 1999 Bill Paul <wpaul@ctr.columbia.edu>
  * Copyright (c) 2012 ADARA Networks, Inc.
  * All rights reserved.
-  *
+ *
  * Portions of this software were developed by Robert N. M. Watson under
  * contract to ADARA Networks, Inc.
  *
@@ -58,11 +58,6 @@
 #include <errno.h>
 
 #include "ifconfig.h"
-
-#ifndef lint
-static const char rcsid[] =
-  "$FreeBSD$";
-#endif
 
 #define	NOTAG	((u_short) -1)
 
@@ -124,7 +119,7 @@ vlan_parse_ethervid(const char *name)
 {
 	char ifname[IFNAMSIZ];
 	char *cp;
-	int vid;
+	unsigned int vid;
 
 	strlcpy(ifname, name, IFNAMSIZ);
 	if ((cp = strrchr(ifname, '.')) == NULL)
@@ -137,10 +132,13 @@ vlan_parse_ethervid(const char *name)
 		errx(1, "invalid vlan tag %s; must be numeric", cp);
 
 	vid = *cp++ - '0';
-	while ((*cp >= '0') && (*cp <= '9'))
+	while ((*cp >= '0') && (*cp <= '9')) {
 		vid = (vid * 10) + (*cp++ - '0');
-	if ((*cp != '\0') || (vid & ~0xFFF))
-		errx(1, "invalid vlan tag %d; must be between 0 and 4095", vid);
+		if (vid >= 0xFFF)
+			errx(1, "invalid vlan tag");
+	}
+	if (*cp != '\0')
+		errx(1, "invalid vlan tag");
 
 	/*
 	 * allow "devX.Y vlandev devX vlan Y" syntax

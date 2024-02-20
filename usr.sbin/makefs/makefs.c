@@ -38,8 +38,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <assert.h>
@@ -270,7 +268,6 @@ main(int argc, char *argv[])
 			fsoptions.sparse = 1;
 			break;
 
-		case '?':
 		default:
 			usage(fstype, &fsoptions);
 			/* NOTREACHED */

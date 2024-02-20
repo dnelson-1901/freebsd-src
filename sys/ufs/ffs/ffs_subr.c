@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 
 #ifndef _KERNEL
@@ -201,7 +199,7 @@ ffs_sbget(void *devfd, struct fs **fsp, off_t altsblock,
 	blks = howmany(size, fs->fs_fsize);
 	if (fs->fs_contigsumsize > 0)
 		size += fs->fs_ncg * sizeof(int32_t);
-	size += fs->fs_ncg * sizeof(u_int8_t);
+	size += fs->fs_ncg * sizeof(uint8_t);
 	/* When running in libufs or libsa, UFS_MALLOC may fail */
 	if ((fs_si = UFS_MALLOC(sizeof(*fs_si), filltype, M_WAITOK)) == NULL) {
 		UFS_FREE(fs, filltype);
@@ -240,8 +238,8 @@ ffs_sbget(void *devfd, struct fs **fsp, off_t altsblock,
 			*lp++ = fs->fs_contigsumsize;
 		space = (uint8_t *)lp;
 	}
-	size = fs->fs_ncg * sizeof(u_int8_t);
-	fs->fs_contigdirs = (u_int8_t *)space;
+	size = fs->fs_ncg * sizeof(uint8_t);
+	fs->fs_contigdirs = (uint8_t *)space;
 	bzero(fs->fs_contigdirs, size);
 	*fsp = fs;
 	return (0);
@@ -362,8 +360,8 @@ SYSCTL_INT(_vfs_ffs, OID_AUTO, prtsberrmsg, CTLFLAG_RWTUN, &prtmsg, 0,
 static int
 validate_sblock(struct fs *fs, int isaltsblk)
 {
-	u_long i, sectorsize;
-	u_int64_t maxfilesize, sizepb;
+	uint64_t i, sectorsize;
+	uint64_t maxfilesize, sizepb;
 	int error;
 
 	error = 0;
@@ -421,17 +419,20 @@ validate_sblock(struct fs *fs, int isaltsblk)
 	CHK(fs->fs_fpg, <, 3 * fs->fs_frag, %jd);
 	CHK(fs->fs_ncg, <, 1, %jd);
 	CHK(fs->fs_ipg, <, fs->fs_inopb, %jd);
-	CHK((u_int64_t)fs->fs_ipg * fs->fs_ncg, >,
+	CHK((uint64_t)fs->fs_ipg * fs->fs_ncg, >,
 	    (((int64_t)(1)) << 32) - INOPB(fs), %jd);
 	CHK(fs->fs_cstotal.cs_nifree, <, 0, %jd);
-	CHK(fs->fs_cstotal.cs_nifree, >, (u_int64_t)fs->fs_ipg * fs->fs_ncg,
+	CHK(fs->fs_cstotal.cs_nifree, >, (uint64_t)fs->fs_ipg * fs->fs_ncg,
 	    %jd);
 	CHK(fs->fs_cstotal.cs_ndir, <, 0, %jd);
 	CHK(fs->fs_cstotal.cs_ndir, >,
-	    ((u_int64_t)fs->fs_ipg * fs->fs_ncg) - fs->fs_cstotal.cs_nifree,
+	    ((uint64_t)fs->fs_ipg * fs->fs_ncg) - fs->fs_cstotal.cs_nifree,
 	    %jd);
 	CHK(fs->fs_sbsize, >, SBLOCKSIZE, %jd);
 	CHK(fs->fs_sbsize, <, (unsigned)sizeof(struct fs), %jd);
+	/* fix for misconfigured filesystems */
+	if (fs->fs_maxbsize == 0)
+		fs->fs_maxbsize = fs->fs_bsize;
 	CHK(fs->fs_maxbsize, <, fs->fs_bsize, %jd);
 	CHK(powerof2(fs->fs_maxbsize), ==, 0, %jd);
 	CHK(fs->fs_maxbsize, >, FS_MAXCONTIG * fs->fs_bsize, %jd);
@@ -446,6 +447,7 @@ validate_sblock(struct fs *fs, int isaltsblk)
 	CHK(fs->fs_old_cgoffset, <, 0, %jd);
 	CHK2(fs->fs_old_cgoffset, >, 0, ~fs->fs_old_cgmask, <, 0, %jd);
 	CHK(fs->fs_old_cgoffset * (~fs->fs_old_cgmask), >, fs->fs_fpg, %jd);
+	CHK(CGSIZE(fs), >, fs->fs_bsize, %jd);
 	/*
 	 * If anything has failed up to this point, it is usafe to proceed
 	 * as checks below may divide by zero or make other fatal calculations.
@@ -501,7 +503,8 @@ validate_sblock(struct fs *fs, int isaltsblk)
 	CHK(fs->fs_csaddr, <, 0, %jd);
 	CHK(fs->fs_cssize, !=,
 	    fragroundup(fs, fs->fs_ncg * sizeof(struct csum)), %jd);
-	CHK(dtog(fs, fs->fs_csaddr), >, fs->fs_ncg, %jd);
+	CHK(fs->fs_csaddr + howmany(fs->fs_cssize, fs->fs_fsize), >,
+	    fs->fs_size, %jd);
 	CHK(fs->fs_csaddr, <, cgdmin(fs, dtog(fs, fs->fs_csaddr)), %jd);
 	CHK(dtog(fs, fs->fs_csaddr + howmany(fs->fs_cssize, fs->fs_fsize)), >,
 	    dtog(fs, fs->fs_csaddr), %jd);
@@ -689,7 +692,7 @@ ffs_isblock(struct fs *fs, unsigned char *cp, ufs1_daddr_t h)
  * check if a block is free
  */
 int
-ffs_isfreeblock(struct fs *fs, u_char *cp, ufs1_daddr_t h)
+ffs_isfreeblock(struct fs *fs, uint8_t *cp, ufs1_daddr_t h)
 {
 
 	switch ((int)fs->fs_frag) {
@@ -714,7 +717,7 @@ ffs_isfreeblock(struct fs *fs, u_char *cp, ufs1_daddr_t h)
  * take a block out of the map
  */
 void
-ffs_clrblock(struct fs *fs, u_char *cp, ufs1_daddr_t h)
+ffs_clrblock(struct fs *fs, uint8_t *cp, ufs1_daddr_t h)
 {
 
 	switch ((int)fs->fs_frag) {
@@ -776,9 +779,9 @@ ffs_clusteracct(struct fs *fs, struct cg *cgp, ufs1_daddr_t blkno, int cnt)
 {
 	int32_t *sump;
 	int32_t *lp;
-	u_char *freemapp, *mapp;
+	uint8_t *freemapp, *mapp;
 	int i, start, end, forw, back, map;
-	u_int bit;
+	uint64_t bit;
 
 	if (fs->fs_contigsumsize <= 0)
 		return;

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #-
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright 2004-2007 Colin Percival
 # All rights reserved
@@ -27,8 +27,6 @@
 # IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# $FreeBSD$
-
 #### Usage function -- called from command-line handling code.
 
 # Usage instructions.  Options not listed:
@@ -49,7 +47,7 @@ Options:
                   case of an unfinished upgrade
   -j jail      -- Operate on the given jail specified by jid or name
   -k KEY       -- Trust an RSA key with SHA256 hash of KEY
-  -r release   -- Target for upgrade (e.g., 11.1-RELEASE)
+  -r release   -- Target for upgrade (e.g., 13.2-RELEASE)
   -s server    -- Server from which to fetch updates
                   (default: update.FreeBSD.org)
   -t address   -- Mail output of cron command, if any, to address
@@ -918,7 +916,7 @@ install_create_be () {
 			echo -n "Creating snapshot of existing boot environment... "
 			VERSION=`freebsd-version -ku | sort -V | tail -n 1`
 			TIMESTAMP=`date +"%Y-%m-%d_%H%M%S"`
-			bectl create ${VERSION}_${TIMESTAMP}
+			bectl create -r ${VERSION}_${TIMESTAMP}
 			if [ $? -eq 0 ]; then
 				echo "done.";
 			else
@@ -1204,10 +1202,10 @@ fetch_progress () {
 continuep () {
 	while read -p "Does this look reasonable (y/n)? " CONTINUE; do
 		case "${CONTINUE}" in
-		y*)
+		[yY]*)
 			return 0
 			;;
-		n*)
+		[nN]*)
 			return 1
 			;;
 		esac
@@ -1677,11 +1675,12 @@ fetch_inspect_system () {
 	echo "done."
 }
 
-# For any paths matching ${MERGECHANGES}, compare $1 and $2 and find any
-# files which differ; generate $3 containing these paths and the old hashes.
+# For any paths matching ${MERGECHANGES}, compare $2 against $1 and $3 and
+# find any files with values unique to $2; generate $4 containing these paths
+# and their corresponding hashes from $1.
 fetch_filter_mergechanges () {
 	# Pull out the paths and hashes of the files matching ${MERGECHANGES}.
-	for F in $1 $2; do
+	for F in $1 $2 $3; do
 		for X in ${MERGECHANGES}; do
 			grep -E "^${X}" ${F}
 		done |
@@ -1689,9 +1688,10 @@ fetch_filter_mergechanges () {
 		    sort > ${F}-values
 	done
 
-	# Any line in $2-values which doesn't appear in $1-values and is a
-	# file means that we should list the path in $3.
-	comm -13 $1-values $2-values |
+	# Any line in $2-values which doesn't appear in $1-values or $3-values
+	# and is a file means that we should list the path in $3.
+	sort $1-values $3-values |
+	    comm -13 - $2-values |
 	    fgrep '|f|' |
 	    cut -f 1 -d '|' > $2-paths
 
@@ -1703,10 +1703,10 @@ fetch_filter_mergechanges () {
 	while read X; do
 		look "${X}|" $1-values |
 		    head -1
-	done < $2-paths > $3
+	done < $2-paths > $4
 
 	# Clean up
-	rm $1-values $2-values $2-paths
+	rm $1-values $2-values $3-values $2-paths
 }
 
 # For any paths matching ${UPDATEIFUNMODIFIED}, remove lines from $[123]
@@ -2544,7 +2544,11 @@ Press Enter to edit this file in ${EDITOR} and resolve the conflicts
 manually...
 			EOF
 			while true; do
-				read dummy </dev/tty
+				read response </dev/tty
+				if expr "${response}" : '[Aa][Cc][Cc][Ee][Pp][Tt]' > /dev/null; then
+					echo
+					break
+				fi
 				${EDITOR} `pwd`/merge/new/${F} < /dev/tty
 
 				if ! grep -qE '^(<<<<<<<|=======|>>>>>>>)([[:space:]].*)?$' $(pwd)/merge/new/${F} ; then
@@ -2555,7 +2559,8 @@ manually...
 Merge conflict markers remain in: ${F}
 These must be resolved for the system to be functional.
 
-Press Enter to return to editing this file.
+Press Enter to return to editing this file, or type "ACCEPT" to carry on with
+these lines remaining in the file.
 				EOF
 			done
 		done < failed.merges
@@ -2711,7 +2716,7 @@ upgrade_run () {
 
 	# Based on ${MERGECHANGES}, generate a file tomerge-old with the
 	# paths and hashes of old versions of files to merge.
-	fetch_filter_mergechanges INDEX-OLD INDEX-PRESENT tomerge-old
+	fetch_filter_mergechanges INDEX-OLD INDEX-PRESENT INDEX-NEW tomerge-old
 
 	# Based on ${UPDATEIFUNMODIFIED}, remove lines from INDEX-* which
 	# correspond to lines in INDEX-PRESENT with hashes not appearing
@@ -2894,6 +2899,15 @@ backup_kernel () {
 	set +f
 }
 
+# Check for and remove an existing directory that conflicts with the file or
+# symlink that we are going to install.
+dir_conflict () {
+	if [ -d "$1" ]; then
+		echo "Removing conflicting directory $1"
+		rm -rf -- "$1"
+	fi
+}
+
 # Install new files
 install_from_index () {
 	# First pass: Do everything apart from setting file flags.  We
@@ -2903,11 +2917,18 @@ install_from_index () {
 	    while read FPATH TYPE OWNER GROUP PERM FLAGS HASH LINK; do
 		case ${TYPE} in
 		d)
-			# Create a directory
+			# Create a directory.  A file may change to a directory
+			# on upgrade (PR273661).  If that happens, remove the
+			# file first.
+			if [ -e "${BASEDIR}/${FPATH}" ] && \
+			    ! [ -d "${BASEDIR}/${FPATH}" ]; then
+				rm -f -- "${BASEDIR}/${FPATH}"
+			fi
 			install -d -o ${OWNER} -g ${GROUP}		\
 			    -m ${PERM} ${BASEDIR}/${FPATH}
 			;;
 		f)
+			dir_conflict "${BASEDIR}/${FPATH}"
 			if [ -z "${LINK}" ]; then
 				# Create a file, without setting flags.
 				gunzip < files/${HASH}.gz > ${HASH}
@@ -2920,6 +2941,7 @@ install_from_index () {
 			fi
 			;;
 		L)
+			dir_conflict "${BASEDIR}/${FPATH}"
 			# Create a symlink
 			ln -sfh ${HASH} ${BASEDIR}/${FPATH}
 			;;
@@ -2956,10 +2978,14 @@ install_delete () {
 			rmdir ${BASEDIR}/${FPATH}
 			;;
 		f)
-			rm ${BASEDIR}/${FPATH}
+			if [ -f "${BASEDIR}/${FPATH}" ]; then
+				rm "${BASEDIR}/${FPATH}"
+			fi
 			;;
 		L)
-			rm ${BASEDIR}/${FPATH}
+			if [ -L "${BASEDIR}/${FPATH}" ]; then
+				rm "${BASEDIR}/${FPATH}"
+			fi
 			;;
 		esac
 	done < killfiles
@@ -3036,9 +3062,10 @@ Kernel updates have been installed.  Please reboot and run
 		install_from_index INDEX-NEW || return 1
 		install_delete INDEX-OLD INDEX-NEW || return 1
 
-		# Restart sshd if running (PR263489).  Note that this does not
-		# affect child sshd processes handling existing sessions.
-		if service sshd status >/dev/null 2>/dev/null; then
+		# Restart host sshd if running (PR263489).  Note that this does
+		# not affect child sshd processes handling existing sessions.
+		if [ "$BASEDIR" = / ] && \
+		    service sshd status >/dev/null 2>/dev/null; then
 			echo
 			echo "Restarting sshd after upgrade"
 			service sshd restart
@@ -3169,6 +3196,11 @@ rollback_setup_rollback () {
 
 # Install old files, delete new files, and update linker.hints
 rollback_files () {
+	# Create directories first.  They may be needed by files we will
+	# install in subsequent steps (PR273950).
+	awk -F \| '{if ($2 == "d") print }' $1/INDEX-OLD > INDEX-OLD
+	install_from_index INDEX-OLD || return 1
+
 	# Install old shared library files which don't have the same path as
 	# a new shared library file.
 	grep -vE '^/boot/' $1/INDEX-NEW |

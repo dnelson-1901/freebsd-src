@@ -1,5 +1,4 @@
 #	from: @(#)Makefile	5.11 (Berkeley) 5/21/91
-# $FreeBSD$
 
 .include <src.opts.mk>
 .include <src.tools.mk>
@@ -122,13 +121,12 @@ MTREES+=	mtree/BSD.sendmail.dist		/
 MTREES+=	../${mtree}			/
 .endfor
 
-# Clean up some directories that where mistakenly created as files that
-# should not have been as part of the nvi update in r281994.
-# This should be removed after 11.0-RELEASE.
-DISTRIB_CLEANUP_SHARE_FILES=	${SHAREDIR}/doc/usd/10.exref ${SHAREDIR}/doc/usd/11.edit
-DISTRIB_CLEANUP_SHARE_FILES+=	${SHAREDIR}/doc/usd/12.vi ${SHAREDIR}/doc/usd/13.viref
+# Clean up files that have changed into directories, as mtree cannot handle this
+# scenario.
+DISTRIB_CLEANUP_FILES+=	${INCLUDEDIR}/c++/v1/__string
+DISTRIB_CLEANUP_FILES+=	${INCLUDEDIR}/c++/v1/__tuple
 distrib-cleanup: .PHONY
-	for file in ${DISTRIB_CLEANUP_SHARE_FILES}; do \
+	for file in ${DISTRIB_CLEANUP_FILES}; do \
 		if [ -f ${DESTDIR}/$${file} ]; then \
 			rm -f ${DESTDIR}/$${file}; \
 		fi; \

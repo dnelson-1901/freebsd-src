@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_atpic.h"
 #include "opt_hwpmc_hooks.h"
 
@@ -570,7 +568,7 @@ native_lapic_init(vm_paddr_t addr)
 		    (cpu_feature2 & CPUID2_TSCDLT) != 0 &&
 		    tsc_is_invariant && tsc_freq != 0) {
 			lapic_timer_tsc_deadline = 1;
-			TUNABLE_INT_FETCH("hw.lapic_tsc_deadline",
+			TUNABLE_INT_FETCH("hw.apic.timer_tsc_deadline",
 			    &lapic_timer_tsc_deadline);
 		}
 
@@ -603,7 +601,7 @@ native_lapic_init(vm_paddr_t addr)
 		       "KVM -- disabling lapic eoi suppression\n");
 			lapic_eoi_suppression = 0;
 		}
-		TUNABLE_INT_FETCH("hw.lapic_eoi_suppression",
+		TUNABLE_INT_FETCH("hw.apic.eoi_suppression",
 		    &lapic_eoi_suppression);
 	}
 
@@ -1657,7 +1655,7 @@ native_apic_alloc_vectors(u_int apic_id, u_int *irqs, u_int count, u_int align)
 
 		/* Start a new run if run == 0 and vector is aligned. */
 		if (run == 0) {
-			if ((vector & (align - 1)) != 0)
+			if (((vector + APIC_IO_INTS) & (align - 1)) != 0)
 				continue;
 			first = vector;
 		}

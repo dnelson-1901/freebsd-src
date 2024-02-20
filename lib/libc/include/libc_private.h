@@ -28,8 +28,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD$
- *
  * Private definitions for libc, libc_r and libpthread.
  *
  */
@@ -38,6 +36,8 @@
 #define _LIBC_PRIVATE_H_
 #include <sys/_types.h>
 #include <sys/_pthreadtypes.h>
+
+extern char **environ;
 
 /*
  * The kernel doesn't expose PID_MAX to the user space. Save it here
@@ -184,6 +184,7 @@ typedef enum {
 	PJT_MUTEXATTR_SETROBUST,
 	PJT_GETTHREADID_NP,
 	PJT_ATTR_GET_NP,
+	PJT_GETNAME_NP,
 	PJT_MAX
 } pjt_index_t;
 
@@ -254,6 +255,12 @@ enum {
 #ifdef YP
 int _yp_check(char **);
 #endif
+
+void __libc_start1(int, char *[], char *[],
+    void (*)(void), int (*)(int, char *[], char *[])) __dead2;
+void __libc_start1_gcrt(int, char *[], char *[],
+    void (*)(void), int (*)(int, char *[], char *[]),
+    int *, int *) __dead2;
 
 /*
  * Initialise TLS for static programs

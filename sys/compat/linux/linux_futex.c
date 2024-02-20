@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009-2021 Dmitry Chagin <dchagin@FreeBSD.org>
  * Copyright (c) 2008 Roman Divacky
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/imgact.h>
 #include <sys/imgact_elf.h>
@@ -786,6 +784,8 @@ linux_futex_wait(struct thread *td, struct linux_futex_args *args)
 	}
 	umtxq_unlock(&uq->uq_key);
 	umtx_key_release(&uq->uq_key);
+	if (error == ERESTART)
+		error = EINTR;
 	return (error);
 }
 

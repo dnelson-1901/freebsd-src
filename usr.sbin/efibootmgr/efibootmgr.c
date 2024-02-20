@@ -24,10 +24,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/stat.h>
-#include <sys/vtoc.h>
 #include <sys/param.h>
 #include <assert.h>
 #include <ctype.h>
@@ -290,6 +287,7 @@ parse_args(int argc, char *argv[])
 		case 'u':
 			opts.find_dev = true;
 			opts.dev = strdup(optarg);
+			break;
 		case 'v':
 			opts.verbose = true;
 			break;
@@ -786,6 +784,8 @@ print_loadopt_str(uint8_t *data, size_t datalen)
 	 */
 	indent = 1;
 	while (dp < edp) {
+		if (efidp_size(dp) == 0)
+			break;
 		efidp_format_device_path(buf, sizeof(buf), dp,
 		    (intptr_t)(void *)edp - (intptr_t)(void *)dp);
 		printf("%*s%s\n", indent, "", buf);
@@ -1103,8 +1103,11 @@ main(int argc, char *argv[])
 	/*
 	 * find_dev can operate without any efi variables
 	 */
-	if (!efi_variables_supported() && !opts.find_dev)
-		errx(1, "efi variables not supported on this system. root? kldload efirt?");
+	if (!efi_variables_supported() && !opts.find_dev) {
+		if (errno == EACCES && geteuid() != 0)
+			errx(1, "must be run as root");
+		errx(1, "efi variables not supported on this system. kldload efirt?");
+	}
 
 	read_vars();
 

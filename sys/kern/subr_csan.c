@@ -35,8 +35,6 @@
 #include "opt_ddb.h"
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/bus.h>
@@ -300,6 +298,10 @@ kcsan_memmove(void *dst, const void *src, size_t len)
 	kcsan_access((uintptr_t)dst, len, true, false, __RET_ADDR);
 	return __builtin_memmove(dst, src, len);
 }
+
+__strong_reference(kcsan_memcpy, __tsan_memcpy);
+__strong_reference(kcsan_memset, __tsan_memset);
+__strong_reference(kcsan_memmove, __tsan_memmove);
 
 char *
 kcsan_strcpy(char *dst, const char *src)

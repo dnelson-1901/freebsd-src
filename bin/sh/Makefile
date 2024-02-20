@@ -1,5 +1,4 @@
 #	@(#)Makefile	8.4 (Berkeley) 5/5/95
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -7,6 +6,7 @@ CONFGROUPS=	ETC ROOT
 ETC=	profile
 ROOT=	dot.shrc dot.profile
 ROOTDIR=	/root
+ROOTDIR_MODE=	0750
 ROOTNAME_dot.shrc=	.shrc
 ROOTNAME_dot.profile=	.profile
 PACKAGE=runtime
@@ -78,6 +78,7 @@ SUBDIR.${MK_TESTS}+= tests
 beforeinstallconfig:
 	rm -f ${DESTDIR}/.profile
 
+LINKMODE=${CONFMODE}
 afterinstallconfig:
 	${INSTALL_LINK} ${TAG_ARGS} ${DESTDIR}/root/.profile ${DESTDIR}/.profile
 

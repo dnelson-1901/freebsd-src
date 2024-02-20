@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_rss.h"
@@ -1878,10 +1876,16 @@ mlx5_add_flow_rule(struct mlx5_flow_table *ft,
 }
 EXPORT_SYMBOL(mlx5_add_flow_rule);
 
-void mlx5_del_flow_rule(struct mlx5_flow_rule *dst)
+void mlx5_del_flow_rule(struct mlx5_flow_rule **pp)
 {
 	struct mlx5_flow_namespace *ns;
+	struct mlx5_flow_rule *dst;
 
+	dst = *pp;
+	*pp = NULL;
+
+	if (IS_ERR_OR_NULL(dst))
+		return;
 	ns = get_ns_with_notifiers(&dst->base);
 	if (ns)
 		down_read(&ns->dests_rw_sem);

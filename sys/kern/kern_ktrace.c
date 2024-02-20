@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ktrace.h"
 
 #include <sys/param.h>
@@ -112,7 +110,7 @@ struct ktr_request {
 	STAILQ_ENTRY(ktr_request) ktr_list;
 };
 
-static int data_lengths[] = {
+static const int data_lengths[] = {
 	[KTR_SYSCALL] = offsetof(struct ktr_syscall, ktr_args),
 	[KTR_SYSRET] = sizeof(struct ktr_sysret),
 	[KTR_NAMEI] = 0,

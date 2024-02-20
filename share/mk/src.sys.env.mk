@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 # early setup only see also src.sys.mk
 
@@ -22,6 +21,11 @@ RELDIR:= ${.CURDIR:S,${SRCTOP}/,,}
 RELTOP?= 	${RELDIR:C,[^/]+,..,g}
 RELOBJTOP?=	${RELTOP}
 RELSRCTOP?=	${RELTOP}
+
+.if !defined(OS_REVISION)
+OS_REVISION!=eval `sh ${SRCTOP}/sys/conf/newvers.sh -V REVISION` && echo $$REVISION || echo
+.export OS_REVISION
+.endif
 
 # site customizations that do not depend on anything!
 

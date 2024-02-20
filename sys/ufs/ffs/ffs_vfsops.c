@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_quota.h"
 #include "opt_ufs.h"
 #include "opt_ffs.h"
@@ -786,7 +784,7 @@ ffs_reload(struct mount *mp, int flags)
 	struct ufsmount *ump;
 	ufs2_daddr_t sblockloc;
 	int i, blks, error;
-	u_long size;
+	uint64_t size;
 	int32_t *lp;
 
 	ump = VFSTOUFS(mp);
@@ -820,7 +818,7 @@ ffs_reload(struct mount *mp, int flags)
 	    newfs->fs_bsize > MAXBSIZE ||
 	    newfs->fs_bsize < sizeof(struct fs)) {
 			brelse(bp);
-			return (EIO);		/* XXX needs translation */
+			return (EINTEGRITY);
 	}
 	/*
 	 * Preserve the summary information, read-only status, and
@@ -830,7 +828,7 @@ ffs_reload(struct mount *mp, int flags)
 	newfs->fs_si = fs->fs_si;
 	newfs->fs_ronly = fs->fs_ronly;
 	sblockloc = fs->fs_sblockloc;
-	bcopy(newfs, fs, (u_int)fs->fs_sbsize);
+	bcopy(newfs, fs, (uint64_t)fs->fs_sbsize);
 	brelse(bp);
 	ump->um_maxsymlinklen = fs->fs_maxsymlinklen;
 	ffs_oldfscompat_read(fs, VFSTOUFS(mp), sblockloc);
@@ -851,7 +849,7 @@ ffs_reload(struct mount *mp, int flags)
 	blks = howmany(size, fs->fs_fsize);
 	if (fs->fs_contigsumsize > 0)
 		size += fs->fs_ncg * sizeof(int32_t);
-	size += fs->fs_ncg * sizeof(u_int8_t);
+	size += fs->fs_ncg * sizeof(uint8_t);
 	free(fs->fs_csp, M_UFSMNT);
 	space = malloc(size, M_UFSMNT, M_WAITOK);
 	fs->fs_csp = space;
@@ -863,7 +861,7 @@ ffs_reload(struct mount *mp, int flags)
 		    NOCRED, &bp);
 		if (error)
 			return (error);
-		bcopy(bp->b_data, space, (u_int)size);
+		bcopy(bp->b_data, space, (uint64_t)size);
 		space = (char *)space + size;
 		brelse(bp);
 	}
@@ -876,8 +874,8 @@ ffs_reload(struct mount *mp, int flags)
 			*lp++ = fs->fs_contigsumsize;
 		space = lp;
 	}
-	size = fs->fs_ncg * sizeof(u_int8_t);
-	fs->fs_contigdirs = (u_int8_t *)space;
+	size = fs->fs_ncg * sizeof(uint8_t);
+	fs->fs_contigdirs = (uint8_t *)space;
 	bzero(fs->fs_contigdirs, size);
 	if ((flags & FFSR_UNSUSPEND) != 0) {
 		MNT_ILOCK(mp);
@@ -1034,7 +1032,7 @@ ffs_mountfs(struct vnode *odevvp, struct mount *mp, struct thread *td)
 		 * Get journal provider name.
 		 */
 		len = 1024;
-		mp->mnt_gjprovider = malloc((u_long)len, M_UFSMNT, M_WAITOK);
+		mp->mnt_gjprovider = malloc((uint64_t)len, M_UFSMNT, M_WAITOK);
 		if (g_io_getattr("GJOURNAL::provider", cp, &len,
 		    mp->mnt_gjprovider) == 0) {
 			mp->mnt_gjprovider = realloc(mp->mnt_gjprovider, len,
@@ -1452,9 +1450,7 @@ ffs_unmount(struct mount *mp, int mntflags)
 	if (susp)
 		vfs_write_resume(mp, VR_START_WRITE);
 	if (ump->um_trim_tq != NULL) {
-		while (ump->um_trim_inflight != 0)
-			pause("ufsutr", hz);
-		taskqueue_drain_all(ump->um_trim_tq);
+		MPASS(ump->um_trim_inflight == 0);
 		taskqueue_free(ump->um_trim_tq);
 		free (ump->um_trimhash, M_TRIM);
 	}
@@ -1563,6 +1559,20 @@ ffs_flushfiles(struct mount *mp, int flags, struct thread *td)
 	 */
 	if (qerror == 0 && (error = vflush(mp, 0, flags, td)) != 0)
 		return (error);
+
+	/*
+	 * If this is a forcible unmount and there were any files that
+	 * were unlinked but still open, then vflush() will have
+	 * truncated and freed those files, which might have started
+	 * some trim work.  Wait here for any trims to complete
+	 * and process the blkfrees which follow the trims.
+	 * This may create more dirty devvp buffers and softdep deps.
+	 */
+	if (ump->um_trim_tq != NULL) {
+		while (ump->um_trim_inflight != 0)
+			pause("ufsutr", hz);
+		taskqueue_drain_all(ump->um_trim_tq);
+	}
 
 	/*
 	 * Flush filesystem metadata.
@@ -2067,10 +2077,15 @@ ffs_fhtovp(struct mount *mp, struct fid *fhp, int flags, struct vnode **vpp)
 	    vpp, 0));
 }
 
+/*
+ * Return a vnode from a mounted filesystem for inode with specified
+ * generation number. Return ESTALE if the inode with given generation
+ * number no longer exists on that filesystem.
+ */
 int
 ffs_inotovp(struct mount *mp,
 	ino_t ino,
-	u_int64_t gen,
+	uint64_t gen,
 	int lflags,
 	struct vnode **vpp,
 	int ffs_flags)
@@ -2081,8 +2096,7 @@ ffs_inotovp(struct mount *mp,
 	struct fs *fs;
 	struct cg *cgp;
 	struct buf *bp;
-	u_int cg;
-	int error;
+	uint64_t cg;
 
 	ump = VFSTOUFS(mp);
 	fs = ump->um_fs;
@@ -2097,9 +2111,8 @@ ffs_inotovp(struct mount *mp,
 	 */
 	if (fs->fs_magic == FS_UFS2_MAGIC) {
 		cg = ino_to_cg(fs, ino);
-		error = ffs_getcg(fs, ump->um_devvp, cg, 0, &bp, &cgp);
-		if (error != 0)
-			return (error);
+		if (ffs_getcg(fs, ump->um_devvp, cg, 0, &bp, &cgp) != 0)
+			return (ESTALE);
 		if (ino >= cg * fs->fs_ipg + cgp->cg_initediblk) {
 			brelse(bp);
 			return (ESTALE);
@@ -2107,9 +2120,8 @@ ffs_inotovp(struct mount *mp,
 		brelse(bp);
 	}
 
-	error = ffs_vgetf(mp, ino, lflags, &nvp, ffs_flags);
-	if (error != 0)
-		return (error);
+	if (ffs_vgetf(mp, ino, lflags, &nvp, ffs_flags) != 0)
+		return (ESTALE);
 
 	ip = VTOI(nvp);
 	if (ip->i_mode == 0 || ip->i_gen != gen || ip->i_effnlink <= 0) {
@@ -2214,7 +2226,7 @@ ffs_use_bwrite(void *devfd, off_t loc, void *buf, int size)
 	 */
 	if (loc != fs->fs_sblockloc) {
 		bp = getblk(ump->um_devvp, btodb(loc), size, 0, 0, 0);
-		bcopy(buf, bp->b_data, (u_int)size);
+		bcopy(buf, bp->b_data, (uint64_t)size);
 		if (devfdp->suspended)
 			bp->b_flags |= B_VALIDSUSPWRT;
 		if (devfdp->waitfor != MNT_WAIT)
@@ -2248,7 +2260,7 @@ ffs_use_bwrite(void *devfd, off_t loc, void *buf, int size)
 	if (MOUNTEDSOFTDEP(ump->um_mountp))
 		softdep_setup_sbupdate(ump, (struct fs *)bp->b_data, bp);
 	UFS_LOCK(ump);
-	bcopy((caddr_t)fs, bp->b_data, (u_int)fs->fs_sbsize);
+	bcopy((caddr_t)fs, bp->b_data, (uint64_t)fs->fs_sbsize);
 	UFS_UNLOCK(ump);
 	fs = (struct fs *)bp->b_data;
 	fs->fs_fmod = 0;
@@ -2583,8 +2595,7 @@ ffs_geom_strategy(struct bufobj *bo, struct buf *bp)
 
 		default:
 			printf("multiple buffer types 0x%b\n",
-			    (u_int)(bp->b_xflags & BX_FSPRIV),
-			    PRINT_UFS_BUF_XFLAGS);
+			    (bp->b_xflags & BX_FSPRIV), PRINT_UFS_BUF_XFLAGS);
 			break;
 		}
 	}

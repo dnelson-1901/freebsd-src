@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011, Bryan Venteicher <bryanv@FreeBSD.org>
  * All rights reserved.
@@ -29,8 +29,6 @@
 /* Driver for VirtIO network devices. */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/eventhandler.h>
 #include <sys/systm.h>
@@ -89,6 +87,12 @@ __FBSDID("$FreeBSD$");
 
 #if defined(INET) || defined(INET6)
 #include <machine/in_cksum.h>
+#endif
+
+#ifdef __NO_STRICT_ALIGNMENT
+#define VTNET_ETHER_ALIGN 0
+#else /* Strict alignment */
+#define VTNET_ETHER_ALIGN ETHER_ALIGN
 #endif
 
 static int	vtnet_modevent(module_t, int, void *);
@@ -516,6 +520,11 @@ vtnet_detach(device_t dev)
 #ifdef DEV_NETMAP
 	netmap_detach(ifp);
 #endif
+
+	if (sc->vtnet_pfil != NULL) {
+		pfil_head_unregister(sc->vtnet_pfil);
+		sc->vtnet_pfil = NULL;
+	}
 
 	vtnet_free_taskqueues(sc);
 
@@ -1234,6 +1243,13 @@ vtnet_rx_cluster_size(struct vtnet_softc *sc, int mtu)
 	} else
 		framesz = sizeof(struct vtnet_rx_header);
 	framesz += sizeof(struct ether_vlan_header) + mtu;
+	/*
+	 * Account for the offsetting we'll do elsewhere so we allocate the
+	 * right size for the mtu.
+	 */
+	if (VTNET_ETHER_ALIGN != 0 && sc->vtnet_hdr_size % 4 == 0) {
+		framesz += VTNET_ETHER_ALIGN;
+	}
 
 	if (framesz <= MCLBYTES)
 		return (MCLBYTES);
@@ -1542,6 +1558,13 @@ vtnet_rx_alloc_buf(struct vtnet_softc *sc, int nbufs, struct mbuf **m_tailp)
 		}
 
 		m->m_len = size;
+		/*
+		 * Need to offset the mbuf if the header we're going to add
+		 * will misalign.
+		 */
+		if (VTNET_ETHER_ALIGN != 0 && sc->vtnet_hdr_size % 4 == 0) {
+			m_adj(m, VTNET_ETHER_ALIGN);
+		}
 		if (m_head != NULL) {
 			m_tail->m_next = m;
 			m_tail = m;
@@ -1568,6 +1591,12 @@ vtnet_rxq_replace_lro_nomrg_buf(struct vtnet_rxq *rxq, struct mbuf *m0,
 
 	sc = rxq->vtnrx_sc;
 	clustersz = sc->vtnet_rx_clustersz;
+	/*
+	 * Need to offset the mbuf if the header we're going to add will
+	 * misalign, account for that here.
+	 */
+	if (VTNET_ETHER_ALIGN != 0 && sc->vtnet_hdr_size % 4 == 0)
+		clustersz -= VTNET_ETHER_ALIGN;
 
 	m_prev = NULL;
 	m_tail = NULL;
@@ -1691,6 +1720,10 @@ vtnet_rxq_enqueue_buf(struct vtnet_rxq *rxq, struct mbuf *m)
 	header_inlined = vtnet_modern(sc) ||
 	    (sc->vtnet_flags & VTNET_FLAG_MRG_RXBUFS) != 0; /* TODO: ANY_LAYOUT */
 
+	/*
+	 * Note: The mbuf has been already adjusted when we allocate it if we
+	 * have to do strict alignment.
+	 */
 	if (header_inlined)
 		error = sglist_append_mbuf(sg, m);
 	else {

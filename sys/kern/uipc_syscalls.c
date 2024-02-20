@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_capsicum.h"
 #include "opt_inet.h"
 #include "opt_inet6.h"
@@ -964,7 +962,8 @@ kern_recvit(struct thread *td, int s, struct msghdr *mp, enum uio_seg fromseg,
 		AUDIT_ARG_SOCKADDR(td, AT_FDCWD, fromsa);
 #ifdef KTRACE
 	if (ktruio != NULL) {
-		ktruio->uio_resid = len - auio.uio_resid;
+		/* MSG_TRUNC can trigger underflow of uio_resid. */
+		ktruio->uio_resid = MIN(len - auio.uio_resid, len);
 		ktrgenio(s, UIO_READ, ktruio, error);
 	}
 #endif

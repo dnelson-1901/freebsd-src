@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 Stephane E. Potvin <sepotvin@videotron.ca>
  * Copyright (c) 2006 Ariff Abdullah <ariff@FreeBSD.org>
@@ -47,7 +47,7 @@
 
 #include "mixer_if.h"
 
-SND_DECLARE_FILE("$FreeBSD$");
+SND_DECLARE_FILE("");
 
 #define hdaa_lock(devinfo)	snd_mtxlock((devinfo)->lock)
 #define hdaa_unlock(devinfo)	snd_mtxunlock((devinfo)->lock)
@@ -5428,7 +5428,6 @@ hdaa_pcmchannel_setup(struct hdaa_chan *ch)
 		if (HDA_PARAM_SUPP_STREAM_FORMATS_AC3(fmtcap)) {
 			ch->fmtlist[i++] = SND_FORMAT(AFMT_AC3, 2, 0);
 			if (channels >= 8) {
-				ch->fmtlist[i++] = SND_FORMAT(AFMT_AC3, 8, 0);
 				ch->fmtlist[i++] = SND_FORMAT(AFMT_AC3, 8, 1);
 			}
 		}

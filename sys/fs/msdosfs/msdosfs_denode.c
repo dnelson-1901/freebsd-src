@@ -1,4 +1,3 @@
-/* $FreeBSD$ */
 /*	$NetBSD: msdosfs_denode.c,v 1.28 1998/02/10 14:10:00 mrg Exp $	*/
 
 /*-
@@ -110,7 +109,7 @@ deget(struct msdosfsmount *pmp, u_long dirclust, u_long diroffset,
 #ifdef MSDOSFS_DEBUG
 	printf("deget(pmp %p, dirclust %lu, diroffset %lx, flags %#x, "
 	    "depp %p)\n",
-	    pmp, dirclust, diroffset, flags, depp);
+	    pmp, dirclust, diroffset, lkflags, depp);
 #endif
 	MPASS((lkflags & LK_TYPE_MASK) == LK_EXCLUSIVE);
 
@@ -496,6 +495,7 @@ deextend(struct denode *dep, u_long length, struct ucred *cred)
 	struct msdosfsmount *pmp = dep->de_pmp;
 	struct vnode *vp = DETOV(dep);
 	struct buf *bp;
+	off_t eof_clusteroff;
 	u_long count;
 	int error;
 
@@ -534,13 +534,19 @@ deextend(struct denode *dep, u_long length, struct ucred *cred)
 	 * B_CACHE | B_DELWRI but with invalid pages, and cannot be
 	 * neither written out nor validated.
 	 *
-	 * Fix it by proactively clearing extended pages.
+	 * Fix it by proactively clearing extended pages.  Need to do
+	 * both vfs_bio_clrbuf() to mark pages valid, and to zero
+	 * actual buffer content which might exist in the tail of the
+	 * already valid cluster.
 	 */
 	error = bread(vp, de_cluster(pmp, dep->de_FileSize), pmp->pm_bpcluster,
 	    NOCRED, &bp);
 	if (error != 0)
 		goto rewind;
 	vfs_bio_clrbuf(bp);
+	eof_clusteroff = de_cn2off(pmp, de_cluster(pmp, dep->de_FileSize));
+	vfs_bio_bzero_buf(bp, dep->de_FileSize - eof_clusteroff,
+	    pmp->pm_bpcluster - dep->de_FileSize + eof_clusteroff);
 	if (!DOINGASYNC(vp))
 		(void)bwrite(bp);
 	else if (vm_page_count_severe() || buf_dirty_count_severe())

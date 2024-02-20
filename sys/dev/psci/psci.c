@@ -41,8 +41,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_acpi.h"
 #include "opt_platform.h"
 
@@ -347,6 +345,10 @@ psci_attach(device_t dev, psci_initfn_t psci_init, int default_version)
 	KASSERT(psci_init != NULL, ("PSCI init function cannot be NULL"));
 	if (psci_init(dev, default_version))
 		return (ENXIO);
+
+#ifdef __aarch64__
+	smccc_init();
+#endif
 
 	psci_softc = sc;
 

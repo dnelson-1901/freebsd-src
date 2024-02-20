@@ -71,6 +71,12 @@ int zfs_recv_write_batch_size = 1024 * 1024;
 static char *dmu_recv_tag = "dmu_recv_tag";
 const char *recv_clone_name = "%recv";
 
+typedef enum {
+	ORNS_NO,
+	ORNS_YES,
+	ORNS_MAYBE
+} or_need_sync_t;
+
 static int receive_read_payload_and_next_header(dmu_recv_cookie_t *ra, int len,
     void *buf);
 
@@ -121,6 +127,9 @@ struct receive_writer_arg {
 	uint8_t or_iv[ZIO_DATA_IV_LEN];
 	uint8_t or_mac[ZIO_DATA_MAC_LEN];
 	boolean_t or_byteorder;
+
+	/* Keep track of DRR_FREEOBJECTS right after DRR_OBJECT_RANGE */
+	or_need_sync_t or_need_sync;
 };
 
 typedef struct dmu_recv_begin_arg {
@@ -1524,17 +1533,19 @@ receive_handle_existing_object(const struct receive_writer_arg *rwa,
 	}
 
 	/*
-	 * The dmu does not currently support decreasing nlevels
-	 * or changing the number of dnode slots on an object. For
-	 * non-raw sends, this does not matter and the new object
-	 * can just use the previous one's nlevels. For raw sends,
-	 * however, the structure of the received dnode (including
-	 * nlevels and dnode slots) must match that of the send
-	 * side. Therefore, instead of using dmu_object_reclaim(),
-	 * we must free the object completely and call
-	 * dmu_object_claim_dnsize() instead.
+	 * The dmu does not currently support decreasing nlevels or changing
+	 * indirect block size if there is already one, same as changing the
+	 * number of of dnode slots on an object.  For non-raw sends this
+	 * does not matter and the new object can just use the previous one's
+	 * parameters.  For raw sends, however, the structure of the received
+	 * dnode (including indirects and dnode slots) must match that of the
+	 * send side.  Therefore, instead of using dmu_object_reclaim(), we
+	 * must free the object completely and call dmu_object_claim_dnsize()
+	 * instead.
 	 */
-	if ((rwa->raw && drro->drr_nlevels < doi->doi_indirection) ||
+	if ((rwa->raw && ((doi->doi_indirection > 1 &&
+	    indblksz != doi->doi_metadata_block_size) ||
+	    drro->drr_nlevels < doi->doi_indirection)) ||
 	    dn_slots != doi->doi_dnodesize >> DNODE_SHIFT) {
 		err = dmu_free_long_object(rwa->os, drro->drr_object);
 		if (err != 0)
@@ -1658,9 +1669,21 @@ receive_object(struct receive_writer_arg *rwa, struct drr_object *drro,
 		/* object was freed and we are about to allocate a new one */
 		object_to_hold = DMU_NEW_OBJECT;
 	} else {
+		/*
+		 * If the only record in this range so far was DRR_FREEOBJECTS
+		 * with at least one actually freed object, it's possible that
+		 * the block will now be converted to a hole. We need to wait
+		 * for the txg to sync to prevent races.
+		 */
+		if (rwa->or_need_sync == ORNS_YES)
+			txg_wait_synced(dmu_objset_pool(rwa->os), 0);
+
 		/* object is free and we are about to allocate a new one */
 		object_to_hold = DMU_NEW_OBJECT;
 	}
+
+	/* Only relevant for the first object in the range */
+	rwa->or_need_sync = ORNS_NO;
 
 	/*
 	 * If this is a multi-slot dnode there is a chance that this
@@ -1856,6 +1879,9 @@ receive_freeobjects(struct receive_writer_arg *rwa,
 
 		if (err != 0)
 			return (err);
+
+		if (rwa->or_need_sync == ORNS_MAYBE)
+			rwa->or_need_sync = ORNS_YES;
 	}
 	if (next_err != ESRCH)
 		return (next_err);
@@ -2297,6 +2323,8 @@ receive_object_range(struct receive_writer_arg *rwa,
 	bcopy(drror->drr_iv, rwa->or_iv, ZIO_DATA_IV_LEN);
 	bcopy(drror->drr_mac, rwa->or_mac, ZIO_DATA_MAC_LEN);
 	rwa->or_byteorder = byteorder;
+
+	rwa->or_need_sync = ORNS_MAYBE;
 
 	return (0);
 }

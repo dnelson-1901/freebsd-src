@@ -8,7 +8,6 @@
 # rootgen.sh and related scripts generate much more extensive tests for many
 # combinations of boot env (ufs, zfs, geli, etc).
 #
-# $FreeBSD$
 
 set -e
 
@@ -85,7 +84,7 @@ amd64)
 	if [ ! -r "${OVMF}" ]; then
 		die "Cannot read UEFI firmware file ${OVMF}"
 	fi
-	QEMU="qemu-system-x86_64 -drive if=pflash,format=raw,readonly,file=${OVMF}"
+	QEMU="qemu-system-x86_64 -drive if=pflash,format=raw,readonly=on,file=${OVMF}"
 	EFIBOOT=BOOTx64.EFI
 	ROOTDEV=ada0s1
 	;;

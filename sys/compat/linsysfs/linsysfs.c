@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 IronPort Systems
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/ctype.h>
@@ -679,9 +677,6 @@ linsysfs_init(PFS_INIT_ARGS)
 	kernel = pfs_create_dir(root, "kernel", NULL, NULL, NULL, 0);
 	/* /sys/kernel/debug, mountpoint for lindebugfs. */
 	pfs_create_dir(kernel, "debug", NULL, NULL, NULL, 0);
-
-	/* /sys/subsystem/... */
-	dir = pfs_create_dir(root, "subsystem", NULL, NULL, NULL, 0);
 
 	return (0);
 }

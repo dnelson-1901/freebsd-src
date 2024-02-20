@@ -1,5 +1,5 @@
 --
--- SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+-- SPDX-License-Identifier: BSD-2-Clause
 --
 -- Copyright (c) 2015 Pedro Souza <pedrosouza@freebsd.org>
 -- Copyright (c) 2018 Kyle Evans <kevans@FreeBSD.org>
@@ -25,8 +25,6 @@
 -- LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 -- OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 -- SUCH DAMAGE.
---
--- $FreeBSD$
 --
 
 local hook = require("hook")
@@ -62,7 +60,10 @@ local MSG_FAILSYN_EOLESC = "Stray escape at end of line"
 local MSG_FAILSYN_EOLVAR = "Unescaped $ at end of line"
 local MSG_FAILSYN_BADVAR = "Malformed variable expression at position '%d'"
 
-local MODULEEXPR = '([-%w_]+)'
+-- MODULEEXPR should more or less allow the exact same set of characters as the
+-- env_var entries in the pattern table.  This is perhaps a good target for a
+-- little refactoring.
+local MODULEEXPR = '([%w%d-_.]+)'
 local QVALEXPR = '"(.*)"'
 local QVALREPL = QVALEXPR:gsub('%%', '%%%%')
 local WORDEXPR = "([-%w%d][-%w%d_.]*)"

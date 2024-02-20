@@ -29,7 +29,7 @@
  * SUCH DAMAGE.
  */
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2018 Prodrive Technologies, https://prodrive-technologies.com/
  * Author: Ed Schouten <ed@FreeBSD.org>
@@ -69,8 +69,6 @@ static char sccsid[] = "@(#)syslogd.c	8.3 (Berkeley) 4/4/94";
 #endif /* not lint */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  *  syslogd -- log system messages
  *

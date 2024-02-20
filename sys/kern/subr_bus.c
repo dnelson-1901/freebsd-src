@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997,1998,2003 Doug Rabson
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bus.h"
 #include "opt_ddb.h"
 
@@ -3889,8 +3887,12 @@ bus_generic_suspend_child(device_t dev, device_t child)
 
 	error = DEVICE_SUSPEND(child);
 
-	if (error == 0)
+	if (error == 0) {
 		child->flags |= DF_SUSPENDED;
+	} else {
+		printf("DEVICE_SUSPEND(%s) failed: %d\n",
+		    device_get_nameunit(child), error);
+	}
 
 	return (error);
 }

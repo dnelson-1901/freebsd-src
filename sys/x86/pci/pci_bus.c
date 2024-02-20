@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997, Stefan Esser <se@freebsd.org>
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_cpu.h"
 
 #include <sys/param.h>
@@ -65,7 +63,7 @@ uint32_t
 legacy_pcib_read_config(device_t dev, u_int bus, u_int slot, u_int func,
 			u_int reg, int bytes)
 {
-	return(pci_cfgregread(bus, slot, func, reg, bytes));
+	return(pci_cfgregread(0, bus, slot, func, reg, bytes));
 }
 
 /* write configuration space register */
@@ -74,7 +72,7 @@ void
 legacy_pcib_write_config(device_t dev, u_int bus, u_int slot, u_int func,
 			 u_int reg, uint32_t data, int bytes)
 {
-	pci_cfgregwrite(bus, slot, func, reg, data, bytes);
+	pci_cfgregwrite(0, bus, slot, func, reg, data, bytes);
 }
 
 /* route interrupt */

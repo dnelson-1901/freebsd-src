@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/fcntl.h>
 #include <sys/imgact.h>
@@ -625,7 +623,7 @@ linux_set_thread_area(struct thread *td,
 	/*
 	 * Semantics of Linux version: every thread in the system has array
 	 * of three TLS descriptors. 1st is GLIBC TLS, 2nd is WINE, 3rd unknown.
-	 * This syscall loads one of the selected TLS decriptors with a value
+	 * This syscall loads one of the selected TLS descriptors with a value
 	 * and also loads GDT descriptors 6, 7 and 8 with the content of
 	 * the per-thread descriptors.
 	 *
@@ -741,4 +739,22 @@ DEFINE_IFUNC(, int, futex_xorl, (int, uint32_t *, int *))
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_SMAP) != 0 ?
 	    futex_xorl_smap : futex_xorl_nosmap);
+}
+
+int
+linux_ptrace_peekuser(struct thread *td, pid_t pid, void *addr, void *data)
+{
+
+	LINUX_RATELIMIT_MSG_OPT1("PTRACE_PEEKUSER offset %ld not implemented; "
+	    "returning EINVAL", (uintptr_t)addr);
+	return (EINVAL);
+}
+
+int
+linux_ptrace_pokeuser(struct thread *td, pid_t pid, void *addr, void *data)
+{
+
+	LINUX_RATELIMIT_MSG_OPT1("PTRACE_POKEUSER offset %ld "
+	    "not implemented; returning EINVAL", (uintptr_t)addr);
+	return (EINVAL);
 }

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright 1996, 1997, 1998, 1999, 2000 John D. Polstra.
  * Copyright 2003 Alexander Kabaev <kan@FreeBSD.ORG>.
@@ -39,8 +39,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/mount.h>
 #include <sys/mman.h>
@@ -1079,6 +1077,7 @@ _rtld_error(const char *fmt, ...)
 	    fmt, ap);
 	va_end(ap);
 	*lockinfo.dlerror_seen() = 0;
+	dbg("rtld_error: %s", lockinfo.dlerror_loc());
 	LD_UTRACE(UTRACE_RTLD_ERROR, NULL, NULL, 0, 0, lockinfo.dlerror_loc());
 }
 
@@ -1837,23 +1836,20 @@ donelist_check(DoneList *dlp, const Obj_Entry *obj)
 }
 
 /*
- * Hash function for symbol table lookup.  Don't even think about changing
- * this.  It is specified by the System V ABI.
+ * SysV hash function for symbol table lookup.  It is a slightly optimized
+ * version of the hash specified by the System V ABI.
  */
-unsigned long
+Elf32_Word
 elf_hash(const char *name)
 {
-    const unsigned char *p = (const unsigned char *) name;
-    unsigned long h = 0;
-    unsigned long g;
+	const unsigned char *p = (const unsigned char *)name;
+	Elf32_Word h = 0;
 
-    while (*p != '\0') {
-	h = (h << 4) + *p++;
-	if ((g = h & 0xf0000000) != 0)
-	    h ^= g >> 24;
-	h &= ~g;
-    }
-    return (h);
+	while (*p != '\0') {
+		h = (h << 4) + *p++;
+		h ^= (h >> 24) & 0xf0;
+	}
+	return (h & 0x0fffffff);
 }
 
 /*
@@ -3761,7 +3757,6 @@ static Obj_Entry *
 dlopen_object(const char *name, int fd, Obj_Entry *refobj, int lo_flags,
     int mode, RtldLockState *lockstate)
 {
-    Obj_Entry *old_obj_tail;
     Obj_Entry *obj;
     Objlist initlist;
     RtldLockState mlockstate;
@@ -3778,7 +3773,6 @@ dlopen_object(const char *name, int fd, Obj_Entry *refobj, int lo_flags,
     }
     GDB_STATE(RT_ADD,NULL);
 
-    old_obj_tail = globallist_curr(TAILQ_LAST(&obj_list, obj_entry_q));
     obj = NULL;
     if (name == NULL && fd == -1) {
 	obj = obj_main;
@@ -3791,11 +3785,11 @@ dlopen_object(const char *name, int fd, Obj_Entry *refobj, int lo_flags,
 	obj->dl_refcount++;
 	if (mode & RTLD_GLOBAL && objlist_find(&list_global, obj) == NULL)
 	    objlist_push_tail(&list_global, obj);
-	if (globallist_next(old_obj_tail) != NULL) {
-	    /* We loaded something new. */
-	    assert(globallist_next(old_obj_tail) == obj);
+
+	if (!obj->init_done) {
+	    /* We loaded something new and have to init something. */
 	    if ((lo_flags & RTLD_LO_DEEPBIND) != 0)
-		obj->symbolic = true;
+		obj->deepbind = true;
 	    result = 0;
 	    if ((lo_flags & (RTLD_LO_EARLY | RTLD_LO_IGNSTLS)) == 0 &&
 	      obj->static_tls && !allocate_tls_offset(obj)) {
@@ -4621,7 +4615,8 @@ symlook_default(SymLook *req, const Obj_Entry *refobj)
     if (refobj->symbolic || req->defobj_out != NULL)
 	donelist_check(&donelist, refobj);
 
-    symlook_global(req, &donelist);
+    if (!refobj->deepbind)
+        symlook_global(req, &donelist);
 
     /* Search all dlopened DAGs containing the referencing object. */
     STAILQ_FOREACH(elm, &refobj->dldags, link) {
@@ -4636,6 +4631,9 @@ symlook_default(SymLook *req, const Obj_Entry *refobj)
 	    assert(req->defobj_out != NULL);
 	}
     }
+
+    if (refobj->deepbind)
+        symlook_global(req, &donelist);
 
     /*
      * Search the dynamic linker itself, and possibly resolve the
@@ -5307,13 +5305,13 @@ allocate_tls(Obj_Entry *objs, void *oldtcb, size_t tcbsize, size_t tcbalign)
     tls_block_size += pre_size + tls_static_space - TLS_TCB_SIZE - post_size;
 
     /* Allocate whole TLS block */
-    tls_block = malloc_aligned(tls_block_size, maxalign, 0);
+    tls_block = xmalloc_aligned(tls_block_size, maxalign, 0);
     tcb = (Elf_Addr **)(tls_block + pre_size + extra_size);
 
     if (oldtcb != NULL) {
 	memcpy(tls_block, get_tls_block_ptr(oldtcb, tcbsize),
 	    tls_static_space);
-	free_aligned(get_tls_block_ptr(oldtcb, tcbsize));
+	free(get_tls_block_ptr(oldtcb, tcbsize));
 
 	/* Adjust the DTV. */
 	dtv = tcb[0];
@@ -5377,7 +5375,7 @@ free_tls(void *tcb, size_t tcbsize, size_t tcbalign __unused)
 	}
     }
     free(dtv);
-    free_aligned(get_tls_block_ptr(tcb, tcbsize));
+    free(get_tls_block_ptr(tcb, tcbsize));
 }
 
 #endif	/* TLS_VARIANT_I */
@@ -5403,7 +5401,7 @@ allocate_tls(Obj_Entry *objs, void *oldtls, size_t tcbsize, size_t tcbalign)
     size = roundup(tls_static_space, ralign) + roundup(tcbsize, ralign);
 
     assert(tcbsize >= 2*sizeof(Elf_Addr));
-    tls = malloc_aligned(size, ralign, 0 /* XXX */);
+    tls = xmalloc_aligned(size, ralign, 0 /* XXX */);
     dtv = xcalloc(tls_max_index + 2, sizeof(Elf_Addr));
 
     segbase = (Elf_Addr)(tls + roundup(tls_static_space, ralign));
@@ -5482,11 +5480,11 @@ free_tls(void *tls, size_t tcbsize  __unused, size_t tcbalign)
     for (i = 0; i < dtvsize; i++) {
 	    if (dtv[i + 2] != 0 && (dtv[i + 2] < tlsstart ||
 	        dtv[i + 2] > tlsend)) {
-		    free_aligned((void *)dtv[i + 2]);
+		    free((void *)dtv[i + 2]);
 	}
     }
 
-    free_aligned((void *)tlsstart);
+    free((void *)tlsstart);
     free((void *)dtv);
 }
 
@@ -5512,7 +5510,18 @@ allocate_module_tls(int index)
 		rtld_die();
 	}
 
-	p = malloc_aligned(obj->tlssize, obj->tlsalign, obj->tlspoffset);
+	if (obj->tls_static) {
+#ifdef TLS_VARIANT_I
+		p = (char *)_tcb_get() + obj->tlsoffset + TLS_TCB_SIZE;
+#else
+		p = (char *)_tcb_get() - obj->tlsoffset;
+#endif
+		return (p);
+	}
+
+	obj->tls_dynamic = true;
+
+	p = xmalloc_aligned(obj->tlssize, obj->tlsalign, obj->tlspoffset);
 	memcpy(p, obj->tlsinit, obj->tlsinitsize);
 	memset(p + obj->tlsinitsize, 0, obj->tlssize - obj->tlsinitsize);
 	return (p);
@@ -5523,11 +5532,14 @@ allocate_tls_offset(Obj_Entry *obj)
 {
     size_t off;
 
-    if (obj->tls_done)
+    if (obj->tls_dynamic)
+	return (false);
+
+    if (obj->tls_static)
 	return (true);
 
     if (obj->tlssize == 0) {
-	obj->tls_done = true;
+	obj->tls_static = true;
 	return (true);
     }
 
@@ -5558,7 +5570,7 @@ allocate_tls_offset(Obj_Entry *obj)
 
     tls_last_offset = off;
     tls_last_size = obj->tlssize;
-    obj->tls_done = true;
+    obj->tls_static = true;
 
     return (true);
 }
@@ -5934,10 +5946,12 @@ distribute_static_tls(Objlist *list, RtldLockState *lockstate)
 		return;
 	STAILQ_FOREACH(elm, list, link) {
 		obj = elm->obj;
-		if (obj->marker || !obj->tls_done || obj->static_tls_copied)
+		if (obj->marker || !obj->tls_static || obj->static_tls_copied)
 			continue;
+		lock_release(rtld_bind_lock, lockstate);
 		distrib(obj->tlsoffset, obj->tlsinit, obj->tlsinitsize,
 		    obj->tlssize);
+		wlock_acquire(rtld_bind_lock, lockstate);
 		obj->static_tls_copied = true;
 	}
 }
@@ -6078,13 +6092,16 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp,
 					_rtld_error("Both -b and -f specified");
 					rtld_die();
 				}
+				if (j != arglen - 1) {
+					_rtld_error("Invalid options: %s", arg);
+					rtld_die();
+				}
 				i++;
 				*argv0 = argv[i];
 				seen_b = true;
 				break;
 			} else if (opt == 'd') {
 				*dir_ignore = true;
-				break;
 			} else if (opt == 'f') {
 				if (seen_b) {
 					_rtld_error("Both -b and -f specified");
@@ -6099,7 +6116,8 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp,
 				 * name but the descriptor is what
 				 * will actually be executed).
 				 *
-				 * -f must be the last option in, e.g., -abcf.
+				 * -f must be the last option in the
+				 * group, e.g., -abcf <fd>.
 				 */
 				if (j != arglen - 1) {
 					_rtld_error("Invalid options: %s", arg);

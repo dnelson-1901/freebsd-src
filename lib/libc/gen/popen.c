@@ -34,8 +34,6 @@
 
 #include <sys/cdefs.h>
 __SCCSID("@(#)popen.c	8.3 (Berkeley) 5/3/95");
-__FBSDID("$FreeBSD$");
-
 #include "namespace.h"
 #include <sys/param.h>
 #include <sys/queue.h>
@@ -52,8 +50,6 @@ __FBSDID("$FreeBSD$");
 #include <pthread.h>
 #include "un-namespace.h"
 #include "libc_private.h"
-
-extern char **environ;
 
 struct pid {
 	SLIST_ENTRY(pid) next;

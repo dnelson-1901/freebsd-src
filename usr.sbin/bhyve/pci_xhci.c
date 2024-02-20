@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014 Leon Dang <ldang@nahannisys.com>
  * All rights reserved.
@@ -33,8 +33,6 @@
      tablet             USB tablet mouse
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/uio.h>
 #include <sys/types.h>
@@ -3103,8 +3101,8 @@ pci_xhci_snapshot(struct vm_snapshot_meta *meta)
 
 		/* check if the restored device (when restoring) is sane */
 		if (restore_idx != i) {
-			fprintf(stderr, "%s: idx not matching: actual: %d, "
-				"expected: %d\r\n", __func__, restore_idx, i);
+			EPRINTLN("%s: idx not matching: actual: %d, "
+			    "expected: %d", __func__, restore_idx, i);
 			ret = EINVAL;
 			goto done;
 		}
@@ -3119,9 +3117,9 @@ pci_xhci_snapshot(struct vm_snapshot_meta *meta)
 		if (meta->op == VM_SNAPSHOT_RESTORE) {
 			dname[sizeof(dname) - 1] = '\0';
 			if (strcmp(dev->dev_ue->ue_emu, dname)) {
-				fprintf(stderr, "%s: device names mismatch: "
-					"actual: %s, expected: %s\r\n",
-					__func__, dname, dev->dev_ue->ue_emu);
+				EPRINTLN("%s: device names mismatch: "
+				    "actual: %s, expected: %s",
+				    __func__, dname, dev->dev_ue->ue_emu);
 
 				ret = EINVAL;
 				goto done;

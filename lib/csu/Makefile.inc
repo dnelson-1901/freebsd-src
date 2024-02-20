@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 NO_WMISSING_VARIABLE_DECLARATIONS=
 
@@ -55,6 +54,9 @@ Scrt1.o: Scrt1_c.o ${CRT1OBJS}
 .if ${MACHINE_ARCH} == "i386"
 	${OBJCOPY} --localize-symbol _start1 ${.TARGET}
 .endif
+
+# __FreeBSD_version is recorded in crt1.o et al via crtbrand.
+crtbrand.o: ${SRCTOP}/sys/sys/param.h
 
 crtbegin.o: crtbegin.c
 crtbeginS.o: crtbegin.c

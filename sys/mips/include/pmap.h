@@ -42,7 +42,6 @@
  *	from: @(#)pmap.h	7.4 (Berkeley) 5/12/91
  *	from: src/sys/i386/include/pmap.h,v 1.65.2.2 2000/11/30 01:54:42 peter
  *	JNPR: pmap.h,v 1.7.2.1 2007/09/10 07:44:12 girish
- *      $FreeBSD$
  */
 
 #ifndef _MACHINE_PMAP_H_
@@ -162,6 +161,8 @@ extern vm_paddr_t physmem_desc[PHYS_AVAIL_COUNT];
 extern vm_offset_t virtual_avail;
 extern vm_offset_t virtual_end;
 
+#define	PMAP_WANT_ACTIVE_CPUS_NAIVE
+
 #define	pmap_page_get_memattr(m) (((m)->md.pv_flags & PV_MEMATTR_MASK) >> PV_MEMATTR_SHIFT)
 #define	pmap_page_is_mapped(m)	(!TAILQ_EMPTY(&(m)->md.pv_list))
 #define	pmap_page_is_write_mapped(m)	(((m)->a.flags & PGA_WRITEABLE) != 0)
@@ -184,6 +185,7 @@ void pmap_flush_pvcache(vm_page_t m);
 int pmap_emulate_modified(pmap_t pmap, vm_offset_t va);
 void pmap_page_set_memattr(vm_page_t, vm_memattr_t);
 int pmap_change_attr(vm_offset_t, vm_size_t, vm_memattr_t);
+#define	pmap_map_delete(pmap, sva, eva)	pmap_remove(pmap, sva, eva)
 
 static inline int
 pmap_vmspace_copy(pmap_t dst_pmap __unused, pmap_t src_pmap __unused)

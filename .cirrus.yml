@@ -1,40 +1,76 @@
-# $FreeBSD$
 
 compute_engine_instance:
   # Image list available via
   # gcloud compute images list --project freebsd-org-cloud-dev --no-standard-images
   platform: freebsd
   image_project: freebsd-org-cloud-dev
-  image: freebsd-13-0-release-amd64
+  image: freebsd-13-2-release-amd64
   cpu: 8
   memory: 8G
   disk: 40
 
 env:
   CIRRUS_CLONE_DEPTH: 1
+  PKG_FORMAT: tar
 
 task:
   matrix:
-  - name: World and kernel amd64 build and boot smoke test
+  - name: amd64-llvm15 World and kernel build and boot smoke test
+    only_if: $CIRRUS_REPO_FULL_NAME != 'freebsd/freebsd-src'
+    trigger_type: manual
     env:
       TARGET: amd64
       TARGET_ARCH: amd64
-      TOOLCHAIN_PKG: llvm13
-  - name: World and kernel arm64 build and boot smoke test
+      TOOLCHAIN: llvm15
+      TOOLCHAIN_PKG: ${TOOLCHAIN}-lite
+  - name: amd64-llvm16 World and kernel build and boot smoke test
+    env:
+      TARGET: amd64
+      TARGET_ARCH: amd64
+      TOOLCHAIN: llvm16
+      TOOLCHAIN_PKG: ${TOOLCHAIN}-lite
+  - name: arm64-llvm15 World and kernel build and boot smoke test
+    only_if: $CIRRUS_REPO_FULL_NAME != 'freebsd/freebsd-src'
     trigger_type: manual
     env:
       TARGET: arm64
       TARGET_ARCH: aarch64
-      TOOLCHAIN_PKG: llvm13
-  - name: World and kernel gcc9 amd64 build and boot smoke test
+      TOOLCHAIN: llvm15
+      TOOLCHAIN_PKG: ${TOOLCHAIN}
+  - name: arm64-llvm16 World and kernel build and boot smoke test
+    only_if: $CIRRUS_REPO_FULL_NAME != 'freebsd/freebsd-src'
+    trigger_type: manual
+    env:
+      TARGET: arm64
+      TARGET_ARCH: aarch64
+      TOOLCHAIN: llvm16
+      TOOLCHAIN_PKG: ${TOOLCHAIN}
+  - name: amd64-gcc12 World and kernel build and boot smoke test (manual)
+    only_if: $CIRRUS_REPO_FULL_NAME != 'freebsd/freebsd-src'
     trigger_type: manual
     env:
       TARGET: amd64
       TARGET_ARCH: amd64
-      TOOLCHAIN_PKG: amd64-gcc9
+      TOOLCHAIN: amd64-gcc12
+      TOOLCHAIN_PKG: ${TOOLCHAIN}
+  - name: aarch64-gcc12 World and kernel build and boot smoke test (manual)
+    only_if: $CIRRUS_REPO_FULL_NAME != 'freebsd/freebsd-src'
+    trigger_type: manual
+    env:
+      TARGET: arm64
+      TARGET_ARCH: aarch64
+      TOOLCHAIN: aarch64-gcc12
+      TOOLCHAIN_PKG: ${TOOLCHAIN}
+  - name: amd64-gcc12 World and kernel build and boot smoke test (FreeBSD repo)
+    only_if: $CIRRUS_REPO_FULL_NAME == 'freebsd/freebsd-src'
+    env:
+      TARGET: amd64
+      TARGET_ARCH: amd64
+      TOOLCHAIN: amd64-gcc12
+      TOOLCHAIN_PKG: ${TOOLCHAIN}
   timeout_in: 120m
   install_script:
-  - sh .cirrus-ci/pkg-install.sh qemu-nox11 ${TOOLCHAIN_PKG}
+  - sh .cirrus-ci/pkg-install.sh ${TOOLCHAIN_PKG}
   setup_script:
   - uname -a
   - gpart show
@@ -44,10 +80,13 @@ task:
   - mkdir -p /usr/obj/$(pwd -P)
   - chown user:user /usr/obj/$(pwd -P)
   script:
-  - su user -c "make -j$(sysctl -n hw.ncpu) CROSS_TOOLCHAIN=${TOOLCHAIN_PKG} WITHOUT_TOOLCHAIN=yes buildworld buildkernel"
+  - su user -c "make -j$(sysctl -n hw.ncpu) CROSS_TOOLCHAIN=${TOOLCHAIN} WITHOUT_TOOLCHAIN=yes buildworld buildkernel"
   package_script:
-  - su user -c "make CROSS_TOOLCHAIN=${TOOLCHAIN_PKG} WITHOUT_TOOLCHAIN=yes PKG_FORMAT=tar packages"
+  - su user -c "make CROSS_TOOLCHAIN=${TOOLCHAIN} WITHOUT_TOOLCHAIN=yes packages"
+  package_check_script:
+  - su user -c "/usr/libexec/flua tools/pkgbase/metalog_reader.lua -c /usr/obj/$(pwd -P)/${TARGET}.${TARGET_ARCH}/worldstage/METALOG"
   test_script:
+  - sh .cirrus-ci/pkg-install.sh qemu-nox11
   - sh tools/boot/ci-qemu-test.sh
   post_script:
   - df -m

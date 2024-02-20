@@ -19,8 +19,6 @@
  *
  * CDDL HEADER END
  *
- * $FreeBSD$
- *
  */
 /*
  * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
@@ -449,7 +447,7 @@ dtrace_trap(struct trapframe *frame, u_int type)
 			 * Offset the instruction pointer to the instruction
 			 * following the one causing the fault.
 			 */
-			frame->tf_eip += dtrace_instr_size((u_char *) frame->tf_eip);
+			frame->tf_eip += dtrace_instr_size((uint8_t *) frame->tf_eip);
 			return (1);
 		/* Page fault. */
 		case T_PAGEFLT:
@@ -461,7 +459,7 @@ dtrace_trap(struct trapframe *frame, u_int type)
 			 * Offset the instruction pointer to the instruction
 			 * following the one causing the fault.
 			 */
-			frame->tf_eip += dtrace_instr_size((u_char *) frame->tf_eip);
+			frame->tf_eip += dtrace_instr_size((uint8_t *) frame->tf_eip);
 			return (1);
 		default:
 			/* Handle all other traps in the usual way. */

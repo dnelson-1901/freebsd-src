@@ -1,6 +1,6 @@
 #!/bin/sh
 #-
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright 2018 Allan Jude <allanjude@freebsd.org>
 #
@@ -25,11 +25,11 @@
 # IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-# $FreeBSD$
 
 ############################################################ CONFIGURATION
 
 : ${DESTDIR:=}
+: ${DISTBASE:=}
 : ${FILEPAT:="\.pem$|\.crt$|\.cer$|\.crl$"}
 : ${VERBOSE:=0}
 
@@ -254,7 +254,7 @@ usage()
 	echo "		List trusted certificates"
 	echo "	$SCRIPTNAME [-v] blacklisted"
 	echo "		List blacklisted certificates"
-	echo "	$SCRIPTNAME [-nUv] [-D <destdir>] [-M <metalog>] rehash"
+	echo "	$SCRIPTNAME [-nUv] [-D <destdir>] [-d <distbase>] [-M <metalog>] rehash"
 	echo "		Generate hash links for all certificates"
 	echo "	$SCRIPTNAME [-nv] blacklist <file>"
 	echo "		Add <file> to the list of blacklisted certificates"
@@ -265,9 +265,10 @@ usage()
 
 ############################################################ MAIN
 
-while getopts D:M:nUv flag; do
+while getopts D:d:M:nUv flag; do
 	case "$flag" in
 	D) DESTDIR=${OPTARG} ;;
+	d) DISTBASE=${OPTARG} ;;
 	M) METALOG=${OPTARG} ;;
 	n) NOOP=1 ;;
 	U) UNPRIV=1 ;;
@@ -280,10 +281,10 @@ shift $(( $OPTIND - 1 ))
 INSTALLFLAGS=
 [ $UNPRIV -eq 1 ] && INSTALLFLAGS="-U -M ${METALOG} -D ${DESTDIR}"
 : ${LOCALBASE:=$(sysctl -n user.localbase)}
-: ${TRUSTPATH:=${DESTDIR}/usr/share/certs/trusted:${DESTDIR}${LOCALBASE}/share/certs:${DESTDIR}${LOCALBASE}/etc/ssl/certs}
-: ${BLACKLISTPATH:=${DESTDIR}/usr/share/certs/blacklisted:${DESTDIR}${LOCALBASE}/etc/ssl/blacklisted}
-: ${CERTDESTDIR:=${DESTDIR}/etc/ssl/certs}
-: ${BLACKLISTDESTDIR:=${DESTDIR}/etc/ssl/blacklisted}
+: ${TRUSTPATH:=${DESTDIR}${DISTBASE}/usr/share/certs/trusted:${DESTDIR}${LOCALBASE}/share/certs:${DESTDIR}${LOCALBASE}/etc/ssl/certs}
+: ${BLACKLISTPATH:=${DESTDIR}${DISTBASE}/usr/share/certs/blacklisted:${DESTDIR}${LOCALBASE}/etc/ssl/blacklisted}
+: ${CERTDESTDIR:=${DESTDIR}${DISTBASE}/etc/ssl/certs}
+: ${BLACKLISTDESTDIR:=${DESTDIR}${DISTBASE}/etc/ssl/blacklisted}
 
 [ $# -gt 0 ] || usage
 case "$1" in

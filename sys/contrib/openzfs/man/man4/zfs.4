@@ -15,7 +15,7 @@
 .\" own identifying information:
 .\" Portions Copyright [yyyy] [name of copyright owner]
 .\"
-.Dd June 1, 2021
+.Dd January 10, 2023
 .Dt ZFS 4
 .Os
 .
@@ -232,6 +232,12 @@ relative to the pool.
 .It Sy metaslab_force_ganging Ns = Ns Sy 16777217 Ns B Ns B Po 16MB + 1B Pc Pq ulong
 Make some blocks above a certain size be gang blocks.
 This option is used by the test suite to facilitate testing.
+.
+.It Sy zfs_default_bs Ns = Ns Sy 9 Po 512 B Pc Pq int
+Default dnode block size as a power of 2.
+.
+.It Sy zfs_default_ibs Ns = Ns Sy 17 Po 128 KiB Pc Pq int
+Default dnode indirect block size as a power of 2.
 .
 .It Sy zfs_history_output_max Ns = Ns Sy 1048576 Ns B Ns B Po 1MB Pc Pq int
 When attempting to log an output nvlist of an ioctl in the on-disk history,
@@ -1706,7 +1712,7 @@ completes in order to verify the checksums of all blocks which have been
 resilvered.
 This is enabled by default and strongly recommended.
 .
-.It Sy zfs_rebuild_vdev_limit Ns = Ns Sy 33554432 Ns B Po 32MB Pc Pq ulong
+.It Sy zfs_rebuild_vdev_limit Ns = Ns Sy 67108864 Ns B Po 64 MiB Pc Pq ulong
 Maximum amount of I/O that can be concurrently issued for a sequential
 resilver per leaf device, given in bytes.
 .
@@ -1825,6 +1831,13 @@ When we cross this limit from above it is because we are issuing verification I/
 In this case (unless the metadata scan is done) we stop issuing verification I/O
 and start scanning metadata again until we get to the hard limit.
 .
+.It Sy zfs_scan_report_txgs Ns = Ns Sy 0 Ns | Ns 1 Pq uint
+When reporting resilver throughput and estimated completion time use the
+performance observed over roughly the last
+.Sy zfs_scan_report_txgs
+TXGs.
+When set to zero performance is calculated over the time between checkpoints.
+.
 .It Sy zfs_scan_strict_mem_lim Ns = Ns Sy 0 Ns | Ns 1 Pq int
 Enforce tight memory limits on pool scans when a sequential scan is in progress.
 When disabled, the memory limit may be exceeded by fast disks.
@@ -1833,7 +1846,7 @@ When disabled, the memory limit may be exceeded by fast disks.
 Freezes a scrub/resilver in progress without actually pausing it.
 Intended for testing/debugging.
 .
-.It Sy zfs_scan_vdev_limit Ns = Ns Sy 4194304 Ns B Po 4MB Pc Pq int
+.It Sy zfs_scan_vdev_limit Ns = Ns Sy 16777216 Ns B Po 16 MiB Pc Pq int
 Maximum amount of data that can be concurrently issued at once for scrubs and
 resilvers per leaf device, given in bytes.
 .
@@ -2125,6 +2138,13 @@ This sets the maximum block size used by the ZIL.
 On very fragmented pools, lowering this
 .Pq typically to Sy 36kB
 can improve performance.
+.
+.It Sy zil_min_commit_timeout Ns = Ns Sy 5000 Pq u64
+This sets the minimum delay in nanoseconds ZIL care to delay block commit,
+waiting for more records.
+If ZIL writes are too fast, kernel may not be able sleep for so short interval,
+increasing log latency above allowed by
+.Sy zfs_commit_timeout_pct .
 .
 .It Sy zil_nocacheflush Ns = Ns Sy 0 Ns | Ns 1 Pq int
 Disable the cache flush commands that are normally sent to disk by

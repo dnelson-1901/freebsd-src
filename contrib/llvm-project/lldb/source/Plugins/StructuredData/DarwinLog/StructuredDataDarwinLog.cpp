@@ -28,6 +28,7 @@
 #include "lldb/Target/Process.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Target/ThreadPlanCallOnFunctionExit.h"
+#include "lldb/Utility/LLDBLog.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/RegularExpression.h"
 
@@ -130,14 +131,14 @@ public:
 
   bool GetEnableOnStartup() const {
     const uint32_t idx = ePropertyEnableOnStartup;
-    return m_collection_sp->GetPropertyAtIndexAsBoolean(
-        nullptr, idx, g_darwinlog_properties[idx].default_uint_value != 0);
+    return GetPropertyAtIndexAs<bool>(
+        idx, g_darwinlog_properties[idx].default_uint_value != 0);
   }
 
   llvm::StringRef GetAutoEnableOptions() const {
     const uint32_t idx = ePropertyAutoEnableOptions;
-    return m_collection_sp->GetPropertyAtIndexAsString(
-        nullptr, idx, g_darwinlog_properties[idx].default_cstr_value);
+    return GetPropertyAtIndexAs<llvm::StringRef>(
+        idx, g_darwinlog_properties[idx].default_cstr_value);
   }
 
   const char *GetLoggingModuleName() const { return "libsystem_trace.dylib"; }
@@ -161,13 +162,13 @@ const char *const s_filter_attributes[] = {
     // used to format message text
 };
 
-static ConstString GetDarwinLogTypeName() {
-  static const ConstString s_key_name("DarwinLog");
+static llvm::StringRef GetDarwinLogTypeName() {
+  static constexpr llvm::StringLiteral s_key_name("DarwinLog");
   return s_key_name;
 }
 
-static ConstString GetLogEventType() {
-  static const ConstString s_event_type("log");
+static llvm::StringRef GetLogEventType() {
+  static constexpr llvm::StringLiteral s_event_type("log");
   return s_event_type;
 }
 
@@ -556,7 +557,7 @@ public:
   }
 
   llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
-    return llvm::makeArrayRef(g_enable_option_table);
+    return llvm::ArrayRef(g_enable_option_table);
   }
 
   StructuredData::DictionarySP BuildConfigurationData(bool enabled) {
@@ -874,9 +875,10 @@ protected:
           process_sp->GetStructuredDataPlugin(GetDarwinLogTypeName());
       stream.Printf("Availability: %s\n",
                     plugin_sp ? "available" : "unavailable");
-      llvm::StringRef plugin_name = StructuredDataDarwinLog::GetStaticPluginName();
       const bool enabled =
-          plugin_sp ? plugin_sp->GetEnabled(ConstString(plugin_name)) : false;
+          plugin_sp ? plugin_sp->GetEnabled(
+                          StructuredDataDarwinLog::GetStaticPluginName())
+                    : false;
       stream.Printf("Enabled: %s\n", enabled ? "true" : "false");
     }
 
@@ -958,7 +960,7 @@ public:
 };
 
 EnableOptionsSP ParseAutoEnableOptions(Status &error, Debugger &debugger) {
-  Log *log = GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS);
+  Log *log = GetLog(LLDBLog::Process);
   // We are abusing the options data model here so that we can parse options
   // without requiring the Debugger instance.
 
@@ -974,9 +976,10 @@ EnableOptionsSP ParseAutoEnableOptions(Status &error, Debugger &debugger) {
 
   // Parse the arguments.
   auto options_property_sp =
-      debugger.GetPropertyValue(nullptr, "plugin.structured-data.darwin-log."
-                                         "auto-enable-options",
-                                false, error);
+      debugger.GetPropertyValue(nullptr,
+                                "plugin.structured-data.darwin-log."
+                                "auto-enable-options",
+                                error);
   if (!error.Success())
     return EnableOptionsSP();
   if (!options_property_sp) {
@@ -1055,14 +1058,14 @@ void StructuredDataDarwinLog::Terminate() {
 // StructuredDataPlugin API
 
 bool StructuredDataDarwinLog::SupportsStructuredDataType(
-    ConstString type_name) {
+    llvm::StringRef type_name) {
   return type_name == GetDarwinLogTypeName();
 }
 
 void StructuredDataDarwinLog::HandleArrivalOfStructuredData(
-    Process &process, ConstString type_name,
+    Process &process, llvm::StringRef type_name,
     const StructuredData::ObjectSP &object_sp) {
-  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS));
+  Log *log = GetLog(LLDBLog::Process);
   if (log) {
     StreamString json_stream;
     if (object_sp)
@@ -1084,11 +1087,9 @@ void StructuredDataDarwinLog::HandleArrivalOfStructuredData(
 
   // Ignore any data that isn't for us.
   if (type_name != GetDarwinLogTypeName()) {
-    LLDB_LOGF(log,
-              "StructuredDataDarwinLog::%s() StructuredData type "
-              "expected to be %s but was %s, ignoring",
-              __FUNCTION__, GetDarwinLogTypeName().AsCString(),
-              type_name.AsCString());
+    LLDB_LOG(log,
+             "StructuredData type expected to be {0} but was {1}, ignoring",
+             GetDarwinLogTypeName(), type_name);
     return;
   }
 
@@ -1140,7 +1141,7 @@ Status StructuredDataDarwinLog::GetDescription(
   }
 
   // Validate this is really a message for our plugin.
-  ConstString type_name;
+  llvm::StringRef type_name;
   if (!dictionary->GetValueForKeyAsString("type", type_name)) {
     SetErrorWithJSON(error, "Structured data doesn't contain mandatory "
                             "type field",
@@ -1198,11 +1199,10 @@ Status StructuredDataDarwinLog::GetDescription(
   return error;
 }
 
-bool StructuredDataDarwinLog::GetEnabled(ConstString type_name) const {
-  if (type_name.GetStringRef() == GetStaticPluginName())
+bool StructuredDataDarwinLog::GetEnabled(llvm::StringRef type_name) const {
+  if (type_name == GetStaticPluginName())
     return m_is_enabled;
-  else
-    return false;
+  return false;
 }
 
 void StructuredDataDarwinLog::SetEnabled(bool enabled) {
@@ -1211,7 +1211,7 @@ void StructuredDataDarwinLog::SetEnabled(bool enabled) {
 
 void StructuredDataDarwinLog::ModulesDidLoad(Process &process,
                                              ModuleList &module_list) {
-  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS));
+  Log *log = GetLog(LLDBLog::Process);
   LLDB_LOGF(log, "StructuredDataDarwinLog::%s called (process uid %u)",
             __FUNCTION__, process.GetUniqueID());
 
@@ -1266,7 +1266,7 @@ void StructuredDataDarwinLog::ModulesDidLoad(Process &process,
 
     auto &file_spec = module_sp->GetFileSpec();
     found_logging_support_module =
-        (file_spec.GetLastPathComponent() == logging_module_name);
+        (file_spec.GetFilename() == logging_module_name);
     if (found_logging_support_module)
       break;
   }
@@ -1364,9 +1364,7 @@ void StructuredDataDarwinLog::DebuggerInitialize(Debugger &debugger) {
     const bool is_global_setting = true;
     PluginManager::CreateSettingForStructuredDataPlugin(
         debugger, GetGlobalProperties().GetValueProperties(),
-        ConstString("Properties for the darwin-log"
-                    " plug-in."),
-        is_global_setting);
+        "Properties for the darwin-log plug-in.", is_global_setting);
   }
 }
 
@@ -1388,7 +1386,7 @@ Status StructuredDataDarwinLog::FilterLaunchInfo(ProcessLaunchInfo &launch_info,
   // done by adding an environment variable to the process on launch. (This
   // also means it is not possible to suppress this behavior if attaching to an
   // already-running app).
-  // Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_PLATFORM));
+  // Log *log = GetLog(LLDBLog::Platform);
 
   // If the target architecture is not one that supports DarwinLog, we have
   // nothing to do here.
@@ -1466,7 +1464,7 @@ bool StructuredDataDarwinLog::InitCompletionHookCallback(
   // finishes and control returns to our new thread plan, that is the time when
   // we can execute our logic to enable the logging support.
 
-  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS));
+  Log *log = GetLog(LLDBLog::Process);
   LLDB_LOGF(log, "StructuredDataDarwinLog::%s() called", __FUNCTION__);
 
   // Get the current thread.
@@ -1492,11 +1490,8 @@ bool StructuredDataDarwinLog::InitCompletionHookCallback(
 
   auto plugin_sp = process_sp->GetStructuredDataPlugin(GetDarwinLogTypeName());
   if (!plugin_sp) {
-    LLDB_LOGF(log,
-              "StructuredDataDarwinLog::%s() warning: no plugin for "
-              "feature %s in process uid %u",
-              __FUNCTION__, GetDarwinLogTypeName().AsCString(),
-              process_sp->GetUniqueID());
+    LLDB_LOG(log, "warning: no plugin for feature {0} in process uid {1}",
+             GetDarwinLogTypeName(), process_sp->GetUniqueID());
     return false;
   }
 
@@ -1570,7 +1565,7 @@ bool StructuredDataDarwinLog::InitCompletionHookCallback(
 }
 
 void StructuredDataDarwinLog::AddInitCompletionHook(Process &process) {
-  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS));
+  Log *log = GetLog(LLDBLog::Process);
   LLDB_LOGF(log, "StructuredDataDarwinLog::%s() called (process uid %u)",
             __FUNCTION__, process.GetUniqueID());
 
@@ -1736,7 +1731,7 @@ StructuredDataDarwinLog::DumpHeader(Stream &output_stream,
 size_t StructuredDataDarwinLog::HandleDisplayOfEvent(
     const StructuredData::Dictionary &event, Stream &stream) {
   // Check the type of the event.
-  ConstString event_type;
+  llvm::StringRef event_type;
   if (!event.GetValueForKeyAsString("type", event_type)) {
     // Hmm, we expected to get events that describe what they are.  Continue
     // anyway.
@@ -1769,7 +1764,7 @@ size_t StructuredDataDarwinLog::HandleDisplayOfEvent(
 }
 
 void StructuredDataDarwinLog::EnableNow() {
-  Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_PROCESS));
+  Log *log = GetLog(LLDBLog::Process);
   LLDB_LOGF(log, "StructuredDataDarwinLog::%s() called", __FUNCTION__);
 
   // Run the enable command.
@@ -1817,13 +1812,8 @@ void StructuredDataDarwinLog::EnableNow() {
                   "enable command failed (process uid %u)",
                   __FUNCTION__, process_sp->GetUniqueID());
     }
-    // Report failures to the debugger error stream.
-    auto error_stream_sp = debugger_sp->GetAsyncErrorStream();
-    if (error_stream_sp) {
-      error_stream_sp->Printf("failed to configure DarwinLog "
-                              "support\n");
-      error_stream_sp->Flush();
-    }
+    Debugger::ReportError("failed to configure DarwinLog support",
+                          debugger_sp->GetID());
     return;
   }
 
@@ -1851,13 +1841,8 @@ void StructuredDataDarwinLog::EnableNow() {
               "ConfigureStructuredData() call failed "
               "(process uid %u): %s",
               __FUNCTION__, process_sp->GetUniqueID(), error.AsCString());
-    auto error_stream_sp = debugger_sp->GetAsyncErrorStream();
-    if (error_stream_sp) {
-      error_stream_sp->Printf("failed to configure DarwinLog "
-                              "support: %s\n",
-                              error.AsCString());
-      error_stream_sp->Flush();
-    }
+    Debugger::ReportError("failed to configure DarwinLog support",
+                          debugger_sp->GetID());
     m_is_enabled = false;
   } else {
     m_is_enabled = true;

@@ -239,9 +239,9 @@ void AMDGPUCustomBehaviour::generateWaitCntInfo() {
   AMDGPU::IsaVersion IV = AMDGPU::getIsaVersion(STI.getCPU());
   InstrWaitCntInfo.resize(SrcMgr.size());
 
-  int Index = 0;
-  for (auto I = SrcMgr.begin(), E = SrcMgr.end(); I != E; ++I, ++Index) {
-    const std::unique_ptr<Instruction> &Inst = *I;
+  for (const auto &EN : llvm::enumerate(SrcMgr.getInstructions())) {
+    const std::unique_ptr<Instruction> &Inst = EN.value();
+    unsigned Index = EN.index();
     unsigned Opcode = Inst->getOpcode();
     const MCInstrDesc &MCID = MCII.get(Opcode);
     if ((MCID.TSFlags & SIInstrFlags::DS) &&
@@ -348,9 +348,9 @@ createAMDGPUInstrPostProcess(const MCSubtargetInfo &STI,
 /// Extern function to initialize the targets for the AMDGPU backend
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTargetMCA() {
-  TargetRegistry::RegisterCustomBehaviour(getTheAMDGPUTarget(),
+  TargetRegistry::RegisterCustomBehaviour(getTheR600Target(),
                                           createAMDGPUCustomBehaviour);
-  TargetRegistry::RegisterInstrPostProcess(getTheAMDGPUTarget(),
+  TargetRegistry::RegisterInstrPostProcess(getTheR600Target(),
                                            createAMDGPUInstrPostProcess);
 
   TargetRegistry::RegisterCustomBehaviour(getTheGCNTarget(),

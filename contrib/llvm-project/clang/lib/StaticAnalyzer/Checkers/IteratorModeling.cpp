@@ -72,6 +72,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/DynamicType.h"
+#include "llvm/ADT/STLExtras.h"
 
 #include "Iterator.h"
 
@@ -151,8 +152,6 @@ public:
   void checkBind(SVal Loc, SVal Val, const Stmt *S, CheckerContext &C) const;
   void checkPostStmt(const UnaryOperator *UO, CheckerContext &C) const;
   void checkPostStmt(const BinaryOperator *BO, CheckerContext &C) const;
-  void checkPostStmt(const CXXConstructExpr *CCE, CheckerContext &C) const;
-  void checkPostStmt(const DeclStmt *DS, CheckerContext &C) const;
   void checkPostStmt(const MaterializeTemporaryExpr *MTE,
                      CheckerContext &C) const;
   void checkLiveSymbols(ProgramStateRef State, SymbolReaper &SR) const;
@@ -305,21 +304,18 @@ void IteratorModeling::checkLiveSymbols(ProgramStateRef State,
                                         SymbolReaper &SR) const {
   // Keep symbolic expressions of iterator positions alive
   auto RegionMap = State->get<IteratorRegionMap>();
-  for (const auto &Reg : RegionMap) {
-    const auto Offset = Reg.second.getOffset();
-    for (auto i = Offset->symbol_begin(); i != Offset->symbol_end(); ++i)
-      if (isa<SymbolData>(*i))
-        SR.markLive(*i);
+  for (const IteratorPosition &Pos : llvm::make_second_range(RegionMap)) {
+    for (SymbolRef Sym : Pos.getOffset()->symbols())
+      if (isa<SymbolData>(Sym))
+        SR.markLive(Sym);
   }
 
   auto SymbolMap = State->get<IteratorSymbolMap>();
-  for (const auto &Sym : SymbolMap) {
-    const auto Offset = Sym.second.getOffset();
-    for (auto i = Offset->symbol_begin(); i != Offset->symbol_end(); ++i)
-      if (isa<SymbolData>(*i))
-        SR.markLive(*i);
+  for (const IteratorPosition &Pos : llvm::make_second_range(SymbolMap)) {
+    for (SymbolRef Sym : Pos.getOffset()->symbols())
+      if (isa<SymbolData>(Sym))
+        SR.markLive(Sym);
   }
-
 }
 
 void IteratorModeling::checkDeadSymbols(SymbolReaper &SR,
@@ -631,7 +627,7 @@ void IteratorModeling::handlePtrIncrOrDecr(CheckerContext &C,
                                            const Expr *Iterator,
                                            OverloadedOperatorKind OK,
                                            SVal Offset) const {
-  if (!Offset.getAs<DefinedSVal>())
+  if (!isa<DefinedSVal>(Offset))
     return;
 
   QualType PtrType = Iterator->getType();
@@ -801,8 +797,8 @@ ProgramStateRef relateSymbols(ProgramStateRef State, SymbolRef Sym1,
     SVB.evalBinOp(State, BO_EQ, nonloc::SymbolVal(Sym1),
                   nonloc::SymbolVal(Sym2), SVB.getConditionType());
 
-  assert(comparison.getAs<DefinedSVal>() &&
-    "Symbol comparison must be a `DefinedSVal`");
+  assert(isa<DefinedSVal>(comparison) &&
+         "Symbol comparison must be a `DefinedSVal`");
 
   auto NewState = State->assume(comparison.castAs<DefinedSVal>(), Equal);
   if (!NewState)

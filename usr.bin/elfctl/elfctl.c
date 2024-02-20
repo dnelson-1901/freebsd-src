@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 The FreeBSD Foundation.
  *
@@ -48,9 +48,6 @@
 #include <unistd.h>
 
 #include "_elftc.h"
-
-__FBSDID("$FreeBSD$");
-
 static bool convert_to_feature_val(const char *, uint32_t *);
 static bool edit_file_features(Elf *, int, int, char *, bool);
 static bool get_file_features(Elf *, int, int, uint32_t *, uint64_t *, bool);

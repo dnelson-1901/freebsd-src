@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) KATO Takenori, 1997, 1998.
  * 
@@ -30,8 +30,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_cpu.h"
 
 #include <sys/param.h>
@@ -103,7 +101,8 @@ init_amd(void)
 	case 0x10:
 	case 0x12:
 		if ((cpu_feature2 & CPUID2_HV) == 0)
-			wrmsr(MSR_DE_CFG, rdmsr(MSR_DE_CFG) | 1);
+			wrmsr(MSR_DE_CFG, rdmsr(MSR_DE_CFG) |
+			    DE_CFG_10H_12H_STACK_POINTER_JUMP_FIX_BIT);
 		break;
 	}
 
@@ -153,7 +152,7 @@ init_amd(void)
 	    (cpu_feature2 & CPUID2_HV) == 0) {
 		/* 1021 */
 		msr = rdmsr(MSR_DE_CFG);
-		msr |= 0x2000;
+		msr |= DE_CFG_ZEN_LOAD_STALE_DATA_FIX_BIT;
 		wrmsr(MSR_DE_CFG, msr);
 
 		/* 1033 */
@@ -194,6 +193,9 @@ init_amd(void)
 			hw_lower_amd64_sharedpage = 1;
 		}
 	}
+
+	/* Zenbleed.  See the comments in 'cpu_machdep.c'. */
+	zenbleed_check_and_apply(false);
 }
 
 /*
@@ -313,7 +315,7 @@ initializecpu(void)
 	}
 	load_cr4(cr4);
 	/* Reload cpu ext features to reflect cr4 changes */
-	if (IS_BSP())
+	if (IS_BSP() && cold)
 		identify_cpu_ext_features();
 	if (IS_BSP() && (amd_feature & AMDID_NX) != 0) {
 		msr = rdmsr(MSR_EFER) | EFER_NXE;

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-3-Clause and BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-3-Clause and BSD-2-Clause
  *
  * Copyright (c) 2002 Networks Associates Technology, Inc.
  * All rights reserved.
@@ -59,7 +59,6 @@
  * SUCH DAMAGE.
  *
  *	@(#)fsck.h	8.4 (Berkeley) 5/9/95
- * $FreeBSD$
  */
 
 #ifndef _FSCK_H_
@@ -112,7 +111,7 @@ struct inostat {
 #define	FSTATE	0x2		/* inode is file */
 #define	FZLINK	0x3		/* inode is file with a link count of zero */
 #define	DSTATE	0x4		/* inode is directory */
-#define	DZLINK	0x5		/* inode is directory with a zero link count  */
+#define	DZLINK	0x5		/* inode is directory with a zero link count */
 #define	DFOUND	0x6		/* directory found during descent */
 /*     		0x7		   UNUSED - see S_IS_DVALID() definition */
 #define	DCLEAR	0x8		/* directory is to be cleared */
@@ -297,22 +296,25 @@ struct dups {
 	struct dups *next;
 	ufs2_daddr_t dup;
 };
-extern struct dups *duplist;		/* head of dup list */
-extern struct dups *muldup;		/* end of unique duplicate dup block numbers */
+extern struct dups *duplist;	/* head of dup list */
+extern struct dups *muldup;	/* end of unique duplicate dup block numbers */
 
 /*
  * Inode cache data structures.
  */
-extern struct inoinfo {
-	struct	inoinfo *i_nexthash;	/* next entry in hash chain */
+struct inoinfo {
+	SLIST_ENTRY(inoinfo) i_hash;	/* hash list */
 	ino_t	i_number;		/* inode number of this entry */
 	ino_t	i_parent;		/* inode number of parent */
 	ino_t	i_dotdot;		/* inode number of `..' */
 	size_t	i_isize;		/* size of inode */
+	u_int	i_depth;		/* depth of directory from root */
 	u_int	i_flags;		/* flags, see below */
 	u_int	i_numblks;		/* size of block array in bytes */
 	ufs2_daddr_t i_blks[1];		/* actually longer */
-} **inphead, **inpsort;
+};
+extern SLIST_HEAD(inohash, inoinfo) *inphash;
+extern struct inoinfo **inpsort;
 /*
  * flags for struct inoinfo
  */
@@ -330,6 +332,7 @@ extern int adjnbfree[MIBSIZE];	/* MIB cmd to adjust number of free blocks */
 extern int adjnifree[MIBSIZE];	/* MIB cmd to adjust number of free inodes */
 extern int adjnffree[MIBSIZE];	/* MIB cmd to adjust number of free frags */
 extern int adjnumclusters[MIBSIZE]; /* MIB cmd adjust number of free clusters */
+extern int adjdepth[MIBSIZE];	/* MIB cmd to adjust directory depth count */
 extern int freefiles[MIBSIZE];	/* MIB cmd to free a set of files */
 extern int freedirs[MIBSIZE];	/* MIB cmd to free a set of directories */
 extern int freeblks[MIBSIZE];	/* MIB cmd to free a set of data blocks */
@@ -343,6 +346,7 @@ extern off_t bflag;		/* location of alternate super block */
 extern int bkgrdflag;		/* use a snapshot to run on an active system */
 extern char *blockmap;		/* ptr to primary blk allocation map */
 extern char *cdevname;		/* name of device being checked */
+extern int cgheader_corrupt;	/* one or more CG headers are corrupt */
 extern char ckclean;		/* only do work if not cleanly unmounted */
 extern int ckhashadd;		/* check hashes to be added */
 extern char *copybuf;		/* buffer to copy snapshot blocks */
@@ -373,7 +377,6 @@ extern long secsize;		/* actual disk sector size */
 extern char skipclean;		/* skip clean file systems if preening */
 extern int snapcnt;		/* number of active snapshots */
 extern struct inode snaplist[FSMAXSNAP + 1]; /* list of active snapshots */
-extern char snapname[BUFSIZ];	/* when doing snapshots, the name of the file */
 extern int sujrecovery;		/* 1 => doing check using the journal */
 extern int surrender;		/* Give up if reads fail */
 extern char usedsoftdep;	/* just fix soft dependency inconsistencies */
@@ -461,9 +464,12 @@ void		catch(int);
 void		catchquit(int);
 void		cgdirty(struct bufarea *);
 struct bufarea *cglookup(int cg);
-int		changeino(ino_t dir, const char *name, ino_t newnum);
+int		changeino(ino_t dir, const char *name, ino_t newnum, int depth);
 void		check_blkcnt(struct inode *ip);
-int		check_cgmagic(int cg, struct bufarea *cgbp, int requestrebuild);
+int		check_cgmagic(int cg, struct bufarea *cgbp);
+void		rebuild_cg(int cg, struct bufarea *cgbp);
+void		check_dirdepth(struct inoinfo *inp);
+int		chkfilesize(mode_t mode, u_int64_t filesize);
 int		chkrange(ufs2_daddr_t blk, int cnt);
 void		ckfini(int markclean);
 int		ckinode(union dinode *dp, struct inodesc *);
@@ -481,6 +487,7 @@ int		findino(struct inodesc *);
 int		findname(struct inodesc *);
 void		flush(int fd, struct bufarea *bp);
 int		freeblock(struct inodesc *);
+void		freedirino(ino_t ino, ino_t parent);
 void		freeino(ino_t ino);
 void		freeinodebuf(void);
 void		fsckinit(void);
@@ -489,7 +496,7 @@ int		ftypeok(union dinode *dp);
 void		getblk(struct bufarea *bp, ufs2_daddr_t blk, long size);
 struct bufarea *getdatablk(ufs2_daddr_t blkno, long size, int type);
 struct inoinfo *getinoinfo(ino_t inumber);
-union dinode   *getnextinode(ino_t inumber, int rebuildcg);
+union dinode   *getnextinode(ino_t inumber, int rebuiltcg);
 void		getpathname(char *namebuf, ino_t curdir, ino_t ino);
 void		ginode(ino_t, struct inode *);
 void		gjournal_check(const char *filesys);
@@ -518,6 +525,7 @@ void		prtbuf(struct bufarea *, const char *, ...) __printflike(2, 3);
 void		prtinode(struct inode *);
 void		pwarn(const char *fmt, ...) __printflike(1, 2);
 int		readsb(int listerr);
+int		removecachedino(ino_t);
 int		reply(const char *question);
 void		rwerror(const char *mesg, ufs2_daddr_t blk);
 void		sblock_init(void);

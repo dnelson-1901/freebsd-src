@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_evdev.h"
 
 #include <sys/param.h>
@@ -269,9 +267,8 @@ hvkbd_read_char_locked(keyboard_t *kbd, int wait)
 	uint32_t action;
 	keystroke ks;
 	hv_kbd_sc *sc = kbd->kb_data;
-#ifdef EVDEV_SUPPORT
 	int keycode;
-#endif
+
 	HVKBD_LOCK_ASSERT();
 
 	if (!KBD_IS_ACTIVE(kbd) || !hv_kbd_prod_is_ready(sc))

@@ -37,8 +37,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_capsicum.h"
 #include "opt_ktrace.h"
 
@@ -161,6 +159,7 @@ nameiinit(void *dummy __unused)
 	    UMA_ALIGN_PTR, 0);
 	vfs_vector_op_register(&crossmp_vnodeops);
 	getnewvnode("crossmp", NULL, &crossmp_vnodeops, &vp_crossmp);
+	vp_crossmp->v_irflag |= VIRF_CROSSMP;
 }
 SYSINIT(vfs, SI_SUB_VFS, SI_ORDER_SECOND, nameiinit, NULL);
 
@@ -1013,12 +1012,16 @@ dirloop:
 			     pr = pr->pr_parent)
 				if (dp == pr->pr_root)
 					break;
-			if (dp == ndp->ni_rootdir || 
-			    dp == ndp->ni_topdir || 
-			    dp == rootvnode ||
-			    pr != NULL ||
-			    ((dp->v_vflag & VV_ROOT) != 0 &&
-			     (cnp->cn_flags & NOCROSSMOUNT) != 0)) {
+			bool isroot = dp == ndp->ni_rootdir ||
+			    dp == ndp->ni_topdir || dp == rootvnode ||
+			    pr != NULL;
+			if (isroot && (ndp->ni_lcf &
+			    NI_LCF_STRICTRELATIVE) != 0) {
+				error = ENOTCAPABLE;
+				goto capdotdot;
+			}
+			if (isroot || ((dp->v_vflag & VV_ROOT) != 0 &&
+			    (cnp->cn_flags & NOCROSSMOUNT) != 0)) {
 				ndp->ni_dvp = dp;
 				ndp->ni_vp = dp;
 				VREF(dp);
@@ -1039,6 +1042,7 @@ dirloop:
 			    LK_RETRY, ISDOTDOT));
 			error = nameicap_check_dotdot(ndp, dp);
 			if (error != 0) {
+capdotdot:
 #ifdef KTRACE
 				if (KTRPOINT(curthread, KTR_CAPFAIL))
 					ktrcapfail(CAPFAIL_LOOKUP, NULL, NULL);

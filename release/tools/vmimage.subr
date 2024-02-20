@@ -1,6 +1,5 @@
 #!/bin/sh
 #
-# $FreeBSD$
 #
 #
 # Common functions for virtual machine image build scripts.
@@ -250,6 +249,8 @@ vm_create_disk() {
 		${SWAPOPT} \
 		${ROOTFSPART} \
 		-o ${VMIMAGE}
+
+	echo "Disk image ${VMIMAGE} created."
 
 	if [ ${ESP} = "yes" ]; then
 		rm ${espfilename}

@@ -1,5 +1,4 @@
 /*
- * $FreeBSD$
  */
 
 /*
@@ -418,7 +417,13 @@ FBSD_1.6 {
 
 FBSD_1.7 {
 	 _Fork;
+	kqueuex;
+	membarrier;
 	swapoff;
+};
+
+FBSD_1.8 {
+	 kcmp;
 };
 
 FBSDprivate_1.0 {

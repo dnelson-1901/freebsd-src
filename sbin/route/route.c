@@ -42,12 +42,13 @@ static char sccsid[] = "@(#)route.c	8.6 (Berkeley) 4/28/95";
 #endif /* not lint */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#ifdef JAIL
+#include <sys/jail.h>
+#endif
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/queue.h>
@@ -63,6 +64,9 @@ __FBSDID("$FreeBSD$");
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
+#ifdef JAIL
+#include <jail.h>
+#endif
 #include <paths.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -90,6 +94,9 @@ static struct keytab {
 	{0, 0}
 };
 
+#ifdef JAIL
+char * jail_name;
+#endif
 static struct sockaddr_storage so[RTAX_MAX];
 static int	pid, rtm_addrs;
 static int	s;
@@ -161,7 +168,7 @@ usage(const char *cp)
 {
 	if (cp != NULL)
 		warnx("bad keyword: %s", cp);
-	errx(EX_USAGE, "usage: route [-46dnqtv] command [[modifiers] args]");
+	errx(EX_USAGE, "usage: route [-j jail] [-46dnqtv] command [[modifiers] args]");
 	/* NOTREACHED */
 }
 
@@ -169,12 +176,15 @@ int
 main(int argc, char **argv)
 {
 	int ch;
+#ifdef JAIL
+	int jid;
+#endif
 	size_t len;
 
 	if (argc < 2)
 		usage(NULL);
 
-	while ((ch = getopt(argc, argv, "46nqdtv")) != -1)
+	while ((ch = getopt(argc, argv, "46nqdtvj:")) != -1)
 		switch(ch) {
 		case '4':
 #ifdef INET
@@ -207,6 +217,15 @@ main(int argc, char **argv)
 		case 'd':
 			debugonly = 1;
 			break;
+		case 'j':
+#ifdef JAIL
+			if (optarg == NULL)
+				usage(NULL);
+			jail_name = optarg;
+#else
+			errx(1, "Jail support is not compiled in");
+#endif
+			break;
 		case '?':
 		default:
 			usage(NULL);
@@ -216,6 +235,17 @@ main(int argc, char **argv)
 
 	pid = getpid();
 	uid = geteuid();
+
+#ifdef JAIL
+	if (jail_name != NULL) {
+		jid = jail_getid(jail_name);
+		if (jid == -1)
+			errx(1, "Jail not found");
+		if (jail_attach(jid) != 0)
+			errx(1, "Cannot attach to jail");
+	}
+#endif
+
 	if (tflag)
 		s = open(_PATH_DEVNULL, O_WRONLY, 0);
 	else
@@ -1279,6 +1309,9 @@ getaddr(int idx, char *str, int nrflags)
 	q = strchr(str,'/');
 	if (q != NULL && idx == RTAX_DST) {
 		/* A.B.C.D/NUM */
+		struct sockaddr_in *mask;
+		uint32_t mask_bits;
+
 		*q = '\0';
 		if (inet_aton(str, &sin->sin_addr) == 0)
 			errx(EX_NOHOST, "bad address: %s", str);
@@ -1288,6 +1321,20 @@ getaddr(int idx, char *str, int nrflags)
 			errx(EX_NOHOST, "bad mask length: %s", q + 1);
 
 		inet_makemask((struct sockaddr_in *)&so[RTAX_NETMASK],masklen);
+
+		/*
+		 * Check for bogus destination such as "10/8"; heuristic is
+		 * that there are bits set in the host part, and no dot
+		 * is present.
+		 */
+		mask = ((struct sockaddr_in *) &so[RTAX_NETMASK]);
+		mask_bits = ntohl(mask->sin_addr.s_addr);
+		if ((ntohl(sin->sin_addr.s_addr) & ~mask_bits) != 0 &&
+		    strchr(str, '.') == NULL)
+			errx(EX_NOHOST,
+			    "malformed address, bits set after mask;"
+			    " %s means %s",
+			    str, inet_ntoa(sin->sin_addr));
 		return (0);
 	}
 	if (inet_aton(str, &sin->sin_addr) != 0)

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Rick Macklem, University of Guelph
  * All rights reserved.
@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * These functions implement the client side state handling for NFSv4.
  * NFSv4 state handling:
@@ -530,6 +528,7 @@ nfscl_getstateid(vnode_t vp, u_int8_t *nfhp, int fhlen, u_int32_t mode,
 	struct nfscldeleg *dp;
 	struct nfsnode *np;
 	struct nfsmount *nmp;
+	struct nfscred ncr;
 	u_int8_t own[NFSV4CL_LOCKNAMELEN], lockown[NFSV4CL_LOCKNAMELEN];
 	int error;
 	bool done;
@@ -687,7 +686,7 @@ nfscl_getstateid(vnode_t vp, u_int8_t *nfhp, int fhlen, u_int32_t mode,
 		 * A read ahead or write behind is indicated by p == NULL.
 		 */
 		if (p == NULL)
-			newnfs_copycred(&op->nfso_cred, cred);
+			memcpy(&ncr, &op->nfso_cred, sizeof(ncr));
 	}
 
 	/*
@@ -701,6 +700,8 @@ nfscl_getstateid(vnode_t vp, u_int8_t *nfhp, int fhlen, u_int32_t mode,
 	stateidp->other[1] = op->nfso_stateid.other[1];
 	stateidp->other[2] = op->nfso_stateid.other[2];
 	NFSUNLOCKCLSTATE();
+	if (p == NULL)
+		newnfs_copycred(&ncr, cred);
 	return (0);
 }
 

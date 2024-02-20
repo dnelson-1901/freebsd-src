@@ -29,7 +29,6 @@
  * SUCH DAMAGE.
  *
  *	@(#)mount.h	8.21 (Berkeley) 5/20/95
- * $FreeBSD$
  */
 
 #ifndef _SYS_MOUNT_H_
@@ -52,7 +51,12 @@
 
 typedef struct fsid { int32_t val[2]; } fsid_t;	/* filesystem id type */
 
-#define fsidcmp(a, b) memcmp((a), (b), sizeof(fsid_t))
+/* Returns non-zero if fsids are different. */
+static __inline int
+fsidcmp(const fsid_t *a, const fsid_t *b)
+{
+	return (a->val[0] != b->val[0] || a->val[1] != b->val[1]);
+}
 
 /*
  * File identifier.
@@ -222,7 +226,7 @@ struct mount {
 	int		mnt_writeopcount;	/* (i) write syscalls pending */
 	struct vfsoptlist *mnt_opt;		/* current mount options */
 	struct vfsoptlist *mnt_optnew;		/* new options passed to fs */
-	u_int		mnt_pad0;		/* was mnt_maxsymlinklen */
+	struct ucred	*mnt_exjail;		/* (i) jail which did exports */
 	struct statfs	mnt_stat;		/* cache of filesystem stats */
 	struct ucred	*mnt_cred;		/* credentials of mounter */
 	void *		mnt_data;		/* private data */
@@ -948,6 +952,9 @@ vfs_statfs_t	__vfs_statfs;
  * exported vnode operations
  */
 
+/* Define this to indicate that vfs_exjail_clone() exists for ZFS to use. */
+#define	VFS_SUPPORTS_EXJAIL_CLONE	1
+
 int	dounmount(struct mount *, int, struct thread *);
 
 int	kernel_mount(struct mntarg *ma, uint64_t flags);
@@ -985,8 +992,9 @@ int	vfs_setpublicfs			    /* set publicly exported fs */
 	    (struct mount *, struct netexport *, struct export_args *);
 void	vfs_periodic(struct mount *, int);
 int	vfs_busy(struct mount *, int);
+void	vfs_exjail_clone(struct mount *, struct mount *);
 int	vfs_export			 /* process mount export info */
-	    (struct mount *, struct export_args *);
+	    (struct mount *, struct export_args *, int);
 void	vfs_free_addrlist(struct netexport *);
 void	vfs_allocate_syncvnode(struct mount *);
 void	vfs_deallocate_syncvnode(struct mount *);

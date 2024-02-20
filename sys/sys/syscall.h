@@ -2,7 +2,6 @@
  * System call numbers.
  *
  * DO NOT EDIT-- this file is automatically @generated.
- * $FreeBSD$
  */
 
 #define	SYS_syscall	0
@@ -519,4 +518,7 @@
 #define	SYS_aio_readv	579
 #define	SYS_sched_getcpu	581
 #define	SYS_swapoff	582
-#define	SYS_MAXSYSCALL	583
+#define	SYS_kqueuex	583
+#define	SYS_membarrier	584
+#define	SYS_kcmp	588
+#define	SYS_MAXSYSCALL	589

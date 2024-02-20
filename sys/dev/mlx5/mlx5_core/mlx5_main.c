@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2013-2021, Mellanox Technologies, Ltd.  All rights reserved.
+ * Copyright (c) 2022 NVIDIA corporation & affiliates.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -21,8 +22,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_rss.h"
@@ -50,6 +49,7 @@
 #include <dev/mlx5/mlx5_core/mlx5_core.h>
 #include <dev/mlx5/mlx5_core/eswitch.h>
 #include <dev/mlx5/mlx5_core/fs_core.h>
+#include <dev/mlx5/mlx5_core/diag_cnt.h>
 #ifdef PCI_IOV
 #include <sys/nv.h>
 #include <dev/pci/pci_iov.h>
@@ -83,6 +83,11 @@ static int mlx5_fast_unload_enabled = 1;
 SYSCTL_INT(_hw_mlx5, OID_AUTO, fast_unload_enabled, CTLFLAG_RWTUN,
     &mlx5_fast_unload_enabled, 0,
     "Set to enable fast unload. Clear to disable.");
+
+static int mlx5_core_comp_eq_size = 1024;
+SYSCTL_INT(_hw_mlx5, OID_AUTO, comp_eq_size, CTLFLAG_RDTUN | CTLFLAG_MPSAFE,
+    &mlx5_core_comp_eq_size, 0,
+    "Set default completion EQ size between 1024 and 16384 inclusivly. Value should be power of two.");
 
 static LIST_HEAD(intf_list);
 static LIST_HEAD(dev_list);
@@ -177,6 +182,22 @@ static struct mlx5_profile profiles[] = {
 		.log_max_qp	= 17,
 	},
 };
+
+static int
+mlx5_core_get_comp_eq_size(void)
+{
+	int value = mlx5_core_comp_eq_size;
+
+	if (value < 1024)
+		value = 1024;
+	else if (value > 16384)
+		value = 16384;
+
+	/* make value power of two, rounded down */
+	while (value & (value - 1))
+		value &= (value - 1);
+	return (value);
+}
 
 static void mlx5_set_driver_version(struct mlx5_core_dev *dev)
 {
@@ -686,7 +707,7 @@ static int alloc_comp_eqs(struct mlx5_core_dev *dev)
 
 	INIT_LIST_HEAD(&table->comp_eqs_list);
 	ncomp_vec = table->num_comp_vectors;
-	nent = MLX5_COMP_EQ_SIZE;
+	nent = mlx5_core_get_comp_eq_size();
 	for (i = 0; i < ncomp_vec; i++) {
 		eq = kzalloc_node(sizeof(*eq), GFP_KERNEL, dev->priv.numa_node);
 
@@ -1190,10 +1211,16 @@ static int mlx5_load_one(struct mlx5_core_dev *dev, struct mlx5_priv *priv,
 		goto err_mpfs;
 	}
 
+	err = mlx5_diag_cnt_init(dev);
+	if (err) {
+		mlx5_core_err(dev, "diag cnt init failed %d\n", err);
+		goto err_fpga;
+	}
+
 	err = mlx5_register_device(dev);
 	if (err) {
 		mlx5_core_err(dev, "mlx5_register_device failed %d\n", err);
-		goto err_fpga;
+		goto err_diag_cnt;
 	}
 
 	set_bit(MLX5_INTERFACE_STATE_UP, &dev->intf_state);
@@ -1201,6 +1228,9 @@ static int mlx5_load_one(struct mlx5_core_dev *dev, struct mlx5_priv *priv,
 out:
 	mutex_unlock(&dev->intf_state_mutex);
 	return 0;
+
+err_diag_cnt:
+	mlx5_diag_cnt_cleanup(dev);
 
 err_fpga:
 	mlx5_fpga_device_stop(dev);
@@ -1272,6 +1302,7 @@ static int mlx5_unload_one(struct mlx5_core_dev *dev, struct mlx5_priv *priv,
 	mlx5_unregister_device(dev);
 
 	mlx5_eswitch_cleanup(dev->priv.eswitch);
+	mlx5_diag_cnt_cleanup(dev);
 	mlx5_fpga_device_stop(dev);
 	mlx5_mpfs_destroy(dev);
 	mlx5_cleanup_fs(dev);
@@ -1671,7 +1702,9 @@ static int init_one(struct pci_dev *pdev,
 			pci_iov_schema_add_uint64(vf_schema, iov_port_guid_name,
 			    0, 0);
 			err = pci_iov_attach(bsddev, pf_schema, vf_schema);
-			if (err != 0) {
+			if (err == 0) {
+				dev->iov_pf = true;
+			} else {
 				device_printf(bsddev,
 			    "Failed to initialize SR-IOV support, error %d\n",
 				    err);
@@ -1705,8 +1738,11 @@ static void remove_one(struct pci_dev *pdev)
 	struct mlx5_priv *priv = &dev->priv;
 
 #ifdef PCI_IOV
-	pci_iov_detach(pdev->dev.bsddev);
-	mlx5_eswitch_disable_sriov(priv->eswitch);
+	if (dev->iov_pf) {
+		pci_iov_detach(pdev->dev.bsddev);
+		mlx5_eswitch_disable_sriov(priv->eswitch);
+		dev->iov_pf = false;
+	}
 #endif
 
 	if (mlx5_unload_one(dev, priv, true)) {

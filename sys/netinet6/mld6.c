@@ -66,8 +66,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 
@@ -2162,12 +2160,9 @@ static void
 mld_final_leave(struct in6_multi *inm, struct mld_ifsoftc *mli)
 {
 	struct epoch_tracker     et;
-	int syncstates;
 #ifdef KTR
 	char ip6tbuf[INET6_ADDRSTRLEN];
 #endif
-
-	syncstates = 1;
 
 	CTR4(KTR_MLD, "%s: final leave %s on ifp %p(%s)",
 	    __func__, ip6_sprintf(ip6tbuf, &inm->in6m_addr),
@@ -2232,7 +2227,6 @@ mld_final_leave(struct in6_multi *inm, struct mld_ifsoftc *mli)
 				inm->in6m_state = MLD_LEAVING_MEMBER;
 				inm->in6m_sctimer = 1;
 				V_state_change_timers_running6 = 1;
-				syncstates = 0;
 			}
 			break;
 		}
@@ -2244,15 +2238,13 @@ mld_final_leave(struct in6_multi *inm, struct mld_ifsoftc *mli)
 		break;
 	}
 
-	if (syncstates) {
-		in6m_commit(inm);
-		CTR3(KTR_MLD, "%s: T1 -> T0 for %s/%s", __func__,
-		    ip6_sprintf(ip6tbuf, &inm->in6m_addr),
-		    if_name(inm->in6m_ifp));
-		inm->in6m_st[1].iss_fmode = MCAST_UNDEFINED;
-		CTR3(KTR_MLD, "%s: T1 now MCAST_UNDEFINED for %p/%s",
-		    __func__, &inm->in6m_addr, if_name(inm->in6m_ifp));
-	}
+	in6m_commit(inm);
+	CTR3(KTR_MLD, "%s: T1 -> T0 for %s/%s", __func__,
+	    ip6_sprintf(ip6tbuf, &inm->in6m_addr),
+	    if_name(inm->in6m_ifp));
+	inm->in6m_st[1].iss_fmode = MCAST_UNDEFINED;
+	CTR3(KTR_MLD, "%s: T1 now MCAST_UNDEFINED for %p/%s",
+	    __func__, &inm->in6m_addr, if_name(inm->in6m_ifp));
 }
 
 /*
@@ -2997,7 +2989,7 @@ mld_v2_dispatch_general_query(struct mld_ifsoftc *mli)
 	 * many packets, we should finish sending them before starting of
 	 * queuing the new reply.
 	 */
-	if (mbufq_len(&mli->mli_gq) != 0)
+	if (!mbufq_empty(&mli->mli_gq))
 		goto send;
 
 	ifp = mli->mli_ifp;

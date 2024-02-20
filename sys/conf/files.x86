@@ -1,7 +1,6 @@
 # This file tells config what files go into building a kernel,
 # files marked standard are always included.
 #
-# $FreeBSD$
 #
 # This file contains all the x86 devices and such that are
 # common between i386 and amd64, but aren't applicable to
@@ -134,6 +133,7 @@ dev/hwpmc/hwpmc_uncore.c	optional	hwpmc
 dev/hwpmc/hwpmc_tsc.c		optional	hwpmc
 dev/hwpmc/hwpmc_x86.c		optional	hwpmc
 dev/hyperv/hvsock/hv_sock.c				optional	hyperv
+dev/hyperv/input/hv_hid.c				optional	hyperv hvhid
 dev/hyperv/input/hv_kbd.c				optional	hyperv
 dev/hyperv/input/hv_kbdc.c				optional	hyperv
 dev/hyperv/pcib/vmbus_pcib.c				optional	hyperv pci
@@ -170,6 +170,7 @@ dev/iommu/iommu_gas.c		optional	acpi iommu pci
 dev/ipmi/ipmi.c			optional	ipmi
 dev/ipmi/ipmi_acpi.c		optional	ipmi acpi
 dev/ipmi/ipmi_isa.c		optional	ipmi isa
+dev/ipmi/ipmi_bt.c		optional	ipmi
 dev/ipmi/ipmi_kcs.c		optional	ipmi
 dev/ipmi/ipmi_smic.c		optional	ipmi
 dev/ipmi/ipmi_smbus.c		optional	ipmi smbus

@@ -8,8 +8,6 @@
  * this stuff is worth it, you can buy me a beer in return.   Poul-Henning Kamp
  * ----------------------------------------------------------------------------
  *
- * $FreeBSD$
- *
  */
 
 #ifndef _X86_X86_SMP_H_
@@ -56,10 +54,10 @@ extern int nmi_kdb_lock;
 extern int nmi_is_broadcast;
 
 struct cpu_info {
-	int	cpu_present:1;
-	int	cpu_bsp:1;
-	int	cpu_disabled:1;
-	int	cpu_hyperthread:1;
+	bool	cpu_present:1;
+	bool	cpu_bsp:1;
+	bool	cpu_disabled:1;
+	bool	cpu_hyperthread:1;
 };
 extern struct cpu_info *cpu_info;
 

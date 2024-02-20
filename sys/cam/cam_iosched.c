@@ -1,7 +1,7 @@
 /*-
  * CAM IO Scheduler Interface
  *
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015 Netflix, Inc.
  *
@@ -25,16 +25,12 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_cam.h"
 #include "opt_ddb.h"
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 
 #include <sys/systm.h>
@@ -71,7 +67,7 @@ static MALLOC_DEFINE(M_CAMSCHED, "CAM I/O Scheduler",
 #ifdef CAM_IOSCHED_DYNAMIC
 
 static bool do_dynamic_iosched = 1;
-SYSCTL_BOOL(_kern_cam, OID_AUTO, do_dynamic_iosched, CTLFLAG_RD | CTLFLAG_TUN,
+SYSCTL_BOOL(_kern_cam, OID_AUTO, do_dynamic_iosched, CTLFLAG_RDTUN,
     &do_dynamic_iosched, 1,
     "Enable Dynamic I/O scheduler optimizations.");
 
@@ -96,7 +92,7 @@ SYSCTL_BOOL(_kern_cam, OID_AUTO, do_dynamic_iosched, CTLFLAG_RD | CTLFLAG_TUN,
  * Note: See computation of EMA and EMVAR for acceptable ranges of alpha.
  */
 static int alpha_bits = 9;
-SYSCTL_INT(_kern_cam, OID_AUTO, iosched_alpha_bits, CTLFLAG_RW | CTLFLAG_TUN,
+SYSCTL_INT(_kern_cam, OID_AUTO, iosched_alpha_bits, CTLFLAG_RWTUN,
     &alpha_bits, 1,
     "Bits in EMA's alpha.");
 
@@ -1536,7 +1532,7 @@ cam_iosched_queue_work(struct cam_iosched_softc *isc, struct bio *bp)
 {
 
 	/*
-	 * A BIO_SPEEDUP from the uppper layers means that they have a block
+	 * A BIO_SPEEDUP from the upper layers means that they have a block
 	 * shortage. At the present, this is only sent when we're trying to
 	 * allocate blocks, but have a shortage before giving up. bio_length is
 	 * the size of their shortage. We will complete just enough BIO_DELETEs

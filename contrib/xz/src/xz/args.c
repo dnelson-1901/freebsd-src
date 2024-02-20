@@ -527,7 +527,10 @@ parse_real(args_info *args, int argc, char **argv)
 				args->files_file = fopen(optarg,
 						c == OPT_FILES ? "r" : "rb");
 				if (args->files_file == NULL)
-					message_fatal("%s: %s", optarg,
+					// TRANSLATORS: This is a translatable
+					// string because French needs a space
+					// before the colon ("%s : %s").
+					message_fatal(_("%s: %s"), optarg,
 							strerror(errno));
 			}
 
@@ -720,8 +723,17 @@ args_parse(args_info *args, int argc, char **argv)
 	// be done also when uncompressing raw data, since for raw decoding
 	// the options given on the command line are used to know what kind
 	// of raw data we are supposed to decode.
-	if (opt_mode == MODE_COMPRESS || opt_format == FORMAT_RAW)
+	if (opt_mode == MODE_COMPRESS || (opt_format == FORMAT_RAW
+			&& opt_mode != MODE_LIST))
 		coder_set_compression_settings();
+
+	// If raw format is used and a custom suffix is not provided,
+	// then only stdout mode can be used when compressing or decompressing.
+	if (opt_format == FORMAT_RAW && !suffix_is_set() && !opt_stdout
+			&& (opt_mode == MODE_COMPRESS
+				|| opt_mode == MODE_DECOMPRESS))
+		message_fatal(_("With --format=raw, --suffix=.SUF is "
+				"required unless writing to stdout"));
 
 	// If no filenames are given, use stdin.
 	if (argv[optind] == NULL && args->files_name == NULL) {

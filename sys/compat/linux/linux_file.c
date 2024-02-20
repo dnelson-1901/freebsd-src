@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1994-1995 Søren Schmidt
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/dirent.h>
@@ -456,7 +454,7 @@ linux_getdents(struct thread *td, struct linux_getdents_args *args)
 	size_t retval;
 
 	buflen = min(args->count, MAXBSIZE);
-	buf = malloc(buflen, M_TEMP, M_WAITOK);
+	buf = malloc(buflen, M_LINUX, M_WAITOK);
 
 	error = kern_getdirentries(td, args->fd, buf, buflen,
 	    &base, NULL, UIO_SYSSPACE);
@@ -465,7 +463,7 @@ linux_getdents(struct thread *td, struct linux_getdents_args *args)
 		goto out1;
 	}
 
-	lbuf = malloc(LINUX_RECLEN(LINUX_NAME_MAX), M_TEMP, M_WAITOK | M_ZERO);
+	lbuf = malloc(LINUX_RECLEN(LINUX_NAME_MAX), M_LINUX, M_WAITOK | M_ZERO);
 
 	len = td->td_retval[0];
 	inp = buf;
@@ -511,9 +509,9 @@ linux_getdents(struct thread *td, struct linux_getdents_args *args)
 	td->td_retval[0] = retval;
 
 out:
-	free(lbuf, M_TEMP);
+	free(lbuf, M_LINUX);
 out1:
-	free(buf, M_TEMP);
+	free(buf, M_LINUX);
 	return (error);
 }
 #endif
@@ -526,14 +524,13 @@ linux_getdents64(struct thread *td, struct linux_getdents64_args *args)
 	int len, reclen;		/* BSD-format */
 	caddr_t outp;			/* Linux-format */
 	int resid, linuxreclen;		/* Linux-format */
-	caddr_t lbuf;			/* Linux-format */
 	off_t base;
 	struct l_dirent64 *linux_dirent64;
 	int buflen, error;
 	size_t retval;
 
 	buflen = min(args->count, MAXBSIZE);
-	buf = malloc(buflen, M_TEMP, M_WAITOK);
+	buf = malloc(buflen, M_LINUX, M_WAITOK);
 
 	error = kern_getdirentries(td, args->fd, buf, buflen,
 	    &base, NULL, UIO_SYSSPACE);
@@ -542,7 +539,8 @@ linux_getdents64(struct thread *td, struct linux_getdents64_args *args)
 		goto out1;
 	}
 
-	lbuf = malloc(LINUX_RECLEN64(LINUX_NAME_MAX), M_TEMP, M_WAITOK | M_ZERO);
+	linux_dirent64 = malloc(LINUX_RECLEN64(LINUX_NAME_MAX), M_LINUX,
+	    M_WAITOK | M_ZERO);
 
 	len = td->td_retval[0];
 	inp = buf;
@@ -563,7 +561,6 @@ linux_getdents64(struct thread *td, struct linux_getdents64_args *args)
 			goto out;
 		}
 
-		linux_dirent64 = (struct l_dirent64*)lbuf;
 		linux_dirent64->d_ino = bdp->d_fileno;
 		linux_dirent64->d_off = bdp->d_off;
 		linux_dirent64->d_reclen = linuxreclen;
@@ -585,9 +582,9 @@ linux_getdents64(struct thread *td, struct linux_getdents64_args *args)
 	td->td_retval[0] = retval;
 
 out:
-	free(lbuf, M_TEMP);
+	free(linux_dirent64, M_LINUX);
 out1:
-	free(buf, M_TEMP);
+	free(buf, M_LINUX);
 	return (error);
 }
 
@@ -598,13 +595,12 @@ linux_readdir(struct thread *td, struct linux_readdir_args *args)
 	struct dirent *bdp;
 	caddr_t buf;			/* BSD-format */
 	int linuxreclen;		/* Linux-format */
-	caddr_t lbuf;			/* Linux-format */
 	off_t base;
-	struct l_dirent *linux_dirent;
+	struct l_dirent *linux_dirent;	/* Linux-format */
 	int buflen, error;
 
-	buflen = LINUX_RECLEN(LINUX_NAME_MAX);
-	buf = malloc(buflen, M_TEMP, M_WAITOK);
+	buflen = sizeof(*bdp);
+	buf = malloc(buflen, M_LINUX, M_WAITOK);
 
 	error = kern_getdirentries(td, args->fd, buf, buflen,
 	    &base, NULL, UIO_SYSSPACE);
@@ -615,12 +611,12 @@ linux_readdir(struct thread *td, struct linux_readdir_args *args)
 	if (td->td_retval[0] == 0)
 		goto out;
 
-	lbuf = malloc(LINUX_RECLEN(LINUX_NAME_MAX), M_TEMP, M_WAITOK | M_ZERO);
+	linux_dirent = malloc(LINUX_RECLEN(LINUX_NAME_MAX), M_LINUX,
+	    M_WAITOK | M_ZERO);
 
 	bdp = (struct dirent *) buf;
 	linuxreclen = LINUX_RECLEN(bdp->d_namlen);
 
-	linux_dirent = (struct l_dirent*)lbuf;
 	linux_dirent->d_ino = bdp->d_fileno;
 	linux_dirent->d_off = bdp->d_off;
 	linux_dirent->d_reclen = bdp->d_namlen;
@@ -630,9 +626,9 @@ linux_readdir(struct thread *td, struct linux_readdir_args *args)
 	if (error == 0)
 		td->td_retval[0] = linuxreclen;
 
-	free(lbuf, M_TEMP);
+	free(linux_dirent, M_LINUX);
 out:
-	free(buf, M_TEMP);
+	free(buf, M_LINUX);
 	return (error);
 }
 #endif /* __i386__ || (__amd64__ && COMPAT_LINUX32) */
@@ -732,7 +728,7 @@ linux_unlink(struct thread *td, struct linux_unlink_args *args)
 		if (error == EPERM) {
 			/* Introduce POSIX noncompliant behaviour of Linux */
 			if (kern_statat(td, 0, AT_FDCWD, args->path,
-			    UIO_USERSPACE, &st, NULL) == 0) {
+			    UIO_USERSPACE, &st) == 0) {
 				if (S_ISDIR(st.st_mode))
 					error = EISDIR;
 			}
@@ -742,8 +738,8 @@ linux_unlink(struct thread *td, struct linux_unlink_args *args)
 		error = kern_funlinkat(td, AT_FDCWD, path, FD_NONE, UIO_SYSSPACE, 0, 0);
 		if (error == EPERM) {
 			/* Introduce POSIX noncompliant behaviour of Linux */
-			if (kern_statat(td, 0, AT_FDCWD, path, UIO_SYSSPACE, &st,
-			    NULL) == 0) {
+			if (kern_statat(td, 0, AT_FDCWD, path, UIO_SYSSPACE,
+			    &st) == 0) {
 				if (S_ISDIR(st.st_mode))
 					error = EISDIR;
 			}
@@ -769,7 +765,7 @@ linux_unlinkat_impl(struct thread *td, enum uio_seg pathseg, const char *path,
 	if (error == EPERM && !(args->flag & LINUX_AT_REMOVEDIR)) {
 		/* Introduce POSIX noncompliant behaviour of Linux */
 		if (kern_statat(td, AT_SYMLINK_NOFOLLOW, dfd, path,
-		    pathseg, &st, NULL) == 0 && S_ISDIR(st.st_mode))
+		    pathseg, &st) == 0 && S_ISDIR(st.st_mode))
 			error = EISDIR;
 	}
 	return (error);
@@ -2082,4 +2078,30 @@ linux_splice(struct thread *td, struct linux_splice_args *args)
 	 * instead.
 	 */
 	return (EINVAL);
+}
+
+int
+linux_close_range(struct thread *td, struct linux_close_range_args *args)
+{
+	u_int flags = 0;
+
+	/*
+	 * Implementing close_range(CLOSE_RANGE_UNSHARE) allows Linux to
+	 * unshare filedesc table of the calling thread from others threads
+	 * in a thread group (i.e., process in the FreeBSD) or others processes,
+	 * which shares the same table, before closing the files. FreeBSD does
+	 * not have compatible unsharing mechanism due to the fact that sharing
+	 * process resources, including filedesc table, is at thread level in the
+	 * Linux, while in the FreeBSD it is at the process level.
+	 * Return EINVAL for now if the CLOSE_RANGE_UNSHARE flag is specified
+	 * until this new Linux API stabilizes.
+	 */
+
+	if ((args->flags & ~(LINUX_CLOSE_RANGE_CLOEXEC)) != 0)
+		return (EINVAL);
+	if (args->first > args->last)
+		return (EINVAL);
+	if ((args->flags & LINUX_CLOSE_RANGE_CLOEXEC) != 0)
+		flags |= CLOSE_RANGE_CLOEXEC;
+	return (kern_close_range(td, flags, args->first, args->last));
 }

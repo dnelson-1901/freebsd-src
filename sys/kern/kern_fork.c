@@ -37,8 +37,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ktrace.h"
 #include "opt_kstack_pages.h"
 
@@ -381,6 +379,7 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	bcopy(&p1->p_startcopy, &p2->p_startcopy,
 	    __rangeof(struct proc, p_startcopy, p_endcopy));
 	pargs_hold(p2->p_args);
+	p2->p_umtx_min_timeout = p1->p_umtx_min_timeout;
 	PROC_UNLOCK(p1);
 
 	bzero(&p2->p_startzero,
@@ -620,7 +619,6 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	LIST_INIT(&p2->p_orphans);
 
 	callout_init_mtx(&p2->p_itcallout, &p2->p_mtx, 0);
-	TAILQ_INIT(&p2->p_kqtim_stop);
 
 	/*
 	 * This begins the section where we must prevent the parent
@@ -850,11 +848,13 @@ fork1(struct thread *td, struct fork_req *fr)
 	struct vmspace *vm2;
 	struct ucred *cred;
 	struct file *fp_procdesc;
+	struct pgrp *pg;
 	vm_ooffset_t mem_charged;
 	int error, nprocs_new;
 	static int curfail;
 	static struct timeval lastfail;
 	int flags, pages;
+	bool killsx_locked, singlethreaded;
 
 	flags = fr->fr_flags;
 	pages = fr->fr_pages;
@@ -911,6 +911,8 @@ fork1(struct thread *td, struct fork_req *fr)
 	fp_procdesc = NULL;
 	newproc = NULL;
 	vm2 = NULL;
+	killsx_locked = false;
+	singlethreaded = false;
 
 	/*
 	 * Increment the nprocs resource before allocations occur.
@@ -938,6 +940,52 @@ fork1(struct thread *td, struct fork_req *fr)
 			sx_xunlock(&allproc_lock);
 			goto fail2;
 		}
+	}
+
+	/*
+	 * If we are possibly multi-threaded, and there is a process
+	 * sending a signal to our group right now, ensure that our
+	 * other threads cannot be chosen for the signal queueing.
+	 * Otherwise, this might delay signal action, and make the new
+	 * child escape the signaling.
+	 */
+	pg = p1->p_pgrp;
+	if (p1->p_numthreads > 1) {
+		if (sx_try_slock(&pg->pg_killsx) != 0) {
+			killsx_locked = true;
+		} else {
+			PROC_LOCK(p1);
+			if (thread_single(p1, SINGLE_BOUNDARY)) {
+				PROC_UNLOCK(p1);
+				error = ERESTART;
+				goto fail2;
+			}
+			PROC_UNLOCK(p1);
+			singlethreaded = true;
+		}
+	}
+
+	/*
+	 * Atomically check for signals and block processes from sending
+	 * a signal to our process group until the child is visible.
+	 */
+	if (!killsx_locked && sx_slock_sig(&pg->pg_killsx) != 0) {
+		error = ERESTART;
+		goto fail2;
+	}
+	if (__predict_false(p1->p_pgrp != pg || sig_intr() != 0)) {
+		/*
+		 * Either the process was moved to other process
+		 * group, or there is pending signal.  sx_slock_sig()
+		 * does not check for signals if not sleeping for the
+		 * lock.
+		 */
+		sx_sunlock(&pg->pg_killsx);
+		killsx_locked = false;
+		error = ERESTART;
+		goto fail2;
+	} else {
+		killsx_locked = true;
 	}
 
 	/*
@@ -1030,7 +1078,8 @@ fork1(struct thread *td, struct fork_req *fr)
 	}
 
 	do_fork(td, fr, newproc, td2, vm2, fp_procdesc);
-	return (0);
+	error = 0;
+	goto cleanup;
 fail0:
 	error = EAGAIN;
 #ifdef MAC
@@ -1048,7 +1097,16 @@ fail2:
 		fdrop(fp_procdesc, td);
 	}
 	atomic_add_int(&nprocs, -1);
-	pause("fork", hz / 2);
+cleanup:
+	if (killsx_locked)
+		sx_sunlock(&pg->pg_killsx);
+	if (singlethreaded) {
+		PROC_LOCK(p1);
+		thread_single_end(p1, SINGLE_BOUNDARY);
+		PROC_UNLOCK(p1);
+	}
+	if (error != 0)
+		pause("fork", hz / 2);
 	return (error);
 }
 
@@ -1103,9 +1161,15 @@ fork_exit(void (*callout)(void *, struct trapframe *), void *arg,
 	}
 	mtx_assert(&Giant, MA_NOTOWNED);
 
+	/*
+	 * Now going to return to userland.
+	 */
+
 	if (p->p_sysent->sv_schedtail != NULL)
 		(p->p_sysent->sv_schedtail)(td);
 	td->td_pflags &= ~TDP_FORKING;
+
+	userret(td, frame);
 }
 
 /*
@@ -1136,7 +1200,7 @@ fork_return(struct thread *td, struct trapframe *frame)
 			td->td_dbgflags &= ~TDB_STOPATFORK;
 		}
 		PROC_UNLOCK(p);
-	} else if (p->p_flag & P_TRACED || td->td_dbgflags & TDB_BORN) {
+	} else if (p->p_flag & P_TRACED) {
  		/*
 		 * This is the start of a new thread in a traced
 		 * process.  Report a system call exit event.
@@ -1156,10 +1220,8 @@ fork_return(struct thread *td, struct trapframe *frame)
 	if (!prison_isalive(td->td_ucred->cr_prison))
 		exit1(td, 0, SIGKILL);
 
-	userret(td, frame);
-
 #ifdef KTRACE
 	if (KTRPOINT(td, KTR_SYSRET))
-		ktrsysret(SYS_fork, 0, 0);
+		ktrsysret(td->td_sa.code, 0, 0);
 #endif
 }

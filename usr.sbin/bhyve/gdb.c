@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2017-2018 John H. Baldwin <jhb@FreeBSD.org>
  *
@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #ifndef WITHOUT_CAPSICUM
 #include <sys/capsicum.h>
@@ -61,6 +59,7 @@ __FBSDID("$FreeBSD$");
 
 #include "bhyverun.h"
 #include "config.h"
+#include "debug.h"
 #include "gdb.h"
 #include "mem.h"
 #include "mevent.h"
@@ -795,6 +794,9 @@ gdb_cpu_resume(int vcpu)
 	if (vs->stepping) {
 		error = vm_set_capability(ctx, vcpu, VM_CAP_MTRAP_EXIT, 1);
 		assert(error == 0);
+
+		error = vm_set_capability(ctx, vcpu, VM_CAP_MASK_HWINTR, 1);
+		assert(error == 0);
 	}
 }
 
@@ -845,6 +847,8 @@ gdb_cpu_mtrap(int vcpu)
 		vs->stepping = false;
 		vs->stepped = true;
 		vm_set_capability(ctx, vcpu, VM_CAP_MTRAP_EXIT, 0);
+		vm_set_capability(ctx, vcpu, VM_CAP_MASK_HWINTR, 0);
+
 		while (vs->stepped) {
 			if (stopped_vcpu == -1) {
 				debug("$vCPU %d reporting step\n", vcpu);
@@ -879,7 +883,7 @@ gdb_cpu_breakpoint(int vcpu, struct vm_exit *vmexit)
 	int error;
 
 	if (!gdb_active) {
-		fprintf(stderr, "vm_loop: unexpected VMEXIT_DEBUG\n");
+		EPRINTLN("vm_loop: unexpected VMEXIT_DEBUG");
 		exit(4);
 	}
 	pthread_mutex_lock(&gdb_lock);
@@ -978,6 +982,8 @@ gdb_read_mem(const uint8_t *data, size_t len)
 	size_t resid, todo, bytes;
 	bool started;
 	int error;
+
+	assert(len >= 1);
 
 	/* Skip 'm' */
 	data += 1;
@@ -1089,6 +1095,8 @@ gdb_write_mem(const uint8_t *data, size_t len)
 	uint8_t *cp;
 	size_t resid, todo, bytes;
 	int error;
+
+	assert(len >= 1);
 
 	/* Skip 'M' */
 	data += 1;
@@ -1484,7 +1492,7 @@ gdb_query(const uint8_t *data, size_t len)
 
 		data += strlen("qThreadExtraInfo");
 		len -= strlen("qThreadExtraInfo");
-		if (*data != ',') {
+		if (len == 0 || *data != ',') {
 			send_error(EINVAL);
 			return;
 		}
@@ -1535,7 +1543,7 @@ handle_command(const uint8_t *data, size_t len)
 	case 'H': {
 		int tid;
 
-		if (data[1] != 'g' && data[1] != 'c') {
+		if (len < 2 || (data[1] != 'g' && data[1] != 'c')) {
 			send_error(EINVAL);
 			break;
 		}

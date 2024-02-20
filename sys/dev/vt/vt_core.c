@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009, 2013 The FreeBSD Foundation
  *
@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/consio.h>
 #include <sys/devctl.h>
@@ -2412,8 +2410,8 @@ skip_thunk:
 	case KDGKBTYPE:
 	case KDGETREPEAT:	/* get keyboard repeat & delay rates */
 	case KDSETREPEAT:	/* set keyboard repeat & delay rates (new) */
-	case KBADDKBD:		/* add/remove keyboard to/from mux */
-	case KBRELKBD: {
+	case KBADDKBD:		/* add keyboard to mux */
+	case KBRELKBD: {	/* release keyboard from mux */
 		error = 0;
 
 		mtx_lock(&Giant);

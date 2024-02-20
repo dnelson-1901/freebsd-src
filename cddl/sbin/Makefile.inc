@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 BINDIR?=	/sbin
 NO_SHARED?=	YES

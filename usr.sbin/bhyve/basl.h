@@ -11,6 +11,8 @@
 #include <contrib/dev/acpica/include/acpi.h>
 #pragma GCC diagnostic pop
 
+#include "qemu_fwcfg.h"
+
 #define ACPI_GAS_ACCESS_WIDTH_LEGACY 0
 #define ACPI_GAS_ACCESS_WIDTH_UNDEFINED 0
 #define ACPI_GAS_ACCESS_WIDTH_BYTE 1
@@ -59,8 +61,6 @@
 		}                                                            \
 	} while (0)
 
-#define QEMU_FWCFG_MAX_NAME 56
-
 struct basl_table;
 
 void basl_fill_gas(ACPI_GENERIC_ADDRESS *gas, uint8_t space_id,
@@ -82,6 +82,9 @@ int basl_table_append_checksum(struct basl_table *table, uint32_t start,
 /* Add an ACPI_TABLE_* to basl without its header. */
 int basl_table_append_content(struct basl_table *table, void *data,
     uint32_t len);
+int basl_table_append_fwcfg(struct basl_table *table,
+    const uint8_t *fwcfg_name, uint32_t alignment,
+    uint8_t size);
 int basl_table_append_gas(struct basl_table *table, uint8_t space_id,
     uint8_t bit_width, uint8_t bit_offset, uint8_t access_width,
     uint64_t address);

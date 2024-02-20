@@ -1,4 +1,3 @@
-/* $FreeBSD$ */
 /*	$NetBSD: msdosfs_vnops.c,v 1.68 1998/02/10 14:10:04 mrg Exp $	*/
 
 /*-
@@ -318,8 +317,11 @@ msdosfs_getattr(struct vop_getattr_args *ap)
 		vap->va_flags |= UF_SYSTEM;
 	vap->va_gen = 0;
 	vap->va_blocksize = pmp->pm_bpcluster;
-	vap->va_bytes =
-	    (dep->de_FileSize + pmp->pm_crbomask) & ~pmp->pm_crbomask;
+	if (dep->de_StartCluster != MSDOSFSROOT)
+		vap->va_bytes =
+		    (dep->de_FileSize + pmp->pm_crbomask) & ~pmp->pm_crbomask;
+	else
+		vap->va_bytes = 0; /* FAT12/FAT16 root dir in reserved area */
 	vap->va_type = ap->a_vp->v_type;
 	vap->va_filerev = dep->de_modrev;
 	return (0);
@@ -1190,8 +1192,8 @@ relock:
 	memcpy(oldname, fip->de_Name, 11);
 	memcpy(fip->de_Name, toname, 11);	/* update denode */
 	error = msdosfs_lookup_ino(tdvp, NULL, tcnp, &scn, &blkoff);
-	MPASS(error == EJUSTRETURN);
-	error = createde(fip, tdip, NULL, tcnp);
+	if (error == EJUSTRETURN)
+		error = createde(fip, tdip, NULL, tcnp);
 	if (error != 0) {
 		memcpy(fip->de_Name, oldname, 11);
 		goto unlock;
@@ -1213,7 +1215,10 @@ relock:
 	MPASS(error == 0);
 	error = removede(fdip, fip);
 	if (error != 0) {
-		/* XXX should downgrade to ro here, fs is corrupt */
+		printf("%s: removede %s %s err %d\n",
+		    pmp->pm_mountp->mnt_stat.f_mntonname,
+		    fdip->de_Name, fip->de_Name, error);
+		msdosfs_integrity_error(pmp);
 		goto unlock;
 	}
 	if (!doingdirectory) {
@@ -1247,7 +1252,10 @@ relock:
 		error = bread(pmp->pm_devvp, bn, pmp->pm_bpcluster,
 		    NOCRED, &bp);
 		if (error != 0) {
-			/* XXX should downgrade to ro here, fs is corrupt */
+			printf("%s: block read error %d while renaming dir\n",
+			    pmp->pm_mountp->mnt_stat.f_mntonname,
+			    error);
+			msdosfs_integrity_error(pmp);
 			goto unlock;
 		}
 		dotdotp = (struct direntry *)bp->b_data + 1;
@@ -1260,7 +1268,10 @@ relock:
 		if (DOINGASYNC(fvp))
 			bdwrite(bp);
 		else if ((error = bwrite(bp)) != 0) {
-			/* XXX should downgrade to ro here, fs is corrupt */
+			printf("%s: block write error %d while renaming dir\n",
+			    pmp->pm_mountp->mnt_stat.f_mntonname,
+			    error);
+			msdosfs_integrity_error(pmp);
 			goto unlock;
 		}
 	}

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Flavius Anton
  * Copyright (c) 2016 Mihai Tiganus
@@ -31,8 +31,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _VMM_SNAPSHOT_
@@ -47,8 +45,7 @@
 struct vmctx;
 
 enum snapshot_req {
-	STRUCT_VMX,
-	STRUCT_VIOAPIC,
+	STRUCT_VIOAPIC = 1,
 	STRUCT_VM,
 	STRUCT_VLAPIC,
 	VM_MEM,

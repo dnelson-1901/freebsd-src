@@ -344,7 +344,7 @@ The following are the options that bc(1) accepts.
 :   Makes bc(1) print all numbers greater than **-1** and less than **1**, and
     not equal to **0**, with a leading zero.
 
-    This can be set for individual numbers with the **plz(x)**, plznl(x)**,
+    This can be set for individual numbers with the **plz(x)**, **plznl(x)**,
     **pnlz(x)**, and **pnlznl(x)** functions in the extended math library (see
     the **LIBRARY** section).
 
@@ -892,7 +892,7 @@ like any other expression that is printed.
 
 ## Stream Statement
 
-The "expressions in a **stream** statement may also be strings.
+The expressions in a **stream** statement may also be strings.
 
 If a **stream** statement is given a string, it prints the string as though the
 string had appeared as its own statement. In other words, the **stream**

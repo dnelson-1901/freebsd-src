@@ -1,5 +1,4 @@
 #
-# $FreeBSD$
 #
 
 PACKAGE=	runtime
@@ -53,6 +52,7 @@ CFLAGS+=	-DUNALIGNED_OK
 VERSION_DEF=	${.CURDIR}/Versions.def
 SYMBOL_MAPS=	${.CURDIR}/Symbol.map
 CFLAGS+=	-DSYMBOL_VERSIONING
+CFLAGS+=	${NO_WDEPRECATED_NON_PROTOTYPE}
 
 INCS=		zconf.h zlib.h
 

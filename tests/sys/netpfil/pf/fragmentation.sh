@@ -1,6 +1,5 @@
-# $FreeBSD$
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2017 Kristof Provost <kp@FreeBSD.org>
 #
@@ -103,12 +102,17 @@ v6_body()
 	jexec singsing ifconfig ${epair_link}b inet6 -ifdisabled
 	ifconfig ${epair_send}a inet6 -ifdisabled
 
+	ifconfig ${epair_send}a
+	jexec alcatraz ifconfig ${epair_send}b
+	lladdr=$(jexec alcatraz ifconfig ${epair_send}b | awk '/ scopeid / { print($2); }' | cut -f 1 -d %)
+
 	jexec alcatraz pfctl -e
 	pft_set_rules alcatraz \
 		"scrub fragment reassemble" \
 		"block in" \
 		"pass in inet6 proto icmp6 icmp6-type { neighbrsol, neighbradv }" \
-		"pass in inet6 proto icmp6 icmp6-type { echoreq, echorep }"
+		"pass in inet6 proto icmp6 icmp6-type { echoreq, echorep }" \
+		"set skip on lo"
 
 	# Host test
 	atf_check -s exit:0 -o ignore \
@@ -119,6 +123,12 @@ v6_body()
 
 	atf_check -s exit:0 -o ignore\
 		ping -6 -c 1 -b 70000 -s 65000 2001:db8:42::2
+
+	# Force an NDP lookup
+	ping -6 -c 1 ${lladdr}%${epair_send}a
+
+	atf_check -s exit:0 -o ignore\
+		ping -6 -c 1 -b 70000 -s 65000 ${lladdr}%${epair_send}a
 
 	# Forwarding test
 	atf_check -s exit:0 -o ignore \

@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -20,19 +19,15 @@ ${INCFILE}: ${TDFILE}
 	    -o ${.TARGET} ${TDFILE}
 TGHDRS+=	${INCFILE}
 
-${TGHDRS}: ${LLVM_TBLGEN_BIN}
-
 DEPENDFILES+=	${TGHDRS:C/$/.d/}
 DPSRCS+=	${TGHDRS}
 CLEANFILES+=	${TGHDRS} ${TGHDRS:C/$/.d/}
 
-LIBADD+=	z
-
 LINKS+=		${BINDIR}/llvm-symbolizer ${BINDIR}/llvm-addr2line
 
 .if ${MK_LLVM_BINUTILS} != "no"
-LINKS=		${BINDIR}/llvm-symbolizer ${BINDIR}/addr2line
-MLINKS=		llvm-addr2line.1 addr2line.1
+LINKS+=		${BINDIR}/llvm-symbolizer ${BINDIR}/addr2line
+MLINKS+=	llvm-addr2line.1 addr2line.1
 .endif
 
 .include "../llvm.prog.mk"

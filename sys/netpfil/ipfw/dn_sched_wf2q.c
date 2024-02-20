@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010 Riccardo Panicucci, Universita` di Pisa
  * Copyright (c) 2000-2002 Luigi Rizzo, Universita` di Pisa
@@ -28,7 +28,6 @@
  */
 
 /*
- * $FreeBSD$
  */
 
 #ifdef _KERNEL

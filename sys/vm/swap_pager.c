@@ -69,8 +69,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_vm.h"
 
 #include <sys/param.h>
@@ -426,7 +424,7 @@ static int	swap_pager_getpages(vm_object_t, vm_page_t *, int, int *,
     int *);
 static int	swap_pager_getpages_async(vm_object_t, vm_page_t *, int, int *,
     int *, pgo_getpages_iodone_t, void *);
-static void	swap_pager_putpages(vm_object_t, vm_page_t *, int, boolean_t, int *);
+static void	swap_pager_putpages(vm_object_t, vm_page_t *, int, int, int *);
 static boolean_t
 		swap_pager_haspage(vm_object_t object, vm_pindex_t pindex, int *before, int *after);
 static void	swap_pager_init(void);
@@ -1904,8 +1902,8 @@ swap_pager_swapoff_object(struct swdevt *sp, vm_object_t object)
 			if (rv != VM_PAGER_OK)
 				panic("%s: read from swap failed: %d",
 				    __func__, rv);
-			vm_object_pip_wakeupn(object, 1);
 			VM_OBJECT_WLOCK(object);
+			vm_object_pip_wakeupn(object, 1);
 			vm_page_xunbusy(m);
 
 			/*

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 Chelsio Communications, Inc.
  * All rights reserved.
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  *
  */
 
@@ -176,7 +174,7 @@ enum {
 	FIXED_IFMEDIA	= (1 << 4),	/* ifmedia list doesn't change. */
 
 	/* VI flags */
-	DOOMED		= (1 << 0),
+	VI_DETACHING	= (1 << 0),
 	VI_INIT_DONE	= (1 << 1),
 	/* 1 << 2 is unused, was VI_SYSCTL_CTX */
 	TX_USES_VM_WR	= (1 << 3),
@@ -190,8 +188,9 @@ enum {
 	DF_VERBOSE_SLOWINTR	= (1 << 4),	/* Chatty slow intr handler */
 };
 
-#define IS_DOOMED(vi)	((vi)->flags & DOOMED)
-#define SET_DOOMED(vi)	do {(vi)->flags |= DOOMED;} while (0)
+#define IS_DETACHING(vi)	((vi)->flags & VI_DETACHING)
+#define SET_DETACHING(vi)	do {(vi)->flags |= VI_DETACHING;} while (0)
+#define CLR_DETACHING(vi)	do {(vi)->flags &= ~VI_DETACHING;} while (0)
 #define IS_BUSY(sc)	((sc)->flags & CXGBE_BUSY)
 #define SET_BUSY(sc)	do {(sc)->flags |= CXGBE_BUSY;} while (0)
 #define CLR_BUSY(sc)	do {(sc)->flags &= ~CXGBE_BUSY;} while (0)
@@ -944,7 +943,6 @@ struct adapter {
 	void *iwarp_softc;	/* (struct c4iw_dev *) */
 	struct iw_tunables iwt;
 	void *iscsi_ulp_softc;	/* (struct cxgbei_data *) */
-	void *ccr_softc;	/* (struct ccr_softc *) */
 	struct l2t_data *l2t;	/* L2 table */
 	struct smt_data *smt;	/* Source MAC Table */
 	struct tid_info tids;
@@ -1304,8 +1302,9 @@ int t4_map_bar_2(struct adapter *);
 int t4_setup_intr_handlers(struct adapter *);
 void t4_sysctls(struct adapter *);
 int begin_synchronized_op(struct adapter *, struct vi_info *, int, char *);
-void doom_vi(struct adapter *, struct vi_info *);
 void end_synchronized_op(struct adapter *, int);
+void begin_vi_detach(struct adapter *, struct vi_info *);
+void end_vi_detach(struct adapter *, struct vi_info *);
 int update_mac_settings(struct ifnet *, int);
 int adapter_init(struct adapter *);
 int vi_init(struct vi_info *);

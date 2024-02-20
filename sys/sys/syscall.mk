@@ -1,6 +1,5 @@
 # FreeBSD system call object files.
 # DO NOT EDIT-- this file is automatically @generated.
-# $FreeBSD$
 MIASM =  \
 	syscall.o \
 	exit.o \
@@ -424,4 +423,7 @@ MIASM =  \
 	aio_writev.o \
 	aio_readv.o \
 	sched_getcpu.o \
-	swapoff.o
+	swapoff.o \
+	kqueuex.o \
+	membarrier.o \
+	kcmp.o

@@ -1,6 +1,6 @@
 /* LINTLIBRARY */
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright 1996-1998 John D. Polstra.
  * All rights reserved.
@@ -27,14 +27,10 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <stdlib.h>
 
 #include "libc_private.h"
 #include "ignore_init.c"
-
-typedef void (*fptr)(void);
 
 #ifdef GCRT
 extern void _mcleanup(void);

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2022, Intel Corporation
+/*  Copyright (c) 2023, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-/*$FreeBSD$*/
 
 /**
  * @file if_ice_iflib.c
@@ -84,6 +83,7 @@ static int ice_if_priv_ioctl(if_ctx_t ctx, u_long command, caddr_t data);
 static int ice_if_i2c_req(if_ctx_t ctx, struct ifi2creq *req);
 static int ice_if_suspend(if_ctx_t ctx);
 static int ice_if_resume(if_ctx_t ctx);
+static bool ice_if_needs_restart(if_ctx_t, enum iflib_restart_event);
 
 static int ice_msix_que(void *arg);
 static int ice_msix_admin(void *arg);
@@ -171,6 +171,7 @@ static device_method_t ice_iflib_methods[] = {
 	DEVMETHOD(ifdi_i2c_req, ice_if_i2c_req),
 	DEVMETHOD(ifdi_suspend, ice_if_suspend),
 	DEVMETHOD(ifdi_resume, ice_if_resume),
+	DEVMETHOD(ifdi_needs_restart, ice_if_needs_restart),
 	DEVMETHOD_END
 };
 
@@ -707,14 +708,11 @@ ice_update_link_status(struct ice_softc *sc, bool update_media)
 			ice_rdma_link_change(sc, LINK_STATE_UP, baudrate);
 
 			ice_link_up_msg(sc);
-
-			update_media = true;
 		} else { /* link is down */
 			iflib_link_state_change(sc->ctx, LINK_STATE_DOWN, 0);
 			ice_rdma_link_change(sc, LINK_STATE_DOWN, 0);
-
-			update_media = true;
 		}
+		update_media = true;
 	}
 
 	/* Update the supported media types */
@@ -725,8 +723,6 @@ ice_update_link_status(struct ice_softc *sc, bool update_media)
 				      ice_status_str(status),
 				      ice_aq_str(hw->adminq.sq_last_status));
 	}
-
-	/* TODO: notify VFs of link state change */
 }
 
 /**
@@ -1291,19 +1287,16 @@ ice_msix_admin(void *arg)
 		ice_set_state(&sc->state, ICE_STATE_RESET_PFR_REQ);
 	}
 
-	if (oicr & PFINT_OICR_PE_CRITERR_M) {
-		device_printf(dev, "Critical Protocol Engine Error detected!\n");
-		ice_set_state(&sc->state, ICE_STATE_RESET_PFR_REQ);
+	if (oicr & (PFINT_OICR_PE_CRITERR_M | PFINT_OICR_HMC_ERR_M)) {
+		if (oicr & PFINT_OICR_HMC_ERR_M)
+			/* Log the HMC errors */
+			ice_log_hmc_error(hw, dev);
+		ice_rdma_notify_pe_intr(sc, oicr);
 	}
 
 	if (oicr & PFINT_OICR_PCI_EXCEPTION_M) {
 		device_printf(dev, "PCI Exception detected!\n");
 		ice_set_state(&sc->state, ICE_STATE_RESET_PFR_REQ);
-	}
-
-	if (oicr & PFINT_OICR_HMC_ERR_M) {
-		/* Log the HMC errors, but don't disable the interrupt cause */
-		ice_log_hmc_error(hw, dev);
 	}
 
 	return (FILTER_SCHEDULE_THREAD);
@@ -1972,7 +1965,7 @@ ice_if_init(if_ctx_t ctx)
 		goto err_cleanup_tx;
 	}
 
-	err = ice_control_rx_queues(&sc->pf_vsi, true);
+	err = ice_control_all_rx_queues(&sc->pf_vsi, true);
 	if (err) {
 		device_printf(dev,
 			      "Unable to enable Rx rings for transmit: %s\n",
@@ -1991,7 +1984,7 @@ ice_if_init(if_ctx_t ctx)
 	/* We use software interrupts for Tx, so we only program the hardware
 	 * interrupts for Rx.
 	 */
-	ice_configure_rxq_interrupts(&sc->pf_vsi);
+	ice_configure_all_rxq_interrupts(&sc->pf_vsi);
 	ice_configure_rx_itr(&sc->pf_vsi);
 
 	/* Configure promiscuous mode */
@@ -2003,7 +1996,7 @@ ice_if_init(if_ctx_t ctx)
 	return;
 
 err_stop_rx:
-	ice_control_rx_queues(&sc->pf_vsi, false);
+	ice_control_all_rx_queues(&sc->pf_vsi, false);
 err_cleanup_tx:
 	ice_vsi_disable_tx(&sc->pf_vsi);
 }
@@ -2311,6 +2304,8 @@ ice_prepare_for_reset(struct ice_softc *sc)
 	if (ice_test_state(&sc->state, ICE_STATE_RECOVERY_MODE))
 		return;
 
+	/* inform the RDMA client */
+	ice_rdma_notify_reset(sc);
 	/* stop the RDMA client */
 	ice_rdma_pf_stop(sc);
 
@@ -2909,7 +2904,7 @@ ice_if_stop(if_ctx_t ctx)
 
 	/* Disable the Tx and Rx queues */
 	ice_vsi_disable_tx(&sc->pf_vsi);
-	ice_control_rx_queues(&sc->pf_vsi, false);
+	ice_control_all_rx_queues(&sc->pf_vsi, false);
 }
 
 /**
@@ -3088,5 +3083,23 @@ ice_if_resume(if_ctx_t ctx)
 	ice_rebuild(sc);
 
 	return (0);
+}
+
+/* ice_if_needs_restart - Tell iflib when the driver needs to be reinitialized
+ * @ctx: iflib context
+ * @event: event code to check
+ *
+ * Defaults to returning false for unknown events.
+ *
+ * @returns true if iflib needs to reinit the interface
+ */
+static bool
+ice_if_needs_restart(if_ctx_t ctx __unused, enum iflib_restart_event event)
+{
+	switch (event) {
+	case IFLIB_RESTART_VLAN_CONFIG:
+	default:
+		return (false);
+	}
 }
 

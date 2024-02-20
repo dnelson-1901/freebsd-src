@@ -20,7 +20,7 @@ COMPILER_RT_VISIBILITY
 void (*VPMergeHook)(ValueProfData *, __llvm_profile_data *);
 
 COMPILER_RT_VISIBILITY
-uint64_t lprofGetLoadModuleSignature() {
+uint64_t lprofGetLoadModuleSignature(void) {
   /* A very fast way to compute a module signature.  */
   uint64_t Version = __llvm_profile_get_version();
   uint64_t NumCounters = __llvm_profile_get_num_counters(
@@ -37,6 +37,11 @@ uint64_t lprofGetLoadModuleSignature() {
          (NumVnodes << 10) + (NumData > 0 ? FirstD->NameRef : 0) + Version +
          __llvm_profile_get_magic();
 }
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#endif
 
 /* Returns 1 if profile is not structurally compatible.  */
 COMPILER_RT_VISIBILITY
@@ -183,3 +188,7 @@ int __llvm_profile_merge_from_buffer(const char *ProfileData,
 
   return 0;
 }
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif

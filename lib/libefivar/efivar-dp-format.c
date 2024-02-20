@@ -29,8 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <efivar.h>
 #include <stdio.h>
 #include <string.h>
@@ -1008,9 +1006,10 @@ DevPathToTextUsbWWID (
     //
     // In case no NULL terminator in SerialNumber, create a new one with NULL terminator
     //
-    NewStr = AllocateCopyPool ((Length + 1) * sizeof (CHAR16), SerialNumberStr);
+    NewStr = AllocatePool ((Length + 1) * sizeof (CHAR16));
     ASSERT (NewStr != NULL);
-    NewStr [Length] = 0;
+    CopyMem (NewStr, SerialNumberStr, Length * sizeof (CHAR16));
+    NewStr[Length]  = 0;
     SerialNumberStr = NewStr;
   }
 

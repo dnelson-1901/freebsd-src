@@ -31,9 +31,11 @@
 #include "BPFCORE.h"
 #include "BPFInstrInfo.h"
 #include "BPFTargetMachine.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Support/Debug.h"
+#include <set>
 
 using namespace llvm;
 
@@ -52,9 +54,12 @@ struct BPFMISimplifyPatchable : public MachineFunctionPass {
   }
 
 private:
+  std::set<MachineInstr *> SkipInsts;
+
   // Initialize class variables.
   void initialize(MachineFunction &MFParm);
 
+  bool isLoadInst(unsigned Opcode);
   bool removeLD();
   void processCandidate(MachineRegisterInfo *MRI, MachineBasicBlock &MBB,
                         MachineInstr &MI, Register &SrcReg, Register &DstReg,
@@ -86,6 +91,12 @@ void BPFMISimplifyPatchable::initialize(MachineFunction &MFParm) {
   MF = &MFParm;
   TII = MF->getSubtarget<BPFSubtarget>().getInstrInfo();
   LLVM_DEBUG(dbgs() << "*** BPF simplify patchable insts pass ***\n\n");
+}
+
+bool BPFMISimplifyPatchable::isLoadInst(unsigned Opcode) {
+  return Opcode == BPF::LDD || Opcode == BPF::LDW || Opcode == BPF::LDH ||
+         Opcode == BPF::LDB || Opcode == BPF::LDW32 || Opcode == BPF::LDH32 ||
+         Opcode == BPF::LDB32;
 }
 
 void BPFMISimplifyPatchable::checkADDrr(MachineRegisterInfo *MRI,
@@ -196,8 +207,32 @@ void BPFMISimplifyPatchable::processDstReg(MachineRegisterInfo *MRI,
   decltype(End) NextI;
   for (auto I = Begin; I != End; I = NextI) {
     NextI = std::next(I);
-    if (doSrcRegProp)
+    if (doSrcRegProp) {
+      // In situations like below it is not known if usage is a kill
+      // after setReg():
+      //
+      // .-> %2:gpr = LD_imm64 @"llvm.t:0:0$0:0"
+      // |
+      // |`----------------.
+      // |   %3:gpr = LDD %2:gpr, 0
+      // |   %4:gpr = ADD_rr %0:gpr(tied-def 0), killed %3:gpr <--- (1)
+      // |   %5:gpr = LDD killed %4:gpr, 0       ^^^^^^^^^^^^^
+      // |   STD killed %5:gpr, %1:gpr, 0         this is I
+      //  `----------------.
+      //     %6:gpr = LDD %2:gpr, 0
+      //     %7:gpr = ADD_rr %0:gpr(tied-def 0), killed %6:gpr <--- (2)
+      //     %8:gpr = LDD killed %7:gpr, 0       ^^^^^^^^^^^^^
+      //     STD killed %8:gpr, %1:gpr, 0         this is I
+      //
+      // Instructions (1) and (2) would be updated by setReg() to:
+      //
+      //     ADD_rr %0:gpr(tied-def 0), %2:gpr
+      //
+      // %2:gpr is not killed at (1), so it is necessary to remove kill flag
+      // from I.
       I->setReg(SrcReg);
+      I->setIsKill(false);
+    }
 
     // The candidate needs to have a unique definition.
     if (IsAma && MRI->getUniqueVRegDef(I->getReg()))
@@ -229,6 +264,11 @@ void BPFMISimplifyPatchable::processDstReg(MachineRegisterInfo *MRI,
 void BPFMISimplifyPatchable::processInst(MachineRegisterInfo *MRI,
     MachineInstr *Inst, MachineOperand *RelocOp, const GlobalValue *GVal) {
   unsigned Opcode = Inst->getOpcode();
+  if (isLoadInst(Opcode)) {
+    SkipInsts.insert(Inst);
+    return;
+  }
+
   if (Opcode == BPF::ADD_rr)
     checkADDrr(MRI, RelocOp, GVal);
   else if (Opcode == BPF::SLL_rr)
@@ -253,10 +293,10 @@ bool BPFMISimplifyPatchable::removeLD() {
       }
 
       // Ensure the register format is LOAD <reg>, <reg>, 0
-      if (MI.getOpcode() != BPF::LDD && MI.getOpcode() != BPF::LDW &&
-          MI.getOpcode() != BPF::LDH && MI.getOpcode() != BPF::LDB &&
-          MI.getOpcode() != BPF::LDW32 && MI.getOpcode() != BPF::LDH32 &&
-          MI.getOpcode() != BPF::LDB32)
+      if (!isLoadInst(MI.getOpcode()))
+        continue;
+
+      if (SkipInsts.find(&MI) != SkipInsts.end())
         continue;
 
       if (!MI.getOperand(0).isReg() || !MI.getOperand(1).isReg())

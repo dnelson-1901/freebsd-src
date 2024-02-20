@@ -26,9 +26,8 @@
 .\" SUCH DAMAGE.
 .\"
 .\"     @(#)route.8	8.3 (Berkeley) 3/19/94
-.\" $FreeBSD$
 .\"
-.Dd February 26, 2023
+.Dd June 13, 2023
 .Dt ROUTE 8
 .Os
 .Sh NAME
@@ -36,6 +35,7 @@
 .Nd manually manipulate the routing tables
 .Sh SYNOPSIS
 .Nm
+.Op Fl j Ar jail
 .Op Fl dnqtv
 .Ar command
 .Oo
@@ -91,6 +91,8 @@ Suppress all output from the
 and
 .Cm flush
 commands.
+.It Fl j Ar jail
+Run inside a jail.
 .El
 .Pp
 The
@@ -488,9 +490,8 @@ Remove all routes from the routing table:
 .Pp
 .Dl route flush
 .Pp
-List all routing tables:
-.Pp
-.Dl netstat -r
+The routing table can be listed with
+.Xr netstat 1 .
 .Sh DIAGNOSTICS
 .Bl -diag
 .It "add [host \&| network ] %s: gateway %s flags %x"

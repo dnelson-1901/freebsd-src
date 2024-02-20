@@ -40,8 +40,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "../libsecureboot-priv.h"
 #ifdef _STANDALONE
 #define warnx printf
@@ -75,7 +73,7 @@ initialize (void)
 #include <openssl/err.h>
 
 /**
- * @brief intialize OpenSSL
+ * @brief initialize OpenSSL
  */
 void
 initialize(void)
@@ -369,7 +367,7 @@ openpgp_verify(const char *filename,
 #endif
 
 			if (rc > 0) {
-				if ((flags & 1))
+				if ((flags & VEF_VERBOSE))
 					printf("Verified %s signed by %s\n",
 					    filename,
 					    key->user ? key->user->name : "someone");
@@ -447,7 +445,7 @@ openpgp_verify_file(const char *filename, unsigned char *fdata, size_t nbytes)
 		return (-1);
 	}
 	sdata = read_file(sname, &sz);
-	return (openpgp_verify(filename, fdata, nbytes, sdata, sz, 1));
+	return (openpgp_verify(filename, fdata, nbytes, sdata, sz, VerifyFlags));
 }
 #endif
 

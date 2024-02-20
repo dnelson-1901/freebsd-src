@@ -1,4 +1,3 @@
-# $FreeBSD$
 #
 # Option file for FreeBSD /usr/src builds.
 #
@@ -125,7 +124,6 @@ __DEFAULT_YES_OPTIONS = \
     LDNS \
     LDNS_UTILS \
     LEGACY_CONSOLE \
-    LIBCPLUSPLUS \
     LLD \
     LLD_BOOTSTRAP \
     LLD_IS_LD \
@@ -161,6 +159,7 @@ __DEFAULT_YES_OPTIONS = \
     PMC \
     PORTSNAP \
     PPP \
+    PTHREADS_ASSERTIONS \
     QUOTAS \
     RADIUS_SUPPORT \
     RBOOTD \
