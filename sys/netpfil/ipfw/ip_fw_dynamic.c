@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2017-2018 Yandex LLC
  * Copyright (c) 2017-2018 Andrey V. Elsukov <ae@FreeBSD.org>
@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_ipfw.h"
@@ -146,10 +144,10 @@ struct dyn_data {
 	uint32_t	sync;		/* synchronization time */
 	uint32_t	expire;		/* expire time */
 
-	uint64_t	pcnt_fwd;	/* bytes counter in forward */
-	uint64_t	bcnt_fwd;	/* packets counter in forward */
-	uint64_t	pcnt_rev;	/* bytes counter in reverse */
-	uint64_t	bcnt_rev;	/* packets counter in reverse */
+	uint64_t	pcnt_fwd;	/* packets counter in forward */
+	uint64_t	bcnt_fwd;	/* bytes counter in forward */
+	uint64_t	pcnt_rev;	/* packets counter in reverse */
+	uint64_t	bcnt_rev;	/* bytes counter in reverse */
 };
 
 #define	DPARENT_COUNT_DEC(p)	do {			\
@@ -922,7 +920,8 @@ print_dyn_rule_flags(const struct ipfw_flow_id *id, int dyn_type,
 #define	_SEQ_GE(a,b)	((int)((a)-(b)) >= 0)
 #define	BOTH_SYN	(TH_SYN | (TH_SYN << 8))
 #define	BOTH_FIN	(TH_FIN | (TH_FIN << 8))
-#define	TCP_FLAGS	(TH_FLAGS | (TH_FLAGS << 8))
+#define	BOTH_RST	(TH_RST | (TH_RST << 8))
+#define	TCP_FLAGS	(BOTH_SYN | BOTH_FIN | BOTH_RST)
 #define	ACK_FWD		0x00010000	/* fwd ack seen */
 #define	ACK_REV		0x00020000	/* rev ack seen */
 #define	ACK_BOTH	(ACK_FWD | ACK_REV)
@@ -2390,7 +2389,7 @@ dyn_make_keepalive_ipv4(struct mbuf *m, in_addr_t src, in_addr_t dst,
 	tcp->th_off = sizeof(struct tcphdr) >> 2;
 	tcp->th_seq = htonl(seq);
 	tcp->th_ack = htonl(ack);
-	tcp->th_flags = TH_ACK;
+	tcp_set_flags(tcp, TH_ACK);
 	tcp->th_sum = in_pseudo(ip->ip_src.s_addr, ip->ip_dst.s_addr,
 	    htons(sizeof(struct tcphdr) + IPPROTO_TCP));
 
@@ -2458,7 +2457,7 @@ dyn_send_keepalive_ipv4(struct ip_fw_chain *chain)
 		CK_SLIST_FOREACH(s, &V_dyn_ipv4[bucket], entry) {
 			/*
 			 * Only established TCP connections that will
-			 * become expired withing dyn_keepalive_interval.
+			 * become expired within dyn_keepalive_interval.
 			 */
 			if (s->proto != IPPROTO_TCP ||
 			    (s->data->state & BOTH_SYN) != BOTH_SYN ||
@@ -2500,7 +2499,7 @@ dyn_make_keepalive_ipv6(struct mbuf *m, const struct in6_addr *src,
 	tcp->th_off = sizeof(struct tcphdr) >> 2;
 	tcp->th_seq = htonl(seq);
 	tcp->th_ack = htonl(ack);
-	tcp->th_flags = TH_ACK;
+	tcp_set_flags(tcp, TH_ACK);
 	tcp->th_sum = in6_cksum_pseudo(ip6, sizeof(struct tcphdr),
 	    IPPROTO_TCP, 0);
 
@@ -2565,7 +2564,7 @@ dyn_send_keepalive_ipv6(struct ip_fw_chain *chain)
 		CK_SLIST_FOREACH(s, &V_dyn_ipv6[bucket], entry) {
 			/*
 			 * Only established TCP connections that will
-			 * become expired withing dyn_keepalive_interval.
+			 * become expired within dyn_keepalive_interval.
 			 */
 			if (s->proto != IPPROTO_TCP ||
 			    (s->data->state & BOTH_SYN) != BOTH_SYN ||

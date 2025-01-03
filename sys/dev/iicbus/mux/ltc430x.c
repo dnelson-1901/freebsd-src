@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -213,7 +211,7 @@ ltc430x_attach(device_t dev)
 	 * the probe and attach code of any child iicbus instances it added.
 	 */
 	if ((err = iicmux_attach(dev, device_get_parent(dev), numchan)) == 0)
-		bus_generic_attach(dev);
+		bus_attach_children(dev);
 
 	return (err);
 }

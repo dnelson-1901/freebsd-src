@@ -16,8 +16,6 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
- *
- * $FreeBSD$
  */
 
 #ifndef	__XEN_HVM_H__
@@ -89,7 +87,7 @@ enum {
 };
 #define HVM_CALLBACK_VECTOR(vector) \
     (((uint64_t)HVM_CB_TYPE_VECTOR << HVM_CB_TYPE_SHIFT) \
-   | (((vector) & HVM_CB_GSI_GSI_MASK) << HVM_CB_GSI_GSI_SHIFT))
+   | (((vector) & HVM_CB_VECTOR_VECTOR_MASK) << HVM_CB_VECTOR_VECTOR_SHIFT))
 
 enum xen_hvm_init_type {
 	XEN_HVM_INIT_EARLY,
@@ -104,6 +102,5 @@ void xen_hvm_suspend(void);
 void xen_hvm_resume(bool suspend_cancelled);
 
 extern uint32_t hvm_start_flags;
-extern bool xen_evtchn_needs_ack;
 
 #endif	/* __XEN_HVM_H__ */

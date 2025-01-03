@@ -38,10 +38,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ufs_vnops.c	8.7 (Berkeley) 2/3/94
- *	@(#)ufs_vnops.c 8.27 (Berkeley) 5/27/95
- * $FreeBSD$
  */
 
 #include "opt_suiddir.h"
@@ -1893,6 +1889,8 @@ ext2_vptofh(struct vop_vptofh_args *ap)
 {
 	struct inode *ip;
 	struct ufid *ufhp;
+	_Static_assert(sizeof(struct ufid) <= sizeof(struct fid),
+	    "struct ufid cannot be larger than struct fid");
 
 	ip = VTOI(ap->a_vp);
 	ufhp = (struct ufid *)ap->a_fhp;

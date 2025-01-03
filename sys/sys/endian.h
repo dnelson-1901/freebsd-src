@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2002 Thomas Moestl <tmm@FreeBSD.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _SYS_ENDIAN_H_
@@ -58,7 +56,9 @@ typedef	__uint64_t	uint64_t;
 /*
  * Note: While tempting to try to avoid namespace pollution from this file,
  * several software packages assume these marcos are defined, even when it
- * defines _POSIX_C_SOURCE to request an unpolluted namespace.
+ * defines _POSIX_C_SOURCE to request an unpolluted namespace.  <sys/endian.h>
+ * is not defined by any version of POSIX.1, so we don't have to be
+ * careful. No POSIX.1 defined header file includes <sys/endian.h> on FreeBSD.
  */
 
 /*

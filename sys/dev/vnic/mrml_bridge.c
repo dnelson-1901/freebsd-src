@@ -27,9 +27,6 @@
  */
 #include "opt_platform.h"
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -111,7 +108,8 @@ mrmlb_fdt_attach(device_t dev)
 	if (err != 0)
 		return (err);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 /* OFW bus interface */
@@ -264,7 +262,7 @@ mrmlb_ofw_bus_attach(device_t dev)
 		ofw_bus_intr_to_rl(dev, node, &di->di_rl, NULL);
 
 		/* Add newbus device for this FDT node */
-		child = device_add_child(dev, NULL, -1);
+		child = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
 		if (child == NULL) {
 			resource_list_free(&di->di_rl);
 			ofw_bus_gen_destroy_devinfo(&di->di_dinfo);

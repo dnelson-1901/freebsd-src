@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2007-2008 Marvell Semiconductor, Inc.
@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver for the Marvell 88W8363 Wireless LAN controller.
  */
@@ -228,12 +226,9 @@ enum {
 	MWL_DEBUG_AMPDU		= 0x00004000,	/* BA stream handling */
 	MWL_DEBUG_ANY		= 0xffffffff
 };
-#define	IS_BEACON(wh) \
-    ((wh->i_fc[0] & (IEEE80211_FC0_TYPE_MASK|IEEE80211_FC0_SUBTYPE_MASK)) == \
-	 (IEEE80211_FC0_TYPE_MGT|IEEE80211_FC0_SUBTYPE_BEACON))
 #define	IFF_DUMPPKTS_RECV(sc, wh) \
     ((sc->sc_debug & MWL_DEBUG_RECV) && \
-      ((sc->sc_debug & MWL_DEBUG_RECV_ALL) || !IS_BEACON(wh)))
+      ((sc->sc_debug & MWL_DEBUG_RECV_ALL) || !IEEE80211_IS_MGMT_BEACON(wh)))
 #define	IFF_DUMPPKTS_XMIT(sc) \
 	(sc->sc_debug & MWL_DEBUG_XMIT)
 
@@ -1521,8 +1516,7 @@ mwl_key_alloc(struct ieee80211vap *vap, struct ieee80211_key *k,
 
 	if (k->wk_keyix != IEEE80211_KEYIX_NONE ||
 	    (k->wk_flags & IEEE80211_KEY_GROUP)) {
-		if (!(&vap->iv_nw_keys[0] <= k &&
-		      k < &vap->iv_nw_keys[IEEE80211_WEP_NKID])) {
+		if (!ieee80211_is_key_global(vap, k)) {
 			/* should not happen */
 			DPRINTF(sc, MWL_DEBUG_KEYCACHE,
 				"%s: bogus group key\n", __func__);
@@ -2531,7 +2525,6 @@ mwl_ext_free(struct mbuf *m)
 	/*
 	 * If we were previously blocked by a lack of rx dma buffers
 	 * check if we now have enough to restart rx interrupt handling.
-	 * NB: we know we are called at splvm which is above splnet.
 	 */
 	if (sc->sc_rxblocked && sc->sc_nrxfree > mwl_rxdmalow) {
 		sc->sc_rxblocked = 0;
@@ -2557,7 +2550,7 @@ mwl_anyhdrsize(const void *data)
 {
 	const struct ieee80211_frame *wh = data;
 
-	if ((wh->i_fc[0]&IEEE80211_FC0_TYPE_MASK) == IEEE80211_FC0_TYPE_CTL) {
+	if (IEEE80211_IS_CTL(wh)) {
 		switch (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) {
 		case IEEE80211_FC0_SUBTYPE_CTS:
 		case IEEE80211_FC0_SUBTYPE_ACK:
@@ -2606,7 +2599,6 @@ cvtrssi(uint8_t ssi)
 static void
 mwl_rx_proc(void *arg, int npending)
 {
-	struct epoch_tracker et;
 	struct mwl_softc *sc = arg;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct mwl_rxbuf *bf;
@@ -2795,8 +2787,6 @@ mwl_rx_proc(void *arg, int npending)
 		/* dispatch */
 		ni = ieee80211_find_rxnode(ic,
 		    (const struct ieee80211_frame_min *) wh);
-
-		NET_EPOCH_ENTER(et);
 		if (ni != NULL) {
 			mn = MWL_NODE(ni);
 #ifdef MWL_ANT_INFO_SUPPORT
@@ -2812,7 +2802,6 @@ mwl_rx_proc(void *arg, int npending)
 			ieee80211_free_node(ni);
 		} else
 			(void) ieee80211_input_all(ic, m, rssi, nf);
-		NET_EPOCH_EXIT(et);
 rx_next:
 		/* NB: ignore ENOMEM so we process more descriptors */
 		(void) mwl_rxbuf_init(sc, bf);
@@ -4027,7 +4016,7 @@ mkpeerinfo(MWL_HAL_PEERINFO *pi, const struct ieee80211_node *ni)
 			pi->HTCapabilitiesInfo &= ~IEEE80211_HTCAP_SHORTGI40;
 		if ((vap->iv_flags_ht & IEEE80211_FHT_SHORTGI20) == 0)
 			pi->HTCapabilitiesInfo &= ~IEEE80211_HTCAP_SHORTGI20;
-		if (ni->ni_chw != 40)
+		if (ni->ni_chw != IEEE80211_STA_RX_BW_40)
 			pi->HTCapabilitiesInfo &= ~IEEE80211_HTCAP_CHWIDTH40;
 	}
 	return pi;

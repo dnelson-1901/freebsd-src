@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * The following controllers are supported by this driver:
  *   BCM5706C A2, A3
@@ -673,7 +671,6 @@ bce_probe(device_t dev)
 {
 	const struct bce_type *t;
 	struct bce_softc *sc;
-	char *descbuf;
 	u16 vid = 0, did = 0, svid = 0, sdid = 0;
 
 	t = bce_devs;
@@ -697,19 +694,10 @@ bce_probe(device_t dev)
 		if ((vid == t->bce_vid) && (did == t->bce_did) &&
 		    ((svid == t->bce_svid) || (t->bce_svid == PCI_ANY_ID)) &&
 		    ((sdid == t->bce_sdid) || (t->bce_sdid == PCI_ANY_ID))) {
-			descbuf = malloc(BCE_DEVDESC_MAX, M_TEMP, M_NOWAIT);
-
-			if (descbuf == NULL)
-				return(ENOMEM);
-
-			/* Print out the device identity. */
-			snprintf(descbuf, BCE_DEVDESC_MAX, "%s (%c%d)",
+			device_set_descf(dev, "%s (%c%d)",
 			    t->bce_name, (((pci_read_config(dev,
 			    PCIR_REVID, 4) & 0xf0) >> 4) + 'A'),
 			    (pci_read_config(dev, PCIR_REVID, 4) & 0xf));
-
-			device_set_desc_copy(dev, descbuf);
-			free(descbuf, M_TEMP);
 			return(BUS_PROBE_DEFAULT);
 		}
 		t++;
@@ -1363,12 +1351,6 @@ bce_attach(device_t dev)
 
 	/* Allocate an ifnet structure. */
 	ifp = sc->bce_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		BCE_PRINTF("%s(%d): Interface allocation failed!\n",
-		    __FILE__, __LINE__);
-		rc = ENXIO;
-		goto bce_attach_fail;
-	}
 
 	/* Initialize the ifnet interface. */
 	if_setsoftc(ifp, sc);
@@ -1562,7 +1544,6 @@ bce_detach(device_t dev)
 		ifmedia_removeall(&sc->bce_ifmedia);
 	else {
 		bus_generic_detach(dev);
-		device_delete_child(dev, sc->bce_miibus);
 	}
 
 	/* Release all remaining resources. */
@@ -10663,7 +10644,7 @@ bce_dump_driver_state(struct bce_softc *sc)
 	val_hi = BCE_ADDR_HI(sc->tx_bd_chain);
 	val_lo = BCE_ADDR_LO(sc->tx_bd_chain);
 	BCE_PRINTF("0x%08X:%08X - (sc->tx_bd_chain) tx_bd chain "
-	    "virtual adddress\n", val_hi, val_lo);
+	    "virtual address\n", val_hi, val_lo);
 
 	val_hi = BCE_ADDR_HI(sc->rx_bd_chain);
 	val_lo = BCE_ADDR_LO(sc->rx_bd_chain);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 nCircle Network Security, Inc.
  * All rights reserved.
@@ -27,8 +27,6 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -107,6 +105,8 @@
 #define	PRIV_CRED_SETRESGID	58	/* setresgid. */
 #define	PRIV_SEEOTHERGIDS	59	/* Exempt bsd.seeothergids. */
 #define	PRIV_SEEOTHERUIDS	60	/* Exempt bsd.seeotheruids. */
+#define	PRIV_SEEJAILPROC	61	/* Exempt from bsd.see_jail_proc. */
+#define	PRIV_CRED_SETCRED	62	/* setcred. */
 
 /*
  * Debugging privileges.
@@ -211,6 +211,7 @@
 #define	PRIV_SYSCTL_DEBUG	240	/* Can invoke sysctl.debug. */
 #define	PRIV_SYSCTL_WRITE	241	/* Can write sysctls. */
 #define	PRIV_SYSCTL_WRITEJAIL	242	/* Can write sysctls, jail permitted. */
+#define	PRIV_SYSCTL_MEMLOCK	243	/* Large requests are not serialized. */
 
 /*
  * TTY privileges.
@@ -427,11 +428,13 @@
  */
 #define	PRIV_VM86_INTCALL	550	/* Allow invoking vm86 int handlers. */
 
+#define	PRIV_PIPEBUF		560	/* Allow to allocate reserved pipebuf
+					   space */
+
 /*
  * Set of reserved privilege values, which will be allocated to code as
  * needed, in order to avoid renumbering later privileges due to insertion.
  */
-#define	_PRIV_RESERVED0		560
 #define	_PRIV_RESERVED1		561
 #define	_PRIV_RESERVED2		562
 #define	_PRIV_RESERVED3		563
@@ -514,11 +517,24 @@
  */
 #define	PRIV_KMEM_READ		680	/* Open mem/kmem for reading. */
 #define	PRIV_KMEM_WRITE		681	/* Open mem/kmem for writing. */
+#define	PRIV_PROC_MEM_WRITE	682	/* Writes via proc_rwmem */
+
+/*
+ * Kernel debugger privileges.
+ */
+#define	PRIV_KDB_SET_BACKEND	690	/* Allow setting KDB backend. */
+
+/*
+ * veriexec override privileges - very rare!
+ */
+#define	PRIV_VERIEXEC_DIRECT	700	/* Can override 'indirect' */
+#define	PRIV_VERIEXEC_NOVERIFY	701	/* Can override O_VERIFY */
+#define	PRIV_VERIEXEC_CONTROL	702	/* Can configure veriexec */
 
 /*
  * Track end of privilege list.
  */
-#define	_PRIV_HIGHEST		682
+#define	_PRIV_HIGHEST		703
 
 /*
  * Validate that a named privilege is known by the privilege system.  Invalid

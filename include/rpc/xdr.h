@@ -28,10 +28,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- *	from: @(#)xdr.h 1.19 87/04/22 SMI
- *	from: @(#)xdr.h	2.2 88/07/29 4.0 RPCSRC
- * $FreeBSD$
  */
 
 /*
@@ -282,7 +278,7 @@ struct xdr_discrim {
  * These are the "generic" xdr routines.
  */
 __BEGIN_DECLS
-extern bool_t	xdr_void(void);
+extern bool_t	xdr_void(XDR *, void *);
 extern bool_t	xdr_int(XDR *, int *);
 extern bool_t	xdr_u_int(XDR *, u_int *);
 extern bool_t	xdr_long(XDR *, long *);

@@ -31,13 +31,10 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_ipsec.h"
 #include "opt_ratelimit.h"
-#include "opt_kern_tls.h"
 #include <sys/param.h>
 #include <sys/arb.h>
 #include <sys/module.h>
@@ -51,9 +48,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/qmath.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
-#ifdef KERN_TLS
-#include <sys/ktls.h>
-#endif
 #include <sys/sysctl.h>
 #include <sys/systm.h>
 #include <sys/tree.h>
@@ -130,36 +124,6 @@ __FBSDID("$FreeBSD$");
  * Common TCP Functions - These are shared by borth
  * rack and BBR.
  */
-#ifdef KERN_TLS
-uint32_t
-ctf_get_opt_tls_size(struct socket *so, uint32_t rwnd)
-{
-	struct ktls_session *tls;
-	uint32_t len;
-
-again:
-	tls = so->so_snd.sb_tls_info;
-	len = tls->params.max_frame_len;         /* max tls payload */
-	len += tls->params.tls_hlen;      /* tls header len  */
-	len += tls->params.tls_tlen;      /* tls trailer len */
-	if ((len * 4) > rwnd) {
-		/*
-		 * Stroke this will suck counter and what
-		 * else should we do Drew? From the
-		 * TCP perspective I am not sure
-		 * what should be done...
-		 */
-		if (tls->params.max_frame_len > 4096) {
-			tls->params.max_frame_len -= 4096;
-			if (tls->params.max_frame_len < 4096)
-				tls->params.max_frame_len = 4096;
-			goto again;
-		}
-	}
-	return (len);
-}
-#endif
-
 static int
 ctf_get_enet_type(struct ifnet *ifp, struct mbuf *m)
 {
@@ -357,8 +321,8 @@ ctf_get_enet_type(struct ifnet *ifp, struct mbuf *m)
  *     c) The push bit has been set by the peer
  */
 
-int
-ctf_process_inbound_raw(struct tcpcb *tp, struct socket *so, struct mbuf *m, int has_pkt)
+static int
+ctf_process_inbound_raw(struct tcpcb *tp, struct mbuf *m, int has_pkt)
 {
 	/*
 	 * We are passed a raw change of mbuf packets
@@ -368,13 +332,12 @@ ctf_process_inbound_raw(struct tcpcb *tp, struct socket *so, struct mbuf *m, int
 	 * We process each one by:
 	 * a) saving off the next
 	 * b) stripping off the ether-header
-	 * c) formulating the arguments for
-	 *    the tfb_tcp_hpts_do_segment
-	 * d) calling each mbuf to tfb_tcp_hpts_do_segment
+	 * c) formulating the arguments for tfb_do_segment_nounlock()
+	 * d) calling each mbuf to tfb_do_segment_nounlock()
 	 *    after adjusting the time to match the arrival time.
 	 * Note that the LRO code assures no IP options are present.
 	 *
-	 * The symantics for calling tfb_tcp_hpts_do_segment are the
+	 * The symantics for calling tfb_do_segment_nounlock() are the
 	 * following:
 	 * 1) It returns 0 if all went well and you (the caller) need
 	 *    to release the lock.
@@ -398,26 +361,15 @@ ctf_process_inbound_raw(struct tcpcb *tp, struct socket *so, struct mbuf *m, int
 	int32_t retval, nxt_pkt, tlen, off;
 	int etype = 0;
 	uint16_t drop_hdrlen;
-	uint8_t iptos, no_vn=0;
+	uint8_t iptos;
 
 	inp = tptoinpcb(tp);
 	INP_WLOCK_ASSERT(inp);
 	NET_EPOCH_ASSERT();
-
-	if (m)
-		ifp = m_rcvif(m);
-	else
-		ifp = NULL;
-	if (ifp == NULL) {
-		/*
-		 * We probably should not work around
-		 * but kassert, since lro alwasy sets rcvif.
-		 */
-		no_vn = 1;
-		goto skip_vnet;
-	}
+	KASSERT(m != NULL, ("ctf_process_inbound_raw: m == NULL"));
+	ifp = m_rcvif(m);
+	KASSERT(ifp != NULL, ("ctf_process_inbound_raw: ifp == NULL"));
 	CURVNET_SET(ifp->if_vnet);
-skip_vnet:
 	tcp_get_usecs(&tv);
 	while (m) {
 		m_save = m->m_nextpkt;
@@ -452,10 +404,6 @@ skip_vnet:
 				break;
 #endif
 			} /* end switch */
-			/*
-			 * Convert TCP protocol specific fields to host format.
-			 */
-			tcp_fields_to_host(th);
 			off = th->th_off << 2;
 			if (off < sizeof (struct tcphdr) || off > tlen) {
 				printf("off:%d < hdrlen:%zu || > tlen:%u -- dump\n",
@@ -480,8 +428,8 @@ skip_vnet:
 			 * been compressed. We assert the inp has
 			 * the flag set to enable this!
 			 */
-			KASSERT((inp->inp_flags2 & INP_MBUF_ACKCMP),
-			    ("tp:%p inp:%p no INP_MBUF_ACKCMP flags?", tp, inp));
+			KASSERT((tp->t_flags2 & TF2_MBUF_ACKCMP),
+			    ("tp:%p no TF2_MBUF_ACKCMP flags?", tp));
 			tlen = 0;
 			drop_hdrlen = 0;
 			th = NULL;
@@ -496,8 +444,8 @@ skip_vnet:
 			KMOD_TCPSTAT_INC(tcps_rcvtotal);
 		else
 			KMOD_TCPSTAT_ADD(tcps_rcvtotal, (m->m_len / sizeof(struct tcp_ackent)));
-		retval = (*tp->t_fb->tfb_do_segment_nounlock)(m, th, so, tp, drop_hdrlen, tlen,
-							      iptos, nxt_pkt, &tv);
+		retval = (*tp->t_fb->tfb_do_segment_nounlock)(tp, m, th,
+		    drop_hdrlen, tlen, iptos, nxt_pkt, &tv);
 		if (retval) {
 			/* We lost the lock and tcb probably */
 			m = m_save;
@@ -507,32 +455,26 @@ skip_vnet:
 				m_freem(m);
 				m = m_save;
 			}
-			if (no_vn == 0) {
-				CURVNET_RESTORE();
-			}
+			CURVNET_RESTORE();
 			INP_UNLOCK_ASSERT(inp);
-			return(retval);
+			return (retval);
 		}
 skipped_pkt:
 		m = m_save;
 	}
-	if (no_vn == 0) {
-		CURVNET_RESTORE();
-	}
-	return(retval);
+	CURVNET_RESTORE();
+	return (0);
 }
 
 int
-ctf_do_queued_segments(struct socket *so, struct tcpcb *tp, int have_pkt)
+ctf_do_queued_segments(struct tcpcb *tp, int have_pkt)
 {
 	struct mbuf *m;
 
 	/* First lets see if we have old packets */
-	if (tp->t_in_pkt) {
-		m = tp->t_in_pkt;
-		tp->t_in_pkt = NULL;
-		tp->t_tail_pkt = NULL;
-		if (ctf_process_inbound_raw(tp, so, m, have_pkt)) {
+	if ((m = STAILQ_FIRST(&tp->t_inqueue)) != NULL) {
+		STAILQ_INIT(&tp->t_inqueue);
+		if (ctf_process_inbound_raw(tp, m, have_pkt)) {
 			/* We lost the tcpcb (maybe a RST came in)? */
 			return(1);
 		}
@@ -575,28 +517,19 @@ ctf_do_dropwithreset(struct mbuf *m, struct tcpcb *tp, struct tcphdr *th,
 }
 
 void
-ctf_ack_war_checks(struct tcpcb *tp, uint32_t *ts, uint32_t *cnt)
+ctf_ack_war_checks(struct tcpcb *tp)
 {
-	if ((ts != NULL) && (cnt != NULL) &&
-	    (tcp_ack_war_time_window > 0) &&
-	    (tcp_ack_war_cnt > 0)) {
-		/* We are possibly doing ack war prevention */
-		uint32_t cts;
+	sbintime_t now;
 
-		/*
-		 * We use a msec tick here which gives us
-		 * roughly 49 days. We don't need the
-		 * precision of a microsecond timestamp which
-		 * would only give us hours.
-		 */
-		cts = tcp_ts_getticks();
-		if (TSTMP_LT((*ts), cts)) {
-			/* Timestamp is in the past */
-			*cnt = 0;
-			*ts = (cts + tcp_ack_war_time_window);
+	if ((V_tcp_ack_war_time_window > 0) && (V_tcp_ack_war_cnt > 0)) {
+		now = getsbinuptime();
+		if (tp->t_challenge_ack_end < now) {
+			tp->t_challenge_ack_cnt = 0;
+			tp->t_challenge_ack_end = now +
+			    V_tcp_ack_war_time_window * SBT_1MS;
 		}
-		if (*cnt < tcp_ack_war_cnt) {
-			*cnt = (*cnt + 1);
+		if (tp->t_challenge_ack_cnt < V_tcp_ack_war_cnt) {
+			tp->t_challenge_ack_cnt++;
 			tp->t_flags |= TF_ACKNOW;
 		} else
 			tp->t_flags &= ~TF_ACKNOW;
@@ -611,10 +544,9 @@ ctf_ack_war_checks(struct tcpcb *tp, uint32_t *ts, uint32_t *cnt)
  * TCB is still valid and locked.
  */
 int
-_ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
-		 struct tcpcb *tp, int32_t *tlenp,
-		 int32_t *thf, int32_t *drop_hdrlen, int32_t *ret_val,
-		 uint32_t *ts, uint32_t *cnt)
+ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
+		struct tcpcb *tp, int32_t *tlenp,
+		int32_t *thf, int32_t *drop_hdrlen, int32_t *ret_val)
 {
 	int32_t todrop;
 	int32_t thflags;
@@ -648,7 +580,7 @@ _ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
 			 * Send an ACK to resynchronize and drop any data.
 			 * But keep on processing for RST or ACK.
 			 */
-			ctf_ack_war_checks(tp, ts, cnt);
+			ctf_ack_war_checks(tp);
 			todrop = tlen;
 			KMOD_TCPSTAT_INC(tcps_rcvduppack);
 			KMOD_TCPSTAT_ADD(tcps_rcvdupbyte, todrop);
@@ -664,7 +596,7 @@ _ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
 			 * ACK now, as the next in-sequence segment
 			 * will clear the DSACK block again
 			 */
-			ctf_ack_war_checks(tp, ts, cnt);
+			ctf_ack_war_checks(tp);
 			if (tp->t_flags & TF_ACKNOW)
 				tcp_update_sack_list(tp, th->th_seq,
 						     th->th_seq + todrop);
@@ -696,10 +628,10 @@ _ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
 			 * ack.
 			 */
 			if (tp->rcv_wnd == 0 && th->th_seq == tp->rcv_nxt) {
-				ctf_ack_war_checks(tp, ts, cnt);
+				ctf_ack_war_checks(tp);
 				KMOD_TCPSTAT_INC(tcps_rcvwinprobe);
 			} else {
-				__ctf_do_dropafterack(m, tp, th, thflags, tlen, ret_val, ts, cnt);
+				ctf_do_dropafterack(m, tp, th, thflags, tlen, ret_val);
 				return (1);
 			}
 		} else
@@ -720,7 +652,7 @@ _ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
  * and valid.
  */
 void
-__ctf_do_dropafterack(struct mbuf *m, struct tcpcb *tp, struct tcphdr *th, int32_t thflags, int32_t tlen, int32_t *ret_val, uint32_t *ts, uint32_t *cnt)
+ctf_do_dropafterack(struct mbuf *m, struct tcpcb *tp, struct tcphdr *th, int32_t thflags, int32_t tlen, int32_t *ret_val)
 {
 	/*
 	 * Generate an ACK dropping incoming segment if it occupies sequence
@@ -744,7 +676,7 @@ __ctf_do_dropafterack(struct mbuf *m, struct tcpcb *tp, struct tcphdr *th, int32
 		return;
 	} else
 		*ret_val = 0;
-	ctf_ack_war_checks(tp, ts, cnt);
+	ctf_ack_war_checks(tp);
 	if (m)
 		m_freem(m);
 }
@@ -763,8 +695,8 @@ ctf_do_drop(struct mbuf *m, struct tcpcb *tp)
 }
 
 int
-__ctf_process_rst(struct mbuf *m, struct tcphdr *th, struct socket *so,
-		struct tcpcb *tp, uint32_t *ts, uint32_t *cnt)
+ctf_process_rst(struct mbuf *m, struct tcphdr *th, struct socket *so,
+		struct tcpcb *tp)
 {
 	/*
 	 * RFC5961 Section 3.2
@@ -811,40 +743,8 @@ __ctf_process_rst(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			dropped = 1;
 			ctf_do_drop(m, tp);
 		} else {
-			int send_challenge;
-
 			KMOD_TCPSTAT_INC(tcps_badrst);
-			if ((ts != NULL) && (cnt != NULL) &&
-			    (tcp_ack_war_time_window > 0) &&
-			    (tcp_ack_war_cnt > 0)) {
-				/* We are possibly preventing an  ack-rst  war prevention */
-				uint32_t cts;
-
-				/*
-				 * We use a msec tick here which gives us
-				 * roughly 49 days. We don't need the
-				 * precision of a microsecond timestamp which
-				 * would only give us hours.
-				 */
-				cts = tcp_ts_getticks();
-				if (TSTMP_LT((*ts), cts)) {
-					/* Timestamp is in the past */
-					*cnt = 0;
-					*ts = (cts + tcp_ack_war_time_window);
-				}
-				if (*cnt < tcp_ack_war_cnt) {
-					*cnt = (*cnt + 1);
-					send_challenge = 1;
-				} else
-					send_challenge = 0;
-			} else
-				send_challenge = 1;
-			if (send_challenge) {
-				/* Send challenge ACK. */
-				tcp_respond(tp, mtod(m, void *), th, m,
-					    tp->rcv_nxt, tp->snd_nxt, TH_ACK);
-				tp->last_ack_sent = tp->rcv_nxt;
-			}
+			tcp_send_challenge_ack(tp, th, m);
 		}
 	} else {
 		m_freem(m);

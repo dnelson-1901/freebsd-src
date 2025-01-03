@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .if !target(__<bsd.symver.mk>__)
 __<bsd.symver.mk>__:
@@ -14,6 +13,9 @@ VERSION_MAP?=	Version.map
 
 CLEANFILES+=	${VERSION_MAP}
 
+.if ${MAKE_VERSION} >= 20230123
+_mpath= ${.SYSPATH}
+.else
 # Compute the make's -m path.
 _mpath=
 _oarg=
@@ -24,6 +26,7 @@ _mpath+= ${_arg}
 _oarg=  ${_arg}
 .endfor
 _mpath+= /usr/share/mk
+.endif
 
 # Look up ${VERSION_GEN} in ${_mpath}.
 _vgen=
@@ -41,7 +44,7 @@ _vgen=  ${path}/${VERSION_GEN}
 # Run the symbol maps through the C preprocessor before passing
 # them to the symbol version generator.
 ${VERSION_MAP}: ${VERSION_DEF} ${_vgen} ${SYMBOL_MAPS}
-	cat ${SYMBOL_MAPS} | ${CPP} - - \
+	cat ${SYMBOL_MAPS} | ${CPP} ${CFLAGS} - - \
 	    | awk -v vfile=${VERSION_DEF} -f ${_vgen} > ${.TARGET}
 .endif	# !empty(VERSION_DEF) && !empty(SYMBOL_MAPS)
 .endif  # !target(__<bsd.symver.mk>__)

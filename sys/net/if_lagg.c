@@ -18,9 +18,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_kern_tls.h"
@@ -85,8 +82,10 @@ MODULE_DEPEND(if_lagg, netmap, 1, 1, 1);
 #define	LAGG_SX_DESTROY(_sc)	sx_destroy(&(_sc)->sc_sx)
 #define	LAGG_XLOCK(_sc)		sx_xlock(&(_sc)->sc_sx)
 #define	LAGG_XUNLOCK(_sc)	sx_xunlock(&(_sc)->sc_sx)
-#define	LAGG_SXLOCK_ASSERT(_sc)	sx_assert(&(_sc)->sc_sx, SA_LOCKED)
 #define	LAGG_XLOCK_ASSERT(_sc)	sx_assert(&(_sc)->sc_sx, SA_XLOCKED)
+#define	LAGG_SLOCK(_sc)		sx_slock(&(_sc)->sc_sx)
+#define	LAGG_SUNLOCK(_sc)	sx_sunlock(&(_sc)->sc_sx)
+#define	LAGG_SXLOCK_ASSERT(_sc)	sx_assert(&(_sc)->sc_sx, SA_LOCKED)
 
 /* Special flags we should propagate to the lagg ports. */
 static struct {
@@ -103,7 +102,7 @@ struct lagg_snd_tag {
 	struct m_snd_tag *tag;
 };
 
-VNET_DEFINE(SLIST_HEAD(__trhead, lagg_softc), lagg_list); /* list of laggs */
+VNET_DEFINE_STATIC(SLIST_HEAD(__trhead, lagg_softc), lagg_list); /* list of laggs */
 #define	V_lagg_list	VNET(lagg_list)
 VNET_DEFINE_STATIC(struct mtx, lagg_list_mtx);
 #define	V_lagg_list_mtx	VNET(lagg_list_mtx)
@@ -112,7 +111,7 @@ VNET_DEFINE_STATIC(struct mtx, lagg_list_mtx);
 #define	LAGG_LIST_LOCK_DESTROY(x)	mtx_destroy(&V_lagg_list_mtx)
 #define	LAGG_LIST_LOCK(x)		mtx_lock(&V_lagg_list_mtx)
 #define	LAGG_LIST_UNLOCK(x)		mtx_unlock(&V_lagg_list_mtx)
-eventhandler_tag	lagg_detach_cookie = NULL;
+static eventhandler_tag	lagg_detach_cookie = NULL;
 
 static int	lagg_clone_create(struct if_clone *, char *, size_t,
 		    struct ifc_data *, struct ifnet **);
@@ -137,6 +136,7 @@ static void	lagg_port_ifdetach(void *arg __unused, struct ifnet *);
 static int	lagg_port_checkstacking(struct lagg_softc *);
 #endif
 static void	lagg_port2req(struct lagg_port *, struct lagg_reqport *);
+static void	lagg_if_updown(struct lagg_softc *, bool);
 static void	lagg_init(void *);
 static void	lagg_stop(struct lagg_softc *);
 static int	lagg_ioctl(struct ifnet *, u_long, caddr_t);
@@ -171,8 +171,6 @@ static struct lagg_port *lagg_link_active(struct lagg_softc *,
 /* Simple round robin */
 static void	lagg_rr_attach(struct lagg_softc *);
 static int	lagg_rr_start(struct lagg_softc *, struct mbuf *);
-static struct mbuf *lagg_rr_input(struct lagg_softc *, struct lagg_port *,
-		    struct mbuf *);
 
 /* Active failover */
 static int	lagg_fail_start(struct lagg_softc *, struct mbuf *);
@@ -185,14 +183,10 @@ static void	lagg_lb_detach(struct lagg_softc *);
 static int	lagg_lb_port_create(struct lagg_port *);
 static void	lagg_lb_port_destroy(struct lagg_port *);
 static int	lagg_lb_start(struct lagg_softc *, struct mbuf *);
-static struct mbuf *lagg_lb_input(struct lagg_softc *, struct lagg_port *,
-		    struct mbuf *);
 static int	lagg_lb_porttable(struct lagg_softc *, struct lagg_port *);
 
 /* Broadcast */
 static int	lagg_bcast_start(struct lagg_softc *, struct mbuf *);
-static struct mbuf *lagg_bcast_input(struct lagg_softc *, struct lagg_port *,
-		    struct mbuf *);
 
 /* 802.3ad LACP */
 static void	lagg_lacp_attach(struct lagg_softc *);
@@ -201,6 +195,10 @@ static int	lagg_lacp_start(struct lagg_softc *, struct mbuf *);
 static struct mbuf *lagg_lacp_input(struct lagg_softc *, struct lagg_port *,
 		    struct mbuf *);
 static void	lagg_lacp_lladdr(struct lagg_softc *);
+
+/* Default input */
+static struct mbuf *lagg_default_input(struct lagg_softc *, struct lagg_port *,
+		    struct mbuf *);
 
 /* lagg protocol table */
 static const struct lagg_proto {
@@ -226,7 +224,7 @@ static const struct lagg_proto {
 	.pr_num = LAGG_PROTO_ROUNDROBIN,
 	.pr_attach = lagg_rr_attach,
 	.pr_start = lagg_rr_start,
-	.pr_input = lagg_rr_input,
+	.pr_input = lagg_default_input,
     },
     {
 	.pr_num = LAGG_PROTO_FAILOVER,
@@ -238,7 +236,7 @@ static const struct lagg_proto {
 	.pr_attach = lagg_lb_attach,
 	.pr_detach = lagg_lb_detach,
 	.pr_start = lagg_lb_start,
-	.pr_input = lagg_lb_input,
+	.pr_input = lagg_default_input,
 	.pr_addport = lagg_lb_port_create,
 	.pr_delport = lagg_lb_port_destroy,
     },
@@ -260,7 +258,7 @@ static const struct lagg_proto {
     {
 	.pr_num = LAGG_PROTO_BROADCAST,
 	.pr_start = lagg_bcast_start,
-	.pr_input = lagg_bcast_input,
+	.pr_input = lagg_default_input,
     },
 };
 
@@ -278,22 +276,22 @@ SYSCTL_INT(_net_link_lagg, OID_AUTO, failover_rx_all, CTLFLAG_RW | CTLFLAG_VNET,
 /* Default value for using flowid */
 VNET_DEFINE_STATIC(int, def_use_flowid) = 0;
 #define	V_def_use_flowid	VNET(def_use_flowid)
-SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_flowid, CTLFLAG_RWTUN,
-    &VNET_NAME(def_use_flowid), 0,
+SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_flowid,
+    CTLFLAG_RWTUN | CTLFLAG_VNET, &VNET_NAME(def_use_flowid), 0,
     "Default setting for using flow id for load sharing");
 
 /* Default value for using numa */
 VNET_DEFINE_STATIC(int, def_use_numa) = 1;
 #define	V_def_use_numa	VNET(def_use_numa)
-SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_numa, CTLFLAG_RWTUN,
-    &VNET_NAME(def_use_numa), 0,
+SYSCTL_INT(_net_link_lagg, OID_AUTO, default_use_numa,
+    CTLFLAG_RWTUN | CTLFLAG_VNET, &VNET_NAME(def_use_numa), 0,
     "Use numa to steer flows");
 
 /* Default value for flowid shift */
 VNET_DEFINE_STATIC(int, def_flowid_shift) = 16;
 #define	V_def_flowid_shift	VNET(def_flowid_shift)
-SYSCTL_INT(_net_link_lagg, OID_AUTO, default_flowid_shift, CTLFLAG_RWTUN,
-    &VNET_NAME(def_flowid_shift), 0,
+SYSCTL_INT(_net_link_lagg, OID_AUTO, default_flowid_shift,
+    CTLFLAG_RWTUN | CTLFLAG_VNET, &VNET_NAME(def_flowid_shift), 0,
     "Default setting for flowid shift for load sharing");
 
 static void
@@ -387,14 +385,14 @@ lagg_proto_detach(struct lagg_softc *sc)
 		lagg_protos[pr].pr_detach(sc);
 }
 
-static int
+static inline int
 lagg_proto_start(struct lagg_softc *sc, struct mbuf *m)
 {
 
 	return (lagg_protos[sc->sc_proto].pr_start(sc, m));
 }
 
-static struct mbuf *
+static inline struct mbuf *
 lagg_proto_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
 {
 
@@ -537,10 +535,6 @@ lagg_clone_create(struct if_clone *ifc, char *name, size_t len,
 
 	sc = malloc(sizeof(*sc), M_LAGG, M_WAITOK | M_ZERO);
 	ifp = sc->sc_ifp = if_alloc(if_type);
-	if (ifp == NULL) {
-		free(sc, M_LAGG);
-		return (ENOSPC);
-	}
 	LAGG_SX_INIT(sc);
 
 	mtx_init(&sc->sc_mtx, "lagg-mtx", NULL, MTX_DEF);
@@ -644,8 +638,8 @@ lagg_clone_destroy(struct if_clone *ifc, struct ifnet *ifp, uint32_t flags)
 
 	switch (ifp->if_type) {
 	case IFT_ETHER:
-		ifmedia_removeall(&sc->sc_media);
 		ether_ifdetach(ifp);
+		ifmedia_removeall(&sc->sc_media);
 		break;
 	case IFT_INFINIBAND:
 		infiniband_ifdetach(ifp);
@@ -698,6 +692,7 @@ lagg_capabilities(struct lagg_softc *sc)
 			ena2 &= lp->lp_ifp->if_capenable2;
 		}
 	} while (pena != ena || pena2 != ena2);
+	ena2 &= ~IFCAP2_BIT(IFCAP2_IPSEC_OFFLOAD);
 
 	/* Get other capabilities from the lagg ports */
 	cap = cap2 = ~0;
@@ -709,6 +704,7 @@ lagg_capabilities(struct lagg_softc *sc)
 		hwa &= lp->lp_ifp->if_hwassist;
 		if_hw_tsomax_common(lp->lp_ifp, &hw_tsomax);
 	}
+	cap2 &= ~IFCAP2_BIT(IFCAP2_IPSEC_OFFLOAD);
 	if (CK_SLIST_FIRST(&sc->sc_ports) == NULL)
 		cap = cap2 = hwa = 0;
 
@@ -1016,7 +1012,6 @@ lagg_port_destroy(struct lagg_port *lp, int rundelport)
 static int
 lagg_port_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
-	struct epoch_tracker et;
 	struct lagg_reqport *rp = (struct lagg_reqport *)data;
 	struct lagg_softc *sc;
 	struct lagg_port *lp = NULL;
@@ -1041,15 +1036,13 @@ lagg_port_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 
-		NET_EPOCH_ENTER(et);
-		if ((lp = ifp->if_lagg) == NULL || lp->lp_softc != sc) {
-			error = ENOENT;
-			NET_EPOCH_EXIT(et);
-			break;
-		}
-
-		lagg_port2req(lp, rp);
-		NET_EPOCH_EXIT(et);
+		LAGG_SLOCK(sc);
+		if (__predict_true((lp = ifp->if_lagg) != NULL &&
+		    lp->lp_softc == sc))
+			lagg_port2req(lp, rp);
+		else
+			error = ENOENT;	/* XXXGL: can happen? */
+		LAGG_SUNLOCK(sc);
 		break;
 
 	case SIOCSIFCAP:
@@ -1266,6 +1259,25 @@ lagg_watchdog_infiniband(void *arg)
 }
 
 static void
+lagg_if_updown(struct lagg_softc *sc, bool up)
+{
+	struct ifreq ifr = {};
+	struct lagg_port *lp;
+
+	LAGG_XLOCK_ASSERT(sc);
+
+	CK_SLIST_FOREACH(lp, &sc->sc_ports, lp_entries) {
+		if (up)
+			if_up(lp->lp_ifp);
+		else
+			if_down(lp->lp_ifp);
+
+		if (lp->lp_ioctl != NULL)
+			lp->lp_ioctl(lp->lp_ifp, SIOCSIFFLAGS, (caddr_t)&ifr);
+	}
+}
+
+static void
 lagg_init(void *xsc)
 {
 	struct lagg_softc *sc = (struct lagg_softc *)xsc;
@@ -1290,6 +1302,8 @@ lagg_init(void *xsc)
 		    ifp->if_addrlen) != 0)
 			if_setlladdr(lp->lp_ifp, IF_LLADDR(ifp), ifp->if_addrlen);
 	}
+
+	lagg_if_updown(sc, true);
 
 	lagg_proto_init(sc);
 
@@ -1320,13 +1334,14 @@ lagg_stop(struct lagg_softc *sc)
 	callout_stop(&sc->sc_watchdog);
 	mtx_unlock(&sc->sc_mtx);
 
+	lagg_if_updown(sc, false);
+
 	callout_drain(&sc->sc_watchdog);
 }
 
 static int
 lagg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
-	struct epoch_tracker et;
 	struct lagg_softc *sc = (struct lagg_softc *)ifp->if_softc;
 	struct lagg_reqall *ra = (struct lagg_reqall *)data;
 	struct lagg_reqopts *ro = (struct lagg_reqopts *)data;
@@ -1576,19 +1591,16 @@ lagg_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 
-		NET_EPOCH_ENTER(et);
-		if ((lp = (struct lagg_port *)tpif->if_lagg) == NULL ||
-		    lp->lp_softc != sc) {
-			error = ENOENT;
-			NET_EPOCH_EXIT(et);
-			if_rele(tpif);
-			break;
-		}
-
-		lagg_port2req(lp, rp);
-		NET_EPOCH_EXIT(et);
+		LAGG_SLOCK(sc);
+		if (__predict_true((lp = tpif->if_lagg) != NULL &&
+		    lp->lp_softc == sc))
+			lagg_port2req(lp, rp);
+		else
+			error = ENOENT;	/* XXXGL: can happen? */
+		LAGG_SUNLOCK(sc);
 		if_rele(tpif);
 		break;
+
 	case SIOCSLAGGPORT:
 		error = priv_check(td, PRIV_NET_LAGG);
 		if (error)
@@ -2109,18 +2121,15 @@ lagg_setflags(struct lagg_port *lp, int status)
 static int
 lagg_transmit_ethernet(struct ifnet *ifp, struct mbuf *m)
 {
-	struct epoch_tracker et;
 	struct lagg_softc *sc = (struct lagg_softc *)ifp->if_softc;
-	int error;
 
+	NET_EPOCH_ASSERT();
 #if defined(KERN_TLS) || defined(RATELIMIT)
 	if (m->m_pkthdr.csum_flags & CSUM_SND_TAG)
 		MPASS(m->m_pkthdr.snd_tag->ifp == ifp);
 #endif
-	NET_EPOCH_ENTER(et);
 	/* We need a Tx algorithm and at least one port */
 	if (sc->sc_proto == LAGG_PROTO_NONE || sc->sc_count == 0) {
-		NET_EPOCH_EXIT(et);
 		m_freem(m);
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 		return (ENXIO);
@@ -2128,26 +2137,21 @@ lagg_transmit_ethernet(struct ifnet *ifp, struct mbuf *m)
 
 	ETHER_BPF_MTAP(ifp, m);
 
-	error = lagg_proto_start(sc, m);
-	NET_EPOCH_EXIT(et);
-	return (error);
+	return (lagg_proto_start(sc, m));
 }
 
 static int
 lagg_transmit_infiniband(struct ifnet *ifp, struct mbuf *m)
 {
-	struct epoch_tracker et;
 	struct lagg_softc *sc = (struct lagg_softc *)ifp->if_softc;
-	int error;
 
+	NET_EPOCH_ASSERT();
 #if defined(KERN_TLS) || defined(RATELIMIT)
 	if (m->m_pkthdr.csum_flags & CSUM_SND_TAG)
 		MPASS(m->m_pkthdr.snd_tag->ifp == ifp);
 #endif
-	NET_EPOCH_ENTER(et);
 	/* We need a Tx algorithm and at least one port */
 	if (sc->sc_proto == LAGG_PROTO_NONE || sc->sc_count == 0) {
-		NET_EPOCH_EXIT(et);
 		m_freem(m);
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 		return (ENXIO);
@@ -2155,9 +2159,7 @@ lagg_transmit_infiniband(struct ifnet *ifp, struct mbuf *m)
 
 	infiniband_bpf_mtap(ifp, m);
 
-	error = lagg_proto_start(sc, m);
-	NET_EPOCH_EXIT(et);
-	return (error);
+	return (lagg_proto_start(sc, m));
 }
 
 /*
@@ -2171,26 +2173,26 @@ lagg_qflush(struct ifnet *ifp __unused)
 static struct mbuf *
 lagg_input_ethernet(struct ifnet *ifp, struct mbuf *m)
 {
-	struct epoch_tracker et;
 	struct lagg_port *lp = ifp->if_lagg;
 	struct lagg_softc *sc = lp->lp_softc;
 	struct ifnet *scifp = sc->sc_ifp;
 
-	NET_EPOCH_ENTER(et);
+	NET_EPOCH_ASSERT();
 	if ((scifp->if_drv_flags & IFF_DRV_RUNNING) == 0 ||
 	    lp->lp_detaching != 0 ||
 	    sc->sc_proto == LAGG_PROTO_NONE) {
-		NET_EPOCH_EXIT(et);
 		m_freem(m);
 		return (NULL);
 	}
 
-	ETHER_BPF_MTAP(scifp, m);
-
 	m = lagg_proto_input(sc, lp, m);
-	if (m != NULL && (scifp->if_flags & IFF_MONITOR) != 0) {
-		m_freem(m);
-		m = NULL;
+	if (m != NULL) {
+		ETHER_BPF_MTAP(scifp, m);
+
+		if ((scifp->if_flags & IFF_MONITOR) != 0) {
+			m_freem(m);
+			m = NULL;
+		}
 	}
 
 #ifdef DEV_NETMAP
@@ -2200,36 +2202,34 @@ lagg_input_ethernet(struct ifnet *ifp, struct mbuf *m)
 	}
 #endif	/* DEV_NETMAP */
 
-	NET_EPOCH_EXIT(et);
 	return (m);
 }
 
 static struct mbuf *
 lagg_input_infiniband(struct ifnet *ifp, struct mbuf *m)
 {
-	struct epoch_tracker et;
 	struct lagg_port *lp = ifp->if_lagg;
 	struct lagg_softc *sc = lp->lp_softc;
 	struct ifnet *scifp = sc->sc_ifp;
 
-	NET_EPOCH_ENTER(et);
+	NET_EPOCH_ASSERT();
 	if ((scifp->if_drv_flags & IFF_DRV_RUNNING) == 0 ||
 	    lp->lp_detaching != 0 ||
 	    sc->sc_proto == LAGG_PROTO_NONE) {
-		NET_EPOCH_EXIT(et);
 		m_freem(m);
 		return (NULL);
 	}
 
-	infiniband_bpf_mtap(scifp, m);
-
 	m = lagg_proto_input(sc, lp, m);
-	if (m != NULL && (scifp->if_flags & IFF_MONITOR) != 0) {
-		m_freem(m);
-		m = NULL;
+	if (m != NULL) {
+		infiniband_bpf_mtap(scifp, m);
+
+		if ((scifp->if_flags & IFF_MONITOR) != 0) {
+			m_freem(m);
+			m = NULL;
+		}
 	}
 
-	NET_EPOCH_EXIT(et);
 	return (m);
 }
 
@@ -2427,17 +2427,6 @@ lagg_rr_start(struct lagg_softc *sc, struct mbuf *m)
 	return (lagg_enqueue(lp->lp_ifp, m));
 }
 
-static struct mbuf *
-lagg_rr_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
-{
-	struct ifnet *ifp = sc->sc_ifp;
-
-	/* Just pass in the packet to our lagg device */
-	m->m_pkthdr.rcvif = ifp;
-
-	return (m);
-}
-
 /*
  * Broadcast mode
  */
@@ -2483,16 +2472,6 @@ lagg_bcast_start(struct lagg_softc *sc, struct mbuf *m)
 		if_inc_counter(sc->sc_ifp, IFCOUNTER_OERRORS, errors);
 
 	return (ret);
-}
-
-static struct mbuf*
-lagg_bcast_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
-{
-	struct ifnet *ifp = sc->sc_ifp;
-
-	/* Just pass in the packet to our lagg device */
-	m->m_pkthdr.rcvif = ifp;
-	return (m);
 }
 
 /*
@@ -2638,17 +2617,6 @@ lagg_lb_start(struct lagg_softc *sc, struct mbuf *m)
 	return (lagg_enqueue(lp->lp_ifp, m));
 }
 
-static struct mbuf *
-lagg_lb_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
-{
-	struct ifnet *ifp = sc->sc_ifp;
-
-	/* Just pass in the packet to our lagg device */
-	m->m_pkthdr.rcvif = ifp;
-
-	return (m);
-}
-
 /*
  * 802.3ad LACP
  */
@@ -2732,11 +2700,23 @@ lagg_lacp_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
 	 * If the port is not collecting or not in the active aggregator then
 	 * free and return.
 	 */
-	if (lacp_iscollecting(lp) == 0 || lacp_isactive(lp) == 0) {
+	if (!lacp_iscollecting(lp) || !lacp_isactive(lp)) {
 		m_freem(m);
 		return (NULL);
 	}
 
 	m->m_pkthdr.rcvif = ifp;
+	return (m);
+}
+
+/* Default input */
+static struct mbuf *
+lagg_default_input(struct lagg_softc *sc, struct lagg_port *lp, struct mbuf *m)
+{
+	struct ifnet *ifp = sc->sc_ifp;
+
+	/* Just pass in the packet to our lagg device */
+	m->m_pkthdr.rcvif = ifp;
+
 	return (m);
 }

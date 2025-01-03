@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Isilon Systems, LLC.
  * Copyright (c) 2005-2014 Sandvine Incorporated. All rights reserved.
@@ -29,8 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ddb.h"
 #include "opt_inet.h"
 
@@ -115,6 +113,22 @@ debugnet_get_gw_mac(const struct debugnet_pcb *pcb)
 	return (pcb->dp_gw_mac.octet);
 }
 
+const in_addr_t *
+debugnet_get_server_addr(const struct debugnet_pcb *pcb)
+{
+	MPASS(g_debugnet_pcb_inuse && pcb == &g_dnet_pcb &&
+	    pcb->dp_state >= DN_STATE_GOT_HERALD_PORT);
+	return (&pcb->dp_server);
+}
+
+const uint16_t
+debugnet_get_server_port(const struct debugnet_pcb *pcb)
+{
+	MPASS(g_debugnet_pcb_inuse && pcb == &g_dnet_pcb &&
+	    pcb->dp_state >= DN_STATE_GOT_HERALD_PORT);
+	return (pcb->dp_server_port);
+}
+
 /*
  * Start of network primitives, beginning with output primitives.
  */
@@ -185,7 +199,7 @@ debugnet_udp_output(struct debugnet_pcb *pcb, struct mbuf *m)
 		return (ENOBUFS);
 	}
 
-	udp = mtod(m, void *);
+	udp = mtod(m, struct udphdr *);
 	udp->uh_ulen = htons(m->m_pkthdr.len);
 	/* Use this src port so that the server can connect() the socket */
 	udp->uh_sport = htons(pcb->dp_client_port);
@@ -212,7 +226,7 @@ debugnet_ack_output(struct debugnet_pcb *pcb, uint32_t seqno /* net endian */)
 	m->m_len = sizeof(*dn_ack);
 	m->m_pkthdr.len = sizeof(*dn_ack);
 	MH_ALIGN(m, sizeof(*dn_ack));
-	dn_ack = mtod(m, void *);
+	dn_ack = mtod(m, struct debugnet_ack *);
 	dn_ack->da_seqno = seqno;
 
 	return (debugnet_udp_output(pcb, m));
@@ -365,6 +379,8 @@ debugnet_handle_rx_msg(struct debugnet_pcb *pcb, struct mbuf **mb)
 {
 	const struct debugnet_msg_hdr *dnh;
 	struct mbuf *m;
+	uint32_t hdr_type;
+	uint32_t seqno;
 	int error;
 
 	m = *mb;
@@ -383,10 +399,24 @@ debugnet_handle_rx_msg(struct debugnet_pcb *pcb, struct mbuf **mb)
 			return;
 		}
 	}
-	dnh = mtod(m, const void *);
 
+	dnh = mtod(m, const struct debugnet_msg_hdr *);
 	if (ntohl(dnh->mh_len) + sizeof(*dnh) > m->m_pkthdr.len) {
 		DNETDEBUG("Dropping short packet.\n");
+		return;
+	}
+
+	hdr_type = ntohl(dnh->mh_type);
+	if (hdr_type != DEBUGNET_DATA) {
+		if (hdr_type == DEBUGNET_FINISHED) {
+			printf("Remote shut down the connection on us!\n");
+			pcb->dp_state = DN_STATE_REMOTE_CLOSED;
+			if (pcb->dp_finish_handler != NULL) {
+				pcb->dp_finish_handler();
+			}
+		} else {
+			DNETDEBUG("Got unexpected debugnet message %u\n", hdr_type);
+		}
 		return;
 	}
 
@@ -395,21 +425,20 @@ debugnet_handle_rx_msg(struct debugnet_pcb *pcb, struct mbuf **mb)
 	 * non-transient (like driver objecting to rx -> tx from the same
 	 * thread), not much else we can do.
 	 */
-	error = debugnet_ack_output(pcb, dnh->mh_seqno);
-	if (error != 0)
+	seqno = dnh->mh_seqno; /* net endian */
+	m_adj(m, sizeof(*dnh));
+	dnh = NULL;
+	error = pcb->dp_rx_handler(m);
+	if (error != 0) {
+		DNETDEBUG("RX handler was not able to accept message, error %d. "
+		    "Skipping ack.\n", error);
 		return;
-
-	if (ntohl(dnh->mh_type) == DEBUGNET_FINISHED) {
-		printf("Remote shut down the connection on us!\n");
-		pcb->dp_state = DN_STATE_REMOTE_CLOSED;
-
-		/*
-		 * Continue through to the user handler so they are signalled
-		 * not to wait for further rx.
-		 */
 	}
 
-	pcb->dp_rx_handler(pcb, mb);
+	error = debugnet_ack_output(pcb, seqno);
+	if (error != 0) {
+		DNETDEBUG("Couldn't ACK rx packet %u; %d\n", ntohl(seqno), error);
+	}
 }
 
 static void
@@ -430,7 +459,7 @@ debugnet_handle_ack(struct debugnet_pcb *pcb, struct mbuf **mb, uint16_t sport)
 			return;
 		}
 	}
-	dn_ack = mtod(m, const void *);
+	dn_ack = mtod(m, const struct debugnet_ack *);
 
 	/* Debugnet processing. */
 	/*
@@ -474,7 +503,7 @@ debugnet_handle_udp(struct debugnet_pcb *pcb, struct mbuf **mb)
 			return;
 		}
 	}
-	udp = mtod(m, const void *);
+	udp = mtod(m, const struct udphdr *);
 
 	/* We expect to receive UDP packets on the configured client port. */
 	if (ntohs(udp->uh_dport) != pcb->dp_client_port) {
@@ -537,13 +566,9 @@ debugnet_input_one(struct ifnet *ifp, struct mbuf *m)
 	}
 	if (m->m_len < ETHER_HDR_LEN) {
 		DNETDEBUG_IF(ifp,
-	    "discard frame without leading eth header (len %u pktlen %u)\n",
+	    "discard frame without leading eth header (len %d pktlen %d)\n",
 		    m->m_len, m->m_pkthdr.len);
 		goto done;
-	}
-	if ((m->m_flags & M_HASFCS) != 0) {
-		m_adj(m, -ETHER_CRC_LEN);
-		m->m_flags &= ~M_HASFCS;
 	}
 	eh = mtod(m, struct ether_header *);
 	etype = ntohs(eh->ether_type);

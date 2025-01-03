@@ -23,8 +23,23 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #
-# $FreeBSD$
 #
+
+atf_test_case copy_to_empty
+copy_to_empty_body() {
+	printf 'test\n123\r456\r\n789\0z' >testf
+	atf_check -s not-exit:0 -e match:"empty string" \
+	    install testf ""
+}
+
+atf_test_case copy_to_nonexistent_dir
+copy_to_nonexistent_dir_body() {
+	local dir="/nonexistent"
+
+	printf 'test\n123\r456\r\n789\0z' >testf
+	atf_check -s not-exit:0 -e match:$dir": No such file or directory" \
+	    install testf $dir/testf
+}
 
 copy_to_nonexistent_with_opts() {
 	printf 'test\n123\r456\r\n789\0z' >testf
@@ -482,8 +497,25 @@ set_owner_group_mode_unpriv_body() {
 	atf_check_equal "$u:$g:10$cM" "$(stat -f"%u:%g:%p" testc)"
 }
 
+atf_test_case set_optional_exec
+set_optional_exec_head() {
+	atf_set "require.user" "unprivileged"
+}
+set_optional_exec_body()
+{
+	echo "abc" > testfile.src
+
+	atf_check install -d -m ug+rX testdir
+	atf_check test -x testdir
+
+	atf_check install -m ug+rX testfile.src testfile
+	atf_check test ! -x testfile
+}
+
 atf_init_test_cases() {
+	atf_add_test_case copy_to_empty
 	atf_add_test_case copy_to_nonexistent
+	atf_add_test_case copy_to_nonexistent_dir
 	atf_add_test_case copy_to_nonexistent_safe
 	atf_add_test_case copy_to_nonexistent_comparing
 	atf_add_test_case copy_to_nonexistent_safe_comparing
@@ -524,4 +556,5 @@ atf_init_test_cases() {
 	atf_add_test_case mkdir_simple
 	atf_add_test_case set_owner_group_mode
 	atf_add_test_case set_owner_group_mode_unpriv
+	atf_add_test_case set_optional_exec
 }

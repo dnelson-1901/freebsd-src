@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 SHLIBDIR?=/lib
 
 .include <src.opts.mk>
@@ -29,9 +27,6 @@ SYMLINKS+=libulog.a ${LIBDIR}/libutempter.a
 .endif
 .if !defined(NO_PIC)
 SYMLINKS+=libulog.so ${LIBDIR}/libutempter.so
-.endif
-.if ${MK_PROFILE} != "no"
-SYMLINKS+=libulog_p.a ${LIBDIR}/libutempter_p.a
 .endif
 
 .include <bsd.lib.mk>

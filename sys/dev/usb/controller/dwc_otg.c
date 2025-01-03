@@ -1,6 +1,5 @@
-/* $FreeBSD$ */
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015 Daisuke Aoyama. All rights reserved.
  * Copyright (c) 2012-2015 Hans Petter Selasky. All rights reserved.
@@ -3857,7 +3856,7 @@ dwc_otg_init(struct dwc_otg_softc *sc)
 		return (ENOMEM);
 	}
 
-	sc->sc_bus.bdev = device_add_child(sc->sc_bus.parent, "usbus", -1);
+	sc->sc_bus.bdev = device_add_child(sc->sc_bus.parent, "usbus", DEVICE_UNIT_ANY);
 	if (sc->sc_bus.bdev == NULL)
 		return (ENXIO);
 

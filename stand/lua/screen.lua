@@ -1,5 +1,5 @@
 --
--- SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+-- SPDX-License-Identifier: BSD-2-Clause
 --
 -- Copyright (c) 2015 Pedro Souza <pedrosouza@freebsd.org>
 -- All rights reserved.
@@ -25,8 +25,6 @@
 -- OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 -- SUCH DAMAGE.
 --
--- $FreeBSD$
---
 
 local color = require("color")
 local core = require("core")
@@ -34,7 +32,7 @@ local core = require("core")
 local screen = {}
 
 -- Module exports
-screen.default_x = 0
+screen.default_x = 1
 screen.default_y = 25
 
 function screen.clear()

@@ -32,9 +32,6 @@
  * OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
@@ -56,7 +53,6 @@ __FBSDID("$FreeBSD$");
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
-#include <err.h>
 #include <libxo/xo.h>
 #include "netstat.h"
 

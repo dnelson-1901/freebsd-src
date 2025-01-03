@@ -233,7 +233,7 @@ fix_paths(libpc_handle_t *hdl, nvlist_t *nv, name_entry_t *names)
 	uint_t c, children;
 	uint64_t guid;
 	name_entry_t *ne, *best;
-	char *path;
+	const char *path;
 
 	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) == 0) {
@@ -497,7 +497,7 @@ get_configs(libpc_handle_t *hdl, pool_list_t *pl, boolean_t active_ok,
 	uint_t i, nspares, nl2cache;
 	boolean_t config_seen;
 	uint64_t best_txg;
-	char *name, *hostname = NULL;
+	const char *name, *hostname = NULL;
 	uint64_t guid;
 	uint_t children = 0;
 	nvlist_t **child = NULL;
@@ -591,8 +591,8 @@ get_configs(libpc_handle_t *hdl, pool_list_t *pl, boolean_t active_ok,
 				 *	hostname (if available)
 				 */
 				uint64_t state, version;
-				char *comment = NULL;
-				char *compatibility = NULL;
+				const char *comment = NULL;
+				const char *compatibility = NULL;
 
 				version = fnvlist_lookup_uint64(tmp,
 				    ZPOOL_CONFIG_VERSION);
@@ -1056,10 +1056,22 @@ zpool_read_label(int fd, nvlist_t **config, int *num_labels)
 				case EINVAL:
 					break;
 				case EINPROGRESS:
-					// This shouldn't be possible to
-					// encounter, die if we do.
+					/*
+					 * This shouldn't be possible to
+					 * encounter, die if we do.
+					 */
 					ASSERT(B_FALSE);
 					zfs_fallthrough;
+				case EREMOTEIO:
+					/*
+					 * May be returned by an NVMe device
+					 * which is visible in /dev/ but due
+					 * to a low-level format change, or
+					 * other error, needs to be rescanned.
+					 * Try the slow method.
+					 */
+					zfs_fallthrough;
+				case EAGAIN:
 				case EOPNOTSUPP:
 				case ENOSYS:
 					do_slow = B_TRUE;
@@ -1161,12 +1173,12 @@ slice_cache_compare(const void *arg1, const void *arg2)
 
 static int
 label_paths_impl(libpc_handle_t *hdl, nvlist_t *nvroot, uint64_t pool_guid,
-    uint64_t vdev_guid, char **path, char **devid)
+    uint64_t vdev_guid, const char **path, const char **devid)
 {
 	nvlist_t **child;
 	uint_t c, children;
 	uint64_t guid;
-	char *val;
+	const char *val;
 	int error;
 
 	if (nvlist_lookup_nvlist_array(nvroot, ZPOOL_CONFIG_CHILDREN,
@@ -1204,18 +1216,32 @@ label_paths_impl(libpc_handle_t *hdl, nvlist_t *nvroot, uint64_t pool_guid,
  * The returned pointers are only valid as long as label remains valid.
  */
 int
-label_paths(libpc_handle_t *hdl, nvlist_t *label, char **path, char **devid)
+label_paths(libpc_handle_t *hdl, nvlist_t *label, const char **path,
+    const char **devid)
 {
 	nvlist_t *nvroot;
 	uint64_t pool_guid;
 	uint64_t vdev_guid;
+	uint64_t state;
 
 	*path = NULL;
 	*devid = NULL;
+	if (nvlist_lookup_uint64(label, ZPOOL_CONFIG_GUID, &vdev_guid) != 0)
+		return (ENOENT);
+
+	/*
+	 * In case of spare or l2cache, we directly return path/devid from the
+	 * label.
+	 */
+	if (!(nvlist_lookup_uint64(label, ZPOOL_CONFIG_POOL_STATE, &state)) &&
+	    (state == POOL_STATE_SPARE || state == POOL_STATE_L2CACHE)) {
+		(void) nvlist_lookup_string(label, ZPOOL_CONFIG_PATH, path);
+		(void) nvlist_lookup_string(label, ZPOOL_CONFIG_DEVID, devid);
+		return (0);
+	}
 
 	if (nvlist_lookup_nvlist(label, ZPOOL_CONFIG_VDEV_TREE, &nvroot) ||
-	    nvlist_lookup_uint64(label, ZPOOL_CONFIG_POOL_GUID, &pool_guid) ||
-	    nvlist_lookup_uint64(label, ZPOOL_CONFIG_GUID, &vdev_guid))
+	    nvlist_lookup_uint64(label, ZPOOL_CONFIG_POOL_GUID, &pool_guid))
 		return (ENOENT);
 
 	return (label_paths_impl(hdl, nvroot, pool_guid, vdev_guid, path,
@@ -1265,7 +1291,7 @@ zpool_find_import_scan_dir(libpc_handle_t *hdl, pthread_mutex_t *lock,
 		if (error == ENOENT)
 			return (0);
 
-		zutil_error_aux(hdl, "%s", strerror(error));
+		zutil_error_aux(hdl, "%s", zfs_strerror(error));
 		(void) zutil_error_fmt(hdl, LPC_BADPATH, dgettext(TEXT_DOMAIN,
 		    "cannot resolve path '%s'"), dir);
 		return (error);
@@ -1274,7 +1300,7 @@ zpool_find_import_scan_dir(libpc_handle_t *hdl, pthread_mutex_t *lock,
 	dirp = opendir(path);
 	if (dirp == NULL) {
 		error = errno;
-		zutil_error_aux(hdl, "%s", strerror(error));
+		zutil_error_aux(hdl, "%s", zfs_strerror(error));
 		(void) zutil_error_fmt(hdl, LPC_BADPATH, dgettext(TEXT_DOMAIN,
 		    "cannot open '%s'"), path);
 		return (error);
@@ -1336,7 +1362,7 @@ zpool_find_import_scan_path(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			goto out;
 		}
 
-		zutil_error_aux(hdl, "%s", strerror(error));
+		zutil_error_aux(hdl, "%s", zfs_strerror(error));
 		(void) zutil_error_fmt(hdl, LPC_BADPATH, dgettext(TEXT_DOMAIN,
 		    "cannot resolve path '%s'"), dir);
 		goto out;
@@ -1374,7 +1400,7 @@ zpool_find_import_scan(libpc_handle_t *hdl, pthread_mutex_t *lock,
 			if (error == ENOENT)
 				continue;
 
-			zutil_error_aux(hdl, "%s", strerror(error));
+			zutil_error_aux(hdl, "%s", zfs_strerror(error));
 			(void) zutil_error_fmt(hdl, LPC_BADPATH, dgettext(
 			    TEXT_DOMAIN, "cannot resolve path '%s'"), dir[i]);
 			goto error;
@@ -1439,7 +1465,21 @@ zpool_find_import_impl(libpc_handle_t *hdl, importargs_t *iarg,
 	 * validating labels, a large number of threads can be used due to
 	 * minimal contention.
 	 */
-	t = tpool_create(1, 2 * sysconf(_SC_NPROCESSORS_ONLN), 0, NULL);
+	long threads = 2 * sysconf(_SC_NPROCESSORS_ONLN);
+#ifdef HAVE_AIO_H
+	long am;
+#ifdef _SC_AIO_LISTIO_MAX
+	am = sysconf(_SC_AIO_LISTIO_MAX);
+	if (am >= VDEV_LABELS)
+		threads = MIN(threads, am / VDEV_LABELS);
+#endif
+#ifdef _SC_AIO_MAX
+	am = sysconf(_SC_AIO_MAX);
+	if (am >= VDEV_LABELS)
+		threads = MIN(threads, am / VDEV_LABELS);
+#endif
+#endif
+	t = tpool_create(1, threads, 0, NULL);
 	for (slice = avl_first(cache); slice;
 	    (slice = avl_walk(cache, slice, AVL_AFTER)))
 		(void) tpool_dispatch(t, zpool_open_func, slice);
@@ -1473,7 +1513,7 @@ zpool_find_import_impl(libpc_handle_t *hdl, importargs_t *iarg,
 			}
 
 			if (iarg->poolname != NULL && !aux) {
-				char *pname;
+				const char *pname;
 
 				matched = nvlist_lookup_string(config,
 				    ZPOOL_CONFIG_POOL_NAME, &pname) == 0 &&
@@ -1547,7 +1587,7 @@ static int
 discover_cached_paths(libpc_handle_t *hdl, nvlist_t *nv,
     avl_tree_t *cache, pthread_mutex_t *lock)
 {
-	char *path = NULL;
+	const char *path = NULL;
 	ssize_t dl;
 	uint_t children;
 	nvlist_t **child;
@@ -1564,12 +1604,21 @@ discover_cached_paths(libpc_handle_t *hdl, nvlist_t *nv,
 	 * our directory cache.
 	 */
 	if (nvlist_lookup_string(nv, ZPOOL_CONFIG_PATH, &path) == 0) {
-		if ((dl = zfs_dirnamelen(path)) == -1)
-			path = (char *)".";
-		else
-			path[dl] = '\0';
-		return (zpool_find_import_scan_dir(hdl, lock, cache,
-		    path, 0));
+		int ret;
+		char c = '\0';
+		if ((dl = zfs_dirnamelen(path)) == -1) {
+			path = ".";
+		} else {
+			c = path[dl];
+			((char *)path)[dl] = '\0';
+
+		}
+		ret = zpool_find_import_scan_dir(hdl, lock, cache,
+		    path, 0);
+		if (c != '\0')
+			((char *)path)[dl] = c;
+
+		return (ret);
 	}
 	return (0);
 }
@@ -1588,21 +1637,21 @@ zpool_find_import_cached(libpc_handle_t *hdl, importargs_t *iarg)
 	nvlist_t *raw, *src, *dst;
 	nvlist_t *pools;
 	nvpair_t *elem;
-	char *name;
+	const char *name;
 	uint64_t this_guid;
 	boolean_t active;
 
 	verify(iarg->poolname == NULL || iarg->guid == 0);
 
 	if ((fd = open(iarg->cachefile, O_RDONLY | O_CLOEXEC)) < 0) {
-		zutil_error_aux(hdl, "%s", strerror(errno));
+		zutil_error_aux(hdl, "%s", zfs_strerror(errno));
 		(void) zutil_error(hdl, LPC_BADCACHE, dgettext(TEXT_DOMAIN,
 		    "failed to open cache file"));
 		return (NULL);
 	}
 
 	if (fstat64(fd, &statbuf) != 0) {
-		zutil_error_aux(hdl, "%s", strerror(errno));
+		zutil_error_aux(hdl, "%s", zfs_strerror(errno));
 		(void) close(fd);
 		(void) zutil_error(hdl, LPC_BADCACHE, dgettext(TEXT_DOMAIN,
 		    "failed to get size of cache file"));
@@ -1818,10 +1867,10 @@ zpool_search_import(libpc_handle_t *hdl, importargs_t *import)
 }
 
 static boolean_t
-pool_match(nvlist_t *cfg, char *tgt)
+pool_match(nvlist_t *cfg, const char *tgt)
 {
 	uint64_t v, guid = strtoull(tgt, NULL, 0);
-	char *s;
+	const char *s;
 
 	if (guid != 0) {
 		if (nvlist_lookup_uint64(cfg, ZPOOL_CONFIG_POOL_GUID, &v) == 0)
@@ -1888,6 +1937,104 @@ zpool_find_config(libpc_handle_t *hdl, const char *target, nvlist_t **configp,
 	return (0);
 }
 
+/* Return if a vdev is a leaf vdev.  Note: draid spares are leaf vdevs. */
+static boolean_t
+vdev_is_leaf(nvlist_t *nv)
+{
+	uint_t children = 0;
+	nvlist_t **child;
+
+	(void) nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_CHILDREN,
+	    &child, &children);
+
+	return (children == 0);
+}
+
+/* Return if a vdev is a leaf vdev and a real device (disk or file) */
+static boolean_t
+vdev_is_real_leaf(nvlist_t *nv)
+{
+	const char *type = NULL;
+	if (!vdev_is_leaf(nv))
+		return (B_FALSE);
+
+	(void) nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type);
+	if ((strcmp(type, VDEV_TYPE_DISK) == 0) ||
+	    (strcmp(type, VDEV_TYPE_FILE) == 0)) {
+		return (B_TRUE);
+	}
+
+	return (B_FALSE);
+}
+
+/*
+ * This function is called by our FOR_EACH_VDEV() macros.
+ *
+ * state:   State machine status (stored inside of a (nvlist_t *))
+ * nv:	     The current vdev nvlist_t we are iterating over.
+ * last_nv: The previous vdev nvlist_t we returned to the user in
+ *          the last iteration of FOR_EACH_VDEV().  We use it
+ *          to find the next vdev nvlist_t we should return.
+ * real_leaves_only: Only return leaf vdevs.
+ *
+ * Returns 1 if we found the next vdev nvlist_t for this iteration.  0 if
+ * we're still searching for it.
+ */
+static int
+__for_each_vdev_macro_helper_func(void *state, nvlist_t *nv, void *last_nv,
+    boolean_t real_leaves_only)
+{
+	enum {FIRST_NV = 0, NEXT_IS_MATCH = 1, STOP_LOOKING = 2};
+
+	/* The very first entry in the NV list is a special case */
+	if (*((nvlist_t **)state) == (nvlist_t *)FIRST_NV) {
+		if (real_leaves_only && !vdev_is_real_leaf(nv))
+			return (0);
+
+		*((nvlist_t **)last_nv) = nv;
+		*((nvlist_t **)state) = (nvlist_t *)STOP_LOOKING;
+		return (1);
+	}
+
+	/*
+	 * We came across our last_nv, meaning the next one is the one we
+	 * want
+	 */
+	if (nv == *((nvlist_t **)last_nv)) {
+		/* Next iteration of this function will return the nvlist_t */
+		*((nvlist_t **)state) = (nvlist_t *)NEXT_IS_MATCH;
+		return (0);
+	}
+
+	/*
+	 * We marked NEXT_IS_MATCH on the previous iteration, so this is the one
+	 * we want.
+	 */
+	if (*(nvlist_t **)state == (nvlist_t *)NEXT_IS_MATCH) {
+		if (real_leaves_only && !vdev_is_real_leaf(nv))
+			return (0);
+
+		*((nvlist_t **)last_nv) = nv;
+		*((nvlist_t **)state) = (nvlist_t *)STOP_LOOKING;
+		return (1);
+	}
+
+	return (0);
+}
+
+int
+for_each_vdev_macro_helper_func(void *state, nvlist_t *nv, void *last_nv)
+{
+	return (__for_each_vdev_macro_helper_func(state, nv, last_nv, B_FALSE));
+}
+
+int
+for_each_real_leaf_vdev_macro_helper_func(void *state, nvlist_t *nv,
+    void *last_nv)
+{
+	return (__for_each_vdev_macro_helper_func(state, nv, last_nv, B_TRUE));
+}
+
 /*
  * Internal function for iterating over the vdevs.
  *
@@ -1906,7 +2053,7 @@ for_each_vdev_cb(void *zhp, nvlist_t *nv, pool_vdev_iter_f func,
 	uint_t c, children;
 	int ret = 0;
 	int i;
-	char *type;
+	const char *type;
 
 	const char *list[] = {
 	    ZPOOL_CONFIG_SPARES,
@@ -1917,9 +2064,8 @@ for_each_vdev_cb(void *zhp, nvlist_t *nv, pool_vdev_iter_f func,
 	if (nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type) != 0)
 		return (ret);
 
-	/* Don't run our function on root or indirect vdevs */
-	if ((strcmp(type, VDEV_TYPE_ROOT) != 0) &&
-	    (strcmp(type, VDEV_TYPE_INDIRECT) != 0)) {
+	/* Don't run our function on indirect vdevs */
+	if (strcmp(type, VDEV_TYPE_INDIRECT) != 0) {
 		ret |= func(zhp, nv, data);
 	}
 

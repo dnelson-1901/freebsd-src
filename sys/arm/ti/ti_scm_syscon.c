@@ -23,13 +23,8 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 /* Based on sys/arm/ti/ti_sysc.c */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -51,7 +46,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus_subr.h>
 
 #include "syscon_if.h"
-#include <dev/extres/syscon/syscon.h>
+#include <dev/syscon/syscon.h>
 #include "clkdev_if.h"
 
 #include <arm/ti/ti_cpuid.h>
@@ -190,12 +185,13 @@ ti_scm_syscon_attach(device_t dev)
 
 	simplebus_init(sc->dev, node);
 
-	bus_generic_probe(sc->dev);
+	bus_identify_children(sc->dev);
 	for (child = OF_child(node); child != 0; child = OF_peer(child)) {
 		simplebus_add_device(sc->dev, child, 0, NULL, -1, NULL);
 	}
 
-	return (bus_generic_attach(sc->dev));
+	bus_attach_children(sc->dev);
+	return (0);
 }
 
 /* syscon interface */

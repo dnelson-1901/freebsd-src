@@ -1,11 +1,8 @@
-/*	$FreeBSD$	*/
 
 /*
  * Copyright (C) 2012 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
- *
- * @(#)ipf.h	1.12 6/5/96
  * $Id$
  */
 
@@ -181,7 +178,7 @@ typedef	int	(* copyfunc_t)(void *, void *, size_t);
 
 extern	char	thishost[MAXHOSTNAMELEN];
 extern	char	flagset[];
-extern	u_char	flags[];
+extern	uint16_t flags[];
 extern	struct ipopt_names ionames[];
 extern	struct ipopt_names secclass[];
 extern	char	*icmpcodes[MAX_ICMPCODE + 1];
@@ -333,7 +330,7 @@ extern int remove_hash(struct iphtable_s *, ioctlfunc_t);
 extern int remove_hashnode(int, char *, struct iphtent_s *, ioctlfunc_t);
 extern int remove_pool(ip_pool_t *, ioctlfunc_t);
 extern int remove_poolnode(int, char *, ip_pool_node_t *, ioctlfunc_t);
-extern u_char tcpflags(char *);
+extern uint16_t tcpflags(char *);
 extern void printc(struct frentry *);
 extern void printC(int);
 extern void emit(int, int, void *, struct frentry *);

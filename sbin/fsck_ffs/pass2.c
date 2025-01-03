@@ -29,14 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#if 0
-#ifndef lint
-static const char sccsid[] = "@(#)pass2.c	8.9 (Berkeley) 4/28/95";
-#endif /* not lint */
-#endif
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/sysctl.h>
 
@@ -210,8 +202,10 @@ pass2(void)
 		if (inp->i_parent == 0 || inp->i_isize == 0)
 			continue;
 		if (inoinfo(inp->i_parent)->ino_state == DFOUND &&
-		    INO_IS_DUNFOUND(inp->i_number))
+		    INO_IS_DUNFOUND(inp->i_number)) {
 			inoinfo(inp->i_number)->ino_state = DFOUND;
+			check_dirdepth(inp);
+		}
 		if (inp->i_dotdot == inp->i_parent ||
 		    inp->i_dotdot == (ino_t)-1)
 			continue;
@@ -271,7 +265,8 @@ pass2(void)
 		inoinfo(inp->i_dotdot)->ino_linkcnt++;
 		inoinfo(inp->i_parent)->ino_linkcnt--;
 		inp->i_dotdot = inp->i_parent;
-		(void)changeino(inp->i_number, "..", inp->i_parent);
+		(void)changeino(inp->i_number, "..", inp->i_parent,
+		    getinoinfo(inp->i_parent)->i_depth  + 1);
 	}
 	/*
 	 * Mark all the directories that can be found from the root.
@@ -368,7 +363,7 @@ chk1:
 		dirp->d_reclen = proto.d_reclen;
 	}
 	if (dirp->d_ino != 0 && strcmp(dirp->d_name, "..") == 0) {
-		if (dirp->d_ino > maxino) {
+		if (dirp->d_ino >= maxino) {
 			direrror(idesc->id_number, "BAD INODE NUMBER FOR '..'");
 			/*
 			 * If we know parent set it now, otherwise let it
@@ -468,7 +463,7 @@ chk2:
 	}
 	idesc->id_entryno++;
 	n = 0;
-	if (dirp->d_ino > maxino) {
+	if (dirp->d_ino >= maxino) {
 		fileerror(idesc->id_number, dirp->d_ino, "I OUT OF RANGE");
 		n = reply("REMOVE");
 	} else if (((dirp->d_ino == UFS_WINO && dirp->d_type != DT_WHT) ||
@@ -548,10 +543,12 @@ again:
 		case DFOUND:
 			inp = getinoinfo(dirp->d_ino);
 			if (idesc->id_entryno > 2) {
-				if (inp->i_parent == 0)
+				if (inp->i_parent == 0) {
 					inp->i_parent = idesc->id_number;
-				else if ((n = fix_extraneous(inp, idesc)) == 1)
+					check_dirdepth(inp);
+				} else if ((n = fix_extraneous(inp, idesc))) {
 					break;
+				}
 			}
 			/* FALLTHROUGH */
 

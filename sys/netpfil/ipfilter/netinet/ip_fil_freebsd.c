@@ -1,14 +1,9 @@
-/*	$FreeBSD$	*/
 
 /*
  * Copyright (C) 2012 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
  */
-#if !defined(lint)
-static const char sccsid[] = "@(#)ip_fil.c	2.41 6/5/96 (C) 1993-2000 Darren Reed";
-static const char rcsid[] = "@(#)$Id$";
-#endif
 
 #if defined(KERNEL) || defined(_KERNEL)
 # undef KERNEL
@@ -101,18 +96,6 @@ VNET_DEFINE_STATIC(eventhandler_tag, ipf_arrivetag);
 VNET_DEFINE_STATIC(eventhandler_tag, ipf_departtag);
 #define	V_ipf_arrivetag		VNET(ipf_arrivetag)
 #define	V_ipf_departtag		VNET(ipf_departtag)
-#if 0
-/*
- * Disable the "cloner" event handler;  we are getting interface
- * events before the firewall is fully initiallized and also no vnet
- * information thus leading to uninitialised memory accesses.
- * In addition it is unclear why we need it in first place.
- * If it turns out to be needed, well need a dedicated event handler
- * for it to deal with the ifc and the correct vnet.
- */
-VNET_DEFINE_STATIC(eventhandler_tag, ipf_clonetag);
-#define	V_ipf_clonetag		VNET(ipf_clonetag)
-#endif
 
 static void ipf_ifevent(void *arg, struct ifnet *ifp);
 
@@ -138,6 +121,8 @@ ipf_check_wrapper(struct mbuf **mp, struct ifnet *ifp, int flags,
 	rv = ipf_check(&V_ipfmain, ip, ip->ip_hl << 2, ifp,
 	    !!(flags & PFIL_OUT), mp);
 	CURVNET_RESTORE();
+	if (rv == 0 && *mp == NULL)
+		return (PFIL_CONSUMED);
 	return (rv == 0 ? PFIL_PASS : PFIL_DROPPED);
 }
 
@@ -152,6 +137,8 @@ ipf_check_wrapper6(struct mbuf **mp, struct ifnet *ifp, int flags,
 	rv = ipf_check(&V_ipfmain, mtod(*mp, struct ip *),
 	    sizeof(struct ip6_hdr), ifp, !!(flags & PFIL_OUT), mp);
 	CURVNET_RESTORE();
+	if (rv == 0 && *mp == NULL)
+		return (PFIL_CONSUMED);
 
 	return (rv == 0 ? PFIL_PASS : PFIL_DROPPED);
 }
@@ -173,21 +160,15 @@ ipf_timer_func(void *arg)
 	SPL_INT(s);
 
 	SPL_NET(s);
-	READ_ENTER(&softc->ipf_global);
 
 	if (softc->ipf_running > 0)
 		ipf_slowtimer(softc);
 
 	if (softc->ipf_running == -1 || softc->ipf_running == 1) {
-#if 0
-		softc->ipf_slow_ch = timeout(ipf_timer_func, softc, hz/2);
-#endif
-		callout_init(&softc->ipf_slow_ch, 1);
 		callout_reset(&softc->ipf_slow_ch,
 			(hz / IPF_HZ_DIVIDE) * IPF_HZ_MULT,
 			ipf_timer_func, softc);
 	}
-	RWLOCK_EXIT(&softc->ipf_global);
 	SPL_X(s);
 }
 
@@ -218,11 +199,7 @@ ipfattach(ipf_main_softc_t *softc)
 		V_ipforwarding = 1;
 
 	SPL_X(s);
-#if 0
-	softc->ipf_slow_ch = timeout(ipf_timer_func, softc,
-				     (hz / IPF_HZ_DIVIDE) * IPF_HZ_MULT);
-#endif
-	callout_init(&softc->ipf_slow_ch, 1);
+	callout_init_rw(&softc->ipf_slow_ch, &softc->ipf_global.ipf_lk, CALLOUT_SHAREDLOCK);
 	callout_reset(&softc->ipf_slow_ch, (hz / IPF_HZ_DIVIDE) * IPF_HZ_MULT,
 		ipf_timer_func, softc);
 	return (0);
@@ -245,11 +222,6 @@ ipfdetach(ipf_main_softc_t *softc)
 
 	SPL_NET(s);
 
-#if 0
-	if (softc->ipf_slow_ch.callout != NULL)
-		untimeout(ipf_timer_func, softc, softc->ipf_slow_ch);
-	bzero(&softc->ipf_slow, sizeof(softc->ipf_slow));
-#endif
 	callout_drain(&softc->ipf_slow_ch);
 
 	ipf_fini_all(softc);
@@ -342,15 +314,15 @@ ipf_send_reset(fr_info_t *fin)
 	ip_t *ip;
 
 	tcp = fin->fin_dp;
-	if (tcp->th_flags & TH_RST)
+	if (tcp_get_flags(tcp) & TH_RST)
 		return (-1);		/* feedback loop */
 
 	if (ipf_checkl4sum(fin) == -1)
 		return (-1);
 
 	tlen = fin->fin_dlen - (TCP_OFF(tcp) << 2) +
-			((tcp->th_flags & TH_SYN) ? 1 : 0) +
-			((tcp->th_flags & TH_FIN) ? 1 : 0);
+			((tcp_get_flags(tcp) & TH_SYN) ? 1 : 0) +
+			((tcp_get_flags(tcp) & TH_FIN) ? 1 : 0);
 
 #ifdef USE_INET6
 	hlen = (fin->fin_v == 6) ? sizeof(ip6_t) : sizeof(ip_t);
@@ -384,18 +356,17 @@ ipf_send_reset(fr_info_t *fin)
 	tcp2->th_sport = tcp->th_dport;
 	tcp2->th_dport = tcp->th_sport;
 
-	if (tcp->th_flags & TH_ACK) {
+	if (tcp_get_flags(tcp) & TH_ACK) {
 		tcp2->th_seq = tcp->th_ack;
-		tcp2->th_flags = TH_RST;
+		tcp_set_flags(tcp2, TH_RST);
 		tcp2->th_ack = 0;
 	} else {
 		tcp2->th_seq = 0;
 		tcp2->th_ack = ntohl(tcp->th_seq);
 		tcp2->th_ack += tlen;
 		tcp2->th_ack = htonl(tcp2->th_ack);
-		tcp2->th_flags = TH_RST|TH_ACK;
+		tcp_set_flags(tcp2, TH_RST|TH_ACK);
 	}
-	TCP_X2_A(tcp2, 0);
 	TCP_OFF_A(tcp2, sizeof(*tcp2) >> 2);
 	tcp2->th_win = tcp->th_win;
 	tcp2->th_sum = 0;
@@ -1362,10 +1333,6 @@ ipf_event_reg(void)
 	V_ipf_departtag = EVENTHANDLER_REGISTER(ifnet_departure_event, \
 					       ipf_ifevent, NULL, \
 					       EVENTHANDLER_PRI_ANY);
-#if 0
-	V_ipf_clonetag  = EVENTHANDLER_REGISTER(if_clone_event, ipf_ifevent, \
-					       NULL, EVENTHANDLER_PRI_ANY);
-#endif
 }
 
 void
@@ -1377,11 +1344,6 @@ ipf_event_dereg(void)
 	if (V_ipf_departtag != NULL) {
 		EVENTHANDLER_DEREGISTER(ifnet_departure_event, V_ipf_departtag);
 	}
-#if 0
-	if (V_ipf_clonetag != NULL) {
-		EVENTHANDLER_DEREGISTER(if_clone_event, V_ipf_clonetag);
-	}
-#endif
 }
 
 

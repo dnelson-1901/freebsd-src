@@ -1,13 +1,9 @@
-# $FreeBSD$
+SRCS+=	amd64_tramp.S \
+	start.S \
+	setup.c \
+	elf64_freebsd.c
 
-SRCS+=	start.S \
-	elf32_freebsd.c \
-	exec.c
-
-.PATH:	${BOOTSRC}/i386/libi386
+.PATH: ${BOOTSRC}/i386/libi386
 SRCS+=	nullconsole.c \
 	comconsole.c \
 	spinconsole.c
-
-CFLAGS+=	-fPIC
-LDFLAGS+=	-Wl,-znocombreloc

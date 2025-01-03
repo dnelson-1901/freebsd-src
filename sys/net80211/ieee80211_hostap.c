@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007-2008 Sam Leffler, Errno Consulting
  * All rights reserved.
@@ -24,11 +24,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-#ifdef __FreeBSD__
-__FBSDID("$FreeBSD$");
-#endif
 
 /*
  * IEEE 802.11 HOSTAP mode support.
@@ -424,6 +419,8 @@ hostap_deliver_data(struct ieee80211vap *vap,
 			(void) ieee80211_vap_xmitpkt(vap, mcopy);
 	}
 	if (m != NULL) {
+		struct epoch_tracker et;
+
 		/*
 		 * Mark frame as coming from vap's interface.
 		 */
@@ -440,7 +437,9 @@ hostap_deliver_data(struct ieee80211vap *vap,
 			m->m_pkthdr.ether_vtag = ni->ni_vlan;
 			m->m_flags |= M_VLANTAG;
 		}
+		NET_EPOCH_ENTER(et);
 		ifp->if_input(ifp, m);
+		NET_EPOCH_EXIT(et);
 	}
 }
 
@@ -533,8 +532,7 @@ hostap_input(struct ieee80211_node *ni, struct mbuf *m,
 	 */
 	wh = mtod(m, struct ieee80211_frame *);
 
-	if ((wh->i_fc[0] & IEEE80211_FC0_VERSION_MASK) !=
-	    IEEE80211_FC0_VERSION_0) {
+	if (!IEEE80211_IS_FC0_CHECK_VER(wh, IEEE80211_FC0_VERSION_0)) {
 		IEEE80211_DISCARD_MAC(vap, IEEE80211_MSG_ANY,
 		    ni->ni_macaddr, NULL, "wrong version, fc %02x:%02x",
 		    wh->i_fc[0], wh->i_fc[1]);
@@ -975,7 +973,7 @@ hostap_auth_open(struct ieee80211_node *ni, struct ieee80211_frame *wh,
 		 */
 		IEEE80211_NOTE_MAC(vap,
 		    IEEE80211_MSG_AUTH | IEEE80211_MSG_ACL, ni->ni_macaddr,
-		    "%s", "station authentication defered (radius acl)");
+		    "%s", "station authentication deferred (radius acl)");
 		ieee80211_notify_node_auth(ni);
 	} else {
 		IEEE80211_SEND_MGMT(ni, IEEE80211_FC0_SUBTYPE_AUTH, seq + 1);
@@ -1125,7 +1123,7 @@ hostap_auth_shared(struct ieee80211_node *ni, struct ieee80211_frame *wh,
 			IEEE80211_NOTE_MAC(vap,
 			    IEEE80211_MSG_AUTH | IEEE80211_MSG_ACL,
 			    ni->ni_macaddr,
-			    "%s", "station authentication defered (radius acl)");
+			    "%s", "station authentication deferred (radius acl)");
 			ieee80211_notify_node_auth(ni);
 			return;
 		}
@@ -1540,9 +1538,14 @@ ieee80211_parse_rsn(struct ieee80211vap *vap, const uint8_t *frm,
 		rsn->rsn_keymgmt = RSN_ASE_8021X_PSK;
 
 	/* optional RSN capabilities */
-	if (len > 2)
+	if (len >= 2) {
 		rsn->rsn_caps = le16dec(frm);
-	/* XXXPMKID */
+		frm += 2, len -= 2;
+	}
+
+	/* XXX PMK Count / PMKID */
+
+	/* XXX Group Cipher Management Suite */
 
 	return 0;
 }
@@ -1813,7 +1816,7 @@ hostap_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 				 * XXX check if the beacon we recv'd gives
 				 * us what we need and suppress the probe req
 				 */
-				ieee80211_probe_curchan(vap, 1);
+				ieee80211_probe_curchan(vap, true);
 				ic->ic_flags_ext &= ~IEEE80211_FEXT_PROBECHAN;
 			}
 			ieee80211_add_scan(vap, ic->ic_curchan, &scan, wh,
@@ -2126,12 +2129,12 @@ hostap_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 		/* Validate VHT IEs */
 		if (vhtcap != NULL) {
 			IEEE80211_VERIFY_LENGTH(vhtcap[1],
-			    sizeof(struct ieee80211_ie_vhtcap) - 2,
+			    sizeof(struct ieee80211_vht_cap),
 			    return);
 		}
 		if (vhtinfo != NULL) {
 			IEEE80211_VERIFY_LENGTH(vhtinfo[1],
-			    sizeof(struct ieee80211_ie_vht_operation) - 2,
+			    sizeof(struct ieee80211_vht_operation),
 			    return);
 		}
 

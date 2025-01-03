@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008 Stanislav Sedov <stas@FreeBSD.org>.
  * All rights reserved.
@@ -28,9 +28,6 @@
  *
  * This driver is heavily based on age(4) Attansic L1 driver by Pyun YongHyeon.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -329,12 +326,6 @@ ae_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "could not allocate ifnet structure.\n");
-		error = ENXIO;
-		goto fail;
-	}
-
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -371,12 +362,6 @@ ae_attach(device_t dev)
 	 */
 	sc->tq = taskqueue_create_fast("ae_taskq", M_WAITOK,
             taskqueue_thread_enqueue, &sc->tq);
-	if (sc->tq == NULL) {
-		device_printf(dev, "could not create taskqueue.\n");
-		ether_ifdetach(ifp);
-		error = ENXIO;
-		goto fail;
-	}
 	taskqueue_start_threads(&sc->tq, 1, PI_NET, "%s taskq",
 	    device_get_nameunit(sc->dev));
 
@@ -775,10 +760,6 @@ ae_detach(device_t dev)
 		taskqueue_drain(sc->tq, &sc->int_task);
 		taskqueue_free(sc->tq);
 		sc->tq = NULL;
-	}
-	if (sc->miibus != NULL) {
-		device_delete_child(dev, sc->miibus);
-		sc->miibus = NULL;
 	}
 	bus_generic_detach(sc->dev);
 	ae_dma_free(sc);

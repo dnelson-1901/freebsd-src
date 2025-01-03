@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Doug Rabson
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_agp.h"
 
 #include <sys/param.h>
@@ -256,7 +254,7 @@ agp_generic_attach(device_t dev)
 	mdargs.mda_uid = UID_ROOT;
 	mdargs.mda_gid = GID_WHEEL;
 	mdargs.mda_mode = 0600;
-	mdargs.mda_si_drv1 = sc;
+	mdargs.mda_si_drv1 = dev;
 	mdargs.mda_si_drv2 = NULL;
 
 	unit = device_get_unit(dev);

@@ -23,7 +23,6 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #
-# $FreeBSD$
 #
 # PROVIDE: devmatch
 # REQUIRE: kld
@@ -42,11 +41,15 @@ one_nomatch="$2"
 
 devmatch_start()
 {
-	local x m list
+	local x m list boot_safe
+
+	boot_safe=$(kenv -q boot_safe || echo "NO")
+	checkyesno boot_safe && return
 
 	if [ -n "$one_nomatch" ]; then
 		list=$(devmatch -p "${one_nomatch}" | sort -u)
 	else
+		sysctl hw.bus.devctl_nomatch_enabled=1 > /dev/null
 		list=$(devmatch | sort -u)
 	fi
 
@@ -78,4 +81,8 @@ devmatch_start()
 }
 
 load_rc_config $name
+
+# doesn't make sense to run in a svcj: privileged operations
+devmatch_svcj="NO"
+
 run_rc_command "$1"

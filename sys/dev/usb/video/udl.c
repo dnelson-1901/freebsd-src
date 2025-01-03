@@ -1,5 +1,4 @@
 /*	$OpenBSD: udl.c,v 1.81 2014/12/09 07:05:06 doug Exp $ */
-/*	$FreeBSD$ */
 
 /*-
  * Copyright (c) 2015 Hans Petter Selasky <hselasky@freebsd.org>
@@ -424,7 +423,7 @@ udl_attach(device_t dev)
 	sc->sc_fb_info.fb_priv = sc;
 	sc->sc_fb_info.setblankmode = &udl_fb_setblankmode;
 
-	sc->sc_fbdev = device_add_child(dev, "fbd", -1);
+	sc->sc_fbdev = device_add_child(dev, "fbd", DEVICE_UNIT_ANY);
 	if (sc->sc_fbdev == NULL)
 		goto detach;
 	if (device_probe_and_attach(sc->sc_fbdev) != 0)
@@ -442,9 +441,12 @@ static int
 udl_detach(device_t dev)
 {
 	struct udl_softc *sc = device_get_softc(dev);
+	int error;
 
 	/* delete all child devices */
-	device_delete_children(dev);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	UDL_LOCK(sc);
 	sc->sc_gone = 1;
@@ -786,7 +788,7 @@ udl_select_chip(struct udl_softc *sc, struct usb_attach_arg *uaa)
 		/*
 		 * WS Tech DVI is DL120 or DL160. All deviced uses the
 		 * same revision (0.04) so iSerialNumber must be used
-		 * to determin which chip it is.
+		 * to determine which chip it is.
 		 */
 
 		if (strlen(pserial) > 7) {

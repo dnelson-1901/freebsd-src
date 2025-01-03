@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Ian Lepore <ian@freebsd.org>
  * All rights reserved.
@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver for Freescale Fast Ethernet Controller, found on imx-series SoCs among
  * others.  Also works for the ENET Gigibit controller found on imx6 and imx28,
@@ -123,7 +121,8 @@ static struct ofw_compat_data compat_data[] = {
 	{"fsl,imx53-fec",	FECTYPE_IMX53},
 	{"fsl,imx6q-fec",	FECTYPE_IMX6 | FECFLAG_RACC | FECFLAG_GBE },
 	{"fsl,imx6ul-fec",	FECTYPE_IMX6 | FECFLAG_RACC },
-	{"fsl,imx6sx-fec",      FECTYPE_IMX6 | FECFLAG_RACC },
+	{"fsl,imx6sx-fec",	FECTYPE_IMX6 | FECFLAG_RACC | FECFLAG_GBE |
+				FECFLAG_AVB },
 	{"fsl,imx7d-fec",	FECTYPE_IMX6 | FECFLAG_RACC | FECFLAG_GBE |
 				FECFLAG_AVB },
 	{"fsl,mvf600-fec",	FECTYPE_MVF  | FECFLAG_RACC },
@@ -969,7 +968,7 @@ ffec_get_hwaddr(struct ffec_softc *sc, uint8_t *hwaddr)
 
 	if (bootverbose) {
 		device_printf(sc->dev,
-		    "MAC address %02x:%02x:%02x:%02x:%02x:%02x:\n",
+		    "MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
 		    hwaddr[0], hwaddr[1], hwaddr[2], 
 		    hwaddr[3], hwaddr[4], hwaddr[5]);
 	}

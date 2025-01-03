@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020 Oskar Holmlund <oskar.holmlund@ohdata.se>
  *
@@ -23,12 +23,7 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/conf.h>
@@ -41,7 +36,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/bus.h>
 #include <dev/fdt/simplebus.h>
 
-#include <dev/extres/clk/clk_div.h>
+#include <dev/clk/clk_div.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
@@ -187,7 +182,8 @@ ti_divider_attach(device_t dev)
 	if (err) {
 		/* free_clkdef will be called in ti_divider_new_pass */
 		DPRINTF(sc->sc_dev, "find_parent_clock_names failed\n");
-		return (bus_generic_attach(sc->sc_dev));
+		bus_attach_children(sc->sc_dev);
+		return (0);
 	}
 
 	err = register_clk(sc);
@@ -195,14 +191,16 @@ ti_divider_attach(device_t dev)
 	if (err) {
 		/* free_clkdef will be called in ti_divider_new_pass */
 		DPRINTF(sc->sc_dev, "register_clk failed\n");
-		return (bus_generic_attach(sc->sc_dev));
+		bus_attach_children(sc->sc_dev);
+		return (0);
 	}
 
 	sc->attach_done = true;
 
 	free_clkdef(&sc->div_def.clkdef);
 
-	return (bus_generic_attach(sc->sc_dev));
+	bus_attach_children(sc->sc_dev);
+	return (0);
 }
 
 static int

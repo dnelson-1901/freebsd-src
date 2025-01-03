@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 Ian Lepore
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Buffer allocation support routines for bus_dmamem_alloc implementations.
  */
@@ -102,10 +100,6 @@ busdma_bufalloc_create(const char *name, bus_size_t minimum_alignment,
 		bz->size = cursize;
 		bz->umazone = uma_zcreate(bz->name, bz->size,
 		    NULL, NULL, NULL, NULL, bz->size - 1, zcreate_flags);
-		if (bz->umazone == NULL) {
-			busdma_bufalloc_destroy(ba);
-			return (NULL);
-		}
 		if (alloc_func != NULL)
 			uma_zone_set_allocf(bz->umazone, alloc_func);
 		if (free_func != NULL)

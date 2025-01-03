@@ -12,16 +12,18 @@
 #include "InputSection.h"
 #include "LinkerScript.h"
 #include "lld/Common/LLVM.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/Parallel.h"
 
 #include <array>
 
-namespace lld {
-namespace elf {
+namespace lld::elf {
 
 struct PhdrEntry;
 
 struct CompressedData {
   std::unique_ptr<SmallVector<uint8_t, 0>[]> shards;
+  uint32_t type = 0;
   uint32_t numShards = 0;
   uint32_t checksum = 0;
   uint64_t uncompressedSize;
@@ -73,7 +75,7 @@ public:
 
   void recordSection(InputSectionBase *isec);
   void commitSection(InputSection *isec);
-  void finalizeInputSections();
+  void finalizeInputSections(LinkerScript *script = nullptr);
 
   // The following members are normally only used in linker scripts.
   MemoryRegion *memRegion = nullptr;
@@ -82,9 +84,14 @@ public:
   Expr alignExpr;
   Expr lmaExpr;
   Expr subalignExpr;
+
+  // Used by non-alloc SHT_CREL to hold the header and content byte stream.
+  uint64_t crelHeader = 0;
+  SmallVector<char, 0> crelBody;
+
   SmallVector<SectionCommand *, 0> commands;
   SmallVector<StringRef, 0> phdrs;
-  llvm::Optional<std::array<uint8_t, 4>> filler;
+  std::optional<std::array<uint8_t, 4>> filler;
   ConstraintKind constraint = ConstraintKind::NoConstraint;
   std::string location;
   std::string memoryRegionName;
@@ -104,8 +111,10 @@ public:
   // DATA_RELRO_END.
   bool relro = false;
 
+  template <bool is64> void finalizeNonAllocCrel();
   void finalize();
-  template <class ELFT> void writeTo(uint8_t *buf);
+  template <class ELFT>
+  void writeTo(uint8_t *buf, llvm::parallel::TaskGroup &tg);
   // Check that the addends for dynamic relocations were written correctly.
   void checkDynRelAddends(const uint8_t *bufStart);
   template <class ELFT> void maybeCompress();
@@ -114,9 +123,12 @@ public:
   void sortInitFini();
   void sortCtorsDtors();
 
-private:
-  // Used for implementation of --compress-debug-sections option.
+  // Used for implementation of --compress-debug-sections and
+  // --compress-sections.
   CompressedData compressed;
+
+private:
+  SmallVector<InputSection *, 0> storage;
 
   std::array<uint8_t, 4> getFiller();
 };
@@ -153,8 +165,8 @@ struct Out {
 
 uint64_t getHeaderSize();
 
-extern llvm::SmallVector<OutputSection *, 0> outputSections;
-} // namespace elf
-} // namespace lld
+LLVM_LIBRARY_VISIBILITY extern llvm::SmallVector<OutputSection *, 0>
+    outputSections;
+} // namespace lld::elf
 
 #endif

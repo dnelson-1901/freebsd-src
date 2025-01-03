@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef __MLX5_CORE_H__
@@ -165,4 +163,14 @@ enum {
 u8 mlx5_get_nic_state(struct mlx5_core_dev *dev);
 void mlx5_set_nic_state(struct mlx5_core_dev *dev, u8 state);
 
+/************************************************ TESTTEST********************************************/
+static inline int mlx5_init_fs(struct mlx5_core_dev *dev)
+{
+	return 0;
+}
+
+static inline int mlx5_cleanup_fs(struct mlx5_core_dev *dev)
+{
+	return 0;
+}
 #endif /* __MLX5_CORE_H__ */

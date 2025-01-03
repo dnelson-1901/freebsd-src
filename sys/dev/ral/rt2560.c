@@ -1,4 +1,3 @@
-/*	$FreeBSD$	*/
 
 /*-
  * Copyright (c) 2005, 2006
@@ -18,8 +17,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*-
  * Ralink Technology RT2560 chipset driver
  * http://www.ralinktech.com/
@@ -1086,7 +1083,6 @@ rt2560_prio_intr(struct rt2560_softc *sc)
 static void
 rt2560_decryption_intr(struct rt2560_softc *sc)
 {
-	struct epoch_tracker et;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct rt2560_rx_desc *desc;
 	struct rt2560_rx_data *data;
@@ -1197,13 +1193,12 @@ rt2560_decryption_intr(struct rt2560_softc *sc)
 		wh = mtod(m, struct ieee80211_frame *);
 		ni = ieee80211_find_rxnode(ic,
 		    (struct ieee80211_frame_min *)wh);
-		NET_EPOCH_ENTER(et);
 		if (ni != NULL) {
 			(void) ieee80211_input(ni, m, rssi, nf);
 			ieee80211_free_node(ni);
 		} else
 			(void) ieee80211_input_all(ic, m, rssi, nf);
-		NET_EPOCH_EXIT(et);
+
 		RAL_LOCK(sc);
 		sc->sc_flags &= ~RT2560_F_INPUT_RUNNING;
 skip:		desc->flags = htole32(RT2560_RX_BUSY);
@@ -1563,10 +1558,7 @@ rt2560_tx_mgt(struct rt2560_softc *sc, struct mbuf *m0,
 		*(uint16_t *)wh->i_dur = htole16(dur);
 
 		/* tell hardware to add timestamp for probe responses */
-		if ((wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
-		    IEEE80211_FC0_TYPE_MGT &&
-		    (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) ==
-		    IEEE80211_FC0_SUBTYPE_PROBE_RESP)
+		if (IEEE80211_IS_MGMT_PROBE_RESP(wh))
 			flags |= RT2560_TX_TIMESTAMP;
 	}
 

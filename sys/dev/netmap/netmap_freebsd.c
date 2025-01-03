@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2013-2014 Universita` di Pisa. All rights reserved.
  *
@@ -25,7 +25,6 @@
  * SUCH DAMAGE.
  */
 
-/* $FreeBSD$ */
 #include "opt_inet.h"
 #include "opt_inet6.h"
 
@@ -325,10 +324,17 @@ freebsd_generic_rx_handler(if_t ifp, struct mbuf *m)
 		return;
 	}
 
-	stolen = generic_rx_handler(ifp, m);
-	if (!stolen) {
-		NA(ifp)->if_input(ifp, m);
-	}
+	do {
+		struct mbuf *n;
+
+		n = m->m_nextpkt;
+		m->m_nextpkt = NULL;
+		stolen = generic_rx_handler(ifp, m);
+		if (!stolen) {
+			NA(ifp)->if_input(ifp, m);
+		}
+		m = n;
+	} while (m != NULL);
 }
 
 /*
@@ -387,15 +393,20 @@ nm_os_catch_tx(struct netmap_generic_adapter *gna, int intercept)
  * addr and len identify the netmap buffer, m is the (preallocated)
  * mbuf to use for transmissions.
  *
- * We should add a reference to the mbuf so the m_freem() at the end
- * of the transmission does not consume resources.
+ * Zero-copy transmission is possible if netmap is attached directly to a
+ * hardware interface: when cleaning we simply wait for the mbuf cluster
+ * refcount to decrement to 1, indicating that the driver has completed
+ * transmission and is done with the buffer.  However, this approach can
+ * lead to queue deadlocks when attaching to software interfaces (e.g.,
+ * if_bridge) since we cannot rely on member ports to promptly reclaim
+ * transmitted mbufs.  Since there is no easy way to distinguish these
+ * cases, we currently always copy the buffer.
  *
- * On FreeBSD, and on multiqueue cards, we can force the queue using
+ * On multiqueue cards, we can force the queue using
  *      if (M_HASHTYPE_GET(m) != M_HASHTYPE_NONE)
  *              i = m->m_pkthdr.flowid % adapter->num_queues;
  *      else
  *              i = curcpu % adapter->num_queues;
- *
  */
 int
 nm_os_generic_xmit_frame(struct nm_os_gen_arg *a)
@@ -405,16 +416,21 @@ nm_os_generic_xmit_frame(struct nm_os_gen_arg *a)
 	if_t ifp = a->ifp;
 	struct mbuf *m = a->m;
 
-	/* Link the external storage to
-	 * the netmap buffer, so that no copy is necessary. */
-	m->m_ext.ext_buf = m->m_data = a->addr;
-	m->m_ext.ext_size = len;
+	M_ASSERTPKTHDR(m);
+	KASSERT((m->m_flags & M_EXT) != 0,
+	    ("%s: mbuf %p has no cluster", __func__, m));
 
-	m->m_flags |= M_PKTHDR;
+	if (MBUF_REFCNT(m) != 1) {
+		nm_prerr("invalid refcnt %d for %p", MBUF_REFCNT(m), m);
+		panic("in generic_xmit_frame");
+	}
+	if (unlikely(m->m_ext.ext_size < len)) {
+		nm_prlim(2, "size %d < len %d", m->m_ext.ext_size, len);
+		len = m->m_ext.ext_size;
+	}
+
+	m_copyback(m, 0, len, a->addr);
 	m->m_len = m->m_pkthdr.len = len;
-
-	/* mbuf refcnt is not contended, no need to use atomic
-	 * (a memory barrier is enough). */
 	SET_MBUF_REFCNT(m, 2);
 	M_HASHTYPE_SET(m, M_HASHTYPE_OPAQUE);
 	m->m_pkthdr.flowid = a->ring_nr;
@@ -424,7 +440,6 @@ nm_os_generic_xmit_frame(struct nm_os_gen_arg *a)
 	CURVNET_RESTORE();
 	return ret ? -1 : 0;
 }
-
 
 struct netmap_adapter *
 netmap_getna(if_t ifp)
@@ -597,10 +612,6 @@ nm_os_vi_persist(const char *name, if_t *ret)
 	eaddr[5] = (uint8_t)unit;
 
 	ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		nm_prerr("if_alloc failed");
-		return ENOMEM;
-	}
 	if_initname(ifp, name, IF_DUNIT_NONE);
 	if_setflags(ifp, IFF_UP | IFF_SIMPLEX | IFF_MULTICAST);
 	if_setinitfn(ifp, (void *)nm_vi_dummy);
@@ -849,16 +860,12 @@ nm_os_pt_memdev_iounmap(struct ptnetmap_memdev *ptn_dev)
 static int
 ptn_memdev_probe(device_t dev)
 {
-	char desc[256];
-
 	if (pci_get_vendor(dev) != PTNETMAP_PCI_VENDOR_ID)
 		return (ENXIO);
 	if (pci_get_device(dev) != PTNETMAP_PCI_DEVICE_ID)
 		return (ENXIO);
 
-	snprintf(desc, sizeof(desc), "%s PCI adapter",
-			PTNETMAP_MEMDEV_NAME);
-	device_set_desc_copy(dev, desc);
+	device_set_descf(dev, "%s PCI adapter", PTNETMAP_MEMDEV_NAME);
 
 	return (BUS_PROBE_DEFAULT);
 }
@@ -1390,13 +1397,13 @@ netmap_knwrite(struct knote *kn, long hint)
 	return netmap_knrw(kn, hint, POLLOUT);
 }
 
-static struct filterops netmap_rfiltops = {
+static const struct filterops netmap_rfiltops = {
 	.f_isfd = 1,
 	.f_detach = netmap_knrdetach,
 	.f_event = netmap_knread,
 };
 
-static struct filterops netmap_wfiltops = {
+static const struct filterops netmap_wfiltops = {
 	.f_isfd = 1,
 	.f_detach = netmap_knwdetach,
 	.f_event = netmap_knwrite,

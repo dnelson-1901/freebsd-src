@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 NetApp, Inc.
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_VMM_INSTRUCTION_EMUL_H_
@@ -34,25 +32,12 @@
 #include <sys/mman.h>
 
 /*
- * Allow for different arguments to identify vCPUs in userspace vs the
- * kernel.  Eventually we should add struct vcpu in userland and
- * always use the kernel arguments removing these macros.
- */
-#ifdef _KERNEL
-#define	VCPU_DECL	struct vcpu *vcpu
-#define	VCPU_ARGS	vcpu
-#else
-#define	VCPU_DECL	void *vm, int vcpuid
-#define	VCPU_ARGS	vm, vcpuid
-#endif
-
-/*
  * Callback functions to read and write memory regions.
  */
-typedef int (*mem_region_read_t)(VCPU_DECL, uint64_t gpa,
+typedef int (*mem_region_read_t)(struct vcpu *vcpu, uint64_t gpa,
 				 uint64_t *rval, int rsize, void *arg);
 
-typedef int (*mem_region_write_t)(VCPU_DECL, uint64_t gpa,
+typedef int (*mem_region_write_t)(struct vcpu *vcpu, uint64_t gpa,
 				  uint64_t wval, int wsize, void *arg);
 
 /*
@@ -66,11 +51,11 @@ typedef int (*mem_region_write_t)(VCPU_DECL, uint64_t gpa,
  * 'struct vmctx *' when called from user context.
  * s
  */
-int vmm_emulate_instruction(VCPU_DECL, uint64_t gpa, struct vie *vie,
+int vmm_emulate_instruction(struct vcpu *vcpu, uint64_t gpa, struct vie *vie,
     struct vm_guest_paging *paging, mem_region_read_t mrr,
     mem_region_write_t mrw, void *mrarg);
 
-int vie_update_register(VCPU_DECL, enum vm_reg_name reg,
+int vie_update_register(struct vcpu *vcpu, enum vm_reg_name reg,
     uint64_t val, int size);
 
 /*
@@ -127,7 +112,7 @@ void vie_init(struct vie *vie, const char *inst_bytes, int inst_length);
  * 'gla' is the guest linear address provided by the hardware assist
  * that caused the nested page table fault. It is used to verify that
  * the software instruction decoding is in agreement with the hardware.
- * 
+ *
  * Some hardware assists do not provide the 'gla' to the hypervisor.
  * To skip the 'gla' verification for this or any other reason pass
  * in VIE_INVALID_GLA instead.

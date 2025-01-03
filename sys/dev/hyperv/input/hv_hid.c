@@ -443,9 +443,7 @@ hv_hid_attach(device_t dev)
 		goto out;
 	}
 	device_set_ivars(child, &sc->hdi);
-	ret = bus_generic_attach(dev);
-	if (ret != 0)
-		device_printf(sc->dev, "failed to attach hidbus\n");
+	bus_attach_children(dev);
 out:
 	if (ret != 0)
 		hv_hid_detach(dev);
@@ -459,7 +457,7 @@ hv_hid_detach(device_t dev)
 	int		ret;
 
 	sc = device_get_softc(dev);
-	ret = device_delete_children(dev);
+	ret = bus_generic_detach(dev);
 	if (ret != 0)
 		return (ret);
 	if (sc->hs_xact_ctx != NULL)
@@ -473,8 +471,8 @@ hv_hid_detach(device_t dev)
 }
 
 static void
-hv_hid_intr_setup(device_t dev, hid_intr_t intr, void *ctx,
-    struct hid_rdesc_info *rdesc)
+hv_hid_intr_setup(device_t dev, device_t child __unused, hid_intr_t intr,
+    void *ctx, struct hid_rdesc_info *rdesc)
 {
 	hv_hid_sc	*sc;
 
@@ -489,7 +487,7 @@ hv_hid_intr_setup(device_t dev, hid_intr_t intr, void *ctx,
 }
 
 static void
-hv_hid_intr_unsetup(device_t dev)
+hv_hid_intr_unsetup(device_t dev, device_t child __unused)
 {
 	hv_hid_sc	*sc;
 
@@ -500,7 +498,7 @@ hv_hid_intr_unsetup(device_t dev)
 }
 
 static int
-hv_hid_intr_start(device_t dev)
+hv_hid_intr_start(device_t dev, device_t child __unused)
 {
 	hv_hid_sc	*sc;
 
@@ -512,7 +510,7 @@ hv_hid_intr_start(device_t dev)
 }
 
 static int
-hv_hid_intr_stop(device_t dev)
+hv_hid_intr_stop(device_t dev, device_t child __unused)
 {
 	hv_hid_sc	*sc;
 
@@ -524,7 +522,8 @@ hv_hid_intr_stop(device_t dev)
 }
 
 static int
-hv_hid_get_rdesc(device_t dev, void *buf, hid_size_t len)
+hv_hid_get_rdesc(device_t dev, device_t child __unused, void *buf,
+    hid_size_t len)
 {
 	hv_hid_sc	*sc;
 

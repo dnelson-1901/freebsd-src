@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_SLAB_H_
 #define	_LINUXKPI_LINUX_SLAB_H_
@@ -43,6 +41,7 @@
 
 MALLOC_DECLARE(M_KMALLOC);
 
+#define	kmalloc(size, flags)		lkpi_kmalloc(size, flags)
 #define	kvmalloc(size, flags)		kmalloc(size, flags)
 #define	kvzalloc(size, flags)		kmalloc(size, (flags) | __GFP_ZERO)
 #define	kvcalloc(n, size, flags)	kvmalloc_array(n, size, (flags) | __GFP_ZERO)
@@ -55,7 +54,6 @@ MALLOC_DECLARE(M_KMALLOC);
 #define	vmalloc_node(size, node)	__vmalloc_node(size, GFP_KERNEL, node)
 #define	vmalloc_user(size)		__vmalloc(size, GFP_KERNEL | __GFP_ZERO, 0)
 #define	vmalloc(size)			__vmalloc(size, GFP_KERNEL, 0)
-#define	__kmalloc(...)			kmalloc(__VA_ARGS__)
 
 /*
  * Prefix some functions with linux_ to avoid namespace conflict
@@ -93,6 +91,10 @@ struct linux_kmem_cache;
 #define	ZERO_SIZE_PTR		((void *)16)
 #define ZERO_OR_NULL_PTR(x)	((x) == NULL || (x) == ZERO_SIZE_PTR)
 
+extern void *lkpi_kmalloc(size_t size, gfp_t flags);
+void *lkpi___kmalloc(size_t size, gfp_t flags);
+#define	__kmalloc(_s, _f)	lkpi___kmalloc(_s, _f)
+
 static inline gfp_t
 linux_check_m_flags(gfp_t flags)
 {
@@ -106,13 +108,6 @@ linux_check_m_flags(gfp_t flags)
 
 	/* mask away LinuxKPI specific flags */
 	return (flags & GFP_NATIVE_MASK);
-}
-
-static inline void *
-kmalloc(size_t size, gfp_t flags)
-{
-	return (malloc(MAX(size, sizeof(struct llist_node)), M_KMALLOC,
-	    linux_check_m_flags(flags)));
 }
 
 static inline void *
@@ -214,10 +209,35 @@ kfree_sensitive(const void *ptr)
 	zfree(__DECONST(void *, ptr), M_KMALLOC);
 }
 
+static inline void *
+kvrealloc(const void *ptr, size_t oldsize, size_t newsize, gfp_t flags)
+{
+	void *newptr;
+
+	if (newsize <= oldsize)
+		return (__DECONST(void *, ptr));
+
+	newptr = kvmalloc(newsize, flags);
+	if (newptr != NULL) {
+		memcpy(newptr, ptr, oldsize);
+		kvfree(ptr);
+	}
+
+	return (newptr);
+}
+
 static inline size_t
 ksize(const void *ptr)
 {
 	return (malloc_usable_size(ptr));
+}
+
+static inline size_t
+kmalloc_size_roundup(size_t size)
+{
+	if (unlikely(size == 0 || size == SIZE_MAX))
+		return (size);
+	return (malloc_size(size));
 }
 
 extern struct linux_kmem_cache *linux_kmem_cache_create(const char *name,

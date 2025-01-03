@@ -1,11 +1,12 @@
 #!/usr/local/bin/python3
 import copy
 import ipaddress
-import re
 import os
+import re
 import socket
 import sys
 import time
+from multiprocessing import connection
 from multiprocessing import Pipe
 from multiprocessing import Process
 from typing import Dict
@@ -18,7 +19,8 @@ from atf_python.utils import libc
 
 
 def run_cmd(cmd: str, verbose=True) -> str:
-    print("run: '{}'".format(cmd))
+    if verbose:
+        print("run: '{}'".format(cmd))
     return os.popen(cmd).read()
 
 
@@ -80,13 +82,9 @@ class VnetInterface(object):
     def set_jailed(self, jailed: bool):
         self.jailed = jailed
 
-    def run_cmd(
-        self,
-        cmd,
-        verbose=False,
-    ):
+    def run_cmd(self, cmd, verbose=False):
         if self.vnet_name and not self.jailed:
-            cmd = "jexec {} {}".format(self.vnet_name, cmd)
+            cmd = "/usr/sbin/jexec {} {}".format(self.vnet_name, cmd)
         return run_cmd(cmd, verbose)
 
     @classmethod
@@ -151,7 +149,7 @@ class VnetInterface(object):
 
 class IfaceFactory(object):
     INTERFACES_FNAME = "created_ifaces.lst"
-    AUTODELETE_TYPES = ("epair", "lo", "tap", "tun")
+    AUTODELETE_TYPES = ("epair", "gif", "gre", "lo", "tap", "tun")
 
     def __init__(self):
         self.file_name = self.INTERFACES_FNAME
@@ -179,13 +177,15 @@ class IfaceFactory(object):
 
     @staticmethod
     def is_autodeleted(iface_name: str) -> bool:
+        if iface_name == "lo0":
+            return False
         iface_type = re.split(r"\d+", iface_name)[0]
         return iface_type in IfaceFactory.AUTODELETE_TYPES
 
     def cleanup_vnet_interfaces(self, vnet_name: str) -> List[str]:
         """Destroys"""
         ifaces_lst = ToolsHelper.get_output(
-            "/usr/sbin/jexec {} ifconfig -l".format(vnet_name)
+            "/usr/sbin/jexec {} /sbin/ifconfig -l".format(vnet_name)
         )
         for iface_name in ifaces_lst.split():
             if not self.is_autodeleted(iface_name):
@@ -193,7 +193,7 @@ class IfaceFactory(object):
                     print("Skipping interface {}:{}".format(vnet_name, iface_name))
                     continue
             run_cmd(
-                "/usr/sbin/jexec {} ifconfig {} destroy".format(vnet_name, iface_name)
+                "/usr/sbin/jexec {} /sbin/ifconfig {} destroy".format(vnet_name, iface_name)
             )
 
     def cleanup(self):
@@ -218,15 +218,17 @@ class VnetInstance(object):
             iface.set_jailed(True)
             self.iface_alias_map[iface.alias] = iface
             self.iface_map[iface.name] = iface
+            # Allow reference to interfce aliases as attributes
+            setattr(self, iface.alias, iface)
         self.need_dad = False  # Disable duplicate address detection by default
         self.attached = False
         self.pipe = None
         self.subprocess = None
 
-    def run_vnet_cmd(self, cmd):
+    def run_vnet_cmd(self, cmd, verbose=True):
         if not self.attached:
-            cmd = "jexec {} {}".format(self.name, cmd)
-        return run_cmd(cmd)
+            cmd = "/usr/sbin/jexec {} {}".format(self.name, cmd)
+        return run_cmd(cmd, verbose)
 
     def disable_dad(self):
         self.run_vnet_cmd("/sbin/sysctl net.inet6.ip6.dad_count=0")
@@ -263,7 +265,7 @@ class VnetFactory(object):
 
     @staticmethod
     def _wait_interfaces(vnet_name: str, ifaces: List[str]) -> List[str]:
-        cmd = "jexec {} /sbin/ifconfig -l".format(vnet_name)
+        cmd = "/usr/sbin/jexec {} /sbin/ifconfig -l".format(vnet_name)
         not_matched: List[str] = []
         for i in range(50):
             vnet_ifaces = run_cmd(cmd).strip().split(" ")
@@ -332,6 +334,10 @@ class VnetTestTemplate(BaseTest):
     NEED_ROOT: bool = True
     TOPOLOGY = {}
 
+    def _require_default_modules(self):
+        libc.kldload("if_epair.ko")
+        self.require_module("if_epair")
+
     def _get_vnet_handler(self, vnet_alias: str):
         handler_name = "{}_handler".format(vnet_alias)
         return getattr(self, handler_name, None)
@@ -364,7 +370,8 @@ class VnetTestTemplate(BaseTest):
                 if prefixes6:
                     iface.enable_ipv6()
             for prefix in prefixes6 + prefixes4:
-                iface.setup_addr(prefix[idx])
+                if prefix[idx]:
+                    iface.setup_addr(prefix[idx])
         for iface in ipv6_ifaces:
             while iface.has_tentative():
                 time.sleep(0.1)
@@ -378,17 +385,28 @@ class VnetTestTemplate(BaseTest):
             self.drop_privileges()
             handler(vnet)
 
+    def _get_topo_ifmap(self, topo: Dict):
+        iface_factory = IfaceFactory()
+        iface_map: Dict[str, SingleInterfaceMap] = {}
+        iface_aliases = set()
+        for obj_name, obj_data in topo.items():
+            if obj_name.startswith("vnet"):
+                for iface_alias in obj_data["ifaces"]:
+                    iface_aliases.add(iface_alias)
+        for iface_alias in iface_aliases:
+            print("Creating {}".format(iface_alias))
+            iface_data = topo[iface_alias]
+            iface_type = iface_data.get("type", "epair")
+            ifaces = iface_factory.create_iface(iface_alias, iface_type)
+            smap = SingleInterfaceMap(ifaces, [])
+            iface_map[iface_alias] = smap
+        return iface_map
+
     def setup_topology(self, topo: Dict, topology_id: str):
         """Creates jails & interfaces for the provided topology"""
-        iface_map: Dict[str, SingleInterfaceMap] = {}
         vnet_map = {}
-        iface_factory = IfaceFactory()
         vnet_factory = VnetFactory(topology_id)
-        for obj_name, obj_data in topo.items():
-            if obj_name.startswith("if"):
-                epair_ifaces = iface_factory.create_iface(obj_name, "epair")
-                smap = SingleInterfaceMap(epair_ifaces, [])
-                iface_map[obj_name] = smap
+        iface_map = self._get_topo_ifmap(topo)
         for obj_name, obj_data in topo.items():
             if obj_name.startswith("vnet"):
                 vnet_ifaces = []
@@ -400,6 +418,8 @@ class VnetTestTemplate(BaseTest):
                     vnet_ifaces.append(iface_map[iface_alias].ifaces[idx])
                 vnet = vnet_factory.create_vnet(obj_name, vnet_ifaces)
                 vnet_map[obj_name] = vnet
+                # Allow reference to VNETs as attributes
+                setattr(self, obj_name, vnet)
         # Debug output
         print("============= TEST TOPOLOGY =============")
         for vnet_alias, vnet in vnet_map.items():
@@ -435,6 +455,8 @@ class VnetTestTemplate(BaseTest):
     def setup_method(self, _method):
         """Sets up all the required topology and handlers for the given test"""
         super().setup_method(_method)
+        self._require_default_modules()
+
         # TestIP6Output.test_output6_pktinfo[ipandif]
         topology_id = get_topology_id(self.test_id)
         topology = self.TOPOLOGY
@@ -473,7 +495,7 @@ class VnetTestTemplate(BaseTest):
         # pytest test id: file::class::test_name
         topology_id = get_topology_id(self.test_id)
 
-        print("==== vnet cleanup ===")
+        print("============= vnet cleanup =============")
         print("# topology_id: '{}'".format(topology_id))
         VnetFactory(topology_id).cleanup()
         IfaceFactory().cleanup()
@@ -483,8 +505,18 @@ class VnetTestTemplate(BaseTest):
             return pipe.recv()
         raise TimeoutError
 
+    def wait_objects_any(self, pipe_list, timeout=5):
+        objects = connection.wait(pipe_list, timeout)
+        if objects:
+            return objects[0].recv()
+        raise TimeoutError
+
     def send_object(self, pipe, obj):
         pipe.send(obj)
+
+    def wait(self):
+        while True:
+            time.sleep(1)
 
     @property
     def curvnet(self):
@@ -494,17 +526,25 @@ class VnetTestTemplate(BaseTest):
 class SingleVnetTestTemplate(VnetTestTemplate):
     IPV6_PREFIXES: List[str] = []
     IPV4_PREFIXES: List[str] = []
+    IFTYPE = "epair"
 
-    def setup_method(self, method):
+    def _setup_default_topology(self):
         topology = copy.deepcopy(
             {
                 "vnet1": {"ifaces": ["if1"]},
-                "if1": {"prefixes4": [], "prefixes6": []},
+                "if1": {"type": self.IFTYPE, "prefixes4": [], "prefixes6": []},
             }
         )
         for prefix in self.IPV6_PREFIXES:
             topology["if1"]["prefixes6"].append((prefix,))
         for prefix in self.IPV4_PREFIXES:
             topology["if1"]["prefixes4"].append((prefix,))
-        self.TOPOLOGY = topology
+        return topology
+
+    def setup_method(self, method):
+        if not getattr(self, "TOPOLOGY", None):
+            self.TOPOLOGY = self._setup_default_topology()
+        else:
+            names = self.TOPOLOGY.keys()
+            assert len([n for n in names if n.startswith("vnet")]) == 1
         super().setup_method(method)

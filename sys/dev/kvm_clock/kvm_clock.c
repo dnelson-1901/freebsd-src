@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014 Bryan Venteicher <bryanv@FreeBSD.org>
  * Copyright (c) 2021 Mathieu Chouquet-Stringer
@@ -35,9 +35,6 @@
  *     - [1] https://www.kernel.org/doc/html/latest/virt/kvm/cpuid.html
  *     - [2] https://www.kernel.org/doc/html/latest/virt/kvm/msr.html
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>

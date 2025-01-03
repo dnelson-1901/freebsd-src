@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PACKAGE=runtime
 CONFS=	minfree
 VAR_CRASH=	/var/crash
@@ -19,5 +17,8 @@ CFLAGS+=	-I${SRCTOP}/sys/contrib/zstd/lib
 CFLAGS+=	-DWITH_CASPER
 LIBADD+=	casper cap_fileargs cap_syslog
 .endif
+
+HAS_TESTS=
+SUBDIR.${MK_TESTS}+= tests
 
 .include <bsd.prog.mk>

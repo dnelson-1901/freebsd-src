@@ -24,7 +24,6 @@
 \ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 \ SUCH DAMAGE.
 \ 
-\ $FreeBSD$
 
 marker task-menu.4th
 
@@ -148,7 +147,7 @@ only forth definitions
 ;
 
 : acpipresent? ( -- flag ) \ Returns TRUE if ACPI is present, FALSE otherwise
-	s" hint.acpi.0.rsdp" getenv
+	s" acpi.rsdp" getenv
 	dup -1 = if
 		drop false exit
 	then

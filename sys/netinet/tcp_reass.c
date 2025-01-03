@@ -27,13 +27,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)tcp_input.c	8.12 (Berkeley) 5/24/95
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 
@@ -961,7 +957,7 @@ new_entry:
 		flags = tcp_get_flags(th) & TH_FIN;
 		TCPSTAT_INC(tcps_rcvoopack);
 		TCPSTAT_ADD(tcps_rcvoobyte, *tlenp);
-		SOCKBUF_LOCK(&so->so_rcv);
+		SOCK_RECVBUF_LOCK(so);
 		if (so->so_rcv.sb_state & SBS_CANTRCVMORE) {
 			m_freem(m);
 		} else {
@@ -1062,7 +1058,7 @@ present:
 #endif
 		return (0);
 	}
-	SOCKBUF_LOCK(&so->so_rcv);
+	SOCK_RECVBUF_LOCK(so);
 	do {
 		tp->rcv_nxt += q->tqe_len;
 		flags = q->tqe_flags & TH_FIN;

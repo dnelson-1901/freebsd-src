@@ -20,8 +20,6 @@
  *
  * Portions Copyright 2006-2008 John Birrell jb@freebsd.org
  *
- * $FreeBSD$
- *
  */
 
 /*
@@ -29,7 +27,6 @@
  * Use is subject to license terms.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
@@ -137,6 +134,13 @@ fbt_excluded(const char *name)
 	    strcmp(name, "owner_rm") == 0 ||
 	    strcmp(name, "owner_rw") == 0 ||
 	    strcmp(name, "owner_sx") == 0)
+		return (1);
+
+	/*
+	 * The KMSAN runtime can't be instrumented safely.
+	 */
+	if (strncmp(name, "__msan", 6) == 0 ||
+	    strncmp(name, "kmsan_", 6) == 0)
 		return (1);
 
 	/*

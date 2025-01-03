@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999 Poul-Henning Kamp.
  * Copyright (c) 2009 James Gritton.
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _SYS_JAIL_H_
@@ -101,7 +99,7 @@ enum prison_state {
 #define	JAIL_UPDATE	0x02	/* Update parameters of existing jail */
 #define	JAIL_ATTACH	0x04	/* Attach to jail upon creation */
 #define	JAIL_DYING	0x08	/* Allow getting a dying jail */
-#define	JAIL_SET_MASK	0x0f
+#define	JAIL_SET_MASK	0x0f	/* JAIL_DYING is deprecated/ignored here */
 #define	JAIL_GET_MASK	0x08
 
 #define	JAIL_SYS_DISABLE	0
@@ -255,7 +253,10 @@ struct prison_racct {
 #define	PR_ALLOW_RESERVED_PORTS		0x00008000
 #define	PR_ALLOW_KMEM_ACCESS		0x00010000	/* reserved, not used yet */
 #define	PR_ALLOW_NFSD			0x00020000
-#define	PR_ALLOW_ALL_STATIC		0x000387ff
+#define	PR_ALLOW_EXTATTR		0x00040000
+#define	PR_ALLOW_ADJTIME		0x00080000
+#define	PR_ALLOW_SETTIME		0x00100000
+#define	PR_ALLOW_ALL_STATIC		0x001f87ff
 
 /*
  * PR_ALLOW_DIFFERENCES determines which flags are able to be
@@ -377,27 +378,33 @@ extern struct	sx allprison_lock;
  */
 SYSCTL_DECL(_security_jail_param);
 
+#define SYSCTL_JAIL_PARAM_DECL(name)					\
+	SYSCTL_DECL(_security_jail_param_##name)
 #define	SYSCTL_JAIL_PARAM(module, param, type, fmt, descr)		\
-    SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
-	(type) | CTLFLAG_MPSAFE, NULL, 0, sysctl_jail_param, fmt, descr)
+	SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
+	    (type) | CTLFLAG_MPSAFE, NULL, 0, sysctl_jail_param, fmt, descr)
 #define	SYSCTL_JAIL_PARAM_STRING(module, param, access, len, descr)	\
-    SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
-	CTLTYPE_STRING | CTLFLAG_MPSAFE | (access), NULL, len,		\
-	sysctl_jail_param, "A", descr)
-#define	SYSCTL_JAIL_PARAM_STRUCT(module, param, access, len, fmt, descr)\
-    SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
-	CTLTYPE_STRUCT | CTLFLAG_MPSAFE | (access), NULL, len,		\
-	sysctl_jail_param, fmt, descr)
+	SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
+	    CTLTYPE_STRING | CTLFLAG_MPSAFE | (access), NULL, len,	\
+	    sysctl_jail_param, "A", descr)
+#define	SYSCTL_JAIL_PARAM_STRUCT(module, param, access, len, fmt, descr) \
+	SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
+	    CTLTYPE_STRUCT | CTLFLAG_MPSAFE | (access), NULL, len,	\
+	    sysctl_jail_param, fmt, descr)
 #define	SYSCTL_JAIL_PARAM_NODE(module, descr)				\
-    SYSCTL_NODE(_security_jail_param, OID_AUTO, module, CTLFLAG_MPSAFE,	\
-        0, descr)
+	SYSCTL_NODE(_security_jail_param, OID_AUTO, module, CTLFLAG_MPSAFE, \
+	    0, descr)
 #define	SYSCTL_JAIL_PARAM_SUBNODE(parent, module, descr)		\
-    SYSCTL_NODE(_security_jail_param_##parent, OID_AUTO, module, 	\
-        CTLFLAG_MPSAFE, 0, descr)
+	SYSCTL_NODE(_security_jail_param_##parent, OID_AUTO, module,	\
+	    CTLFLAG_MPSAFE, 0, descr)
 #define	SYSCTL_JAIL_PARAM_SYS_NODE(module, access, descr)		\
-    SYSCTL_JAIL_PARAM_NODE(module, descr);				\
-    SYSCTL_JAIL_PARAM(_##module, , CTLTYPE_INT | (access), "E,jailsys",	\
-	descr)
+	SYSCTL_JAIL_PARAM_NODE(module, descr);				\
+	SYSCTL_JAIL_PARAM(_##module, , CTLTYPE_INT | (access), "E,jailsys", \
+	    descr)
+#define	SYSCTL_JAIL_PARAM_SYS_SUBNODE(parent, module, access, descr)	\
+	SYSCTL_JAIL_PARAM_SUBNODE(parent, module, descr);		\
+	SYSCTL_JAIL_PARAM(_##parent##_##module, , CTLTYPE_INT | (access), \
+	    "E,jailsys", descr)
 
 /*
  * Kernel support functions for jail().

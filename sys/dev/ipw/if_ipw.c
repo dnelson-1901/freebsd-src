@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004-2006
  *      Damien Bergamini <damien.bergamini@free.fr>. All rights reserved.
@@ -30,8 +30,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*-
  * Intel(R) PRO/Wireless 2100 MiniPCI driver
  * http://www.intel.com/network/connectivity/products/wireless/prowireless_mobile.htm
@@ -1121,7 +1119,7 @@ ipw_fix_channel(struct ipw_softc *sc, struct mbuf *m)
 
 	wh = mtod(m, struct ieee80211_frame *);
 
-	if ((wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) != IEEE80211_FC0_TYPE_MGT)
+	if (!IEEE80211_IS_MGMT(wh))
 		return;
 
 	subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
@@ -1158,7 +1156,6 @@ static void
 ipw_rx_data_intr(struct ipw_softc *sc, struct ipw_status *status,
     struct ipw_soft_bd *sbd, struct ipw_soft_buf *sbuf)
 {
-	struct epoch_tracker et;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct mbuf *mnew, *m;
 	struct ieee80211_node *ni;
@@ -1230,13 +1227,11 @@ ipw_rx_data_intr(struct ipw_softc *sc, struct ipw_status *status,
 
 	IPW_UNLOCK(sc);
 	ni = ieee80211_find_rxnode(ic, mtod(m, struct ieee80211_frame_min *));
-	NET_EPOCH_ENTER(et);
 	if (ni != NULL) {
 		(void) ieee80211_input(ni, m, rssi - nf, nf);
 		ieee80211_free_node(ni);
 	} else
 		(void) ieee80211_input_all(ic, m, rssi - nf, nf);
-	NET_EPOCH_EXIT(et);
 	IPW_LOCK(sc);
 
 	bus_dmamap_sync(sc->rbd_dmat, sc->rbd_map, BUS_DMASYNC_PREWRITE);

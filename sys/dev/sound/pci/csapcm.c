@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999 Seigo Tanimura
  * All rights reserved.
@@ -36,14 +36,11 @@
 
 #include <dev/sound/pcm/sound.h>
 #include <dev/sound/pcm/ac97.h>
-#include <dev/sound/chip.h>
 #include <dev/sound/pci/csareg.h>
 #include <dev/sound/pci/csavar.h>
 
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcivar.h>
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 /* Buffer size on dma transfer. Fixed for CS416x. */
 #define CS461x_BUFFSIZE   (4 * 1024)
@@ -821,8 +818,9 @@ pcmcsa_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	snprintf(status, SND_STATUSLEN, "at irq %jd %s",
-			rman_get_start(resp->irq),PCM_KLDSTRING(snd_csa));
+	snprintf(status, SND_STATUSLEN, "irq %jd on %s",
+			rman_get_start(resp->irq),
+			device_get_nameunit(device_get_parent(dev)));
 
 	/* Enable interrupt. */
 	if (snd_setup_intr(dev, resp->irq, 0, csa_intr, csa, &csa->ih)) {
@@ -834,14 +832,14 @@ pcmcsa_attach(device_t dev)
 	csa_writemem(resp, BA1_CIE, (csa_readmem(resp, BA1_CIE) & ~0x0000003f) | 0x00000001);
 	csa_active(csa, -1);
 
-	if (pcm_register(dev, csa, 1, 1)) {
+	pcm_init(dev, csa);
+	pcm_addchan(dev, PCMDIR_REC, &csachan_class, csa);
+	pcm_addchan(dev, PCMDIR_PLAY, &csachan_class, csa);
+	if (pcm_register(dev, status)) {
 		ac97_destroy(codec);
 		csa_releaseres(csa, dev);
 		return (ENXIO);
 	}
-	pcm_addchan(dev, PCMDIR_REC, &csachan_class, csa);
-	pcm_addchan(dev, PCMDIR_PLAY, &csachan_class, csa);
-	pcm_setstatus(dev, status);
 
 	return (0);
 }

@@ -73,6 +73,9 @@
 #define	param_set_deadman_failmode_args(var) \
     CTLTYPE_STRING, NULL, 0, param_set_deadman_failmode, "A"
 
+#define	param_set_active_allocator_args(var) \
+    CTLTYPE_STRING, NULL, 0, param_set_active_allocator, "A"
+
 #define	param_set_deadman_synctime_args(var) \
     CTLTYPE_U64, NULL, 0, param_set_deadman_synctime, "QU"
 
@@ -91,11 +94,23 @@
 #define	param_set_max_auto_ashift_args(var) \
     CTLTYPE_UINT, NULL, 0, param_set_max_auto_ashift, "IU"
 
+#define	spa_taskq_read_param_set_args(var) \
+    CTLTYPE_STRING, NULL, 0, spa_taskq_read_param, "A"
+
+#define	spa_taskq_write_param_set_args(var) \
+    CTLTYPE_STRING, NULL, 0, spa_taskq_write_param, "A"
+
 #define	fletcher_4_param_set_args(var) \
     CTLTYPE_STRING, NULL, 0, fletcher_4_param, "A"
 
 #define	blake3_param_set_args(var) \
     CTLTYPE_STRING, NULL, 0, blake3_param, "A"
+
+#define	sha256_param_set_args(var) \
+    CTLTYPE_STRING, NULL, 0, sha256_param, "A"
+
+#define	sha512_param_set_args(var) \
+    CTLTYPE_STRING, NULL, 0, sha512_param, "A"
 
 #include <sys/kernel.h>
 #define	module_init(fn) \

@@ -32,12 +32,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)cd9660_node.c	8.2 (Berkeley) 1/23/94
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -286,10 +281,10 @@ cd9660_tstamp_conv17(u_char *pi, struct timespec *pu)
 	return cd9660_tstamp_conv7(buf, pu, ISO_FTYPE_DEFAULT);
 }
 
-cd_ino_t
+ino_t
 isodirino(struct iso_directory_record *isodir, struct iso_mnt *imp)
 {
-	cd_ino_t ino;
+	ino_t ino;
 
 	/*
 	 * Note there is an inverse calculation in
@@ -298,7 +293,7 @@ isodirino(struct iso_directory_record *isodir, struct iso_mnt *imp)
 	 * and also a calculation of the isodir pointer
 	 * from an inode in cd9660_vnops.c:cd9660_readlink()
 	 */
-	ino = ((cd_ino_t)isonum_733(isodir->extent) +
+	ino = ((ino_t)isonum_733(isodir->extent) +
 		isonum_711(isodir->ext_attr_length)) << imp->im_bshift;
 	return ino;
 }

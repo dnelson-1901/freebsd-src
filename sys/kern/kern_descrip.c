@@ -32,13 +32,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)kern_descrip.c	8.6 (Berkeley) 4/19/94
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_capsicum.h"
 #include "opt_ddb.h"
 #include "opt_ktrace.h"
@@ -418,7 +414,7 @@ sys_fcntl(struct thread *td, struct fcntl_args *uap)
 }
 
 int
-kern_fcntl_freebsd(struct thread *td, int fd, int cmd, long arg)
+kern_fcntl_freebsd(struct thread *td, int fd, int cmd, intptr_t arg)
 {
 	struct flock fl;
 	struct __oflock ofl;
@@ -434,7 +430,7 @@ kern_fcntl_freebsd(struct thread *td, int fd, int cmd, long arg)
 		/*
 		 * Convert old flock structure to new.
 		 */
-		error = copyin((void *)(intptr_t)arg, &ofl, sizeof(ofl));
+		error = copyin((void *)arg, &ofl, sizeof(ofl));
 		fl.l_start = ofl.l_start;
 		fl.l_len = ofl.l_len;
 		fl.l_pid = ofl.l_pid;
@@ -459,7 +455,7 @@ kern_fcntl_freebsd(struct thread *td, int fd, int cmd, long arg)
 	case F_SETLK:
 	case F_SETLKW:
 	case F_SETLK_REMOTE:
-		error = copyin((void *)(intptr_t)arg, &fl, sizeof(fl));
+		error = copyin((void *)arg, &fl, sizeof(fl));
 		arg1 = (intptr_t)&fl;
 		break;
 	default:
@@ -477,9 +473,9 @@ kern_fcntl_freebsd(struct thread *td, int fd, int cmd, long arg)
 		ofl.l_pid = fl.l_pid;
 		ofl.l_type = fl.l_type;
 		ofl.l_whence = fl.l_whence;
-		error = copyout(&ofl, (void *)(intptr_t)arg, sizeof(ofl));
+		error = copyout(&ofl, (void *)arg, sizeof(ofl));
 	} else if (cmd == F_GETLK) {
-		error = copyout(&fl, (void *)(intptr_t)arg, sizeof(fl));
+		error = copyout(&fl, (void *)arg, sizeof(fl));
 	}
 	return (error);
 }
@@ -495,7 +491,7 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 	struct vnode *vp;
 	struct mount *mp;
 	struct kinfo_file *kif;
-	int error, flg, kif_sz, seals, tmp;
+	int error, flg, kif_sz, seals, tmp, got_set, got_cleared;
 	uint64_t bsize;
 	off_t foffset;
 
@@ -573,12 +569,12 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 			tmp &= ~FCNTLFLAGS;
 			tmp |= FFLAGS(arg & ~O_ACCMODE) & FCNTLFLAGS;
 		} while (atomic_cmpset_int(&fp->f_flag, flg, tmp) == 0);
+		got_set = tmp & ~flg;
+		got_cleared = flg & ~tmp;
 		tmp = fp->f_flag & FNONBLOCK;
 		error = fo_ioctl(fp, FIONBIO, &tmp, td->td_ucred, td);
-		if (error != 0) {
-			fdrop(fp, td);
-			break;
-		}
+		if (error != 0)
+			goto revert_f_setfl;
 		tmp = fp->f_flag & FASYNC;
 		error = fo_ioctl(fp, FIOASYNC, &tmp, td->td_ucred, td);
 		if (error == 0) {
@@ -588,6 +584,13 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		atomic_clear_int(&fp->f_flag, FNONBLOCK);
 		tmp = 0;
 		(void)fo_ioctl(fp, FIONBIO, &tmp, td->td_ucred, td);
+revert_f_setfl:
+		do {
+			tmp = flg = fp->f_flag;
+			tmp &= ~FCNTLFLAGS;
+			tmp |= got_cleared;
+			tmp &= ~got_set;
+		} while (atomic_cmpset_int(&fp->f_flag, flg, tmp) == 0);
 		fdrop(fp, td);
 		break;
 
@@ -872,6 +875,8 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 
 	case F_KINFO:
 #ifdef CAPABILITY_MODE
+		if (CAP_TRACING(td))
+			ktrcapfail(CAPFAIL_SYSCALL, &cmd);
 		if (IN_CAPABILITY_MODE(td)) {
 			error = ECAPMODE;
 			break;
@@ -2233,7 +2238,7 @@ fdinit(void)
  * Build a pwddesc structure from another.
  * Copy the current, root, and jail root vnode references.
  *
- * If pdp is not NULL, return with it shared locked.
+ * If pdp is not NULL and keeplock is true, return with it (exclusively) locked.
  */
 struct pwddesc *
 pdinit(struct pwddesc *pdp, bool keeplock)
@@ -2854,7 +2859,8 @@ closef_nothread(struct file *fp)
  * called with bad data.
  */
 void
-finit(struct file *fp, u_int flag, short type, void *data, struct fileops *ops)
+finit(struct file *fp, u_int flag, short type, void *data,
+    const struct fileops *ops)
 {
 	fp->f_data = data;
 	fp->f_flag = flag;
@@ -2863,7 +2869,7 @@ finit(struct file *fp, u_int flag, short type, void *data, struct fileops *ops)
 }
 
 void
-finit_vnode(struct file *fp, u_int flag, void *data, struct fileops *ops)
+finit_vnode(struct file *fp, u_int flag, void *data, const struct fileops *ops)
 {
 	fp->f_seqcount[UIO_READ] = 1;
 	fp->f_seqcount[UIO_WRITE] = 1;
@@ -2957,9 +2963,41 @@ fget_cap(struct thread *td, int fd, cap_rights_t *needrightsp,
 }
 #endif
 
+int
+fget_remote(struct thread *td, struct proc *p, int fd, struct file **fpp)
+{
+	struct filedesc *fdp;
+	struct file *fp;
+	int error;
+
+	if (p == td->td_proc)	/* curproc */
+		return (fget_unlocked(td, fd, &cap_no_rights, fpp));
+
+	PROC_LOCK(p);
+	fdp = fdhold(p);
+	PROC_UNLOCK(p);
+	if (fdp == NULL)
+		return (ENOENT);
+	FILEDESC_SLOCK(fdp);
+	if (refcount_load(&fdp->fd_refcnt) != 0) {
+		fp = fget_noref(fdp, fd);
+		if (fp != NULL && fhold(fp)) {
+			*fpp = fp;
+			error = 0;
+		} else {
+			error = EBADF;
+		}
+	} else {
+		error = ENOENT;
+	}
+	FILEDESC_SUNLOCK(fdp);
+	fddrop(fdp);
+	return (error);
+}
+
 #ifdef CAPABILITIES
 int
-fgetvp_lookup_smr(int fd, struct nameidata *ndp, struct vnode **vpp, bool *fsearch)
+fgetvp_lookup_smr(struct nameidata *ndp, struct vnode **vpp, bool *fsearch)
 {
 	const struct filedescent *fde;
 	const struct fdescenttbl *fdt;
@@ -2969,9 +3007,11 @@ fgetvp_lookup_smr(int fd, struct nameidata *ndp, struct vnode **vpp, bool *fsear
 	const cap_rights_t *haverights;
 	cap_rights_t rights;
 	seqc_t seq;
+	int fd;
 
 	VFS_SMR_ASSERT_ENTERED();
 
+	fd = ndp->ni_dirfd;
 	rights = *ndp->ni_rightsneeded;
 	cap_rights_set_one(&rights, CAP_LOOKUP);
 
@@ -3015,7 +3055,7 @@ fgetvp_lookup_smr(int fd, struct nameidata *ndp, struct vnode **vpp, bool *fsear
 	    ndp->ni_filecaps.fc_fcntls != CAP_FCNTL_ALL ||
 	    ndp->ni_filecaps.fc_nioctls != -1) {
 #ifdef notyet
-		ndp->ni_lcf |= NI_LCF_STRICTRELATIVE;
+		ndp->ni_lcf |= NI_LCF_STRICTREL;
 #else
 		return (EAGAIN);
 #endif
@@ -3025,15 +3065,17 @@ fgetvp_lookup_smr(int fd, struct nameidata *ndp, struct vnode **vpp, bool *fsear
 }
 #else
 int
-fgetvp_lookup_smr(int fd, struct nameidata *ndp, struct vnode **vpp, bool *fsearch)
+fgetvp_lookup_smr(struct nameidata *ndp, struct vnode **vpp, bool *fsearch)
 {
 	const struct fdescenttbl *fdt;
 	struct filedesc *fdp;
 	struct file *fp;
 	struct vnode *vp;
+	int fd;
 
 	VFS_SMR_ASSERT_ENTERED();
 
+	fd = ndp->ni_dirfd;
 	fdp = curproc->p_fd;
 	fdt = fdp->fd_files;
 	if (__predict_false((u_int)fd >= fdt->fdt_nfiles))
@@ -3061,7 +3103,7 @@ fgetvp_lookup_smr(int fd, struct nameidata *ndp, struct vnode **vpp, bool *fsear
 #endif
 
 int
-fgetvp_lookup(int fd, struct nameidata *ndp, struct vnode **vpp)
+fgetvp_lookup(struct nameidata *ndp, struct vnode **vpp)
 {
 	struct thread *td;
 	struct file *fp;
@@ -3105,7 +3147,7 @@ fgetvp_lookup(int fd, struct nameidata *ndp, struct vnode **vpp)
 	if (!cap_rights_contains(&ndp->ni_filecaps.fc_rights, &rights) ||
 	    ndp->ni_filecaps.fc_fcntls != CAP_FCNTL_ALL ||
 	    ndp->ni_filecaps.fc_nioctls != -1) {
-		ndp->ni_lcf |= NI_LCF_STRICTRELATIVE;
+		ndp->ni_lcf |= NI_LCF_STRICTREL;
 		ndp->ni_resflags |= NIRES_STRICTREL;
 	}
 #endif
@@ -3839,6 +3881,11 @@ pwd_fill(struct pwd *oldpwd, struct pwd *newpwd)
 		vrefact(oldpwd->pwd_jdir);
 		newpwd->pwd_jdir = oldpwd->pwd_jdir;
 	}
+
+	if (newpwd->pwd_adir == NULL && oldpwd->pwd_adir != NULL) {
+		vrefact(oldpwd->pwd_adir);
+		newpwd->pwd_adir = oldpwd->pwd_adir;
+	}
 }
 
 struct pwd *
@@ -3930,6 +3977,8 @@ pwd_drop(struct pwd *pwd)
 		vrele(pwd->pwd_rdir);
 	if (pwd->pwd_jdir != NULL)
 		vrele(pwd->pwd_jdir);
+	if (pwd->pwd_adir != NULL)
+		vrele(pwd->pwd_adir);
 	uma_zfree_smr(pwd_zone, pwd);
 }
 
@@ -3967,6 +4016,8 @@ pwd_chroot(struct thread *td, struct vnode *vp)
 
 	vrefact(vp);
 	newpwd->pwd_rdir = vp;
+	vrefact(vp);
+	newpwd->pwd_adir = vp;
 	if (oldpwd->pwd_jdir == NULL) {
 		vrefact(vp);
 		newpwd->pwd_jdir = vp;
@@ -3991,6 +4042,40 @@ pwd_chdir(struct thread *td, struct vnode *vp)
 	PWDDESC_XLOCK(pdp);
 	oldpwd = PWDDESC_XLOCKED_LOAD_PWD(pdp);
 	newpwd->pwd_cdir = vp;
+	pwd_fill(oldpwd, newpwd);
+	pwd_set(pdp, newpwd);
+	PWDDESC_XUNLOCK(pdp);
+	pwd_drop(oldpwd);
+}
+
+/*
+ * Process is transitioning to/from a non-native ABI.
+ */
+void
+pwd_altroot(struct thread *td, struct vnode *altroot_vp)
+{
+	struct pwddesc *pdp;
+	struct pwd *newpwd, *oldpwd;
+
+	newpwd = pwd_alloc();
+	pdp = td->td_proc->p_pd;
+	PWDDESC_XLOCK(pdp);
+	oldpwd = PWDDESC_XLOCKED_LOAD_PWD(pdp);
+	if (altroot_vp != NULL) {
+		/*
+		 * Native process to a non-native ABI.
+		 */
+
+		vrefact(altroot_vp);
+		newpwd->pwd_adir = altroot_vp;
+	} else {
+		/*
+		 * Non-native process to the native ABI.
+		 */
+
+		vrefact(oldpwd->pwd_rdir);
+		newpwd->pwd_adir = oldpwd->pwd_rdir;
+	}
 	pwd_fill(oldpwd, newpwd);
 	pwd_set(pdp, newpwd);
 	PWDDESC_XUNLOCK(pdp);
@@ -4030,6 +4115,8 @@ pwd_chroot_chdir(struct thread *td, struct vnode *vp)
 		vrefact(vp);
 		newpwd->pwd_jdir = vp;
 	}
+	vrefact(vp);
+	newpwd->pwd_adir = vp;
 	pwd_fill(oldpwd, newpwd);
 	pwd_set(pdp, newpwd);
 	PWDDESC_XUNLOCK(pdp);
@@ -4046,7 +4133,8 @@ pwd_ensure_dirs(void)
 	pdp = curproc->p_pd;
 	PWDDESC_XLOCK(pdp);
 	oldpwd = PWDDESC_XLOCKED_LOAD_PWD(pdp);
-	if (oldpwd->pwd_cdir != NULL && oldpwd->pwd_rdir != NULL) {
+	if (oldpwd->pwd_cdir != NULL && oldpwd->pwd_rdir != NULL &&
+	    oldpwd->pwd_adir != NULL) {
 		PWDDESC_XUNLOCK(pdp);
 		return;
 	}
@@ -4063,6 +4151,10 @@ pwd_ensure_dirs(void)
 	if (newpwd->pwd_rdir == NULL) {
 		vrefact(rootvnode);
 		newpwd->pwd_rdir = rootvnode;
+	}
+	if (newpwd->pwd_adir == NULL) {
+		vrefact(rootvnode);
+		newpwd->pwd_adir = rootvnode;
 	}
 	pwd_set(pdp, newpwd);
 	PWDDESC_XUNLOCK(pdp);
@@ -4084,6 +4176,8 @@ pwd_set_rootvnode(void)
 	newpwd->pwd_cdir = rootvnode;
 	vrefact(rootvnode);
 	newpwd->pwd_rdir = rootvnode;
+	vrefact(rootvnode);
+	newpwd->pwd_adir = rootvnode;
 	pwd_fill(oldpwd, newpwd);
 	pwd_set(pdp, newpwd);
 	PWDDESC_XUNLOCK(pdp);
@@ -4119,7 +4213,8 @@ mountcheckdirs(struct vnode *olddp, struct vnode *newdp)
 		if (oldpwd == NULL ||
 		    (oldpwd->pwd_cdir != olddp &&
 		    oldpwd->pwd_rdir != olddp &&
-		    oldpwd->pwd_jdir != olddp)) {
+		    oldpwd->pwd_jdir != olddp &&
+		    oldpwd->pwd_adir != olddp)) {
 			PWDDESC_XUNLOCK(pdp);
 			pddrop(pdp);
 			continue;
@@ -4135,6 +4230,10 @@ mountcheckdirs(struct vnode *olddp, struct vnode *newdp)
 		if (oldpwd->pwd_jdir == olddp) {
 			vrefact(newdp);
 			newpwd->pwd_jdir = newdp;
+		}
+		if (oldpwd->pwd_adir == olddp) {
+			vrefact(newdp);
+			newpwd->pwd_adir = newdp;
 		}
 		pwd_fill(oldpwd, newpwd);
 		pwd_set(pdp, newpwd);
@@ -4231,12 +4330,42 @@ filedesc_to_leader_share(struct filedesc_to_leader *fdtol, struct filedesc *fdp)
 }
 
 static int
-sysctl_kern_proc_nfds(SYSCTL_HANDLER_ARGS)
+filedesc_nfiles(struct filedesc *fdp)
 {
 	NDSLOTTYPE *map;
-	struct filedesc *fdp;
-	u_int namelen;
 	int count, off, minoff;
+
+	if (fdp == NULL)
+		return (0);
+	count = 0;
+	FILEDESC_SLOCK(fdp);
+	map = fdp->fd_map;
+	off = NDSLOT(fdp->fd_nfiles - 1);
+	for (minoff = NDSLOT(0); off >= minoff; --off)
+		count += bitcountl(map[off]);
+	FILEDESC_SUNLOCK(fdp);
+	return (count);
+}
+
+int
+proc_nfiles(struct proc *p)
+{
+	struct filedesc *fdp;
+	int res;
+
+	PROC_LOCK(p);
+	fdp = fdhold(p);
+	PROC_UNLOCK(p);
+	res = filedesc_nfiles(fdp);
+	fddrop(fdp);
+	return (res);
+}
+
+static int
+sysctl_kern_proc_nfds(SYSCTL_HANDLER_ARGS)
+{
+	u_int namelen;
+	int count;
 
 	namelen = arg2;
 	if (namelen != 1)
@@ -4245,15 +4374,7 @@ sysctl_kern_proc_nfds(SYSCTL_HANDLER_ARGS)
 	if (*(int *)arg1 != 0)
 		return (EINVAL);
 
-	fdp = curproc->p_fd;
-	count = 0;
-	FILEDESC_SLOCK(fdp);
-	map = fdp->fd_map;
-	off = NDSLOT(fdp->fd_nfiles - 1);
-	for (minoff = NDSLOT(0); off >= minoff; --off)
-		count += bitcountl(map[off]);
-	FILEDESC_SUNLOCK(fdp);
-
+	count = filedesc_nfiles(curproc->p_fd);
 	return (SYSCTL_OUT(req, &count, sizeof(count)));
 }
 
@@ -4939,8 +5060,8 @@ file_type_to_name(short type)
 		return ("proc");
 	case DTYPE_EVENTFD:
 		return ("eventfd");
-	case DTYPE_LINUXTFD:
-		return ("ltimer");
+	case DTYPE_TIMERFD:
+		return ("timerfd");
 	default:
 		return ("unkn");
 	}
@@ -5028,10 +5149,11 @@ DB_SHOW_COMMAND_FLAGS(files, db_show_files, DB_CMD_MEMSAFE)
 }
 #endif
 
-SYSCTL_INT(_kern, KERN_MAXFILESPERPROC, maxfilesperproc, CTLFLAG_RW,
+SYSCTL_INT(_kern, KERN_MAXFILESPERPROC, maxfilesperproc,
+    CTLFLAG_RWTUN | CTLFLAG_NOFETCH,
     &maxfilesperproc, 0, "Maximum files allowed open per process");
 
-SYSCTL_INT(_kern, KERN_MAXFILES, maxfiles, CTLFLAG_RW,
+SYSCTL_INT(_kern, KERN_MAXFILES, maxfiles, CTLFLAG_RWTUN | CTLFLAG_NOFETCH,
     &maxfiles, 0, "Maximum number of files");
 
 SYSCTL_INT(_kern, OID_AUTO, openfiles, CTLFLAG_RD,
@@ -5144,7 +5266,7 @@ badfo_fill_kinfo(struct file *fp, struct kinfo_file *kif, struct filedesc *fdp)
 	return (0);
 }
 
-struct fileops badfileops = {
+const struct fileops badfileops = {
 	.fo_read = badfo_readwrite,
 	.fo_write = badfo_readwrite,
 	.fo_truncate = badfo_truncate,
@@ -5175,7 +5297,7 @@ path_close(struct file *fp, struct thread *td)
 	return (0);
 }
 
-struct fileops path_fileops = {
+const struct fileops path_fileops = {
 	.fo_read = badfo_readwrite,
 	.fo_write = badfo_readwrite,
 	.fo_truncate = badfo_truncate,
@@ -5188,6 +5310,7 @@ struct fileops path_fileops = {
 	.fo_chown = badfo_chown,
 	.fo_sendfile = badfo_sendfile,
 	.fo_fill_kinfo = vn_fill_kinfo,
+	.fo_cmp = vn_cmp,
 	.fo_flags = DFLAG_PASSABLE,
 };
 

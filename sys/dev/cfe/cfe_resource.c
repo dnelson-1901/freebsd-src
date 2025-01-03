@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007 Bruce M. Simpson.
  * All rights reserved.
@@ -32,9 +32,6 @@
  * at the present time.
  * TODO: Don't attach this off nexus.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -84,7 +81,7 @@ cferes_identify(driver_t* driver, device_t parent)
 	struct cferes_softc	*sc;
 	uint64_t		 addr, len, type;
 
-	child = BUS_ADD_CHILD(parent, 100, "cferes", -1);
+	child = BUS_ADD_CHILD(parent, 100, "cferes", DEVICE_UNIT_ANY);
 	device_set_driver(child, driver);
 	sc = device_get_softc(child);
 

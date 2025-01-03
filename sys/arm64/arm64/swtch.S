@@ -33,11 +33,10 @@
 #include "opt_kstack_pages.h"
 #include "opt_sched.h"
 
+#include <sys/elf_common.h>
+
 #include <machine/asm.h>
 #include <machine/armreg.h>
-
-__FBSDID("$FreeBSD$");
-
 .macro clear_step_flag pcbflags, tmp
 	tbz	\pcbflags, #PCB_SINGLE_STEP_SHIFT, 999f
 	mrs	\tmp, mdscr_el1
@@ -57,6 +56,21 @@ __FBSDID("$FreeBSD$");
 .endm
 
 /*
+ * Lower 32 bits of CONTEXTIDR_EL1 are PID
+ * Upper 32 bits are reserved for future use e.g. TID
+ */
+.macro pid_in_context_idr
+	adrp	x9, arm64_pid_in_contextidr
+	ldrb	w10, [x9, :lo12:arm64_pid_in_contextidr]
+	cbz	w10, 998f
+	ldr	x9, [x1, #TD_PROC]
+	/* PID is always 0 or positive, do not sign extend */
+	ldr	w10, [x9, #P_PID]
+	msr	contextidr_el1, x10
+998:
+.endm
+
+/*
  * void cpu_throw(struct thread *old, struct thread *new)
  */
 ENTRY(cpu_throw)
@@ -67,7 +81,10 @@ ENTRY(cpu_throw)
 	ldr	x4, [x0, #TD_PCB]
 	ldr	w5, [x4, #PCB_FLAGS]
 	clear_step_flag w5, x6
+
 1:
+	/* debug/trace: set CONTEXTIDR_EL1 to current PID, if enabled */
+	pid_in_context_idr
 
 #ifdef VFP
 	/* Backup the new thread pointer around a call to C code */
@@ -148,10 +165,11 @@ ENTRY(cpu_switch)
 	mov	x20, x1
 	mov	x21, x2
 
+	/* debug/trace: set CONTEXTIDR_EL1 to current PID, if enabled */
+	pid_in_context_idr
+
 #ifdef VFP
-	/* Load the pcb address */
-	mov	x1, x4
-	bl	vfp_save_state
+	bl	vfp_save_state_switch
 	mov	x0, x20
 #else
 	mov	x0, x1
@@ -203,7 +221,6 @@ ENTRY(cpu_switch)
 	ldp	x27, x28, [x4, #PCB_REGS + (PCB_X19 + 8) * 8]
 	ldp	x29, lr, [x4, #PCB_REGS + (PCB_X19 + 10) * 8]
 
-	str	xzr, [x4, #PCB_REGS + 18 * 8]
 	ret
 END(cpu_switch)
 
@@ -271,15 +288,12 @@ ENTRY(savectx)
 	mrs	x6, tpidr_el0
 	stp	x5, x6, [x0, #PCB_SP]
 
-	/* Store the VFP registers */
 #ifdef VFP
-	mov	x28, lr
-	mov	x1, x0			/* move pcb to the correct register */
-	mov	x0, xzr			/* td = NULL */
-	bl	vfp_save_state
-	mov	lr, x28
-#endif
-
+	/* Store the VFP registers */
+	b	vfp_save_state_savectx
+#else
 	ret
+#endif
 END(savectx)
 
+GNU_PROPERTY_AARCH64_FEATURE_1_NOTE(GNU_PROPERTY_AARCH64_FEATURE_1_VAL)

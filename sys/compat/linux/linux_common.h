@@ -23,8 +23,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _LINUX_COMMON_H_
@@ -40,8 +38,9 @@ unsigned short	linux_ifflags(struct ifnet *);
 int		linux_ifhwaddr(struct ifnet *ifp, struct l_sockaddr *lsa);
 
 unsigned short	bsd_to_linux_ifflags(int);
-int		linux_to_bsd_domain(int domain);
-int		bsd_to_linux_domain(int domain);
+sa_family_t	linux_to_bsd_domain(sa_family_t domain);
+sa_family_t	bsd_to_linux_domain(sa_family_t domain);
+#define	AF_UNKNOWN	UINT8_MAX
 int		bsd_to_linux_sockaddr(const struct sockaddr *sa,
 		    struct l_sockaddr **lsa, socklen_t len);
 int		linux_to_bsd_sockaddr(const struct l_sockaddr *lsa,

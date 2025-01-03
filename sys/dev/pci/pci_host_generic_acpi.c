@@ -32,8 +32,6 @@
 /* Generic ECAM PCIe driver */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -101,7 +99,6 @@ static struct {
 	{ "MVEBU ", "CN9130  ", PCIE_ECAM_DESIGNWARE_QUIRK },
 	{ "MVEBU ", "CN9131  ", PCIE_ECAM_DESIGNWARE_QUIRK },
 	{ "MVEBU ", "CN9132  ", PCIE_ECAM_DESIGNWARE_QUIRK },
-	{ 0 },
 };
 
 /* Forward prototypes */
@@ -185,6 +182,7 @@ pci_host_generic_acpi_parse_resource(ACPI_RESOURCE *res, void *arg)
 	/* Save detected ranges */
 	if (res->Data.Address.ResourceType == ACPI_MEMORY_RANGE ||
 	    res->Data.Address.ResourceType == ACPI_IO_RANGE) {
+		sc->base.ranges[r].rid = -1;
 		sc->base.ranges[r].pci_base = min;
 		sc->base.ranges[r].phys_base = min + off;
 		sc->base.ranges[r].size = max - min + 1;
@@ -204,9 +202,9 @@ static void
 pci_host_acpi_get_oem_quirks(struct generic_pcie_acpi_softc *sc,
     ACPI_TABLE_HEADER *hdr)
 {
-	int i;
+	size_t i;
 
-	for (i = 0; pci_acpi_quirks[i].quirks; i++) {
+	for (i = 0; i < nitems(pci_acpi_quirks); i++) {
 		if (memcmp(hdr->OemId, pci_acpi_quirks[i].oem_id,
 		    ACPI_OEM_ID_SIZE) != 0)
 			continue;
@@ -290,6 +288,8 @@ pci_host_generic_acpi_init(device_t dev)
 	sc = device_get_softc(dev);
 	handle = acpi_get_handle(dev);
 
+	acpi_pcib_osc(dev, &sc->osc_ctl, 0);
+
 	/* Get Start bus number for the PCI host bus is from _BBN method */
 	status = acpi_GetInteger(handle, "_BBN", &sc->base.bus_start);
 	if (ACPI_FAILURE(status)) {
@@ -338,31 +338,25 @@ pci_host_generic_acpi_attach(device_t dev)
 	if (error != 0)
 		return (error);
 
-	device_add_child(dev, "pci", -1);
-	return (bus_generic_attach(dev));
+	device_add_child(dev, "pci", DEVICE_UNIT_ANY);
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int
 generic_pcie_acpi_read_ivar(device_t dev, device_t child, int index,
     uintptr_t *result)
 {
-	struct generic_pcie_acpi_softc *sc;
+	ACPI_HANDLE handle;
 
-	sc = device_get_softc(dev);
-
-	if (index == PCIB_IVAR_BUS) {
-		*result = sc->base.bus_start;
+	switch (index) {
+	case ACPI_IVAR_HANDLE:
+		handle = acpi_get_handle(dev);
+		*result = (uintptr_t)handle;
 		return (0);
 	}
 
-	if (index == PCIB_IVAR_DOMAIN) {
-		*result = sc->base.ecam;
-		return (0);
-	}
-
-	if (bootverbose)
-		device_printf(dev, "ERROR: Unknown index %d.\n", index);
-	return (ENOENT);
+	return (generic_pcie_read_ivar(dev, child, index, result));
 }
 
 static int
@@ -410,6 +404,31 @@ generic_pcie_map_id(device_t pci, device_t child, uintptr_t *id)
 	else
 		*id = rid;	/* RID not in IORT, likely FW bug, ignore */
 	return (0);
+}
+
+static int
+generic_pcie_get_iommu(device_t pci, device_t child, uintptr_t *id)
+{
+	struct generic_pcie_acpi_softc *sc;
+	struct pci_id_ofw_iommu *iommu;
+	u_int iommu_sid, iommu_xref;
+	uintptr_t rid;
+	int err;
+
+	iommu = (struct pci_id_ofw_iommu *)id;
+
+	sc = device_get_softc(pci);
+	err = pcib_get_id(pci, child, PCI_ID_RID, &rid);
+	if (err != 0)
+		return (err);
+	err = acpi_iort_map_pci_smmuv3(sc->base.ecam, rid, &iommu_xref,
+	    &iommu_sid);
+	if (err == 0) {
+		iommu->id = iommu_sid;
+		iommu->xref = iommu_xref;
+	}
+
+	return (err);
 }
 
 static int
@@ -479,12 +498,38 @@ static int
 generic_pcie_acpi_get_id(device_t pci, device_t child, enum pci_id_type type,
     uintptr_t *id)
 {
+	if (type == PCI_ID_OFW_IOMMU)
+		return (generic_pcie_get_iommu(pci, child, id));
 
 	if (type == PCI_ID_MSI)
 		return (generic_pcie_map_id(pci, child, id));
-	else
-		return (pcib_get_id(pci, child, type, id));
+
+	return (pcib_get_id(pci, child, type, id));
 }
+
+static int
+generic_pcie_acpi_request_feature(device_t pcib, device_t dev,
+    enum pci_feature feature)
+{
+	struct generic_pcie_acpi_softc *sc;
+	uint32_t osc_ctl;
+
+	sc = device_get_softc(pcib);
+
+	switch (feature) {
+	case PCI_FEATURE_HP:
+		osc_ctl = PCIM_OSC_CTL_PCIE_HP;
+		break;
+	case PCI_FEATURE_AER:
+		osc_ctl = PCIM_OSC_CTL_PCIE_AER;
+		break;
+	default:
+		return (EINVAL);
+	}
+
+	return (acpi_pcib_osc(pcib, &sc->osc_ctl, osc_ctl));
+}
+
 
 static device_method_t generic_pcie_acpi_methods[] = {
 	DEVMETHOD(device_probe,		generic_pcie_acpi_probe),
@@ -499,6 +544,7 @@ static device_method_t generic_pcie_acpi_methods[] = {
 	DEVMETHOD(pcib_release_msix,	generic_pcie_acpi_release_msix),
 	DEVMETHOD(pcib_map_msi,		generic_pcie_acpi_map_msi),
 	DEVMETHOD(pcib_get_id,		generic_pcie_acpi_get_id),
+	DEVMETHOD(pcib_request_feature,	generic_pcie_acpi_request_feature),
 
 	DEVMETHOD_END
 };

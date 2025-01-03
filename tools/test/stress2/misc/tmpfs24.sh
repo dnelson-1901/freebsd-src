@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2022 Peter Holm <pho@FreeBSD.org>
 #
@@ -47,7 +47,6 @@ data #3 @ 8192, size=4096)
 hole #4 @ 12288, size=4096
 data #5 @ 16384, size=4096)
 hole #6 @ 20480, size=524267520
-<<Missing EOF hole>>
 EXP
 
 set -eu

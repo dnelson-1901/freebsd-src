@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008 The FreeBSD Foundation
  * Copyright (c) 2009-2021 Bjoern A. Zeeb <bz@FreeBSD.org>
@@ -38,8 +38,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_rss.h"
 #include "opt_inet.h"
 #include "opt_inet6.h"
@@ -133,12 +131,18 @@ static struct epair_tasks_t epair_tasks;
 static void
 epair_clear_mbuf(struct mbuf *m)
 {
+	M_ASSERTPKTHDR(m);
+
 	/* Remove any CSUM_SND_TAG as ether_input will barf. */
 	if (m->m_pkthdr.csum_flags & CSUM_SND_TAG) {
 		m_snd_tag_rele(m->m_pkthdr.snd_tag);
 		m->m_pkthdr.snd_tag = NULL;
 		m->m_pkthdr.csum_flags &= ~CSUM_SND_TAG;
 	}
+
+	/* Clear vlan information. */
+	m->m_flags &= ~M_VLANTAG;
+	m->m_pkthdr.ether_vtag = 0;
 
 	m_tag_delete_nonpersistent(m);
 }
@@ -173,7 +177,7 @@ epair_tx_start_deferred(void *arg, int pending)
 	 * end up starving ourselves in a multi-epair routing configuration.
 	 */
 	mtx_lock(&q->mtx);
-	if (mbufq_len(&q->q) > 0) {
+	if (!mbufq_empty(&q->q)) {
 		resched = true;
 		q->state = EPAIR_QUEUE_WAKING;
 	} else {
@@ -329,6 +333,17 @@ epair_transmit(struct ifnet *ifp, struct mbuf *m)
 	if (m == NULL)
 		return (0);
 	M_ASSERTPKTHDR(m);
+
+	/*
+	 * We could just transmit this, but it makes testing easier if we're a
+	 * little bit more like real hardware.
+	 * Allow just that little bit extra for ethernet (and vlan) headers.
+	 */
+	if (m->m_pkthdr.len > (ifp->if_mtu + sizeof(struct ether_vlan_header))) {
+		m_freem(m);
+		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		return (E2BIG);
+	}
 
 	/*
 	 * We are not going to use the interface en/dequeue mechanism
@@ -501,9 +516,6 @@ epair_alloc_sc(struct if_clone *ifc)
 	struct epair_softc *sc;
 
 	struct ifnet *ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL)
-		return (NULL);
-
 	sc = malloc(sizeof(struct epair_softc), M_EPAIR, M_WAITOK | M_ZERO);
 	sc->ifp = ifp;
 	sc->num_queues = epair_tasks.tasks;
@@ -537,7 +549,6 @@ epair_setup_ifp(struct epair_softc *sc, char *name, int unit)
 	ifp->if_dname = epairname;
 	ifp->if_dunit = unit;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
-	ifp->if_flags |= IFF_KNOWSEPOCH;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 	ifp->if_capenable = IFCAP_VLAN_MTU;
 	ifp->if_transmit = epair_transmit;
@@ -600,8 +611,6 @@ epair_generate_mac(struct epair_softc *sc, uint8_t *eaddr)
 static void
 epair_free_sc(struct epair_softc *sc)
 {
-	if (sc == NULL)
-		return;
 
 	if_free(sc->ifp);
 	ifmedia_removeall(&sc->media);
@@ -700,12 +709,6 @@ epair_clone_create(struct if_clone *ifc, char *name, size_t len,
 	/* Allocate memory for both [ab] interfaces */
 	sca = epair_alloc_sc(ifc);
 	scb = epair_alloc_sc(ifc);
-	if (sca == NULL || scb == NULL) {
-		epair_free_sc(sca);
-		epair_free_sc(scb);
-		ifc_free_unit(ifc, unit);
-		return (ENOSPC);
-	}
 
 	/*
 	 * Cross-reference the interfaces so we will be able to free both.

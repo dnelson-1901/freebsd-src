@@ -35,8 +35,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -62,8 +60,6 @@
 
 #include <security/mac/mac_policy.h>
 #include <security/mac_partition/mac_partition.h>
-
-SYSCTL_DECL(_security_mac);
 
 static SYSCTL_NODE(_security_mac, OID_AUTO, partition,
     CTLFLAG_RW | CTLFLAG_MPSAFE, 0,

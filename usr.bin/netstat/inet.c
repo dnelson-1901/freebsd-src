@@ -27,15 +27,6 @@
  * SUCH DAMAGE.
  */
 
-#if 0
-#ifndef lint
-static char sccsid[] = "@(#)inet.c	8.5 (Berkeley) 5/24/95";
-#endif /* not lint */
-#endif
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/domain.h>
@@ -72,7 +63,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet/udp_var.h>
 
 #include <arpa/inet.h>
-#include <err.h>
 #include <errno.h>
 #include <libutil.h>
 #include <netdb.h>
@@ -237,22 +227,19 @@ protopr(u_long off, const char *name, int af1, int proto)
 	if (!pcblist_sysctl(proto, name, &buf))
 		return;
 
-	if (cflag || Cflag) {
+	if (istcp && (cflag || Cflag)) {
 		fnamelen = strlen("Stack");
 		cnamelen = strlen("CC");
 		oxig = xig = (struct xinpgen *)buf;
 		for (xig = (struct xinpgen*)((char *)xig + xig->xig_len);
 		    xig->xig_len > sizeof(struct xinpgen);
 		    xig = (struct xinpgen *)((char *)xig + xig->xig_len)) {
-			if (istcp) {
-				tp = (struct xtcpcb *)xig;
-				inp = &tp->xt_inp;
-			} else {
-				continue;
-			}
-			if (so->xso_protocol != proto)
-				continue;
+			tp = (struct xtcpcb *)xig;
+			inp = &tp->xt_inp;
 			if (inp->inp_gencnt > oxig->xig_gen)
+				continue;
+			so = &inp->xi_socket;
+			if (so->xso_protocol != proto)
 				continue;
 			fnamelen = max(fnamelen, (int)strlen(tp->xt_stack));
 			cnamelen = max(cnamelen, (int)strlen(tp->xt_cc));
@@ -383,16 +370,9 @@ protopr(u_long off, const char *name, int af1, int proto)
 		if (Lflag && so->so_qlimit == 0)
 			continue;
 		xo_open_instance("socket");
-		if (Aflag) {
-			if (istcp)
-				xo_emit("{q:address/%*lx} ",
-				    2 * (int)sizeof(void *),
-				    (u_long)inp->inp_ppcb);
-			else
-				xo_emit("{q:address/%*lx} ",
-				    2 * (int)sizeof(void *),
-				    (u_long)so->so_pcb);
-		}
+		if (Aflag)
+			xo_emit("{q:address/%*lx} ", 2 * (int)sizeof(void *),
+			    (u_long)so->so_pcb);
 #ifdef INET6
 		if ((inp->inp_vflag & INP_IPV6) != 0)
 			vchar = ((inp->inp_vflag & INP_IPV4) != 0) ?
@@ -661,8 +641,12 @@ tcp_stats(u_long off, const char *name, int af1 __unused, int proto __unused)
 	    "{N:/UDP tunneled pkt%s}\n");
 	p(tcps_tunneled_errs, "\t\t{:received-bad-udp-tunneled-pkts/%ju} "
 	    "{N:/UDP tunneled pkt cnt with error%s}\n");
-	p(tcps_rcvacktoomuch, "\t\t{:received-acks-for-unsent-data/%ju} "
-	    "{N:/ack%s for unsent data}\n");
+	p(tcps_rcvacktoomuch, "\t\t{:received-acks-for-data-not-yet-sent/%ju} "
+	    "{N:/ack%s for data not yet sent}\n");
+	p(tcps_rcvghostack, "\t\t{:received-acks-for-data-never-been-sent/%ju} "
+	    "{N:/ack%s for data never been sent (ghost acks)}\n");
+	p(tcps_rcvacktooold, "\t\t{:received-acks-for-data-being-too-old/%ju} "
+	    "{N:/ack%s for data being too old}\n");
 	p2(tcps_rcvpack, tcps_rcvbyte, "\t\t"
 	    "{:received-in-sequence-packets/%ju} {N:/packet%s} "
 	    "({:received-in-sequence-bytes/%ju} {N:/byte%s}) "
@@ -802,11 +786,13 @@ tcp_stats(u_long off, const char *name, int af1 __unused, int proto __unused)
 
 	p(tcps_sack_recovery_episode, "\t{:recovery-episodes/%ju} "
 	    "{N:/SACK recovery episode%s}\n");
- 	p(tcps_sack_rexmits, "\t{:segment-retransmits/%ju} "
+	p(tcps_sack_rexmits, "\t{:segment-retransmits/%ju} "
 	    "{N:/segment rexmit%s in SACK recovery episodes}\n");
- 	p(tcps_sack_rexmit_bytes, "\t{:byte-retransmits/%ju} "
+	p(tcps_sack_rexmits_tso, "\t{:tso-chunk-retransmits/%ju} "
+	    "{N:/tso chunk rexmit%s in SACK recovery episodes}\n");
+	p(tcps_sack_rexmit_bytes, "\t{:byte-retransmits/%ju} "
 	    "{N:/byte rexmit%s in SACK recovery episodes}\n");
- 	p(tcps_sack_rcv_blocks, "\t{:received-blocks/%ju} "
+	p(tcps_sack_rcv_blocks, "\t{:received-blocks/%ju} "
 	    "{N:/SACK option%s (SACK blocks) received}\n");
 	p(tcps_sack_send_blocks, "\t{:sent-option-blocks/%ju} "
 	    "{N:/SACK option%s (SACK blocks) sent}\n");

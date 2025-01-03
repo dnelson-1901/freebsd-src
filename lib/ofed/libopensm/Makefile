@@ -1,12 +1,9 @@
-# $FreeBSD$
-
 _spath=	${SRCTOP}/contrib/ofed/opensm/opensm
 .PATH:	${_spath}
 
 SHLIBDIR?=	/usr/lib
 LIB=		opensm
 SHLIB_MAJOR=	5
-MK_PROFILE=	no
 
 SRCS= \
 osm_log.c \

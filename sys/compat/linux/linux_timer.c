@@ -27,8 +27,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/proc.h>
@@ -45,8 +43,8 @@ __FBSDID("$FreeBSD$");
 #endif
 #include <compat/linux/linux_time.h>
 
-static int
-linux_convert_l_sigevent(struct l_sigevent *l_sig, struct sigevent *sig)
+int
+linux_convert_l_sigevent(const struct l_sigevent *l_sig, struct sigevent *sig)
 {
 
 	CP(*l_sig, *sig, sigev_notify);

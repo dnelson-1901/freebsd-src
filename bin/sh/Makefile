@@ -1,12 +1,10 @@
-#	@(#)Makefile	8.4 (Berkeley) 5/5/95
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 CONFGROUPS=	ETC ROOT
 ETC=	profile
 ROOT=	dot.shrc dot.profile
 ROOTDIR=	/root
+ROOTDIR_MODE=	0750
 ROOTNAME_dot.shrc=	.shrc
 ROOTNAME_dot.profile=	.profile
 PACKAGE=runtime
@@ -49,24 +47,30 @@ CFLAGS+=-DSHELL -I. -I${.CURDIR}
 CLEANFILES+= mknodes mksyntax
 CLEANFILES+= ${GENSRCS} ${GENHDRS}
 
+.if ${MACHINE} == "host" || ${MK_DIRDEPS_BUILD} == "no"
 build-tools: mknodes mksyntax
-
-.ORDER: builtins.c builtins.h
-builtins.h: .NOMETA
-builtins.c builtins.h: mkbuiltins builtins.def
-	sh ${.CURDIR}/mkbuiltins ${.CURDIR}
 
 DEPENDOBJS+= mknodes mksyntax
 mknodes mksyntax: ${BUILD_TOOLS_META}
+builtins.c builtins.h: mkbuiltins
+syntax.c syntax.h: mksyntax
+nodes.c nodes.h: mknodes
+.endif
+
+.ORDER: builtins.c builtins.h
+builtins.h: .NOMETA
+builtins.c builtins.h: builtins.def
+	sh ${.CURDIR}/mkbuiltins ${.CURDIR}
+
 
 .ORDER: nodes.c nodes.h
 nodes.h: .NOMETA
-nodes.c nodes.h: mknodes nodetypes nodes.c.pat
+nodes.c nodes.h: nodetypes nodes.c.pat
 	${BTOOLSPATH:U.}/mknodes ${.CURDIR}/nodetypes ${.CURDIR}/nodes.c.pat
 
 .ORDER: syntax.c syntax.h
 syntax.h: .NOMETA
-syntax.c syntax.h: mksyntax
+syntax.c syntax.h:
 	${BTOOLSPATH:U.}/mksyntax
 
 token.h: mktokens

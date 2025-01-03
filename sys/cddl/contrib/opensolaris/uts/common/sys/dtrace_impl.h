@@ -17,8 +17,6 @@
  * information: Portions Copyright [yyyy] [name of copyright owner]
  *
  * CDDL HEADER END
- *
- * $FreeBSD$
  */
 
 /*
@@ -53,11 +51,7 @@ extern "C" {
 #include <sys/file.h>
 
 #ifndef illumos
-#ifdef __sparcv9
-typedef uint32_t		pc_t;
-#else
 typedef uintptr_t		pc_t;
-#endif
 typedef	u_long			greg_t;
 #endif
 

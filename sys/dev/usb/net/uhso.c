@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010 Fredrik Lindberg <fli@shapeshifter.se>
  * All rights reserved.
@@ -25,8 +25,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/eventhandler.h>
@@ -1568,10 +1566,6 @@ uhso_attach_ifnet(struct uhso_softc *sc, struct usb_interface *iface, int type)
 	}
 
 	sc->sc_ifp = ifp = if_alloc(IFT_OTHER);
-	if (sc->sc_ifp == NULL) {
-		device_printf(sc->sc_dev, "if_alloc() failed\n");
-		return (-1);
-	}
 
 	callout_init_mtx(&sc->sc_c, &sc->sc_mtx, 0);
 	mtx_lock(&sc->sc_mtx);

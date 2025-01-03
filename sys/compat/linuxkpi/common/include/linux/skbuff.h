@@ -1,6 +1,6 @@
 /*-
- * Copyright (c) 2020-2022 The FreeBSD Foundation
- * Copyright (c) 2021-2022 Bjoern A. Zeeb
+ * Copyright (c) 2020-2023 The FreeBSD Foundation
+ * Copyright (c) 2021-2023 Bjoern A. Zeeb
  *
  * This software was developed by Björn Zeeb under sponsorship from
  * the FreeBSD Foundation.
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -46,8 +44,17 @@
 #include <linux/gfp.h>
 #include <linux/compiler.h>
 #include <linux/spinlock.h>
+#include <linux/ktime.h>
+
+#include "opt_wlan.h"
+
+/* Currently this is only used for wlan so we can depend on that. */
+#if defined(IEEE80211_DEBUG) && !defined(SKB_DEBUG)
+#define	SKB_DEBUG
+#endif
 
 /* #define	SKB_DEBUG */
+
 #ifdef SKB_DEBUG
 #define	DSKB_TODO	0x01
 #define	DSKB_IMPROVE	0x02
@@ -85,12 +92,25 @@ enum sk_buff_pkt_type {
 	PACKET_OTHERHOST,
 };
 
+struct skb_shared_hwtstamps {
+	ktime_t			hwtstamp;
+};
+
 #define	NET_SKB_PAD		max(CACHE_LINE_SIZE, 32)
+#define	SKB_DATA_ALIGN(_x)	roundup2(_x, CACHE_LINE_SIZE)
 
 struct sk_buff_head {
 		/* XXX TODO */
-	struct sk_buff		*next;
-	struct sk_buff		*prev;
+	union {
+		struct {
+			struct sk_buff		*next;
+			struct sk_buff		*prev;
+		};
+		struct sk_buff_head_l {
+			struct sk_buff		*next;
+			struct sk_buff		*prev;
+		} list;
+	};
 	size_t			qlen;
 	spinlock_t		lock;
 };
@@ -146,6 +166,7 @@ struct sk_buff {
 	uint16_t		_flags;		/* Internal flags. */
 #define	_SKB_FLAGS_SKBEXTFRAG	0x0001
 	enum sk_buff_pkt_type	pkt_type;
+	uint16_t		mac_header;	/* offset of mac_header */
 
 	/* "Scratch" area for layers to store metadata. */
 	/* ??? I see sizeof() operations so probably an array. */
@@ -527,8 +548,8 @@ __skb_insert(struct sk_buff *new, struct sk_buff *prev, struct sk_buff *next,
 	SKB_TRACE_FMT(new, "prev %p next %p q %p", prev, next, q);
 	new->prev = prev;
 	new->next = next;
-	next->prev = new;
-	prev->next = new;
+	((struct sk_buff_head_l *)next)->prev = new;
+	((struct sk_buff_head_l *)prev)->next = new;
 	q->qlen++;
 }
 
@@ -538,7 +559,7 @@ __skb_queue_after(struct sk_buff_head *q, struct sk_buff *skb,
 {
 
 	SKB_TRACE_FMT(q, "skb %p new %p", skb, new);
-	__skb_insert(new, skb, skb->next, q);
+	__skb_insert(new, skb, ((struct sk_buff_head_l *)skb)->next, q);
 }
 
 static inline void
@@ -551,24 +572,18 @@ __skb_queue_before(struct sk_buff_head *q, struct sk_buff *skb,
 }
 
 static inline void
-__skb_queue_tail(struct sk_buff_head *q, struct sk_buff *skb)
+__skb_queue_tail(struct sk_buff_head *q, struct sk_buff *new)
 {
-	struct sk_buff *s;
 
-	SKB_TRACE2(q, skb);
-	q->qlen++;
-	s = (struct sk_buff *)q;
-	s->prev->next = skb;
-	skb->prev = s->prev;
-	skb->next = s;
-	s->prev = skb;
+	SKB_TRACE2(q, new);
+	__skb_queue_before(q, (struct sk_buff *)q, new);
 }
 
 static inline void
-skb_queue_tail(struct sk_buff_head *q, struct sk_buff *skb)
+skb_queue_tail(struct sk_buff_head *q, struct sk_buff *new)
 {
-	SKB_TRACE2(q, skb);
-	return (__skb_queue_tail(q, skb));
+	SKB_TRACE2(q, new);
+	return (__skb_queue_tail(q, new));
 }
 
 static inline struct sk_buff *
@@ -599,7 +614,7 @@ static inline void
 __skb_unlink(struct sk_buff *skb, struct sk_buff_head *head)
 {
 	SKB_TRACE2(skb, head);
-	struct sk_buff *p, *n;;
+	struct sk_buff *p, *n;
 
 	head->qlen--;
 	p = skb->prev;
@@ -818,25 +833,44 @@ skb_mark_not_on_list(struct sk_buff *skb)
 }
 
 static inline void
+___skb_queue_splice(const struct sk_buff_head *from,
+    struct sk_buff *p, struct sk_buff *n)
+{
+	struct sk_buff *b, *e;
+
+	b = from->next;
+	e = from->prev;
+
+	b->prev = p;
+	((struct sk_buff_head_l *)p)->next = b;
+	e->next = n;
+	((struct sk_buff_head_l *)n)->prev = e;
+}
+
+static inline void
 skb_queue_splice_init(struct sk_buff_head *from, struct sk_buff_head *to)
 {
-	struct sk_buff *b, *e, *n;
 
 	SKB_TRACE2(from, to);
 
 	if (skb_queue_empty(from))
 		return;
 
-	/* XXX do we need a barrier around this? */
-	b = from->next;
-	e = from->prev;
-	n = to->next;
+	___skb_queue_splice(from, (struct sk_buff *)to, to->next);
+	to->qlen += from->qlen;
+	__skb_queue_head_init(from);
+}
 
-	b->prev = (struct sk_buff *)to;
-	to->next = b;
-	e->next = n;
-	n->prev = e;
+static inline void
+skb_queue_splice_tail_init(struct sk_buff_head *from, struct sk_buff_head *to)
+{
 
+	SKB_TRACE2(from, to);
+
+	if (skb_queue_empty(from))
+		return;
+
+	___skb_queue_splice(from, to->prev, (struct sk_buff *)to);
 	to->qlen += from->qlen;
 	__skb_queue_head_init(from);
 }
@@ -921,7 +955,29 @@ skb_header_cloned(struct sk_buff *skb)
 }
 
 static inline uint8_t *
-skb_mac_header(struct sk_buff *skb)
+skb_mac_header(const struct sk_buff *skb)
+{
+	SKB_TRACE(skb);
+	return (skb->head + skb->mac_header);
+}
+
+static inline void
+skb_reset_mac_header(struct sk_buff *skb)
+{
+	SKB_TRACE(skb);
+	skb->mac_header = skb->data - skb->head;
+}
+
+static inline void
+skb_set_mac_header(struct sk_buff *skb, const size_t len)
+{
+	SKB_TRACE(skb);
+	skb_reset_mac_header(skb);
+	skb->mac_header += len;
+}
+
+static inline struct skb_shared_hwtstamps *
+skb_hwtstamps(struct sk_buff *skb)
 {
 	SKB_TRACE(skb);
 	SKB_TODO();
@@ -930,13 +986,6 @@ skb_mac_header(struct sk_buff *skb)
 
 static inline void
 skb_orphan(struct sk_buff *skb)
-{
-	SKB_TRACE(skb);
-	SKB_TODO();
-}
-
-static inline void
-skb_reset_mac_header(struct sk_buff *skb)
 {
 	SKB_TRACE(skb);
 	SKB_TODO();
@@ -1015,6 +1064,37 @@ napi_consume_skb(struct sk_buff *skb, int budget)
 
 	SKB_TRACE(skb);
 	SKB_TODO();
+}
+
+static inline struct sk_buff *
+napi_build_skb(void *data, size_t len)
+{
+
+	SKB_TODO();
+	return (NULL);
+}
+
+static inline uint32_t
+skb_get_hash(struct sk_buff *skb)
+{
+	SKB_TRACE(skb);
+	SKB_TODO();
+	return (0);
+}
+
+static inline void
+skb_mark_for_recycle(struct sk_buff *skb)
+{
+	SKB_TRACE(skb);
+	SKB_TODO();
+}
+
+static inline int
+skb_cow_head(struct sk_buff *skb, unsigned int headroom)
+{
+	SKB_TRACE(skb);
+	SKB_TODO();
+	return (-1);
 }
 
 #define	SKB_WITH_OVERHEAD(_s)						\

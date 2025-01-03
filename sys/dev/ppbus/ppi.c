@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997, 1998, 1999 Nicolas Souchu, Michael Smith
  * All rights reserved.
@@ -29,7 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include "opt_ppb_1284.h"
 
 #include <sys/param.h>
@@ -138,7 +137,7 @@ ppi_identify(driver_t *driver, device_t parent)
 
 	dev = device_find_child(parent, "ppi", -1);
 	if (!dev)
-		BUS_ADD_CHILD(parent, 0, "ppi", -1);
+		BUS_ADD_CHILD(parent, 0, "ppi", DEVICE_UNIT_ANY);
 }
 
 /*

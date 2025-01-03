@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Nathan Whitehorn
  * All rights reserved.
@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  *
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -403,7 +400,8 @@ smu_attach(device_t dev)
 	EVENTHANDLER_REGISTER(shutdown_final, smu_shutdown, dev,
 	    SHUTDOWN_PRI_LAST);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static const struct ofw_bus_devinfo *
@@ -1319,10 +1317,12 @@ smu_shutdown(void *xdev, int howto)
 	struct smu_cmd cmd;
 
 	cmd.cmd = SMU_POWER;
-	if (howto & RB_HALT)
+	if ((howto & RB_POWEROFF) != 0)
 		strcpy(cmd.data, "SHUTDOWN");
-	else
+	else if ((howto & RB_HALT) == 0)
 		strcpy(cmd.data, "RESTART");
+	else
+		return;
 
 	cmd.len = strlen(cmd.data);
 
@@ -1436,7 +1436,7 @@ smu_attach_i2c(device_t smu, phandle_t i2croot)
 			continue;
 		}
 
-		cdev = device_add_child(smu, NULL, -1);
+		cdev = device_add_child(smu, NULL, DEVICE_UNIT_ANY);
 		if (cdev == NULL) {
 			device_printf(smu, "<%s>: device_add_child failed\n",
 			    dinfo->obd_name);
@@ -1477,9 +1477,10 @@ smuiic_attach(device_t dev)
 	    sizeof(sc->sc_busno));
 
 	/* Add the IIC bus layer */
-	device_add_child(dev, "iicbus", -1);
+	device_add_child(dev, "iicbus", DEVICE_UNIT_ANY);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int

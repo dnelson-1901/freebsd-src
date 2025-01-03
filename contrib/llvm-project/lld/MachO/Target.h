@@ -20,15 +20,25 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace lld {
-namespace macho {
+#include "mach-o/compact_unwind_encoding.h"
+
+namespace lld::macho {
 LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
 
 class Symbol;
 class Defined;
 class DylibSymbol;
 class InputSection;
-class ConcatInputSection;
+class ObjFile;
+
+static_assert(static_cast<uint32_t>(UNWIND_X86_64_MODE_MASK) ==
+                  static_cast<uint32_t>(UNWIND_X86_MODE_MASK) &&
+              static_cast<uint32_t>(UNWIND_ARM64_MODE_MASK) ==
+                  static_cast<uint32_t>(UNWIND_X86_64_MODE_MASK));
+
+// Since the mode masks have the same value on all targets, define
+// a common one for convenience.
+constexpr uint32_t UNWIND_MODE_MASK = UNWIND_X86_64_MODE_MASK;
 
 class TargetInfo {
 public:
@@ -53,10 +63,16 @@ public:
 
   // Write code for lazy binding. See the comments on StubsSection for more
   // details.
-  virtual void writeStub(uint8_t *buf, const Symbol &) const = 0;
+  virtual void writeStub(uint8_t *buf, const Symbol &,
+                         uint64_t pointerVA) const = 0;
   virtual void writeStubHelperHeader(uint8_t *buf) const = 0;
   virtual void writeStubHelperEntry(uint8_t *buf, const Symbol &,
                                     uint64_t entryAddr) const = 0;
+
+  virtual void writeObjCMsgSendStub(uint8_t *buf, Symbol *sym,
+                                    uint64_t stubsAddr, uint64_t &stubOffset,
+                                    uint64_t selrefVA,
+                                    Symbol *objcMsgSend) const = 0;
 
   // Symbols may be referenced via either the GOT or the stubs section,
   // depending on the relocation type. prepareSymbolRelocation() will set up the
@@ -92,9 +108,7 @@ public:
     llvm_unreachable("Unsupported architecture for dtrace symbols");
   }
 
-
-  virtual void applyOptimizationHints(uint8_t *buf, const ConcatInputSection *,
-                                      llvm::ArrayRef<uint64_t>) const {};
+  virtual void applyOptimizationHints(uint8_t *, const ObjFile &) const {};
 
   uint32_t magic;
   llvm::MachO::CPUType cpuType;
@@ -105,6 +119,10 @@ public:
   size_t stubSize;
   size_t stubHelperHeaderSize;
   size_t stubHelperEntrySize;
+  size_t objcStubsFastSize;
+  size_t objcStubsSmallSize;
+  size_t objcStubsFastAlignment;
+  size_t objcStubsSmallAlignment;
   uint8_t p2WordSize;
   size_t wordSize;
 
@@ -128,7 +146,6 @@ public:
 TargetInfo *createX86_64TargetInfo();
 TargetInfo *createARM64TargetInfo();
 TargetInfo *createARM64_32TargetInfo();
-TargetInfo *createARMTargetInfo(uint32_t cpuSubtype);
 
 struct LP64 {
   using mach_header = llvm::MachO::mach_header_64;
@@ -164,7 +181,6 @@ struct ILP32 {
 
 extern TargetInfo *target;
 
-} // namespace macho
-} // namespace lld
+} // namespace lld::macho
 
 #endif

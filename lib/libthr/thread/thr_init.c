@@ -33,9 +33,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "namespace.h"
 #include <sys/param.h>
 #include <sys/auxv.h>
@@ -273,6 +270,9 @@ static pthread_func_t jmp_table[][2] = {
 	[PJT_MUTEXATTR_SETROBUST] = {DUAL_ENTRY(_thr_mutexattr_setrobust)},
 	[PJT_GETTHREADID_NP] = {DUAL_ENTRY(_thr_getthreadid_np)},
 	[PJT_ATTR_GET_NP] = {DUAL_ENTRY(_thr_attr_get_np)},
+	[PJT_GETNAME_NP] = {DUAL_ENTRY(_thr_getname_np)},
+	[PJT_SUSPEND_ALL_NP] = {DUAL_ENTRY(_thr_suspend_all_np)},
+	[PJT_RESUME_ALL_NP] = {DUAL_ENTRY(_thr_resume_all_np)},
 };
 
 static int init_once = 0;
@@ -521,7 +521,17 @@ init_private(void)
 		env = getenv("LIBPTHREAD_QUEUE_FIFO");
 		if (env)
 			_thr_queuefifo = atoi(env);
-		TAILQ_INIT(&_thr_atfork_list);
+		env = getenv("LIBPTHREAD_UMTX_MIN_TIMEOUT");
+		if (env) {
+			char *endptr;
+			long mint;
+
+			mint = strtol(env, &endptr, 0);
+			if (*endptr == '\0' && mint >= 0) {
+				_umtx_op(NULL, UMTX_OP_SET_MIN_TIMEOUT,
+				    mint, NULL, NULL);
+			}
+		}
 	}
 	init_once = 1;
 }

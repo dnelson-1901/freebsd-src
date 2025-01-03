@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Michal Meloun <mmel@FreeBSD.org>
  *
@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * ACT8846 PMIC driver
  */
@@ -43,7 +41,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/extres/regulator/regulator.h>
+#include <dev/regulator/regulator.h>
 #include <dev/fdt/fdt_pinctrl.h>
 #include <dev/iicbus/iiconf.h>
 #include <dev/iicbus/iicbus.h>
@@ -217,7 +215,8 @@ act8846_attach(device_t dev)
 	if (rv != 0)
 		goto fail;
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail:
 	LOCK_DESTROY(sc);
@@ -228,11 +227,16 @@ static int
 act8846_detach(device_t dev)
 {
 	struct act8846_softc *sc;
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 	LOCK_DESTROY(sc);
 
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 static device_method_t act8846_methods[] = {

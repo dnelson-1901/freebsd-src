@@ -1,12 +1,9 @@
-# $FreeBSD$
-
 _spath=	${SRCTOP}/contrib/ofed/libmlx4
 .PATH: ${_spath}
 
 SHLIBDIR?=	/usr/lib
 LIB=		mlx4
 SHLIB_MAJOR=	1
-MK_PROFILE=	no
 
 SRCS= \
 buf.c \

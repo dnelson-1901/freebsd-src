@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * VIA Networking Technologies VT612x PCI gigabit ethernet NIC driver.
  *
@@ -1095,12 +1093,6 @@ vge_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->vge_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
-
 	vge_miipoll_start(sc);
 	/* Do MII setup */
 	error = mii_attach(dev, &sc->vge_miibus, ifp, vge_ifmedia_upd,
@@ -1185,8 +1177,6 @@ vge_detach(device_t dev)
 		VGE_UNLOCK(sc);
 		callout_drain(&sc->vge_watchdog);
 	}
-	if (sc->vge_miibus)
-		device_delete_child(dev, sc->vge_miibus);
 	bus_generic_detach(dev);
 
 	if (sc->vge_intrhand)
@@ -1220,7 +1210,7 @@ vge_discard_rxbuf(struct vge_softc *sc, int prod)
 
 	/*
 	 * Note: the manual fails to document the fact that for
-	 * proper opration, the driver needs to replentish the RX
+	 * proper operation, the driver needs to replentish the RX
 	 * DMA ring 4 descriptors at a time (rather than one at a
 	 * time, like most chips). We can allocate the new buffers
 	 * but we should not set the OWN bits until we're ready
@@ -2566,7 +2556,7 @@ vge_sysctl_node(struct vge_softc *sc)
 	VGE_SYSCTL_STAT_ADD32(ctx, child, "crcerrs",
 	    &stats->rx_crcerrs, "CRC errors");
 	VGE_SYSCTL_STAT_ADD32(ctx, child, "pause_frames",
-	    &stats->rx_pause_frames, "CRC errors");
+	    &stats->rx_pause_frames, "Pause frames");
 	VGE_SYSCTL_STAT_ADD32(ctx, child, "align_errs",
 	    &stats->rx_alignerrs, "Alignment errors");
 	VGE_SYSCTL_STAT_ADD32(ctx, child, "nobufs",

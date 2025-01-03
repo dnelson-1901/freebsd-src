@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999 Seigo Tanimura
  * All rights reserved.
@@ -28,15 +28,13 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _CSA_REG_H
 #define _CSA_REG_H
 
 /*
- * The following constats are orginally in the sample by Crystal Semiconductor.
+ * The following constats are originally in the sample by Crystal Semiconductor.
  * Copyright (c) 1996-1998 Crystal Semiconductor Corp.
  */
 

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <bsd.compiler.mk>
 
 PACKAGE=	tests
@@ -67,7 +65,6 @@ TEST_METADATA.default_permissions_privileged+=	required_user="root"
 TEST_METADATA.mknod+=	required_user="root"
 TEST_METADATA.nfs+=	required_user="root"
 
-# TODO: drastically increase timeout after test development is mostly complete
 TEST_METADATA+= timeout=10
 
 FUSEFS=		${SRCTOP}/sys/fs/fuse
@@ -80,8 +77,14 @@ CXXWARNFLAGS.readdir.cc+=	-Wno-cast-align
 .if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} >= 80000
 CXXWARNFLAGS+=	-Wno-class-memaccess
 .endif
-# Supress warnings about deprecated implicit copy constructors in gtest.
+# Suppress false warning about set but unused DNAME in inval_entry_below_root
+CXXWARNFLAGS.gcc+= -Wno-unused-but-set-variable
+# Suppress warnings about deprecated implicit copy constructors in gtest.
 CXXWARNFLAGS+=  -Wno-deprecated-copy
+.if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 180000
+# clang 18.0.0 introduces a new warning about variable length arrays in C++.
+CXXWARNFLAGS+=	-Wno-vla-cxx-extension
+.endif
 CXXFLAGS+=	-I${SRCTOP}/tests
 CXXFLAGS+=	-I${FUSEFS}
 CXXFLAGS+=	-I${MOUNT}

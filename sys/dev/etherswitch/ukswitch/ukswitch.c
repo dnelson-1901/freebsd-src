@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Luiz Otavio O Souza.
  * Copyright (c) 2011-2012 Stefan Bethke.
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -108,7 +106,7 @@ ukswitch_probe(device_t dev)
 	sc = device_get_softc(dev);
 	bzero(sc, sizeof(*sc));
 
-	device_set_desc_copy(dev, "Generic MDIO switch driver");
+	device_set_desc(dev, "Generic MDIO switch driver");
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -126,12 +124,6 @@ ukswitch_attach_phys(struct ukswitch_softc *sc)
 		sc->ifpport[phy] = port;
 		sc->portphy[port] = phy;
 		sc->ifp[port] = if_alloc(IFT_ETHER);
-		if (sc->ifp[port] == NULL) {
-			device_printf(sc->sc_dev, "couldn't allocate ifnet structure\n");
-			err = ENOMEM;
-			break;
-		}
-
 		if_setsoftc(sc->ifp[port], sc);
 		if_setflags(sc->ifp[port], IFF_UP | IFF_BROADCAST |
 		    IFF_DRV_RUNNING | IFF_SIMPLEX);
@@ -217,11 +209,9 @@ ukswitch_attach(device_t dev)
 	if (err != 0)
 		return (err);
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
-	err = bus_generic_attach(dev);
-	if (err != 0)
-		return (err);
+	bus_attach_children(dev);
 	
 	callout_init(&sc->callout_tick, 0);
 
@@ -234,7 +224,11 @@ static int
 ukswitch_detach(device_t dev)
 {
 	struct ukswitch_softc *sc = device_get_softc(dev);
-	int i, port;
+	int error, i, port;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	callout_drain(&sc->callout_tick);
 
@@ -242,8 +236,6 @@ ukswitch_detach(device_t dev)
 		if (((1 << i) & sc->phymask) == 0)
 			continue;
 		port = ukswitch_portforphy(sc, i);
-		if (sc->miibus[port] != NULL)
-			device_delete_child(dev, (*sc->miibus[port]));
 		if (sc->ifp[port] != NULL)
 			if_free(sc->ifp[port]);
 		free(sc->ifname[port], M_UKSWITCH);
@@ -255,7 +247,6 @@ ukswitch_detach(device_t dev)
 	free(sc->ifname, M_UKSWITCH);
 	free(sc->ifp, M_UKSWITCH);
 
-	bus_generic_detach(dev);
 	mtx_destroy(&sc->sc_mtx);
 
 	return (0);
@@ -516,7 +507,7 @@ ukswitch_writephy(device_t dev, int phy, int reg, int data)
 static int
 ukswitch_readreg(device_t dev, int addr)
 {
-	struct ukswitch_softc *sc;
+	struct ukswitch_softc *sc __diagused;
 
 	sc = device_get_softc(dev);
 	UKSWITCH_LOCK_ASSERT(sc, MA_OWNED);
@@ -528,7 +519,7 @@ ukswitch_readreg(device_t dev, int addr)
 static int
 ukswitch_writereg(device_t dev, int addr, int value)
 {
-	struct ukswitch_softc *sc;
+	struct ukswitch_softc *sc __diagused;
 
 	sc = device_get_softc(dev);
 	UKSWITCH_LOCK_ASSERT(sc, MA_OWNED);

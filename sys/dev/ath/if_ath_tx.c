@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * Copyright (c) 2010-2012 Adrian Chadd, Xenion Pty Ltd
@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver for the Atheros Wireless LAN controller.
  *
@@ -290,7 +288,7 @@ ath_txfrag_setup(struct ath_softc *sc, ath_bufhead *frags,
 			ath_txfrag_cleanup(sc, frags, ni);
 			break;
 		}
-		ieee80211_node_incref(ni);
+		(void) ieee80211_ref_node(ni);
 		TAILQ_INSERT_TAIL(frags, bf, bf_list);
 	}
 	ATH_TXBUF_UNLOCK(sc);
@@ -1135,8 +1133,7 @@ ath_tx_calc_duration(struct ath_softc *sc, struct ath_buf *bf)
 	 * Calculate duration.  This logically belongs in the 802.11
 	 * layer but it lacks sufficient information to calculate it.
 	 */
-	if ((flags & HAL_TXDESC_NOACK) == 0 &&
-	    (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) != IEEE80211_FC0_TYPE_CTL) {
+	if ((flags & HAL_TXDESC_NOACK) == 0 && !IEEE80211_IS_CTL(wh)) {
 		u_int16_t dur;
 		if (shortPreamble)
 			dur = rt->info[rix].spAckDuration;
@@ -2053,7 +2050,7 @@ ath_tx_start(struct ath_softc *sc, struct ieee80211_node *ni,
 		 */
 		if (IEEE80211_QOS_HAS_SEQ(wh) &&
 		    (! IEEE80211_IS_MULTICAST(wh->i_addr1)) &&
-		    (subtype != IEEE80211_FC0_SUBTYPE_QOS_NULL)) {
+		    (! IEEE80211_IS_QOS_NULL(wh))) {
 			bf->bf_state.bfs_dobaw = 1;
 		}
 	}
@@ -2580,25 +2577,6 @@ badbad:
  */
 
 /*
- * XXX doesn't belong here!
- */
-static int
-ieee80211_is_action(struct ieee80211_frame *wh)
-{
-	/* Type: Management frame? */
-	if ((wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) !=
-	    IEEE80211_FC0_TYPE_MGT)
-		return 0;
-
-	/* Subtype: Action frame? */
-	if ((wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) !=
-	    IEEE80211_FC0_SUBTYPE_ACTION)
-		return 0;
-
-	return 1;
-}
-
-/*
  * Return an alternate TID for ADDBA request frames.
  *
  * Yes, this likely should be done in the net80211 layer.
@@ -2614,7 +2592,7 @@ ath_tx_action_frame_override_queue(struct ath_softc *sc,
 	uint16_t baparamset;
 
 	/* Not action frame? Bail */
-	if (! ieee80211_is_action(wh))
+	if (! IEEE80211_IS_MGMT_ACTION(wh))
 		return 0;
 
 	/* XXX Not needed for frames we send? */
@@ -3013,7 +2991,7 @@ ath_tx_tid_seqno_assign(struct ath_softc *sc, struct ieee80211_node *ni,
 	 * RX side.
 	 */
 	subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
-	if (subtype == IEEE80211_FC0_SUBTYPE_QOS_NULL) {
+	if (IEEE80211_IS_QOS_NULL(wh)) {
 		/* XXX no locking for this TID? This is a bit of a problem. */
 		seqno = ni->ni_txseqs[IEEE80211_NONQOS_TID];
 		INCR(ni->ni_txseqs[IEEE80211_NONQOS_TID], IEEE80211_SEQ_RANGE);

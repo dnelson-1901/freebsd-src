@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PROG=	iasl
 
 # common
@@ -81,6 +79,8 @@ WARNS?=	2
 MAN=	iasl.8
 
 CFLAGS+= -DACPI_ASL_COMPILER -I.
+CWARNFLAGS.aslrestype2s.c= ${NO_WUNUSED_BUT_SET_VARIABLE}
+CWARNFLAGS.dmextern.c= ${NO_WUNUSED_BUT_SET_VARIABLE}
 LFLAGS= -i -s
 DLFLAGS=-i
 YFLAGS= -d

@@ -32,9 +32,6 @@
  * Power management function/SMBus function support for the AMD 756 chip.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -217,13 +214,13 @@ amdpm_attach(device_t dev)
 	mtx_init(&amdpm_sc->lock, device_get_nameunit(dev), "amdpm", MTX_DEF);
 
 	/* Allocate a new smbus device */
-	amdpm_sc->smbus = device_add_child(dev, "smbus", -1);
+	amdpm_sc->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 	if (!amdpm_sc->smbus) {
 		amdpm_detach(dev);
 		return (EINVAL);
 	}
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -232,11 +229,11 @@ static int
 amdpm_detach(device_t dev)
 {
 	struct amdpm_softc *amdpm_sc = device_get_softc(dev);
+	int error;
 
-	if (amdpm_sc->smbus) {
-		device_delete_child(dev, amdpm_sc->smbus);
-		amdpm_sc->smbus = NULL;
-	}
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	mtx_destroy(&amdpm_sc->lock);
 	if (amdpm_sc->res)

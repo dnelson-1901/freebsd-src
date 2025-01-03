@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Functions that need to be different for different versions of BSD
  * kernel should be kept here, along with any global storage specific
@@ -123,7 +121,6 @@ MALLOC_DEFINE(M_NEWNFSCLCLIENT, "NFSCL client", "NFSCL Client");
 MALLOC_DEFINE(M_NEWNFSCLLOCKOWNER, "NFSCL lckown", "NFSCL Lock Owner");
 MALLOC_DEFINE(M_NEWNFSCLLOCK, "NFSCL lck", "NFSCL Lock");
 MALLOC_DEFINE(M_NEWNFSV4NODE, "NEWNFSnode", "NFS vnode");
-MALLOC_DEFINE(M_NEWNFSDIRECTIO, "NEWdirectio", "NFS Direct IO buffer");
 MALLOC_DEFINE(M_NEWNFSDIROFF, "NFSCL diroff",
     "NFS directory offset data");
 MALLOC_DEFINE(M_NEWNFSDROLLBACK, "NFSD rollback",
@@ -261,7 +258,8 @@ newnfs_copycred(struct nfscred *nfscr, struct ucred *cr)
 	KASSERT(nfscr->nfsc_ngroups >= 0,
 	    ("newnfs_copycred: negative nfsc_ngroups"));
 	cr->cr_uid = nfscr->nfsc_uid;
-	crsetgroups(cr, nfscr->nfsc_ngroups, nfscr->nfsc_groups);
+	crsetgroups_fallback(cr, nfscr->nfsc_ngroups, nfscr->nfsc_groups,
+	    GID_NOGROUP);
 }
 
 /*

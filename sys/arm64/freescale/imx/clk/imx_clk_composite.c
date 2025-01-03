@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2018 Emmanuel Vadot <manu@freebsd.org>
  *
@@ -23,18 +23,13 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
 
-#include <dev/extres/clk/clk.h>
+#include <dev/clk/clk.h>
 
 #include <arm64/freescale/imx/clk/imx_clk_composite.h>
 
@@ -222,6 +217,7 @@ imx_clk_composite_set_freq(struct clknode *clk, uint64_t fparent, uint64_t *fout
 	p_names = clknode_get_parent_names(clk);
 
 	best_diff = 0;
+	best_parent = -1;
 
 	for (p_idx = 0; p_idx != clknode_get_parents_num(clk); p_idx++) {
 		p_clk = clknode_find_by_name(p_names[p_idx]);
@@ -247,6 +243,10 @@ imx_clk_composite_set_freq(struct clknode *clk, uint64_t fparent, uint64_t *fout
 	*stop = 1;
 	if (best_diff == INT64_MAX)
 		return (ERANGE);
+
+	/* If we didn't find a new best_parent just return */
+	if (best_parent == -1)
+		return (0);
 
 	if ((flags & CLK_SET_DRYRUN) != 0) {
 		*fout = best;

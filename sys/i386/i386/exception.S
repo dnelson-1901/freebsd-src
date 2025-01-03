@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_apic.h"
@@ -452,7 +450,7 @@ ENTRY(fork_trampoline)
 #include <i386/i386/apic_vector.S>
 #endif
 
-#ifdef HYPERV
+#ifdef DEV_HYPERV
 	.data
 	.p2align 4
 	.text

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 IronPort Systems Inc. <ambrisko@ironport.com>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -104,6 +101,7 @@ smbios_ipmi_info(struct smbios_structure_header *h, void *arg)
 	switch (s->interface_type) {
 	case KCS_MODE:
 	case SMIC_MODE:
+	case BT_MODE:
 		info->address = IPMI_BAR_ADDR(s->base_address) |
 		    IPMI_BAM_ADDR_LSB(s->base_address_modifier);
 		info->io_mode = IPMI_BAR_MODE(s->base_address);
@@ -168,10 +166,12 @@ ipmi_smbios_probe(struct ipmi_get_info *info)
 		addr = (vm_paddr_t)addr_efi;
 #endif
 
+#if defined(__amd64__) || defined(__i386__)
 	if (addr == 0)
 		/* Find the SMBIOS table header. */
 		addr = bios_sigsearch(SMBIOS_START, SMBIOS_SIG, SMBIOS_LEN,
 			SMBIOS_STEP, SMBIOS_OFF);
+#endif
 	if (addr == 0)
 		return;
 
@@ -192,8 +192,8 @@ ipmi_smbios_probe(struct ipmi_get_info *info)
 	/* Now map the actual table and walk it looking for an IPMI entry. */
 	table = pmap_mapbios(header->structure_table_address,
 	    header->structure_table_length);
-	smbios_walk_table(table, header->number_structures, smbios_ipmi_info,
-	    info);
+	smbios_walk_table(table, header->number_structures,
+	    header->structure_table_length, smbios_ipmi_info, info);
 
 	/* Unmap everything. */
 	pmap_unmapbios(table, header->structure_table_length);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Ng Peng Nam Sean
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
@@ -26,8 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/ck.h>
 #include <sys/lock.h>
@@ -46,85 +44,40 @@ __FBSDID("$FreeBSD$");
 #define	DEBUG_MOD_NAME	nl_io
 #define	DEBUG_MAX_LEVEL	LOG_DEBUG3
 #include <netlink/netlink_debug.h>
-_DECLARE_DEBUG(LOG_DEBUG);
+_DECLARE_DEBUG(LOG_INFO);
 
 /*
  * The logic below provide a p2p interface for receiving and
  * sending netlink data between the kernel and userland.
  */
 
-static const struct sockaddr_nl _nl_empty_src = {
-	.nl_len = sizeof(struct sockaddr_nl),
-	.nl_family = PF_NETLINK,
-	.nl_pid = 0 /* comes from the kernel */
-};
-static const struct sockaddr *nl_empty_src = (const struct sockaddr *)&_nl_empty_src;
+static bool nl_process_nbuf(struct nl_buf *nb, struct nlpcb *nlp);
 
-static struct mbuf *nl_process_mbuf(struct mbuf *m, struct nlpcb *nlp);
-
-
-static void
-queue_push(struct nl_io_queue *q, struct mbuf *mq)
+struct nl_buf *
+nl_buf_alloc(size_t len, int mflag)
 {
-	while (mq != NULL) {
-		struct mbuf *m = mq;
-		mq = mq->m_nextpkt;
-		m->m_nextpkt = NULL;
+	struct nl_buf *nb;
 
-		q->length += m_length(m, NULL);
-		STAILQ_INSERT_TAIL(&q->head, m, m_stailqpkt);
+	KASSERT(len > 0 && len <= UINT_MAX, ("%s: invalid length %zu",
+	    __func__, len));
+
+	nb = malloc(sizeof(struct nl_buf) + len, M_NETLINK, mflag);
+	if (__predict_true(nb != NULL)) {
+		nb->buflen = len;
+		nb->datalen = nb->offset = 0;
 	}
+
+	return (nb);
 }
 
-static void
-queue_push_head(struct nl_io_queue *q, struct mbuf *m)
+void
+nl_buf_free(struct nl_buf *nb)
 {
-	MPASS(m->m_nextpkt == NULL);
 
-	q->length += m_length(m, NULL);
-	STAILQ_INSERT_HEAD(&q->head, m, m_stailqpkt);
+	free(nb, M_NETLINK);
 }
 
-static struct mbuf *
-queue_pop(struct nl_io_queue *q)
-{
-	if (!STAILQ_EMPTY(&q->head)) {
-		struct mbuf *m = STAILQ_FIRST(&q->head);
-		STAILQ_REMOVE_HEAD(&q->head, m_stailqpkt);
-		m->m_nextpkt = NULL;
-		q->length -= m_length(m, NULL);
-
-		return (m);
-	}
-	return (NULL);
-}
-
-static struct mbuf *
-queue_head(const struct nl_io_queue *q)
-{
-	return (STAILQ_FIRST(&q->head));
-}
-
-static inline bool
-queue_empty(const struct nl_io_queue *q)
-{
-	return (q->length == 0);
-}
-
-static void
-queue_free(struct nl_io_queue *q)
-{
-	while (!STAILQ_EMPTY(&q->head)) {
-		struct mbuf *m = STAILQ_FIRST(&q->head);
-		STAILQ_REMOVE_HEAD(&q->head, m_stailqpkt);
-		m->m_nextpkt = NULL;
-		m_freem(m);
-	}
-	q->length = 0;
-}
-
-
-static void
+void
 nl_schedule_taskqueue(struct nlpcb *nlp)
 {
 	if (!nlp->nl_task_pending) {
@@ -136,116 +89,50 @@ nl_schedule_taskqueue(struct nlpcb *nlp)
 	}
 }
 
-int
-nl_receive_async(struct mbuf *m, struct socket *so)
-{
-	struct nlpcb *nlp = sotonlpcb(so);
-	int error = 0;
-
-	m->m_nextpkt = NULL;
-
-	NLP_LOCK(nlp);
-
-	if ((__predict_true(nlp->nl_active))) {
-		sbappend(&so->so_snd, m, 0);
-		NL_LOG(LOG_DEBUG3, "enqueue %u bytes", m_length(m, NULL));
-		nl_schedule_taskqueue(nlp);
-	} else {
-		NL_LOG(LOG_DEBUG, "ignoring %u bytes on non-active socket",
-		    m_length(m, NULL));
-		m_free(m);
-		error = EINVAL;
-	}
-
-	NLP_UNLOCK(nlp);
-
-	return (error);
-}
-
-static bool
-tx_check_locked(struct nlpcb *nlp)
-{
-	if (queue_empty(&nlp->tx_queue))
-		return (true);
-
-	/*
-	 * Check if something can be moved from the internal TX queue
-	 * to the socket queue.
-	 */
-
-	bool appended = false;
-	struct sockbuf *sb = &nlp->nl_socket->so_rcv;
-	SOCKBUF_LOCK(sb);
-
-	while (true) {
-		struct mbuf *m = queue_head(&nlp->tx_queue);
-		if (m && sbappendaddr_locked(sb, nl_empty_src, m, NULL) != 0) {
-			/* appended successfully */
-			queue_pop(&nlp->tx_queue);
-			appended = true;
-		} else
-			break;
-	}
-
-	SOCKBUF_UNLOCK(sb);
-
-	if (appended)
-		sorwakeup(nlp->nl_socket);
-
-	return (queue_empty(&nlp->tx_queue));
-}
-
 static bool
 nl_process_received_one(struct nlpcb *nlp)
 {
+	struct socket *so = nlp->nl_socket;
+	struct sockbuf *sb;
+	struct nl_buf *nb;
 	bool reschedule = false;
 
 	NLP_LOCK(nlp);
 	nlp->nl_task_pending = false;
-
-	if (!tx_check_locked(nlp)) {
-		/* TX overflow queue still not empty, ignore RX */
-		NLP_UNLOCK(nlp);
-		return (false);
-	}
-
-	if (queue_empty(&nlp->rx_queue)) {
-		/*
-		 * Grab all data we have from the socket TX queue
-		 * and store it the internal queue, so it can be worked on
-		 * w/o holding socket lock.
-		 */
-		struct sockbuf *sb = &nlp->nl_socket->so_snd;
-
-		SOCKBUF_LOCK(sb);
-		unsigned int avail = sbavail(sb);
-		if (avail > 0) {
-			NL_LOG(LOG_DEBUG3, "grabbed %u bytes", avail);
-			queue_push(&nlp->rx_queue, sbcut_locked(sb, avail));
-		}
-		SOCKBUF_UNLOCK(sb);
-	} else {
-		/* Schedule another pass to read from the socket queue */
-		reschedule = true;
-	}
-
-	int prev_hiwat = nlp->tx_queue.hiwat;
 	NLP_UNLOCK(nlp);
 
-	while (!queue_empty(&nlp->rx_queue)) {
-		struct mbuf *m = queue_pop(&nlp->rx_queue);
+	/*
+	 * Do not process queued up requests if there is no space to queue
+	 * replies.
+	 */
+	sb = &so->so_rcv;
+	SOCK_RECVBUF_LOCK(so);
+	if (sb->sb_hiwat <= sb->sb_ccc) {
+		SOCK_RECVBUF_UNLOCK(so);
+		return (false);
+	}
+	SOCK_RECVBUF_UNLOCK(so);
 
-		m = nl_process_mbuf(m, nlp);
-		if (m != NULL) {
-			queue_push_head(&nlp->rx_queue, m);
-			reschedule = false;
+	sb = &so->so_snd;
+	SOCK_SENDBUF_LOCK(so);
+	while ((nb = TAILQ_FIRST(&sb->nl_queue)) != NULL) {
+		TAILQ_REMOVE(&sb->nl_queue, nb, tailq);
+		SOCK_SENDBUF_UNLOCK(so);
+		reschedule = nl_process_nbuf(nb, nlp);
+		SOCK_SENDBUF_LOCK(so);
+		if (reschedule) {
+			sb->sb_acc -= nb->datalen;
+			sb->sb_ccc -= nb->datalen;
+			/* XXXGL: potentially can reduce lock&unlock count. */
+			sowwakeup_locked(so);
+			nl_buf_free(nb);
+			SOCK_SENDBUF_LOCK(so);
+		} else {
+			TAILQ_INSERT_HEAD(&sb->nl_queue, nb, tailq);
 			break;
 		}
 	}
-	if (nlp->tx_queue.hiwat > prev_hiwat) {
-		NLP_LOG(LOG_DEBUG, nlp, "TX override peaked to %d", nlp->tx_queue.hiwat);
-
-	}
+	SOCK_SENDBUF_UNLOCK(so);
 
 	return (reschedule);
 }
@@ -255,22 +142,15 @@ nl_process_received(struct nlpcb *nlp)
 {
 	NL_LOG(LOG_DEBUG3, "taskqueue called");
 
+	if (__predict_false(nlp->nl_need_thread_setup)) {
+		nl_set_thread_nlp(curthread, nlp);
+		NLP_LOCK(nlp);
+		nlp->nl_need_thread_setup = false;
+		NLP_UNLOCK(nlp);
+	}
+
 	while (nl_process_received_one(nlp))
 		;
-}
-
-void
-nl_init_io(struct nlpcb *nlp)
-{
-	STAILQ_INIT(&nlp->rx_queue.head);
-	STAILQ_INIT(&nlp->tx_queue.head);
-}
-
-void
-nl_free_io(struct nlpcb *nlp)
-{
-	queue_free(&nlp->rx_queue);
-	queue_free(&nlp->tx_queue);
 }
 
 /*
@@ -291,8 +171,8 @@ nl_on_transmit(struct nlpcb *nlp)
 		struct sockbuf *sb = &so->so_rcv;
 		NLP_LOG(LOG_DEBUG, nlp,
 		    "socket RX overflowed, %lu messages (%lu bytes) dropped. "
-		    "bytes: [%u/%u] mbufs: [%u/%u]", dropped_messages, dropped_bytes,
-		    sb->sb_ccc, sb->sb_hiwat, sb->sb_mbcnt, sb->sb_mbmax);
+		    "bytes: [%u/%u]", dropped_messages, dropped_bytes,
+		    sb->sb_ccc, sb->sb_hiwat);
 		/* TODO: send netlink message */
 	}
 
@@ -310,92 +190,68 @@ nl_taskqueue_handler(void *_arg, int pending)
 	CURVNET_RESTORE();
 }
 
-static __noinline void
-queue_push_tx(struct nlpcb *nlp, struct mbuf *m)
-{
-	queue_push(&nlp->tx_queue, m);
-	nlp->nl_tx_blocked = true;
-
-	if (nlp->tx_queue.length > nlp->tx_queue.hiwat)
-		nlp->tx_queue.hiwat = nlp->tx_queue.length;
-}
-
 /*
- * Tries to send @m to the socket @nlp.
- *
- * @m: mbuf(s) to send to. Consumed in any case.
- * @nlp: socket to send to
- * @cnt: number of messages in @m
- * @io_flags: combination of NL_IOF_* flags
+ * Tries to send current data buffer from writer.
  *
  * Returns true on success.
  * If no queue overrunes happened, wakes up socket owner.
  */
 bool
-nl_send_one(struct mbuf *m, struct nlpcb *nlp, int num_messages, int io_flags)
+nl_send(struct nl_writer *nw, struct nlpcb *nlp)
 {
-	bool untranslated = io_flags & NL_IOF_UNTRANSLATED;
-	bool ignore_limits = io_flags & NL_IOF_IGNORE_LIMIT;
-	bool result = true;
+	struct socket *so = nlp->nl_socket;
+	struct sockbuf *sb = &so->so_rcv;
+	struct nl_buf *nb;
+
+	MPASS(nw->hdr == NULL);
+	MPASS(nw->buf != NULL);
+	MPASS(nw->buf->datalen > 0);
 
 	IF_DEBUG_LEVEL(LOG_DEBUG2) {
-		struct nlmsghdr *hdr = mtod(m, struct nlmsghdr *);
+		struct nlmsghdr *hdr = (struct nlmsghdr *)nw->buf->data;
 		NLP_LOG(LOG_DEBUG2, nlp,
-		    "TX mbuf len %u msgs %u msg type %d first hdrlen %u io_flags %X",
-		    m_length(m, NULL), num_messages, hdr->nlmsg_type, hdr->nlmsg_len,
-		    io_flags);
+		    "TX len %u msgs %u msg type %d first hdrlen %u",
+		    nw->buf->datalen, nw->num_messages, hdr->nlmsg_type,
+		    hdr->nlmsg_len);
 	}
 
-	if (__predict_false(nlp->nl_linux && linux_netlink_p != NULL && untranslated)) {
-		m = linux_netlink_p->mbufs_to_linux(nlp->nl_proto, m, nlp);
-		if (m == NULL)
-			return (false);
-	}
-
-	NLP_LOCK(nlp);
-
-	if (__predict_false(nlp->nl_socket == NULL)) {
-		NLP_UNLOCK(nlp);
-		m_freem(m);
+	if (nlp->nl_linux && linux_netlink_p != NULL &&
+	    __predict_false(!linux_netlink_p->msgs_to_linux(nw, nlp))) {
+		nl_buf_free(nw->buf);
+		nw->buf = NULL;
 		return (false);
 	}
 
-	if (!queue_empty(&nlp->tx_queue)) {
-		if (ignore_limits) {
-			queue_push_tx(nlp, m);
-		} else {
-			m_free(m);
-			result = false;
-		}
+	nb = nw->buf;
+	nw->buf = NULL;
+
+	SOCK_RECVBUF_LOCK(so);
+	if (!nw->ignore_limit && __predict_false(sb->sb_hiwat <= sb->sb_ccc)) {
+		SOCK_RECVBUF_UNLOCK(so);
+		NLP_LOCK(nlp);
+		nlp->nl_dropped_bytes += nb->datalen;
+		nlp->nl_dropped_messages += nw->num_messages;
+		NLP_LOG(LOG_DEBUG2, nlp, "RX oveflow: %lu m (+%d), %lu b (+%d)",
+		    (unsigned long)nlp->nl_dropped_messages, nw->num_messages,
+		    (unsigned long)nlp->nl_dropped_bytes, nb->datalen);
 		NLP_UNLOCK(nlp);
-		return (result);
-	}
-
-	struct socket *so = nlp->nl_socket;
-	if (sbappendaddr(&so->so_rcv, nl_empty_src, m, NULL) != 0) {
-		sorwakeup(so);
-		NLP_LOG(LOG_DEBUG3, nlp, "appended data & woken up");
+		nl_buf_free(nb);
+		return (false);
 	} else {
-		if (ignore_limits) {
-			queue_push_tx(nlp, m);
-		} else {
-			/*
-			 * Store dropped data so it can be reported
-			 * on the next read
-			 */
-			nlp->nl_dropped_bytes += m_length(m, NULL);
-			nlp->nl_dropped_messages += num_messages;
-			NLP_LOG(LOG_DEBUG2, nlp, "RX oveflow: %lu m (+%d), %lu b (+%d)",
-			    (unsigned long)nlp->nl_dropped_messages, num_messages,
-			    (unsigned long)nlp->nl_dropped_bytes, m_length(m, NULL));
-			soroverflow(so);
-			m_freem(m);
-			result = false;
-		}
-	}
-	NLP_UNLOCK(nlp);
+		bool full;
 
-	return (result);
+		TAILQ_INSERT_TAIL(&sb->nl_queue, nb, tailq);
+		sb->sb_acc += nb->datalen;
+		sb->sb_ccc += nb->datalen;
+		full = sb->sb_hiwat <= sb->sb_ccc;
+		sorwakeup_locked(so);
+		if (full) {
+			NLP_LOCK(nlp);
+			nlp->nl_tx_blocked = true;
+			NLP_UNLOCK(nlp);
+		}
+		return (true);
+	}
 }
 
 static int
@@ -422,25 +278,21 @@ nl_receive_message(struct nlmsghdr *hdr, int remaining_length,
 
 	npt->hdr = hdr;
 
-	if (hdr->nlmsg_flags & NLM_F_REQUEST && hdr->nlmsg_type >= NLMSG_MIN_TYPE) {
+	if (hdr->nlmsg_flags & NLM_F_REQUEST &&
+	    hdr->nlmsg_type >= NLMSG_MIN_TYPE) {
 		NL_LOG(LOG_DEBUG2, "handling message with msg type: %d",
 		   hdr->nlmsg_type);
-
-		if (nlp->nl_linux && linux_netlink_p != NULL) {
-			struct nlmsghdr *hdr_orig = hdr;
-			hdr = linux_netlink_p->msg_from_linux(nlp->nl_proto, hdr, npt);
-			if (hdr == NULL) {
-				 /* Failed to translate to kernel format. Report an error back */
-				hdr = hdr_orig;
-				npt->hdr = hdr;
-				if (hdr->nlmsg_flags & NLM_F_ACK)
-					nlmsg_ack(nlp, EOPNOTSUPP, hdr, npt);
-				return (0);
-			}
+		if (nlp->nl_linux) {
+			MPASS(linux_netlink_p != NULL);
+			error = linux_netlink_p->msg_from_linux(nlp->nl_proto,
+			    &hdr, npt);
+			if (error)
+				goto ack;
 		}
 		error = handler(hdr, npt);
 		NL_LOG(LOG_DEBUG2, "retcode: %d", error);
 	}
+ack:
 	if ((hdr->nlmsg_flags & NLM_F_ACK) || (error != 0 && error != EINTR)) {
 		if (!npt->nw->suppress_ack) {
 			NL_LOG(LOG_DEBUG3, "ack");
@@ -465,70 +317,51 @@ npt_clear(struct nl_pstate *npt)
 /*
  * Processes an incoming packet, which can contain multiple netlink messages
  */
-static struct mbuf *
-nl_process_mbuf(struct mbuf *m, struct nlpcb *nlp)
+static bool
+nl_process_nbuf(struct nl_buf *nb, struct nlpcb *nlp)
 {
-	int offset, buffer_length;
+	struct nl_writer nw;
 	struct nlmsghdr *hdr;
-	char *buffer;
 	int error;
 
-	NL_LOG(LOG_DEBUG3, "RX netlink mbuf %p on %p", m, nlp->nl_socket);
+	NL_LOG(LOG_DEBUG3, "RX netlink buf %p on %p", nb, nlp->nl_socket);
 
-	struct nl_writer nw = {};
-	if (!nlmsg_get_unicast_writer(&nw, NLMSG_SMALL, nlp)) {
-		m_freem(m);
+	if (!nl_writer_unicast(&nw, NLMSG_SMALL, nlp, false)) {
 		NL_LOG(LOG_DEBUG, "error allocating socket writer");
-		return (NULL);
+		return (true);
 	}
 
 	nlmsg_ignore_limit(&nw);
-	/* TODO: alloc this buf once for nlp */
-	int data_length = m_length(m, NULL);
-	buffer_length = roundup2(data_length, 8) + SCRATCH_BUFFER_SIZE;
-	if (nlp->nl_linux)
-		buffer_length += roundup2(data_length, 8);
-	buffer = malloc(buffer_length, M_NETLINK, M_NOWAIT | M_ZERO);
-	if (buffer == NULL) {
-		m_freem(m);
-		nlmsg_flush(&nw);
-		NL_LOG(LOG_DEBUG, "Unable to allocate %d bytes of memory",
-		    buffer_length);
-		return (NULL);
-	}
-	m_copydata(m, 0, data_length, buffer);
 
 	struct nl_pstate npt = {
 		.nlp = nlp,
-		.lb.base = &buffer[roundup2(data_length, 8)],
-		.lb.size = buffer_length - roundup2(data_length, 8),
+		.lb.base = &nb->data[roundup2(nb->datalen, 8)],
+		.lb.size = nb->buflen - roundup2(nb->datalen, 8),
 		.nw = &nw,
 		.strict = nlp->nl_flags & NLF_STRICT,
 	};
 
-	for (offset = 0; offset + sizeof(struct nlmsghdr) <= data_length;) {
-		hdr = (struct nlmsghdr *)&buffer[offset];
+	for (; nb->offset + sizeof(struct nlmsghdr) <= nb->datalen;) {
+		hdr = (struct nlmsghdr *)&nb->data[nb->offset];
 		/* Save length prior to calling handler */
 		int msglen = NLMSG_ALIGN(hdr->nlmsg_len);
-		NL_LOG(LOG_DEBUG3, "parsing offset %d/%d", offset, data_length);
+		NL_LOG(LOG_DEBUG3, "parsing offset %d/%d",
+		    nb->offset, nb->datalen);
 		npt_clear(&npt);
-		error = nl_receive_message(hdr, data_length - offset, nlp, &npt);
-		offset += msglen;
+		error = nl_receive_message(hdr, nb->datalen - nb->offset, nlp,
+		    &npt);
+		nb->offset += msglen;
 		if (__predict_false(error != 0 || nlp->nl_tx_blocked))
 			break;
 	}
 	NL_LOG(LOG_DEBUG3, "packet parsing done");
-	free(buffer, M_NETLINK);
 	nlmsg_flush(&nw);
 
 	if (nlp->nl_tx_blocked) {
 		NLP_LOCK(nlp);
 		nlp->nl_tx_blocked = false;
 		NLP_UNLOCK(nlp);
-		m_adj(m, offset);
-		return (m);
-	} else {
-		m_freem(m);
-		return (NULL);
-	}
+		return (false);
+	} else
+		return (true);
 }

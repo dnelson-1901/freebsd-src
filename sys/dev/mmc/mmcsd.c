@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 Bernd Walter.  All rights reserved.
  * Copyright (c) 2006 M. Warner Losh <imp@FreeBSD.org>
@@ -52,9 +52,6 @@
  * or the SD Card Association to disclose or distribute any technical
  * information, know-how or other confidential information to any third party.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -1566,5 +1563,5 @@ mmcsd_handler(module_t mod __unused, int what, void *arg __unused)
 }
 
 DRIVER_MODULE(mmcsd, mmc, mmcsd_driver, mmcsd_handler, NULL);
-MODULE_DEPEND(mmcsd, g_flashmap, 0, 0, 0);
+MODULE_DEPEND(mmcsd, geom_flashmap, 0, 0, 0);
 MMC_DEPEND(mmcsd);

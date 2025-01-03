@@ -1,4 +1,4 @@
-# $FreeBSD$
+PACKAGE=	tests
 
 SUBDIR=		dso
 TESTS_SUBDIRS=	dynamic

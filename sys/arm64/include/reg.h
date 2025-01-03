@@ -26,9 +26,11 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
+
+#ifdef __arm__
+#include <arm/reg.h>
+#else /* !__arm__ */
 
 #ifndef	_MACHINE_REG_H_
 #define	_MACHINE_REG_H_
@@ -61,6 +63,19 @@ struct fpreg32 {
 	int dummy;
 };
 
+#define	SVEREG_FLAG_REGS_MASK	0x0001
+#define	SVEREG_FLAG_FP		0x0000
+#define	SVEREG_FLAG_SVE		0x0001
+
+struct svereg_header {
+	__uint32_t	sve_size;
+	__uint32_t	sve_maxsize;
+	__uint16_t	sve_vec_len;
+	__uint16_t	sve_max_vec_len;
+	__uint16_t	sve_flags;
+	__uint16_t	sve_reserved;
+};
+
 struct dbreg {
 	__uint8_t	db_debug_ver;
 	__uint8_t	db_nbkpts;
@@ -91,3 +106,5 @@ struct arm64_addr_mask {
 #define	__HAVE_REG32
 
 #endif /* !_MACHINE_REG_H_ */
+
+#endif /* !__arm__ */

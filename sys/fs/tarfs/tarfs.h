@@ -56,7 +56,7 @@ struct tarfs_node {
 
 	struct vnode		*vnode;
 	struct tarfs_mount	*tmp;
-	enum vtype		 type;
+	__enum_uint8(vtype)	 type;
 	ino_t			 ino;
 	off_t			 offset;
 	size_t			 size;
@@ -74,7 +74,7 @@ struct tarfs_node {
 	struct timespec		 mtime;
 	struct timespec		 ctime;
 	struct timespec		 birthtime;
-	unsigned long		 gen;
+	uint32_t		 gen;
 
 	/* Block map */
 	size_t			 nblk;
@@ -161,10 +161,9 @@ struct tarfs_zio {
 };
 
 struct tarfs_fid {
-	u_short			 len;	/* length of data in bytes */
-	u_short			 data0;	/* force alignment */
-	ino_t			 ino;
-	unsigned long		 gen;
+	u_short		 len;	/* length of data in bytes */
+	uint32_t	 gen;
+	ino_t		 ino;
 };
 
 #define	TARFS_NODE_LOCK(tnp) \
@@ -227,7 +226,7 @@ VP_TO_TARFS_NODE(struct vnode *vp)
 }
 
 int	tarfs_alloc_node(struct tarfs_mount *tmp, const char *name,
-	    size_t namelen, enum vtype type, off_t off, size_t sz,
+	    size_t namelen, __enum_uint8(vtype) type, off_t off, size_t sz,
 	    time_t mtime, uid_t uid, gid_t gid, mode_t mode,
 	    unsigned int flags, const char *linkname, dev_t rdev,
 	    struct tarfs_node *parent, struct tarfs_node **node);

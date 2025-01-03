@@ -1,4 +1,3 @@
-/*	$FreeBSD$	*/
 /*	$KAME: if_stf.c,v 1.73 2001/12/03 11:08:30 keiichi Exp $	*/
 
 /*-
@@ -265,11 +264,6 @@ stf_clone_create(struct if_clone *ifc, char *name, size_t len,
 
 	sc = malloc(sizeof(struct stf_softc), M_STF, M_WAITOK | M_ZERO);
 	ifp = STF2IFP(sc) = if_alloc(IFT_STF);
-	if (ifp == NULL) {
-		free(sc, M_STF);
-		ifc_free_unit(ifc, unit);
-		return (ENOSPC);
-	}
 	ifp->if_softc = sc;
 	sc->sc_fibnum = curthread->td_proc->p_fibnum;
 
@@ -295,12 +289,6 @@ stf_clone_create(struct if_clone *ifc, char *name, size_t len,
 	ifp->if_dunit = IF_DUNIT_NONE;
 
 	sc->encap_cookie = ip_encap_attach(&ipv4_encap_cfg, sc, M_WAITOK);
-	if (sc->encap_cookie == NULL) {
-		if_printf(ifp, "attach failed\n");
-		free(sc, M_STF);
-		ifc_free_unit(ifc, unit);
-		return (ENOMEM);
-	}
 
 	ifp->if_mtu    = IPV6_MMTU;
 	ifp->if_ioctl  = stf_ioctl;

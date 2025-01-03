@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * DEC "tulip" clone ethernet driver. Supports the DEC/Intel 21143
  * series chips and several workalikes including the following:
@@ -2382,11 +2380,6 @@ dc_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->dc_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -2546,8 +2539,6 @@ dc_detach(device_t dev)
 		callout_drain(&sc->dc_wdog_ch);
 		ether_ifdetach(ifp);
 	}
-	if (sc->dc_miibus)
-		device_delete_child(dev, sc->dc_miibus);
 	bus_generic_detach(dev);
 
 	if (sc->dc_intrhand)

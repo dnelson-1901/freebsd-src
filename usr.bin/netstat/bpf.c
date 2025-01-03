@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Christian S.J. Peron
  * All rights reserved.
@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #include <sys/protosw.h>
 #include <sys/socket.h>
@@ -42,7 +39,6 @@ __FBSDID("$FreeBSD$");
 #include <net/bpfdesc.h>
 #include <arpa/inet.h>
 
-#include <err.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>

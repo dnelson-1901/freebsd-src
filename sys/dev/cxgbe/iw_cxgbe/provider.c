@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009-2013, 2016 Chelsio, Inc. All rights reserved.
  *
@@ -32,8 +32,6 @@
  * SOFTWARE.
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #define	LINUXKPI_PARAM_PREFIX iw_cxgbe_
 
 #include "opt_inet.h"
@@ -233,6 +231,8 @@ c4iw_allocate_pd(struct ib_pd *pd, struct ib_udata *udata)
 	CTR4(KTR_IW_CXGBE, "%s: ibdev %p, pd %p, data %p", __func__, ibdev,
 	    pd, udata);
 	rhp = (struct c4iw_dev *) ibdev;
+	if (__predict_false(c4iw_stopped(&rhp->rdev)))
+		return -EIO;
 	pdid =  c4iw_get_resource(&rhp->rdev.resource.pdid_table);
 	if (!pdid)
 		return -EINVAL;

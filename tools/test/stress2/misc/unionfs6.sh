@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2021 Peter Holm
 #
@@ -27,7 +27,7 @@
 # SUCH DAMAGE.
 #
 
-# unionfs(8) test
+# unionfs(4) test
 # "panic: ufs dir vp 0xfffffe0157351068 ip 0xfffffe016a63d488 flags 0x3c06" seen
 
 [ `id -u ` -ne 0 ] && echo "Must be root!" && exit 1

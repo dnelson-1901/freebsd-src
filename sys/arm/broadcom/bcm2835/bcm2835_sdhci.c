@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 Oleksandr Tymoshenko <gonzo@freebsd.org>
  * All rights reserved.
@@ -26,8 +26,6 @@
  * SUCH DAMAGE.
  *
  */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -355,8 +353,8 @@ bcm_sdhci_attach(device_t dev)
 	sc->sc_sdhci_buffer_phys = rman_get_start(sc->sc_mem_res) +
 	    SDHCI_BUFFER;
 
-	bus_generic_probe(dev);
-	bus_generic_attach(dev);
+	bus_identify_children(dev);
+	bus_attach_children(dev);
 
 	sdhci_start_slot(&sc->sc_slot);
 

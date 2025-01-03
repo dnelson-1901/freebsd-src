@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004 Andre Oppermann, Internet Business Solutions AG
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ipfw.h"
 #include "opt_inet.h"
 #include "opt_inet6.h"
@@ -93,20 +91,20 @@ SYSBEGIN(f1)
 
 SYSCTL_DECL(_net_inet_ip_fw);
 SYSCTL_PROC(_net_inet_ip_fw, OID_AUTO, enable,
-    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SECURE3 |
+    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_SECURE3 |
     CTLFLAG_NEEDGIANT, &VNET_NAME(fw_enable), 0, ipfw_chg_hook, "I",
     "Enable ipfw");
 #ifdef INET6
 SYSCTL_DECL(_net_inet6_ip6_fw);
 SYSCTL_PROC(_net_inet6_ip6_fw, OID_AUTO, enable,
-    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SECURE3 |
+    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_SECURE3 |
     CTLFLAG_NEEDGIANT, &VNET_NAME(fw6_enable), 0, ipfw_chg_hook, "I",
     "Enable ipfw+6");
 #endif /* INET6 */
 
 SYSCTL_DECL(_net_link_ether);
 SYSCTL_PROC(_net_link_ether, OID_AUTO, ipfw,
-    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SECURE3 |
+    CTLFLAG_VNET | CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_SECURE3 |
     CTLFLAG_NEEDGIANT, &VNET_NAME(fwlink_enable), 0, ipfw_chg_hook, "I",
     "Pass ether pkts through firewall");
 
@@ -129,6 +127,7 @@ ipfw_check_packet(struct mbuf **m0, struct ifnet *ifp, int flags,
 	int ipfw;
 
 	args.flags = (flags & PFIL_IN) ? IPFW_ARGS_IN : IPFW_ARGS_OUT;
+	args.rule.pkt_mark = 0;
 again:
 	/*
 	 * extract and remove the tag if present. If we are left
@@ -356,7 +355,7 @@ again:
 			return (PFIL_PASS);
 		args.flags |= IPFW_ARGS_REF;
 	}
-	args.m = *m0,
+	args.m = *m0;
 
 	ipfw = ipfw_chk(&args);
 	*m0 = args.m;

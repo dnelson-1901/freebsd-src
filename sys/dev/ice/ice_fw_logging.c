@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2022, Intel Corporation
+/*  Copyright (c) 2024, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-/*$FreeBSD$*/
 
 /**
  * @file ice_fw_logging.c
@@ -80,7 +79,7 @@ static int ice_sysctl_fwlog_module_log_severity(SYSCTL_HANDLER_ARGS);
 static int
 ice_reconfig_fw_log(struct ice_softc *sc, struct ice_fwlog_cfg *cfg)
 {
-	enum ice_status status;
+	int status;
 
 	ice_fwlog_init(&sc->hw, cfg);
 
@@ -108,12 +107,12 @@ ice_reconfig_fw_log(struct ice_softc *sc, struct ice_fwlog_cfg *cfg)
 "\t\nMax: 128"
 
 #define ICE_SYSCTL_HELP_FWLOG_ARQ_ENA					\
-"\nControl whether to enable/disable reporing to admin Rx queue"	\
+"\nControl whether to enable/disable reporting to admin Rx queue"	\
 "\n0 - Enable firmware reporting via ARQ"				\
 "\n1 - Disable firmware reporting via ARQ"
 
 #define ICE_SYSCTL_HELP_FWLOG_UART_ENA					\
-"\nControl whether to enable/disable reporing to UART"			\
+"\nControl whether to enable/disable reporting to UART"			\
 "\n0 - Enable firmware reporting via UART"				\
 "\n1 - Disable firmware reporting via UART"
 
@@ -224,7 +223,7 @@ ice_sysctl_fwlog_register(SYSCTL_HANDLER_ARGS)
 {
 	struct ice_softc *sc = (struct ice_softc *)arg1;
 	struct ice_fwlog_cfg *cfg = &sc->hw.fwlog_cfg;
-	enum ice_status status;
+	int status;
 	int error;
 	u8 enabled;
 
@@ -360,23 +359,6 @@ ice_add_fw_logging_tunables(struct ice_softc *sc, struct sysctl_oid *parent)
 				     "Firmware Logging");
 	fwlog_list = SYSCTL_CHILDREN(fwlog_node);
 
-	cfg->log_resolution = 10;
-	SYSCTL_ADD_PROC(ctx, fwlog_list, OID_AUTO, "log_resolution",
-	    ICE_CTLFLAG_DEBUG | CTLTYPE_U8 | CTLFLAG_RWTUN, sc,
-	    0, ice_sysctl_fwlog_log_resolution,
-	    "CU", ICE_SYSCTL_HELP_FWLOG_LOG_RESOLUTION);
-
-	cfg->options |= ICE_FWLOG_OPTION_ARQ_ENA;
-	SYSCTL_ADD_PROC(ctx, fwlog_list, OID_AUTO, "arq_en",
-	    ICE_CTLFLAG_DEBUG | CTLTYPE_U8 | CTLFLAG_RWTUN, sc,
-	    ICE_FWLOG_OPTION_ARQ_ENA, ice_sysctl_fwlog_set_cfg_options,
-	    "CU", ICE_SYSCTL_HELP_FWLOG_ARQ_ENA);
-
-	SYSCTL_ADD_PROC(ctx, fwlog_list, OID_AUTO, "uart_en",
-	    ICE_CTLFLAG_DEBUG | CTLTYPE_U8 | CTLFLAG_RWTUN, sc,
-	    ICE_FWLOG_OPTION_UART_ENA, ice_sysctl_fwlog_set_cfg_options,
-	    "CU", ICE_SYSCTL_HELP_FWLOG_UART_ENA);
-
 	SYSCTL_ADD_PROC(ctx, fwlog_list, OID_AUTO, "on_load",
 	    ICE_CTLFLAG_DEBUG | CTLTYPE_U8 | CTLFLAG_RWTUN, sc,
 	    ICE_FWLOG_OPTION_REGISTER_ON_INIT, ice_sysctl_fwlog_set_cfg_options,
@@ -387,23 +369,43 @@ ice_add_fw_logging_tunables(struct ice_softc *sc, struct sysctl_oid *parent)
 	    0, ice_sysctl_fwlog_register,
 	    "CU", ICE_SYSCTL_HELP_FWLOG_REGISTER);
 
-	module_node = SYSCTL_ADD_NODE(ctx, fwlog_list, OID_AUTO, "severity",
-				      ICE_CTLFLAG_DEBUG | CTLFLAG_RD, NULL,
-				      "Level of log output");
+	hw->pf_id = ice_get_pf_id(hw);
+	if (hw->pf_id == 0) {
+		module_node = SYSCTL_ADD_NODE(ctx, fwlog_list, OID_AUTO, "severity",
+					      ICE_CTLFLAG_DEBUG | CTLFLAG_RD, NULL,
+					      "Level of log output");
 
-	module_list = SYSCTL_CHILDREN(module_node);
+		module_list = SYSCTL_CHILDREN(module_node);
 
-	for (i = 0; i < ICE_AQC_FW_LOG_ID_MAX; i++) {
-		/* Setup some defaults */
-		cfg->module_entries[i].module_id = i;
-		cfg->module_entries[i].log_level = ICE_FWLOG_LEVEL_NONE;
-		module = (enum ice_aqc_fw_logging_mod)i;
+		for (i = 0; i < ICE_AQC_FW_LOG_ID_MAX; i++) {
+			/* Setup some defaults */
+			cfg->module_entries[i].module_id = i;
+			cfg->module_entries[i].log_level = ICE_FWLOG_LEVEL_NONE;
+			module = (enum ice_aqc_fw_logging_mod)i;
 
-		SYSCTL_ADD_PROC(ctx, module_list,
-		    OID_AUTO, ice_fw_module_str(module),
-		    ICE_CTLFLAG_DEBUG | CTLTYPE_STRING | CTLFLAG_RWTUN, sc,
-		    module, ice_sysctl_fwlog_module_log_severity,
-		    "A", ICE_SYSCTL_HELP_FWLOG_MODULE_SEVERITY);
+			SYSCTL_ADD_PROC(ctx, module_list,
+			    OID_AUTO, ice_fw_module_str(module),
+			    ICE_CTLFLAG_DEBUG | CTLTYPE_STRING | CTLFLAG_RWTUN, sc,
+			    module, ice_sysctl_fwlog_module_log_severity,
+			    "A", ICE_SYSCTL_HELP_FWLOG_MODULE_SEVERITY);
+		}
+
+		cfg->log_resolution = 10;
+		SYSCTL_ADD_PROC(ctx, fwlog_list, OID_AUTO, "log_resolution",
+		    ICE_CTLFLAG_DEBUG | CTLTYPE_U8 | CTLFLAG_RWTUN, sc,
+		    0, ice_sysctl_fwlog_log_resolution,
+		    "CU", ICE_SYSCTL_HELP_FWLOG_LOG_RESOLUTION);
+
+		cfg->options |= ICE_FWLOG_OPTION_ARQ_ENA;
+		SYSCTL_ADD_PROC(ctx, fwlog_list, OID_AUTO, "arq_en",
+		    ICE_CTLFLAG_DEBUG | CTLTYPE_U8 | CTLFLAG_RWTUN, sc,
+		    ICE_FWLOG_OPTION_ARQ_ENA, ice_sysctl_fwlog_set_cfg_options,
+		    "CU", ICE_SYSCTL_HELP_FWLOG_ARQ_ENA);
+
+		SYSCTL_ADD_PROC(ctx, fwlog_list, OID_AUTO, "uart_en",
+		    ICE_CTLFLAG_DEBUG | CTLTYPE_U8 | CTLFLAG_RWTUN, sc,
+		    ICE_FWLOG_OPTION_UART_ENA, ice_sysctl_fwlog_set_cfg_options,
+		    "CU", ICE_SYSCTL_HELP_FWLOG_UART_ENA);
 	}
 }
 

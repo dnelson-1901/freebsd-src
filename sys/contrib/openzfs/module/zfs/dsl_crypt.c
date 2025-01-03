@@ -143,7 +143,7 @@ dsl_crypto_params_create_nvlist(dcp_cmd_t cmd, nvlist_t *props,
 	dsl_wrapping_key_t *wkey = NULL;
 	uint8_t *wkeydata = NULL;
 	uint_t wkeydata_len = 0;
-	char *keylocation = NULL;
+	const char *keylocation = NULL;
 
 	dcp = kmem_zalloc(sizeof (dsl_crypto_params_t), KM_SLEEP);
 	dcp->cp_cmd = cmd;
@@ -264,6 +264,40 @@ spa_crypto_key_compare(const void *a, const void *b)
 	if (dcka->dck_obj > dckb->dck_obj)
 		return (1);
 	return (0);
+}
+
+/*
+ * this compares a crypto key based on zk_guid. See comment on
+ * spa_crypto_key_compare for more information.
+ */
+boolean_t
+dmu_objset_crypto_key_equal(objset_t *osa, objset_t *osb)
+{
+	dsl_crypto_key_t *dcka = NULL;
+	dsl_crypto_key_t *dckb = NULL;
+	uint64_t obja, objb;
+	boolean_t equal;
+	spa_t *spa;
+
+	spa = dmu_objset_spa(osa);
+	if (spa != dmu_objset_spa(osb))
+		return (B_FALSE);
+	obja = dmu_objset_ds(osa)->ds_object;
+	objb = dmu_objset_ds(osb)->ds_object;
+
+	if (spa_keystore_lookup_key(spa, obja, FTAG, &dcka) != 0)
+		return (B_FALSE);
+	if (spa_keystore_lookup_key(spa, objb, FTAG, &dckb) != 0) {
+		spa_keystore_dsl_key_rele(spa, dcka, FTAG);
+		return (B_FALSE);
+	}
+
+	equal = (dcka->dck_key.zk_guid == dckb->dck_key.zk_guid);
+
+	spa_keystore_dsl_key_rele(spa, dcka, FTAG);
+	spa_keystore_dsl_key_rele(spa, dckb, FTAG);
+
+	return (equal);
 }
 
 static int
@@ -541,6 +575,12 @@ dsl_crypto_key_open(objset_t *mos, dsl_wrapping_key_t *wkey,
 	if (ret != 0)
 		goto error;
 
+	/* handle a future crypto suite that we don't support */
+	if (crypt >= ZIO_CRYPT_FUNCTIONS) {
+		ret = (SET_ERROR(ZFS_ERR_CRYPTO_NOTSUP));
+		goto error;
+	}
+
 	ret = zap_lookup(mos, dckobj, DSL_CRYPTO_KEY_GUID, 8, 1, &guid);
 	if (ret != 0)
 		goto error;
@@ -677,7 +717,7 @@ spa_keystore_dsl_key_hold_dd(spa_t *spa, dsl_dir_t *dd, const void *tag,
 		avl_insert(&spa->spa_keystore.sk_dsl_keys, dck_io, where);
 		*dck_out = dck_io;
 	} else {
-		dsl_crypto_key_free(dck_io);
+		dsl_crypto_key_rele(dck_io, tag);
 		*dck_out = dck_ks;
 	}
 
@@ -1457,7 +1497,7 @@ spa_keystore_change_key_sync_impl(uint64_t rddobj, uint64_t ddobj,
 	}
 
 	zc = kmem_alloc(sizeof (zap_cursor_t), KM_SLEEP);
-	za = kmem_alloc(sizeof (zap_attribute_t), KM_SLEEP);
+	za = zap_attribute_alloc();
 
 	/* Recurse into all child dsl dirs. */
 	for (zap_cursor_init(zc, dp->dp_meta_objset,
@@ -1489,7 +1529,7 @@ spa_keystore_change_key_sync_impl(uint64_t rddobj, uint64_t ddobj,
 	}
 	zap_cursor_fini(zc);
 
-	kmem_free(za, sizeof (zap_attribute_t));
+	zap_attribute_free(za);
 	kmem_free(zc, sizeof (zap_cursor_t));
 
 	dsl_dir_rele(dd, FTAG);
@@ -2119,9 +2159,6 @@ dsl_crypto_recv_raw_objset_sync(dsl_dataset_t *ds, dmu_objset_type_t ostype,
 		zio = zio_root(dp->dp_spa, NULL, NULL, ZIO_FLAG_MUSTSUCCEED);
 		dsl_dataset_sync(ds, zio, tx);
 		VERIFY0(zio_wait(zio));
-
-		/* dsl_dataset_sync_done will drop this reference. */
-		dmu_buf_add_ref(ds->ds_dbuf, ds);
 		dsl_dataset_sync_done(ds, tx);
 	}
 }
@@ -2144,9 +2181,15 @@ dsl_crypto_recv_raw_key_check(dsl_dataset_t *ds, nvlist_t *nvl, dmu_tx_t *tx)
 	 * wrapping key.
 	 */
 	ret = nvlist_lookup_uint64(nvl, DSL_CRYPTO_KEY_CRYPTO_SUITE, &intval);
-	if (ret != 0 || intval >= ZIO_CRYPT_FUNCTIONS ||
-	    intval <= ZIO_CRYPT_OFF)
+	if (ret != 0 || intval <= ZIO_CRYPT_OFF)
 		return (SET_ERROR(EINVAL));
+
+	/*
+	 * Flag a future crypto suite that we don't support differently, so
+	 * we can return a more useful error to the user.
+	 */
+	if (intval >= ZIO_CRYPT_FUNCTIONS)
+		return (SET_ERROR(ZFS_ERR_CRYPTO_NOTSUP));
 
 	ret = nvlist_lookup_uint64(nvl, DSL_CRYPTO_KEY_GUID, &intval);
 	if (ret != 0)

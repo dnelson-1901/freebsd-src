@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009-2010 The FreeBSD Foundation
  *
@@ -29,8 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -83,7 +81,7 @@ uart_cpu_getdev(int devtype, struct uart_devinfo *di)
 	/* Allow overriding the FDT using the environment. */
 	class = &uart_ns8250_class;
 	err = uart_getenv(devtype, di, class);
-	if (!err)
+	if (err == 0)
 		return (0);
 
 	err = uart_cpu_fdt_probe(&class, &bst, &bsh, &br, &rclk,

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015-2016 Landon Fuller <landon@landonf.org>
  * Copyright (c) 2017 The FreeBSD Foundation
@@ -32,9 +32,6 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -84,7 +81,6 @@ bcma_attach(device_t dev)
 
 	/* Enumerate children */
 	if ((error = bcma_add_children(dev))) {
-		device_delete_children(dev);
 		return (error);
 	}
 
@@ -681,7 +677,7 @@ bcma_add_children(device_t bus)
 	bcma_erom = (struct bcma_erom *)erom;
 	while ((error = bcma_erom_next_corecfg(bcma_erom, &corecfg)) == 0) {
 		/* Add the child device */
-		child = BUS_ADD_CHILD(bus, 0, NULL, -1);
+		child = BUS_ADD_CHILD(bus, 0, NULL, DEVICE_UNIT_ANY);
 		if (child == NULL) {
 			error = ENXIO;
 			goto cleanup;

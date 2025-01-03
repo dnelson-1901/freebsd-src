@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005-2009 Ariff Abdullah <ariff@FreeBSD.org>
  * Portions Copyright (c) Ryan Beasley <ryan.beasley@gmail.com> - GSoC 2006
@@ -39,8 +39,6 @@
 #define SND_USE_FXDIV
 #define	SND_DECLARE_FXDIV
 #include "snd_fxdiv_gen.h"
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 struct snd_dbuf *
 sndbuf_create(device_t dev, char *drv, char *desc, struct pcm_channel *channel)
@@ -149,6 +147,7 @@ sndbuf_free(struct snd_dbuf *b)
 		} else
 			free(b->buf, M_DEVBUF);
 	}
+	seldrain(sndbuf_getsel(b));
 
 	b->tmpbuf = NULL;
 	b->shadbuf = NULL;
@@ -357,15 +356,6 @@ sndbuf_setfmt(struct snd_dbuf *b, u_int32_t fmt)
 	b->fmt = fmt;
 	b->bps = AFMT_BPS(b->fmt);
 	b->align = AFMT_ALIGN(b->fmt);
-#if 0
-	b->bps = AFMT_CHANNEL(b->fmt);
-	if (b->fmt & AFMT_16BIT)
-		b->bps <<= 1;
-	else if (b->fmt & AFMT_24BIT)
-		b->bps *= 3;
-	else if (b->fmt & AFMT_32BIT)
-		b->bps <<= 2;
-#endif
 	return 0;
 }
 

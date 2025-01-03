@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright 2008 by Nathan Whitehorn. All rights reserved.
  *
@@ -25,9 +25,6 @@
  * SUCH DAMAGE.
  *
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -93,6 +90,7 @@ mambobus_probe(device_t dev)
 static int
 mambobus_attach(device_t dev)
 {
-	bus_generic_probe(dev);
-	return (bus_generic_attach(dev));
+	bus_identify_children(dev);
+	bus_attach_children(dev);
+	return (0);
 }

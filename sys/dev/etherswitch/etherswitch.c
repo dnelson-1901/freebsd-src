@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011-2012 Stefan Bethke.
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -85,7 +83,7 @@ static void
 etherswitch_identify(driver_t *driver, device_t parent)
 {
 	if (device_find_child(parent, "etherswitch", -1) == NULL)
-		BUS_ADD_CHILD(parent, 0, "etherswitch", -1);
+		BUS_ADD_CHILD(parent, 0, "etherswitch", DEVICE_UNIT_ANY);
 }
 
 static int

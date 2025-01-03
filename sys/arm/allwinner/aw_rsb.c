@@ -21,16 +21,11 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
  * Allwinner RSB (Reduced Serial Bus) and P2WI (Push-Pull Two Wire Interface)
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -48,8 +43,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/iicbus/iiconf.h>
 #include <dev/iicbus/iicbus.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
 
 #include "iicbus_if.h"
 
@@ -447,14 +442,14 @@ rsb_attach(device_t dev)
 	/* Set the PMIC into RSB mode as ATF might have leave it in I2C mode */
 	RSB_WRITE(sc, RSB_PMCR, RSB_PMCR_REG(PMIC_MODE_REG) | RSB_PMCR_DATA(PMIC_MODE_RSB) | RSB_PMCR_START);
 
-	sc->iicbus = device_add_child(dev, "iicbus", -1);
+	sc->iicbus = device_add_child(dev, "iicbus", DEVICE_UNIT_ANY);
 	if (sc->iicbus == NULL) {
 		device_printf(dev, "cannot add iicbus child device\n");
 		error = ENXIO;
 		goto fail;
 	}
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 PROG=	fstyp
@@ -31,6 +29,7 @@ CFLAGS.zfs.c+= -DIN_BASE
 CFLAGS.zfs.c+= -I${SRCTOP}/sys/contrib/openzfs/include
 CFLAGS.zfs.c+= -I${SRCTOP}/sys/contrib/openzfs/lib/libspl/include
 CFLAGS.zfs.c+= -I${SRCTOP}/sys/contrib/openzfs/lib/libspl/include/os/freebsd
+CFLAGS.zfs.c+= -I${SRCTOP}/sys/contrib/openzfs/lib/libzpool/include
 CFLAGS.zfs.c+= -I${SRCTOP}/sys/contrib/openzfs/module/icp/include
 CFLAGS.zfs.c+= -include ${SRCTOP}/sys/contrib/openzfs/include/os/freebsd/spl/sys/ccompile.h
 CFLAGS.zfs.c+= -DHAVE_ISSETUGID

@@ -27,6 +27,7 @@ libspl_sys_HEADERS = \
 	%D%/sys/acl.h \
 	%D%/sys/acl_impl.h \
 	%D%/sys/asm_linkage.h \
+	%D%/sys/backtrace.h \
 	%D%/sys/callb.h \
 	%D%/sys/cmn_err.h \
 	%D%/sys/cred.h \
@@ -46,7 +47,6 @@ libspl_sys_HEADERS = \
 	%D%/sys/poll.h \
 	%D%/sys/priv.h \
 	%D%/sys/processor.h \
-	%D%/sys/sha2.h \
 	%D%/sys/simd.h \
 	%D%/sys/stack.h \
 	%D%/sys/stdtypes.h \

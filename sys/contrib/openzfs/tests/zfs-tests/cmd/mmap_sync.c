@@ -59,12 +59,12 @@ main(int argc, char *argv[])
 		return (1);
 	}
 
-	int run_time_mins = 5;
+	int run_time_mins = 1;
 	if (argc >= 2) {
 		run_time_mins = atoi(argv[1]);
 	}
 
-	int max_msync_time_ms = 1000;
+	int max_msync_time_ms = 2000;
 	if (argc >= 3) {
 		max_msync_time_ms = atoi(argv[2]);
 	}

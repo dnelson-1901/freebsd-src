@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -32,3 +31,4 @@ MODULES		+= pam_ssh
 MODULES		+= pam_tacplus
 MODULES		+= pam_unix
 MODULES		+= pam_xauth
+MODULES		+= pam_xdg

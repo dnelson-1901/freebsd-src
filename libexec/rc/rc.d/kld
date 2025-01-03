@@ -24,7 +24,6 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #
-# $FreeBSD$
 #
 # PROVIDE: kld
 # REQUIRE: kldxref
@@ -45,11 +44,15 @@ kld_start()
 
 	local _kld
 
-	echo 'Loading kernel modules:'
+	echo 'Loading kernel modules:' $kld_list
 	for _kld in $kld_list ; do
 		load_kld -e ${_kld}.ko $_kld
 	done
 }
 
 load_rc_config $name
+
+# doesn't make sense to run in a svcj
+kld_svcj="NO"
+
 run_rc_command "$1"

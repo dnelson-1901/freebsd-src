@@ -1,6 +1,4 @@
-# $FreeBSD$
-
 INCSDIR=	${INCLUDEDIR}/bsnmp
-PACKAGE=	bsnmp
+PACKAGE?=	bsnmp
 
 .include "../Makefile.inc"

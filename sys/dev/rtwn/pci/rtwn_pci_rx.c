@@ -19,8 +19,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_wlan.h"
 
 #include <sys/param.h>
@@ -35,7 +33,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/taskqueue.h>
 #include <sys/bus.h>
 #include <sys/endian.h>
-#include <sys/epoch.h>
 
 #include <machine/bus.h>
 #include <machine/resource.h>
@@ -85,7 +82,6 @@ rtwn_pci_setup_rx_desc(struct rtwn_pci_softc *pc,
 static void
 rtwn_pci_rx_frame(struct rtwn_pci_softc *pc)
 {
-	struct epoch_tracker et;
 	struct rtwn_softc *sc = &pc->pc_sc;
 	struct rtwn_rx_ring *ring = &pc->rx_ring;
 	struct rtwn_rx_stat_pci *rx_desc = &ring->desc[ring->cur];
@@ -165,15 +161,12 @@ rtwn_pci_rx_frame(struct rtwn_pci_softc *pc)
 
 	/* Send the frame to the 802.11 layer. */
 	RTWN_UNLOCK(sc);
-
-	NET_EPOCH_ENTER(et);
 	if (ni != NULL) {
 		(void)ieee80211_input_mimo(ni, m);
 		/* Node is no longer needed. */
 		ieee80211_free_node(ni);
 	} else
 		(void)ieee80211_input_mimo_all(ic, m);
-	NET_EPOCH_EXIT(et);
 
 	RTWN_LOCK(sc);
 
@@ -242,6 +235,33 @@ rtwn_pci_tx_report(struct rtwn_pci_softc *pc, int len)
 		rtwn_cmd_sleepable(sc, NULL, 0, rtwn_ff_flush_all);
 #endif
 }
+
+static void
+rtwn_pci_tx_report2(struct rtwn_pci_softc *pc, int len)
+{
+	struct rtwn_softc *sc = &pc->pc_sc;
+
+	if (sc->sc_ratectl != RTWN_RATECTL_NET80211) {
+		/* shouldn't happen */
+		device_printf(sc->sc_dev,
+		    "%s called while ratectl = %d!\n",
+		     __func__, sc->sc_ratectl);
+		return;
+	}
+
+	RTWN_NT_LOCK(sc);
+	rtwn_handle_tx_report2(sc, pc->pc_rx_buf, len);
+	RTWN_NT_UNLOCK(sc);
+
+#ifdef IEEE80211_SUPPORT_SUPERG
+	/*
+	 * NB: this will executed only when 'report' bit is set.
+	 */
+	if (sc->sc_tx_n_active > 0 && --sc->sc_tx_n_active <= 1)
+		rtwn_cmd_sleepable(sc, NULL, 0, rtwn_ff_flush_all);
+#endif
+}
+
 
 static void
 rtwn_pci_c2h_report(struct rtwn_pci_softc *pc, int len)
@@ -347,6 +367,9 @@ rtwn_pci_rx_done(struct rtwn_softc *sc)
 			break;
 		case RTWN_RX_TX_REPORT:
 			rtwn_pci_tx_report(pc, len);
+			break;
+		case RTWN_RX_TX_REPORT2:
+			rtwn_pci_tx_report2(pc, len);
 			break;
 		case RTWN_RX_OTHER:
 			rtwn_pci_c2h_report(pc, len);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016,2017 SoftIron Inc.
  * Copyright (c) 2020 Advanced Micro Devices, Inc.
@@ -28,9 +28,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -391,11 +388,6 @@ axgbe_attach(device_t dev)
 	OF_getprop(node, "mac-address", sc->mac_addr, ETHER_ADDR_LEN);
 
 	sc->prv.netdev = ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "Cannot alloc ifnet\n");
-		return (ENXIO);
-	}
-
 	sc->prv.dev = dev;
 	sc->prv.dmat = bus_get_dma_tag(dev);
 	sc->prv.phy.advertising = ADVERTISED_10000baseKR_Full |

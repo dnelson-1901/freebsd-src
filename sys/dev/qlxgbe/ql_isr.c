@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013-2016 Qlogic Corporation
  * All rights reserved.
@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "ql_os.h"
 #include "ql_hw.h"
 #include "ql_def.h"
@@ -282,7 +280,7 @@ qla_lro_intr(qla_host_t *ha, qla_sgl_lro_t *sgc, uint32_t sds_idx)
 	th = (struct tcphdr *)(mpf->m_data + sgc->l4_offset);
 
 	if (sgc->flags & Q8_LRO_COMP_PUSH_BIT)
-		th->th_flags |= TH_PUSH;
+		tcp_set_flags(th, tcp_get_flags(th) | TH_PUSH);
 
 	m_adj(mpf, sgc->l2_offset);
 

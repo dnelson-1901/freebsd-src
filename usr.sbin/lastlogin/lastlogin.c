@@ -35,11 +35,9 @@
 
 #include <sys/cdefs.h>
 #ifndef lint
-__RCSID("$FreeBSD$");
 __RCSID("$NetBSD: lastlogin.c,v 1.4 1998/02/03 04:45:35 perry Exp $");
 #endif
 
-#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +46,8 @@ __RCSID("$NetBSD: lastlogin.c,v 1.4 1998/02/03 04:45:35 perry Exp $");
 #include <utmpx.h>
 
 #include <libxo/xo.h>
+
+#define LASTLOGIN_XO_VERSION "1"
 
 	int	main(int, char **);
 static	void	output(struct utmpx *);
@@ -104,6 +104,7 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	xo_set_version(LASTLOGIN_XO_VERSION);
 	xo_open_container("lastlogin-information");
 	xo_open_list("lastlogin");
 
@@ -145,7 +146,8 @@ main(int argc, char *argv[])
 
 	xo_close_list("lastlogin");
 	xo_close_container("lastlogin-information");
-	xo_finish();
+	if (xo_finish() < 0)
+		xo_err(1, "stdout");
 
 	exit(0);
 }
@@ -168,6 +170,5 @@ static void
 usage(void)
 {
 	xo_error("usage: lastlogin [-f file] [-rt] [user ...]\n");
-	xo_finish();
 	exit(1);
 }

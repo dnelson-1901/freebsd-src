@@ -59,8 +59,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ddb.h"
 #include "opt_turnstile_profiling.h"
 #include "opt_sched.h"
@@ -248,7 +246,8 @@ propagate_priority(struct thread *td)
 		"Sleeping thread (tid %d, pid %d) owns a non-sleepable lock\n",
 			    td->td_tid, td->td_proc->p_pid);
 			kdb_backtrace_thread(td);
-			panic("sleeping thread");
+			panic("sleeping thread holds %s",
+			    ts->ts_lockobj->lo_name);
 		}
 
 		/*
@@ -1263,7 +1262,7 @@ DB_SHOW_ALL_COMMAND(chains, db_show_allchains)
 		}
 	}
 }
-DB_SHOW_ALIAS_FLAGS(allchains, db_show_allchains, DB_CMD_MEMSAFE)
+DB_SHOW_ALIAS_FLAGS(allchains, db_show_allchains, DB_CMD_MEMSAFE);
 
 static void	print_waiters(struct turnstile *ts, int indent);
 

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bus.h"
 
 #include <sys/param.h>
@@ -333,7 +331,7 @@ vybrid_ehci_attach(device_t dev)
 	}
 
 	/* Add USB device */
-	sc->sc_bus.bdev = device_add_child(dev, "usbus", -1);
+	sc->sc_bus.bdev = device_add_child(dev, "usbus", DEVICE_UNIT_ANY);
 	if (!sc->sc_bus.bdev) {
 		device_printf(dev, "Could not add USB device\n");
 		err = bus_teardown_intr(dev, esc->res[5],
@@ -388,7 +386,7 @@ vybrid_ehci_detach(device_t dev)
 	sc = &esc->base;
 
 	/* First detach all children; we can't detach if that fails. */
-	if ((err = device_delete_children(dev)) != 0)
+	if ((err = bus_generic_detach(dev)) != 0)
 		return (err);
 
 	/*

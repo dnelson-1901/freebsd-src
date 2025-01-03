@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 Ben Gray <ben.r.gray@gmail.com>.
  * Copyright (c) 2014 Luiz Otavio O Souza <loos@freebsd.org>.
@@ -40,9 +40,6 @@
  * larger than a certain size the DMA engine is used, for anything less the
  * normal interrupt/fifo driven option is used.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -892,7 +889,7 @@ ti_i2c_attach(device_t dev)
 	}
 
 	/* Probe and attach the iicbus when interrupts are available. */
-	err = bus_delayed_attach_children(dev);
+	bus_delayed_attach_children(dev);
 
 out:
 	if (err) {
@@ -915,10 +912,6 @@ ti_i2c_detach(device_t dev)
 		device_printf(dev, "cannot detach child devices\n");
 		return (rv);
 	}
-
-    if (sc->sc_iicbus &&
-	    (rv = device_delete_child(dev, sc->sc_iicbus)) != 0)
-		return (rv);
 
 	ti_i2c_deactivate(dev);
 	TI_I2C_LOCK_DESTROY(sc);

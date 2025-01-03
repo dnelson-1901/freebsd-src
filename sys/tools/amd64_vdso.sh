@@ -1,5 +1,5 @@
 #!/bin/sh
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2021 The FreeBSD Foundation
 # All rights reserved.
@@ -40,12 +40,17 @@ ${CC} -x assembler-with-cpp -DLOCORE -fPIC -nostdinc -c \
 #
 # -z rodynamic is undocumented lld-specific option, seemingly required
 # for lld to avoid putting dynamic into dedicated writeable segment,
-# despite ldscript placement.  It is ignored by ld.bfd but ldscript
+# despite ldscript placement.  It is omitted for ld.bfd, but ldscript
 # alone is enough there.
 #
+if ${LD} --version | ${AWK} '/^GNU ld/{exit 1}' ; then
+    RODYNAMIC="-z rodynamic"
+else
+    RODYNAMIC=""
+fi
 ${LD} --shared -Bsymbolic -soname="elf-vdso.so.1" \
    -T "${S}"/conf/vdso_amd64.ldscript \
-   --eh-frame-hdr --no-undefined -z rodynamic -z norelro -nmagic \
+   --eh-frame-hdr --no-undefined ${RODYNAMIC} -z norelro -nmagic \
    --hash-style=sysv --fatal-warnings --strip-all \
    -o elf-vdso.so.1 sigtramp.pico
 
@@ -64,7 +69,7 @@ fi
 
 ${CC} ${DEBUG} -x assembler-with-cpp -DLOCORE -fPIC -nostdinc -c \
    -o elf-vdso.so.o -I. -I"${S}" -include opt_global.h \
-   -DVDSO_NAME=elf_vdso_so_1 -DVDSO_FILE=elf-vdso.so.1 \
+   -DVDSO_NAME=elf_vdso_so_1 -DVDSO_FILE=\"elf-vdso.so.1\" \
    "${S}"/tools/vdso_wrap.S
 
 ${NM} -D elf-vdso.so.1 | \

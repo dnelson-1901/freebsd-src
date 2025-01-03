@@ -11,8 +11,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #define SYSLOG_NAMES
 
 #include <sys/types.h>
@@ -1139,6 +1137,14 @@ static struct OptionInfo optionTable[] = {
 		"try to keep original port numbers for connections",
 		"same_ports",
 		"m" },
+
+	{ LibAliasOption,
+		PKT_ALIAS_UDP_EIM,
+		YesNo,
+		"[yes|no]",
+		"UDP traffic uses endpoint-independent mapping (\"full cone\" NAT)",
+		"udp_eim",
+		NULL },
 
 	{ Verbose,
 		0,

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
  *
@@ -25,8 +25,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include <sys/types.h>
 #include <sys/ck.h>
 #include <sys/epoch.h>
@@ -44,7 +42,7 @@ __FBSDID("$FreeBSD$");
 #define	DEBUG_MOD_NAME	nl_route_core
 #define	DEBUG_MAX_LEVEL	LOG_DEBUG3
 #include <netlink/netlink_debug.h>
-_DECLARE_DEBUG(LOG_DEBUG);
+_DECLARE_DEBUG(LOG_INFO);
 
 #define	HANDLER_MAX_NUM	(NL_RTM_MAX + 10)
 static const struct rtnl_cmd_handler *rtnl_handler[HANDLER_MAX_NUM] = {};
@@ -93,6 +91,11 @@ rtnl_handle_message(struct nlmsghdr *hdr, struct nl_pstate *npt)
 	} else if (cmd->priv != 0)
 		NLP_LOG(LOG_DEBUG3, nlp, "priv %d check passed for msg %s", cmd->priv, cmd->name);
 
+	if (!nlp_unconstrained_vnet(nlp) && (cmd->flags & RTNL_F_ALLOW_NONVNET_JAIL) == 0) {
+		NLP_LOG(LOG_DEBUG2, nlp, "jail check failed for msg %s", cmd->name);
+		return (EPERM);
+	}
+
 	bool need_epoch = !(cmd->flags & RTNL_F_NOEPOCH);
 
 	if (need_epoch)
@@ -130,6 +133,7 @@ static void
 rtnl_unload(void *u __unused)
 {
 	netlink_callback_p = nlbridge_orig_p;
+	netlink_unregister_proto(NETLINK_ROUTE);
 	rtnl_ifaces_destroy();
 	rtnl_neighs_destroy();
 

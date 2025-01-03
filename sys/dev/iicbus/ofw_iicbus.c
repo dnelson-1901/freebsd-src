@@ -24,9 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -130,7 +127,7 @@ ofw_iicbus_attach(device_t dev)
 	
 	iicbus_reset(dev, IIC_FASTEST, 0, NULL);
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
 
 	/*
@@ -188,7 +185,7 @@ ofw_iicbus_attach(device_t dev)
 			continue;
 		}
 
-		childdev = device_add_child(dev, NULL, -1);
+		childdev = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
 		resource_list_init(&dinfo->opd_dinfo.rl);
 		ofw_bus_intr_to_rl(childdev, child,
 					&dinfo->opd_dinfo.rl, NULL);
@@ -197,7 +194,8 @@ ofw_iicbus_attach(device_t dev)
 
 	/* Register bus */
 	OF_device_register_xref(OF_xref_from_node(node), dev);
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static device_t

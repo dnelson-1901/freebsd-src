@@ -36,21 +36,6 @@
  * ------+---------+---------+-------- + --------+---------+---------+---------*
  */
 
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1990, 1993, 1994\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#if 0
-#ifndef lint
-static char sccsid[] = "@(#)ps.c	8.4 (Berkeley) 4/2/94";
-#endif /* not lint */
-#endif
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/jail.h>
 #include <sys/proc.h>
@@ -61,7 +46,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/mount.h>
 
 #include <ctype.h>
-#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
@@ -84,14 +68,6 @@ __FBSDID("$FreeBSD$");
 #define	W_SEP	" \t"		/* "Whitespace" list separators */
 #define	T_SEP	","		/* "Terminate-element" list separators */
 
-#ifdef LAZY_PS
-#define	DEF_UREAD	0
-#define	OPT_LAZY_f	"f"
-#else
-#define	DEF_UREAD	1	/* Always do the more-expensive read. */
-#define	OPT_LAZY_f		/* I.e., the `-f' option is not added. */
-#endif
-
 /*
  * isdigit takes an `int', but expects values in the range of unsigned char.
  * This wrapper ensures that values from a 'char' end up in the correct range.
@@ -108,13 +84,12 @@ int	 showthreads;		/* will threads be shown? */
 
 struct velisthead varlist = STAILQ_HEAD_INITIALIZER(varlist);
 
-static int	 forceuread = DEF_UREAD; /* Do extra work to get u-area. */
 static kvm_t	*kd;
 static int	 needcomm;	/* -o "command" */
 static int	 needenv;	/* -e */
 static int	 needuser;	/* -o "user" */
 static int	 optfatal;	/* Fatal error parsing some list-option. */
-static int	 pid_max;	/* kern.max_pid */
+static int	 pid_max;	/* kern.pid_max */
 
 static enum sort { DEFAULT, SORTMEM, SORTCPU } sortby = DEFAULT;
 
@@ -170,7 +145,7 @@ static char vfmt[] = "pid,state,time,sl,re,pagein,vsz,rss,lim,tsiz,"
 			"%cpu,%mem,command";
 static char Zfmt[] = "label";
 
-#define	PS_ARGS	"AaCcde" OPT_LAZY_f "G:gHhjJ:LlM:mN:O:o:p:rSTt:U:uvwXxZ"
+#define	PS_ARGS	"AaCcD:defG:gHhjJ:LlM:mN:O:o:p:rSTt:U:uvwXxZ"
 
 int
 main(int argc, char *argv[])
@@ -190,6 +165,8 @@ main(int argc, char *argv[])
 	int fwidthmin, fwidthmax;
 	char errbuf[_POSIX2_LINE_MAX];
 	char fmtbuf[_POSIX2_LINE_MAX];
+	enum { NONE = 0, UP = 1, DOWN = 2, BOTH = 1 | 2 } directions = NONE;
+	struct { int traversed; int initial; } pid_count;
 
 	(void) setlocale(LC_ALL, "");
 	time(&now);			/* Used by routines in print.c. */
@@ -264,18 +241,31 @@ main(int argc, char *argv[])
 		case 'c':
 			cflag = 1;
 			break;
+		case 'D': {
+				size_t len = strlen(optarg);
+
+				if (len <= 2 &&
+					strncasecmp(optarg, "up", len) == 0)
+					directions |= UP;
+				else if (len <= 4 &&
+					strncasecmp(optarg, "down", len) == 0)
+					directions |= DOWN;
+				else if (len <= 4 &&
+					strncasecmp(optarg, "both", len) == 0)
+					directions |= BOTH;
+				else
+					usage();
+				break;
+			}
 		case 'd':
 			descendancy = 1;
 			break;
 		case 'e':			/* XXX set ufmt */
 			needenv = 1;
 			break;
-#ifdef LAZY_PS
 		case 'f':
-			if (getuid() == 0 || getgid() == 0)
-				forceuread = 1;
+			/* compat */
 			break;
-#endif
 		case 'G':
 			add_list(&gidlist, optarg);
 			xkeep_implied = 1;
@@ -504,7 +494,7 @@ main(int argc, char *argv[])
 			what = KERN_PROC_PGRP | showthreads;
 			flag = *pgrplist.l.pids;
 			nselectors = 0;
-		} else if (pidlist.count == 1 && !descendancy) {
+		} else if (pidlist.count == 1 && directions == NONE) {
 			what = KERN_PROC_PID | showthreads;
 			flag = *pidlist.l.pids;
 			nselectors = 0;
@@ -539,14 +529,33 @@ main(int argc, char *argv[])
 	if ((kp == NULL && errno != ESRCH) || (kp != NULL && nentries < 0))
 		xo_errx(1, "%s", kvm_geterr(kd));
 	nkept = 0;
-	if (descendancy)
+	pid_count.initial = pidlist.count;
+	if (directions & DOWN)
 		for (elem = 0; elem < pidlist.count; elem++)
-			for (i = 0; i < nentries; i++)
+			for (i = 0; i < nentries; i++) {
+				if (kp[i].ki_ppid == kp[i].ki_pid)
+					continue;
 				if (kp[i].ki_ppid == pidlist.l.pids[elem]) {
 					if (pidlist.count >= pidlist.maxcount)
 						expand_list(&pidlist);
 					pidlist.l.pids[pidlist.count++] = kp[i].ki_pid;
 				}
+			}
+	pid_count.traversed = pidlist.count;
+	if (directions & UP)
+		for (elem = 0; elem < pidlist.count; elem++) {
+			if (elem >= pid_count.initial && elem < pid_count.traversed)
+				continue;
+			for (i = 0; i < nentries; i++) {
+				if (kp[i].ki_ppid == kp[i].ki_pid)
+					continue;
+				if (kp[i].ki_pid == pidlist.l.pids[elem]) {
+					if (pidlist.count >= pidlist.maxcount)
+						expand_list(&pidlist);
+					pidlist.l.pids[pidlist.count++] = kp[i].ki_ppid;
+				}
+			}
+		}
 	if (nentries > 0) {
 		if ((kinfo = malloc(nentries * sizeof(*kinfo))) == NULL)
 			xo_errx(1, "malloc failed");
@@ -635,7 +644,8 @@ main(int argc, char *argv[])
 
 	if (nkept == 0) {
 		printheader();
-		xo_finish();
+		if (xo_finish() < 0)
+			xo_err(1, "stdout");
 		exit(1);
 	}
 
@@ -720,7 +730,8 @@ main(int argc, char *argv[])
 	}
 	xo_close_list("process");
 	xo_close_container("process-information");
-	xo_finish();
+	if (xo_finish() < 0)
+		xo_err(1, "stdout");
 
 	free_list(&gidlist);
 	free_list(&jidlist);
@@ -790,14 +801,14 @@ addelem_jid(struct listinfo *inf, const char *elem)
 	int tempid;
 
 	if (*elem == '\0') {
-		warnx("Invalid (zero-length) jail id");
+		xo_warnx("Invalid (zero-length) jail id");
 		optfatal = 1;
 		return (0);		/* Do not add this value. */
 	}
 
 	tempid = jail_getid(elem);
 	if (tempid < 0) {
-		warnx("Invalid %s: %s", inf->lname, elem);
+		xo_warnx("Invalid %s: %s", inf->lname, elem);
 		optfatal = 1;
 		return (0);
 	}
@@ -1253,38 +1264,24 @@ fmt(char **(*fn)(kvm_t *, const struct kinfo_proc *, int), KINFO *ki,
 	return (s);
 }
 
-#define UREADOK(ki)	(forceuread || (ki->ki_p->ki_flag & P_INMEM))
-
 static void
 saveuser(KINFO *ki)
 {
 	char tdname[COMMLEN + 1];
-	char *argsp;
 
-	if (ki->ki_p->ki_flag & P_INMEM) {
-		/*
-		 * The u-area might be swapped out, and we can't get
-		 * at it because we have a crashdump and no swap.
-		 * If it's here fill in these fields, otherwise, just
-		 * leave them 0.
-		 */
-		ki->ki_valid = 1;
-	} else
-		ki->ki_valid = 0;
+	ki->ki_valid = 1;
+
 	/*
 	 * save arguments if needed
 	 */
 	if (needcomm) {
 		if (ki->ki_p->ki_stat == SZOMB) {
 			ki->ki_args = strdup("<defunct>");
-		} else if (UREADOK(ki) || (ki->ki_p->ki_args != NULL)) {
+		} else {
 			(void)snprintf(tdname, sizeof(tdname), "%s%s",
 			    ki->ki_p->ki_tdname, ki->ki_p->ki_moretdname);
 			ki->ki_args = fmt(kvm_getargv, ki,
 			    ki->ki_p->ki_comm, tdname, COMMLEN * 2 + 1);
-		} else {
-			asprintf(&argsp, "(%s)", ki->ki_p->ki_comm);
-			ki->ki_args = argsp;
 		}
 		if (ki->ki_args == NULL)
 			xo_errx(1, "malloc failed");
@@ -1292,11 +1289,8 @@ saveuser(KINFO *ki)
 		ki->ki_args = NULL;
 	}
 	if (needenv) {
-		if (UREADOK(ki))
-			ki->ki_env = fmt(kvm_getenvv, ki,
-			    (char *)NULL, (char *)NULL, 0);
-		else
-			ki->ki_env = strdup("()");
+		ki->ki_env = fmt(kvm_getenvv, ki, (char *)NULL,
+		    (char *)NULL, 0);
 		if (ki->ki_env == NULL)
 			xo_errx(1, "malloc failed");
 	} else {
@@ -1456,12 +1450,13 @@ pidmax_init(void)
 static void __dead2
 usage(void)
 {
-#define	SINGLE_OPTS	"[-aCcde" OPT_LAZY_f "HhjlmrSTuvwXxZ]"
+#define	SINGLE_OPTS	"[-aCcdeHhjlmrSTuvwXxZ]"
 
-	(void)xo_error("%s\n%s\n%s\n%s\n",
-	    "usage: ps " SINGLE_OPTS " [-O fmt | -o fmt] [-G gid[,gid...]]",
-	    "          [-J jid[,jid...]] [-M core] [-N system]",
+	xo_error("%s\n%s\n%s\n%s\n%s\n",
+	    "usage: ps [--libxo] " SINGLE_OPTS " [-O fmt | -o fmt]",
+	    "          [-G gid[,gid...]] [-J jid[,jid...]] [-M core] [-N system]",
 	    "          [-p pid[,pid...]] [-t tty[,tty...]] [-U user[,user...]]",
-	    "       ps [-L]");
+	    "          [-D up | down | both]",
+	    "       ps [--libxo] -L");
 	exit(1);
 }

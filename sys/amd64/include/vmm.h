@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _VMM_H_
@@ -35,6 +33,7 @@
 #include <sys/sdt.h>
 #include <x86/segments.h>
 
+struct vcpu;
 struct vm_snapshot_meta;
 
 #ifdef _KERNEL
@@ -99,6 +98,10 @@ enum vm_reg_name {
 	VM_REG_GUEST_DR3,
 	VM_REG_GUEST_DR6,
 	VM_REG_GUEST_ENTRY_INST_LENGTH,
+	VM_REG_GUEST_FS_BASE,
+	VM_REG_GUEST_GS_BASE,
+	VM_REG_GUEST_KGS_BASE,
+	VM_REG_GUEST_TPR,
 	VM_REG_LAST
 };
 
@@ -121,7 +124,7 @@ enum x2apic_state {
 /*
  * The VM name has to fit into the pathname length constraints of devfs,
  * governed primarily by SPECNAMELEN.  The length is the total number of
- * characters in the full path, relative to the mount point and not 
+ * characters in the full path, relative to the mount point and not
  * including any leading '/' characters.
  * A prefix and a suffix are added to the name specified by the user.
  * The prefix is usually "vmm/" or "vmm.io/", but can be a few characters
@@ -141,9 +144,10 @@ enum x2apic_state {
     (SPECNAMELEN - VM_MAX_PREFIXLEN - VM_MAX_SUFFIXLEN - 1)
 
 #ifdef _KERNEL
+#include <sys/kassert.h>
+
 CTASSERT(VM_MAX_NAMELEN >= VM_MIN_NAMELEN);
 
-struct vcpu;
 struct vm;
 struct vm_exception;
 struct seg_desc;
@@ -166,6 +170,7 @@ struct vm_eventinfo {
 
 typedef int	(*vmm_init_func_t)(int ipinum);
 typedef int	(*vmm_cleanup_func_t)(void);
+typedef void	(*vmm_suspend_func_t)(void);
 typedef void	(*vmm_resume_func_t)(void);
 typedef void *	(*vmi_init_func_t)(struct vm *vm, struct pmap *pmap);
 typedef int	(*vmi_run_func_t)(void *vcpui, register_t rip,
@@ -190,6 +195,7 @@ typedef int	(*vmi_restore_tsc_t)(void *vcpui, uint64_t now);
 struct vmm_ops {
 	vmm_init_func_t		modinit;	/* module wide initialization */
 	vmm_cleanup_func_t	modcleanup;
+	vmm_resume_func_t	modsuspend;
 	vmm_resume_func_t	modresume;
 
 	vmi_init_func_t		init;		/* vm-specific initialization */
@@ -262,8 +268,6 @@ void *vm_gpa_hold(struct vcpu *vcpu, vm_paddr_t gpa, size_t len,
     int prot, void **cookie);
 void *vm_gpa_hold_global(struct vm *vm, vm_paddr_t gpa, size_t len,
     int prot, void **cookie);
-void *vm_gpa_hold_global(struct vm *vm, vm_paddr_t gpa, size_t len,
-    int prot, void **cookie);
 void vm_gpa_release(void *cookie);
 bool vm_mem_allocated(struct vcpu *vcpu, vm_paddr_t gpa);
 
@@ -273,7 +277,7 @@ int vm_get_seg_desc(struct vcpu *vcpu, int reg,
 		    struct seg_desc *ret_desc);
 int vm_set_seg_desc(struct vcpu *vcpu, int reg,
 		    struct seg_desc *desc);
-int vm_run(struct vcpu *vcpu, struct vm_exit *vme_user);
+int vm_run(struct vcpu *vcpu);
 int vm_suspend(struct vm *vm, enum vm_suspend_how how);
 int vm_inject_nmi(struct vcpu *vcpu);
 int vm_nmi_pending(struct vcpu *vcpu);
@@ -297,6 +301,7 @@ int vm_suspend_cpu(struct vm *vm, struct vcpu *vcpu);
 int vm_resume_cpu(struct vm *vm, struct vcpu *vcpu);
 int vm_restart_instruction(struct vcpu *vcpu);
 struct vm_exit *vm_exitinfo(struct vcpu *vcpu);
+cpuset_t *vm_exitinfo_cpuset(struct vcpu *vcpu);
 void vm_exit_suspended(struct vcpu *vcpu, uint64_t rip);
 void vm_exit_debug(struct vcpu *vcpu, uint64_t rip);
 void vm_exit_rendezvous(struct vcpu *vcpu, uint64_t rip);
@@ -445,7 +450,7 @@ int vm_get_intinfo(struct vcpu *vcpu, uint64_t *info1, uint64_t *info2);
 
 /*
  * Function used to keep track of the guest's TSC offset. The
- * offset is used by the virutalization extensions to provide a consistent
+ * offset is used by the virtualization extensions to provide a consistent
  * value for the Time Stamp Counter to the guest.
  */
 void vm_set_tsc_offset(struct vcpu *vcpu, uint64_t offset);
@@ -462,7 +467,7 @@ struct vm_copyinfo {
 /*
  * Set up 'copyinfo[]' to copy to/from guest linear address space starting
  * at 'gla' and 'len' bytes long. The 'prot' should be set to PROT_READ for
- * a copyin or PROT_WRITE for a copyout. 
+ * a copyin or PROT_WRITE for a copyout.
  *
  * retval	is_fault	Interpretation
  *   0		   0		Success
@@ -497,6 +502,8 @@ enum vm_cap_type {
 	VM_CAP_RDPID,
 	VM_CAP_RDTSCP,
 	VM_CAP_IPI_EXIT,
+	VM_CAP_MASK_HWINTR,
+	VM_CAP_RFLAGS_TF,
 	VM_CAP_MAX
 };
 
@@ -645,6 +652,7 @@ enum vm_exitcode {
 	VM_EXITCODE_VMINSN,
 	VM_EXITCODE_BPT,
 	VM_EXITCODE_IPI,
+	VM_EXITCODE_DB,
 	VM_EXITCODE_MAX
 };
 
@@ -735,6 +743,12 @@ struct vm_exit {
 			int		inst_length;
 		} bpt;
 		struct {
+			int		trace_trap;
+			int		pushf_intercept;
+			int		tf_shadow_val;
+			struct		vm_guest_paging paging;
+		} dbg;
+		struct {
 			uint32_t	code;		/* ecx value */
 			uint64_t	wval;
 		} msr;
@@ -753,16 +767,19 @@ struct vm_exit {
 			enum vm_suspend_how how;
 		} suspended;
 		struct {
+			/*
+			 * The destination vCPU mask is saved in vcpu->cpuset
+			 * and is copied out to userspace separately to avoid
+			 * ABI concerns.
+			 */
 			uint32_t mode;
 			uint8_t vector;
-			cpuset_t dmask;
 		} ipi;
 		struct vm_task_switch task_switch;
 	} u;
 };
 
 /* APIs to inject faults into the guest */
-#ifdef _KERNEL
 void vm_inject_fault(struct vcpu *vcpu, int vector, int errcode_valid,
     int errcode);
 
@@ -791,35 +808,5 @@ vm_inject_ss(struct vcpu *vcpu, int errcode)
 }
 
 void vm_inject_pf(struct vcpu *vcpu, int error_code, uint64_t cr2);
-#else
-void vm_inject_fault(void *vm, int vcpuid, int vector, int errcode_valid,
-    int errcode);
-
-static __inline void
-vm_inject_ud(void *vm, int vcpuid)
-{
-	vm_inject_fault(vm, vcpuid, IDT_UD, 0, 0);
-}
-
-static __inline void
-vm_inject_gp(void *vm, int vcpuid)
-{
-	vm_inject_fault(vm, vcpuid, IDT_GP, 1, 0);
-}
-
-static __inline void
-vm_inject_ac(void *vm, int vcpuid, int errcode)
-{
-	vm_inject_fault(vm, vcpuid, IDT_AC, 1, errcode);
-}
-
-static __inline void
-vm_inject_ss(void *vm, int vcpuid, int errcode)
-{
-	vm_inject_fault(vm, vcpuid, IDT_SS, 1, errcode);
-}
-
-void vm_inject_pf(void *vm, int vcpuid, int error_code, uint64_t cr2);
-#endif
 
 #endif	/* _VMM_H_ */

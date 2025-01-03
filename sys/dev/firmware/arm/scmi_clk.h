@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2023 Arm Ltd
  *
  * This work was supported by Innovate UK project 105694, "Digital Security
  * by Design (DSbD) Technology Platform Prototype".
@@ -26,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_ARM64_SCMI_SCMI_CLK_H_
@@ -38,7 +37,6 @@
  */
 
 struct scmi_clk_protocol_attrs_out {
-	int32_t status;
 	uint32_t attributes;
 #define	CLK_ATTRS_NCLOCKS_S		0
 #define	CLK_ATTRS_NCLOCKS_M		(0xffff << CLK_ATTRS_NCLOCKS_S)
@@ -49,7 +47,6 @@ struct scmi_clk_attrs_in {
 };
 
 struct scmi_clk_attrs_out {
-	int32_t status;
 	uint32_t attributes;
 #define	CLK_ATTRS_RATE_CHANGE_NOTIFY_SUPP	(1 << 31)
 #define	CLK_ATTRS_RATE_REQ_CHANGE_NOTIFY_SUPP	(1 << 30)
@@ -64,7 +61,6 @@ struct scmi_clk_name_get_in {
 };
 
 struct scmi_clk_name_get_out {
-	int32_t status;
 	uint32_t flags;
 	uint8_t name[64];
 };
@@ -88,16 +84,11 @@ struct scmi_clk_state_in {
 	uint32_t attributes;
 };
 
-struct scmi_clk_state_out {
-	int32_t status;
-};
-
 struct scmi_clk_rate_get_in {
 	uint32_t clock_id;
 };
 
 struct scmi_clk_rate_get_out {
-	int32_t status;
 	uint32_t rate_lsb;
 	uint32_t rate_msb;
 };
@@ -107,10 +98,6 @@ struct scmi_clk_rate_set_in {
 	uint32_t clock_id;
 	uint32_t rate_lsb;
 	uint32_t rate_msb;
-};
-
-struct scmi_clk_rate_set_out {
-	int32_t status;
 };
 
 #endif /* !_ARM64_SCMI_SCMI_CLK_H_ */

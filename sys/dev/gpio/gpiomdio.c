@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Rubicon Communications, LLC (Netgate)
  *
@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -215,7 +213,6 @@ static device_method_t gpiomdio_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		gpiomdio_probe),
 	DEVMETHOD(device_attach,	gpiomdio_attach),
-	DEVMETHOD(device_detach,	bus_generic_detach),
 
 	/* MDIO interface */
 	DEVMETHOD(miibus_readreg,	gpiomdio_readreg),

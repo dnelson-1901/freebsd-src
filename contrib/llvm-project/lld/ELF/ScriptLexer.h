@@ -14,8 +14,7 @@
 #include "llvm/Support/MemoryBufferRef.h"
 #include <vector>
 
-namespace lld {
-namespace elf {
+namespace lld::elf {
 
 class ScriptLexer {
 public:
@@ -27,12 +26,12 @@ public:
   bool atEOF();
   StringRef next();
   StringRef peek();
-  StringRef peek2();
   void skip();
   bool consume(StringRef tok);
   void expect(StringRef expect);
   bool consumeLabel(StringRef tok);
   std::string getCurrentLocation();
+  MemoryBufferRef getCurrentMB();
 
   std::vector<MemoryBufferRef> mbs;
   std::vector<StringRef> tokens;
@@ -42,9 +41,6 @@ public:
   size_t lastLineNumber = 0;
   size_t lastLineNumberOffset = 0;
 
-protected:
-  MemoryBufferRef getCurrentMB();
-
 private:
   void maybeSplitExpr();
   StringRef getLine();
@@ -52,7 +48,6 @@ private:
   size_t getColumnNumber();
 };
 
-} // namespace elf
-} // namespace lld
+} // namespace lld::elf
 
 #endif

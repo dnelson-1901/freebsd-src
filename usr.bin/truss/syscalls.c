@@ -32,8 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * This file has routines used to print out system calls and their
  * arguments.
@@ -578,11 +576,6 @@ static const struct syscall_decode decoded_syscalls[] = {
 	  .args = { { Long, 0 }, { Name, 1 } } },
 	{ .name = "truncate", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { QuadHex | IN, 1 } } },
-#if 0
-	/* Does not exist */
-	{ .name = "umount", .ret_type = 1, .nargs = 2,
-	  .args = { { Name, 0 }, { Int, 2 } } },
-#endif
 	{ .name = "unlink", .ret_type = 1, .nargs = 1,
 	  .args = { { Name, 0 } } },
 	{ .name = "unlinkat", .ret_type = 1, .nargs = 3,
@@ -622,6 +615,8 @@ static const struct syscall_decode decoded_syscalls[] = {
 	  .args = { { Name | IN, 0 }, { Int, 1 } } },
 	{ .name = "linux_newfstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { Ptr | OUT, 1 } } },
+	{ .name = "linux_newlstat", .ret_type = 1, .nargs = 2,
+	  .args = { { Name | IN, 0 }, { Ptr | OUT, 1 } } },
 	{ .name = "linux_newstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { Ptr | OUT, 1 } } },
 	{ .name = "linux_open", .ret_type = 1, .nargs = 3,

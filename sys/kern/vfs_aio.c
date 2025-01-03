@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997 John S. Dyson.  All rights reserved.
  *
@@ -19,9 +19,6 @@
 /*
  * This file contains support for the POSIX 1003.1B AIO/LIO facility.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -70,14 +67,9 @@ __FBSDID("$FreeBSD$");
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
 #include <vm/vm_object.h>
+#include <vm/vnode_pager.h>
 #include <vm/uma.h>
 #include <sys/aio.h>
-
-/*
- * Counter for allocating reference ids to new jobs.  Wrapped to 1 on
- * overflow. (XXX will be removed soon.)
- */
-static u_long jobrefid;
 
 /*
  * Counter for aio_fsync.
@@ -231,6 +223,9 @@ typedef struct oaiocb {
 #define	KAIOCB_CLEARED		0x10
 #define	KAIOCB_FINISHED		0x20
 
+/* ioflags */
+#define	KAIOCB_IO_FOFFSET	0x01
+
 /*
  * AIO process info
  */
@@ -296,7 +291,6 @@ struct aiocb_ops {
 	long	(*fetch_error)(struct aiocb *ujob);
 	int	(*store_status)(struct aiocb *ujob, long status);
 	int	(*store_error)(struct aiocb *ujob, long error);
-	int	(*store_kernelinfo)(struct aiocb *ujob, long jobref);
 	int	(*store_aiocb)(struct aiocb **ujobp, struct aiocb *ujob);
 };
 
@@ -345,13 +339,13 @@ static int	filt_lio(struct knote *kn, long hint);
 static uma_zone_t kaio_zone, aiocb_zone, aiolio_zone;
 
 /* kqueue filters for aio */
-static struct filterops aio_filtops = {
+static const struct filterops aio_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_aioattach,
 	.f_detach = filt_aiodetach,
 	.f_event = filt_aio,
 };
-static struct filterops lio_filtops = {
+static const struct filterops lio_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_lioattach,
 	.f_detach = filt_liodetach,
@@ -417,7 +411,6 @@ aio_onceonly(void)
 	aiolio_zone = uma_zcreate("AIOLIO", sizeof(struct aioliojob), NULL,
 	    NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
 	aiod_lifetime = AIOD_LIFETIME_DEFAULT;
-	jobrefid = 1;
 	p31b_setcfg(CTL_P1003_1B_ASYNCHRONOUS_IO, _POSIX_ASYNCHRONOUS_IO);
 	p31b_setcfg(CTL_P1003_1B_AIO_MAX, MAX_AIO_QUEUE);
 	p31b_setcfg(CTL_P1003_1B_AIO_PRIO_DELTA_MAX, 0);
@@ -557,7 +550,7 @@ aio_free_entry(struct kaiocb *job)
 		fdrop(job->fd_file, curthread);
 	crfree(job->cred);
 	if (job->uiop != &job->uio)
-		free(job->uiop, M_IOV);
+		freeuio(job->uiop);
 	uma_zfree(aiocb_zone, job);
 	AIO_LOCK(ki);
 
@@ -720,7 +713,6 @@ static int
 aio_fsync_vnode(struct thread *td, struct vnode *vp, int op)
 {
 	struct mount *mp;
-	vm_object_t obj;
 	int error;
 
 	for (;;) {
@@ -728,12 +720,7 @@ aio_fsync_vnode(struct thread *td, struct vnode *vp, int op)
 		if (error != 0)
 			break;
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
-		obj = vp->v_object;
-		if (obj != NULL) {
-			VM_OBJECT_WLOCK(obj);
-			vm_object_page_clean(obj, 0, 0, 0);
-			VM_OBJECT_WUNLOCK(obj);
-		}
+		vnode_pager_clean_async(vp);
 		if (op == LIO_DSYNC)
 			error = VOP_FDATASYNC(vp, td);
 		else
@@ -797,12 +784,14 @@ aio_process_rw(struct kaiocb *job)
 		if (job->uiop->uio_resid == 0)
 			error = 0;
 		else
-			error = fo_read(fp, job->uiop, fp->f_cred, FOF_OFFSET,
-			    td);
+			error = fo_read(fp, job->uiop, fp->f_cred,
+			    (job->ioflags & KAIOCB_IO_FOFFSET) != 0 ? 0 :
+			    FOF_OFFSET, td);
 	} else {
 		if (fp->f_type == DTYPE_VNODE)
 			bwillwrite();
-		error = fo_write(fp, job->uiop, fp->f_cred, FOF_OFFSET, td);
+		error = fo_write(fp, job->uiop, fp->f_cred, (job->ioflags &
+		    KAIOCB_IO_FOFFSET) != 0 ? 0 : FOF_OFFSET, td);
 	}
 	msgrcv_end = td->td_ru.ru_msgrcv;
 	msgsnd_end = td->td_ru.ru_msgsnd;
@@ -1459,13 +1448,6 @@ aiocb_store_error(struct aiocb *ujob, long error)
 }
 
 static int
-aiocb_store_kernelinfo(struct aiocb *ujob, long jobref)
-{
-
-	return (suword(&ujob->_aiocb_private.kernelinfo, jobref));
-}
-
-static int
 aiocb_store_aiocb(struct aiocb **ujobp, struct aiocb *ujob)
 {
 
@@ -1478,7 +1460,6 @@ static struct aiocb_ops aiocb_ops = {
 	.fetch_error = aiocb_fetch_error,
 	.store_status = aiocb_store_status,
 	.store_error = aiocb_store_error,
-	.store_kernelinfo = aiocb_store_kernelinfo,
 	.store_aiocb = aiocb_store_aiocb,
 };
 
@@ -1489,7 +1470,6 @@ static struct aiocb_ops aiocb_ops_osigevent = {
 	.fetch_error = aiocb_fetch_error,
 	.store_status = aiocb_store_status,
 	.store_error = aiocb_store_error,
-	.store_kernelinfo = aiocb_store_kernelinfo,
 	.store_aiocb = aiocb_store_aiocb,
 };
 #endif
@@ -1510,7 +1490,6 @@ aio_aqueue(struct thread *td, struct aiocb *ujob, struct aioliojob *lj,
 	int opcode;
 	int error;
 	int fd, kqfd;
-	int jid;
 	u_short evflags;
 
 	if (p->p_aioinfo == NULL)
@@ -1520,7 +1499,6 @@ aio_aqueue(struct thread *td, struct aiocb *ujob, struct aioliojob *lj,
 
 	ops->store_status(ujob, -1);
 	ops->store_error(ujob, 0);
-	ops->store_kernelinfo(ujob, -1);
 
 	if (num_queue_count >= max_queue_count ||
 	    ki->kaio_count >= max_aio_queue_per_proc) {
@@ -1557,13 +1535,15 @@ aio_aqueue(struct thread *td, struct aiocb *ujob, struct aioliojob *lj,
 
 	/* Get the opcode. */
 	if (type == LIO_NOP) {
-		switch (job->uaiocb.aio_lio_opcode) {
+		switch (job->uaiocb.aio_lio_opcode & ~LIO_FOFFSET) {
 		case LIO_WRITE:
 		case LIO_WRITEV:
 		case LIO_NOP:
 		case LIO_READ:
 		case LIO_READV:
-			opcode = job->uaiocb.aio_lio_opcode;
+			opcode = job->uaiocb.aio_lio_opcode & ~LIO_FOFFSET;
+			if ((job->uaiocb.aio_lio_opcode & LIO_FOFFSET) != 0)
+				job->ioflags |= KAIOCB_IO_FOFFSET;
 			break;
 		default:
 			error = EINVAL;
@@ -1631,16 +1611,8 @@ aio_aqueue(struct thread *td, struct aiocb *ujob, struct aioliojob *lj,
 	job->fd_file = fp;
 
 	mtx_lock(&aio_job_mtx);
-	jid = jobrefid++;
 	job->seqno = jobseqno++;
 	mtx_unlock(&aio_job_mtx);
-	error = ops->store_kernelinfo(ujob, jid);
-	if (error) {
-		error = EINVAL;
-		goto err3;
-	}
-	job->uaiocb._aiocb_private.kernelinfo = (void *)(intptr_t)jid;
-
 	if (opcode == LIO_NOP) {
 		fdrop(fp, td);
 		MPASS(job->uiop == &job->uio || job->uiop == NULL);
@@ -1736,7 +1708,7 @@ err3:
 	knlist_delete(&job->klist, curthread, 0);
 err2:
 	if (job->uiop != &job->uio)
-		free(job->uiop, M_IOV);
+		freeuio(job->uiop);
 	uma_zfree(aiocb_zone, job);
 err1:
 	ops->store_error(ujob, error);
@@ -2729,7 +2701,7 @@ filt_lio(struct knote *kn, long hint)
 struct __aiocb_private32 {
 	int32_t	status;
 	int32_t	error;
-	uint32_t kernelinfo;
+	uint32_t spare;
 };
 
 #ifdef COMPAT_FREEBSD6
@@ -2808,7 +2780,6 @@ aiocb32_copyin_old_sigevent(struct aiocb *ujob, struct kaiocb *kjob,
 	CP(job32, *kcb, aio_reqprio);
 	CP(job32, *kcb, _aiocb_private.status);
 	CP(job32, *kcb, _aiocb_private.error);
-	PTRIN_CP(job32, *kcb, _aiocb_private.kernelinfo);
 	return (convert_old_sigevent32(&job32.aio_sigevent,
 	    &kcb->aio_sigevent));
 }
@@ -2845,7 +2816,6 @@ aiocb32_copyin(struct aiocb *ujob, struct kaiocb *kjob, int type)
 	CP(job32, *kcb, aio_reqprio);
 	CP(job32, *kcb, _aiocb_private.status);
 	CP(job32, *kcb, _aiocb_private.error);
-	PTRIN_CP(job32, *kcb, _aiocb_private.kernelinfo);
 	error = convert_sigevent32(&job32.aio_sigevent, &kcb->aio_sigevent);
 
 	return (error);
@@ -2888,15 +2858,6 @@ aiocb32_store_error(struct aiocb *ujob, long error)
 }
 
 static int
-aiocb32_store_kernelinfo(struct aiocb *ujob, long jobref)
-{
-	struct aiocb32 *ujob32;
-
-	ujob32 = (struct aiocb32 *)ujob;
-	return (suword32(&ujob32->_aiocb_private.kernelinfo, jobref));
-}
-
-static int
 aiocb32_store_aiocb(struct aiocb **ujobp, struct aiocb *ujob)
 {
 
@@ -2909,7 +2870,6 @@ static struct aiocb_ops aiocb32_ops = {
 	.fetch_error = aiocb32_fetch_error,
 	.store_status = aiocb32_store_status,
 	.store_error = aiocb32_store_error,
-	.store_kernelinfo = aiocb32_store_kernelinfo,
 	.store_aiocb = aiocb32_store_aiocb,
 };
 
@@ -2920,7 +2880,6 @@ static struct aiocb_ops aiocb32_ops_osigevent = {
 	.fetch_error = aiocb32_fetch_error,
 	.store_status = aiocb32_store_status,
 	.store_error = aiocb32_store_error,
-	.store_kernelinfo = aiocb32_store_kernelinfo,
 	.store_aiocb = aiocb32_store_aiocb,
 };
 #endif

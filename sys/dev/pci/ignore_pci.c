@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Michael Smith <msmith@freebsd.org>
  * Copyright (c) 2000 BSDi
@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * 'Ignore' driver - eats devices that show up errnoeously on PCI
  * but shouldn't ever be listed or handled by a driver.
@@ -43,11 +41,12 @@ __FBSDID("$FreeBSD$");
 #include <dev/pci/pcivar.h>
 
 static int	ignore_pci_probe(device_t dev);
+static int	ignore_pci_attach(device_t dev);
 
 static device_method_t ignore_pci_methods[] = {
     /* Device interface */
     DEVMETHOD(device_probe,		ignore_pci_probe),
-    DEVMETHOD(device_attach,		bus_generic_attach),
+    DEVMETHOD(device_attach,		ignore_pci_attach),
     { 0, 0 }
 };
 
@@ -69,4 +68,10 @@ ignore_pci_probe(device_t dev)
 	return(-10000);
     }
     return(ENXIO);
+}
+
+static int
+ignore_pci_attach(device_t dev)
+{
+	return (0);
 }

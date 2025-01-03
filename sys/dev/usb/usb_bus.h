@@ -1,6 +1,5 @@
-/* $FreeBSD$ */
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008-2019 Hans Petter Selasky. All rights reserved.
  *
@@ -87,7 +86,7 @@ struct usb_bus {
 	struct usb_bus_msg shutdown_msg[2];
 #if USB_HAVE_UGEN
 	struct usb_bus_msg cleanup_msg[2];
-	LIST_HEAD(,usb_fs_privdata) pd_cleanup_list;
+	SLIST_HEAD(,usb_fs_privdata) pd_cleanup_list;
 #endif
 	/*
 	 * This mutex protects the USB hardware:

@@ -3,18 +3,19 @@ import socket
 
 import pytest
 from atf_python.sys.net.tools import ToolsHelper
-from atf_python.sys.net.netlink import NetlinkRtMessage
-from atf_python.sys.net.netlink import NetlinkTestTemplate
-from atf_python.sys.net.netlink import NlAttrIp
-from atf_python.sys.net.netlink import NlAttrU32
-from atf_python.sys.net.netlink import NlConst
-from atf_python.sys.net.netlink import NlmBaseFlags
-from atf_python.sys.net.netlink import NlmGetFlags
-from atf_python.sys.net.netlink import NlmNewFlags
-from atf_python.sys.net.netlink import NlMsgType
-from atf_python.sys.net.netlink import NlRtMsgType
-from atf_python.sys.net.netlink import RtattrType
+from atf_python.sys.net.vnet import IfaceFactory
 from atf_python.sys.net.vnet import SingleVnetTestTemplate
+from atf_python.sys.netlink.attrs import NlAttrIp
+from atf_python.sys.netlink.attrs import NlAttrU32
+from atf_python.sys.netlink.base_headers import NlmBaseFlags
+from atf_python.sys.netlink.base_headers import NlmGetFlags
+from atf_python.sys.netlink.base_headers import NlmNewFlags
+from atf_python.sys.netlink.base_headers import NlMsgType
+from atf_python.sys.netlink.netlink import NetlinkTestTemplate
+from atf_python.sys.netlink.netlink_route import NetlinkRtMessage
+from atf_python.sys.netlink.netlink_route import NlRtMsgType
+from atf_python.sys.netlink.netlink_route import RtattrType
+from atf_python.sys.netlink.utils import NlConst
 
 
 class TestRtNlRoute(NetlinkTestTemplate, SingleVnetTestTemplate):
@@ -44,6 +45,48 @@ class TestRtNlRoute(NetlinkTestTemplate, SingleVnetTestTemplate):
 
         ToolsHelper.print_net_debug()
         ToolsHelper.print_output("netstat -6onW")
+
+    @pytest.mark.timeout(5)
+    def test_add_route6_ll_if_gw(self):
+        self.require_module("if_tun")
+        tun_ifname = IfaceFactory().create_iface("", "tun")[0].name
+        tun_ifindex = socket.if_nametoindex(tun_ifname)
+
+        msg = NetlinkRtMessage(self.helper, NlRtMsgType.RTM_NEWROUTE)
+        msg.set_request()
+        msg.add_nlflags([NlmNewFlags.NLM_F_CREATE])
+        msg.base_hdr.rtm_family = socket.AF_INET6
+        msg.base_hdr.rtm_dst_len = 64
+        msg.add_nla(NlAttrIp(RtattrType.RTA_DST, "2001:db8:2::"))
+        msg.add_nla(NlAttrU32(RtattrType.RTA_OIF, tun_ifindex))
+
+        rx_msg = self.get_reply(msg)
+        assert rx_msg.is_type(NlMsgType.NLMSG_ERROR)
+        assert rx_msg.error_code == 0
+
+        ToolsHelper.print_net_debug()
+        ToolsHelper.print_output("netstat -6onW")
+
+    @pytest.mark.timeout(5)
+    def test_add_route4_ll_if_gw(self):
+        self.require_module("if_tun")
+        tun_ifname = IfaceFactory().create_iface("", "tun")[0].name
+        tun_ifindex = socket.if_nametoindex(tun_ifname)
+
+        msg = NetlinkRtMessage(self.helper, NlRtMsgType.RTM_NEWROUTE)
+        msg.set_request()
+        msg.add_nlflags([NlmNewFlags.NLM_F_CREATE])
+        msg.base_hdr.rtm_family = socket.AF_INET
+        msg.base_hdr.rtm_dst_len = 32
+        msg.add_nla(NlAttrIp(RtattrType.RTA_DST, "192.0.2.1"))
+        msg.add_nla(NlAttrU32(RtattrType.RTA_OIF, tun_ifindex))
+
+        rx_msg = self.get_reply(msg)
+        assert rx_msg.is_type(NlMsgType.NLMSG_ERROR)
+        assert rx_msg.error_code == 0
+
+        ToolsHelper.print_net_debug()
+        ToolsHelper.print_output("netstat -4onW")
 
     @pytest.mark.timeout(20)
     def test_buffer_override(self):

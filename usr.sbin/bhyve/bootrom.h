@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015 Neel Natu <neel@freebsd.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_BOOTROM_H_
@@ -47,6 +45,7 @@ enum {
 };
 int bootrom_alloc(struct vmctx *ctx, size_t len, int prot, int flags,
     char **region_out, uint64_t *gpa_out);
-int bootrom_loadrom(struct vmctx *ctx, const nvlist_t *nvl);
+bool bootrom_boot(void);
+int bootrom_loadrom(struct vmctx *ctx);
 
 #endif

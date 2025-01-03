@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 Matthew N. Dodd <winter@jurai.net>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -154,7 +151,7 @@ smapi_identify (driver_t *driver, device_t parent)
 		rid = 0;
 		length = ADDR2HDR(addr)->length;
 
-		child = BUS_ADD_CHILD(parent, 5, "smapi", -1);
+		child = BUS_ADD_CHILD(parent, 5, "smapi", DEVICE_UNIT_ANY);
 		device_set_driver(child, driver);
 		bus_set_resource(child, SYS_RES_MEMORY, rid, addr, length);
 		device_set_desc(child, "SMAPI BIOS");

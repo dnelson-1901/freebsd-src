@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009-2012 Alexander Motin <mav@FreeBSD.org>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/module.h>
@@ -357,7 +354,7 @@ ahci_attach(device_t dev)
 	}
 	/* Attach all channels on this controller */
 	for (unit = 0; unit < ctlr->channels; unit++) {
-		child = device_add_child(dev, "ahcich", -1);
+		child = device_add_child(dev, "ahcich", DEVICE_UNIT_ANY);
 		if (child == NULL) {
 			device_printf(dev, "failed to add channel device\n");
 			continue;
@@ -368,7 +365,7 @@ ahci_attach(device_t dev)
 	}
 	/* Attach any remapped NVME device */
 	for (; unit < ctlr->channels + ctlr->remapped_devices; unit++) {
-		child = device_add_child(dev, "nvme", -1);
+		child = device_add_child(dev, "nvme", DEVICE_UNIT_ANY);
 		if (child == NULL) {
 			device_printf(dev, "failed to add remapped NVMe device");
 			    continue;
@@ -380,13 +377,13 @@ ahci_attach(device_t dev)
 	resource_int_value(device_get_name(dev), device_get_unit(dev),
 	    "em", &em);
 	if (em) {
-		child = device_add_child(dev, "ahciem", -1);
+		child = device_add_child(dev, "ahciem", DEVICE_UNIT_ANY);
 		if (child == NULL)
 			device_printf(dev, "failed to add enclosure device\n");
 		else
 			device_set_ivars(child, (void *)(intptr_t)AHCI_EM_UNIT);
 	}
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 	return (0);
 }
 
@@ -394,10 +391,12 @@ int
 ahci_detach(device_t dev)
 {
 	struct ahci_controller *ctlr = device_get_softc(dev);
-	int i;
+	int error, i;
 
 	/* Detach & delete all children */
-	device_delete_children(dev);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	/* Free interrupts. */
 	for (i = 0; i < ctlr->numirqs; i++) {
@@ -643,16 +642,15 @@ ahci_alloc_resource(device_t dev, device_t child, int type, int *rid,
 }
 
 int
-ahci_release_resource(device_t dev, device_t child, int type, int rid,
-    struct resource *r)
+ahci_release_resource(device_t dev, device_t child, struct resource *r)
 {
 
-	switch (type) {
+	switch (rman_get_type(r)) {
 	case SYS_RES_MEMORY:
 		rman_release_resource(r);
 		return (0);
 	case SYS_RES_IRQ:
-		if (rid != ATA_IRQ_RID)
+		if (rman_get_rid(r) != ATA_IRQ_RID)
 			return (ENOENT);
 		return (0);
 	}
@@ -769,7 +767,7 @@ static int
 ahci_ch_probe(device_t dev)
 {
 
-	device_set_desc_copy(dev, "AHCI channel");
+	device_set_desc(dev, "AHCI channel");
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -2179,7 +2177,7 @@ completeall:
 	}
 	xpt_setup_ccb(&ccb->ccb_h, ch->hold[i]->ccb_h.path,
 	    ch->hold[i]->ccb_h.pinfo.priority);
-	if (ccb->ccb_h.func_code == XPT_ATA_IO) {
+	if (ch->hold[i]->ccb_h.func_code == XPT_ATA_IO) {
 		/* READ LOG */
 		ccb->ccb_h.recovery_type = RECOVERY_READ_LOG;
 		ccb->ccb_h.func_code = XPT_ATA_IO;

@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * The DPAA2 Management Complex (MC) Bus Driver (FDT-based).
  *
@@ -255,11 +253,12 @@ dpaa2_mc_fdt_attach(device_t dev)
 	sc->acpi_based = false;
 	sc->ofw_node = ofw_bus_get_node(dev);
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
+
 	/*
 	 * Attach the children represented in the device tree.
 	 */
@@ -273,8 +272,6 @@ dpaa2_mc_fdt_attach(device_t dev)
 		if (!ofw_bus_node_is_compatible(child, "fsl,qoriq-mc-dpmac"))
 			continue;
 		if (!OF_hasprop(child, "reg"))
-			continue;
-		if (!OF_hasprop(child, "pcs-handle"))
 			continue;
 		if (dpaa2_mc_fdt_probe_child(dev, child) != 0)
 			continue;
@@ -359,6 +356,7 @@ static device_method_t dpaa2_mc_fdt_methods[] = {
 	DEVMETHOD(device_detach,	dpaa2_mc_detach),
 
 	/* Bus interface */
+	DEVMETHOD(bus_get_rman,		dpaa2_mc_rman),
 	DEVMETHOD(bus_alloc_resource,	dpaa2_mc_alloc_resource),
 	DEVMETHOD(bus_adjust_resource,	dpaa2_mc_adjust_resource),
 	DEVMETHOD(bus_release_resource,	dpaa2_mc_release_resource),

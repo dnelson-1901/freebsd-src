@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-3-Clause AND BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-3-Clause AND BSD-2-Clause
  *
  * Copyright (c) 2002-2010 M. Warner Losh <imp@FreeBSD.org>
  *
@@ -62,9 +62,6 @@
 //	o devd.conf and devd man pages need a lot of help:
 //	  - devd needs to document the unix domain socket
 //	  - devd.conf needs more details on the supported statements.
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/socket.h>

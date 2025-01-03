@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PROG?=	boot0
 STRIP=
 BINMODE=${NOBINMODE}
@@ -36,10 +34,11 @@ BOOT_BOOT0_FLAGS?=	0x8f
 # 0xb6 (182d) corresponds to 10 seconds.
 BOOT_BOOT0_TICKS?=	0xb6
 
-# The base address that we the boot0 code to to run it.  Don't change this
-# unless you are glutton for punishment.
-BOOT_BOOT0_ORG?=	0x600
-ORG=${BOOT_BOOT0_ORG}
+# The BIOS loads boot0 to the hardcoded address 0x7c00.  boot0 copies
+# itself to this alternate base address before continuing execution so
+# that next level boot blocks can be loaded at the 0x7c00 address they
+# expect.
+ORG=	0x600
 
 # Comm settings for boot0sio.
 #
@@ -55,7 +54,7 @@ ORG=${BOOT_BOOT0_ORG}
 # 2      stop bits (set = 2, clear = 1)
 # 1-0    data bits (00 = 5, 01 = 6, 10 = 7, 11 = 8)
 .if !defined(BOOT_BOOT0_COMCONSOLE_SPEED)
-BOOT_COMCONSOLE_SPEED?=	9600
+BOOT_COMCONSOLE_SPEED?=	9600	# BIOS interfaces do not support higher rates.
 .if ${BOOT_COMCONSOLE_SPEED} == 9600
 BOOT_BOOT0_COMCONSOLE_SPEED=	"7 << 5 + 3"
 .elif ${BOOT_COMCONSOLE_SPEED} == 4800

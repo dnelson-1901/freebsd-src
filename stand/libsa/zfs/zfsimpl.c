@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  *	Stand-alone ZFS file reader.
  */
@@ -115,31 +112,26 @@ typedef struct indirect_vsd {
 static vdev_list_t zfs_vdevs;
 
 /*
- * List of ZFS features supported for read
+ * List of supported read-incompatible ZFS features.  Do not add here features
+ * marked as ZFEATURE_FLAG_READONLY_COMPAT, they are irrelevant for read-only!
  */
 static const char *features_for_read[] = {
 	"com.datto:bookmark_v2",
 	"com.datto:encryption",
-	"com.datto:resilver_defer",
 	"com.delphix:bookmark_written",
 	"com.delphix:device_removal",
 	"com.delphix:embedded_data",
 	"com.delphix:extensible_dataset",
 	"com.delphix:head_errlog",
 	"com.delphix:hole_birth",
-	"com.delphix:obsolete_counts",
-	"com.delphix:spacemap_histogram",
-	"com.delphix:spacemap_v2",
-	"com.delphix:zpool_checkpoint",
-	"com.intel:allocation_classes",
 	"com.joyent:multi_vdev_crash_dump",
+	"com.klarasystems:vdev_zaps_v2",
 	"org.freebsd:zstd_compress",
 	"org.illumos:lz4_compress",
 	"org.illumos:sha512",
 	"org.illumos:skein",
 	"org.open-zfs:large_blocks",
 	"org.openzfs:blake3",
-	"org.zfsonlinux:allocation_classes",
 	"org.zfsonlinux:large_dnode",
 	NULL
 };
@@ -447,7 +439,7 @@ vdev_indirect_mapping_entry(vdev_indirect_mapping_t *vim, uint64_t index)
  *
  * It's possible that the given offset will not be in the mapping table
  * (i.e. no mapping entries contain this offset), in which case, the
- * return value value depends on the "next_if_missing" parameter.
+ * return value depends on the "next_if_missing" parameter.
  *
  * If the offset is not found in the table and "next_if_missing" is
  * B_FALSE, then NULL will always be returned. The behavior is intended
@@ -1368,19 +1360,6 @@ spa_find_by_name(const char *name)
 }
 
 static spa_t *
-spa_find_by_dev(struct zfs_devdesc *dev)
-{
-
-	if (dev->dd.d_dev->dv_type != DEVT_ZFS)
-		return (NULL);
-
-	if (dev->pool_guid == 0)
-		return (STAILQ_FIRST(&zfs_pools));
-
-	return (spa_find_by_guid(dev->pool_guid));
-}
-
-static spa_t *
 spa_create(uint64_t guid, const char *name)
 {
 	spa_t *spa;
@@ -1702,14 +1681,14 @@ static int
 vdev_write_bootenv_impl(vdev_t *vdev, vdev_boot_envblock_t *be)
 {
 	vdev_t *kid;
-	int rv = 0, rc;
+	int rv = 0, err;
 
 	STAILQ_FOREACH(kid, &vdev->v_children, v_childlink) {
 		if (kid->v_state != VDEV_STATE_HEALTHY)
 			continue;
-		rc = vdev_write_bootenv_impl(kid, be);
-		if (rv == 0)
-			rv = rc;
+		err = vdev_write_bootenv_impl(kid, be);
+		if (err != 0)
+			rv = err;
 	}
 
 	/*
@@ -1719,12 +1698,12 @@ vdev_write_bootenv_impl(vdev_t *vdev, vdev_boot_envblock_t *be)
 		return (rv);
 
 	for (int l = 0; l < VDEV_LABELS; l++) {
-		rc = vdev_label_write(vdev, l, be,
+		err = vdev_label_write(vdev, l, be,
 		    offsetof(vdev_label_t, vl_be));
-		if (rc != 0) {
+		if (err != 0) {
 			printf("failed to write bootenv to %s label %d: %d\n",
-			    vdev->v_name ? vdev->v_name : "unknown", l, rc);
-			rv = rc;
+			    vdev->v_name ? vdev->v_name : "unknown", l, err);
+			rv = err;
 		}
 	}
 	return (rv);
@@ -3865,4 +3844,83 @@ done:
 	STAILQ_FOREACH_SAFE(entry, &on_cache, entry, tentry)
 		free(entry);
 	return (rc);
+}
+
+/*
+ * Return either a cached copy of the bootenv, or read each of the vdev children
+ * looking for the bootenv. Cache what's found and return the results. Returns 0
+ * when benvp is filled in, and some errno when not.
+ */
+static int
+zfs_get_bootenv_spa(spa_t *spa, nvlist_t **benvp)
+{
+	vdev_t *vd;
+	nvlist_t *benv = NULL;
+
+	if (spa->spa_bootenv == NULL) {
+		STAILQ_FOREACH(vd, &spa->spa_root_vdev->v_children,
+		    v_childlink) {
+			benv = vdev_read_bootenv(vd);
+
+			if (benv != NULL)
+				break;
+		}
+		spa->spa_bootenv = benv;
+	}
+	benv = spa->spa_bootenv;
+
+	if (benv == NULL)
+		return (ENOENT);
+
+	*benvp = benv;
+	return (0);
+}
+
+/*
+ * Store nvlist to pool label bootenv area. Also updates cached pointer in spa.
+ */
+static int
+zfs_set_bootenv_spa(spa_t *spa, nvlist_t *benv)
+{
+	vdev_t *vd;
+
+	STAILQ_FOREACH(vd, &spa->spa_root_vdev->v_children, v_childlink) {
+		vdev_write_bootenv(vd, benv);
+	}
+
+	spa->spa_bootenv = benv;
+	return (0);
+}
+
+/*
+ * Get bootonce value by key. The bootonce <key, value> pair is removed from the
+ * bootenv nvlist and the remaining nvlist is committed back to disk. This process
+ * the bootonce flag since we've reached the point in the boot that we've 'used'
+ * the BE. For chained boot scenarios, we may reach this point multiple times (but
+ * only remove it and return 0 the first time).
+ */
+static int
+zfs_get_bootonce_spa(spa_t *spa, const char *key, char *buf, size_t size)
+{
+	nvlist_t *benv;
+	char *result = NULL;
+	int result_size, rv;
+
+	if ((rv = zfs_get_bootenv_spa(spa, &benv)) != 0)
+		return (rv);
+
+	if ((rv = nvlist_find(benv, key, DATA_TYPE_STRING, NULL,
+	    &result, &result_size)) == 0) {
+		if (result_size == 0) {
+			/* ignore empty string */
+			rv = ENOENT;
+		} else if (buf != NULL) {
+			size = MIN((size_t)result_size + 1, size);
+			strlcpy(buf, result, size);
+		}
+		(void)nvlist_remove(benv, key, DATA_TYPE_STRING);
+		(void)zfs_set_bootenv_spa(spa, benv);
+	}
+
+	return (rv);
 }

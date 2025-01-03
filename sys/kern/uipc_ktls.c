@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_kern_tls.h"
@@ -74,7 +72,6 @@ __FBSDID("$FreeBSD$");
 #endif
 #include <opencrypto/cryptodev.h>
 #include <opencrypto/ktls.h>
-#include <vm/uma_dbg.h>
 #include <vm/vm.h>
 #include <vm/vm_pageout.h>
 #include <vm/vm_page.h>
@@ -88,9 +85,9 @@ struct ktls_wq {
 	int		lastallocfail;
 } __aligned(CACHE_LINE_SIZE);
 
-struct ktls_alloc_thread {
+struct ktls_reclaim_thread {
 	uint64_t wakeups;
-	uint64_t allocs;
+	uint64_t reclaims;
 	struct thread *td;
 	int running;
 };
@@ -98,7 +95,7 @@ struct ktls_alloc_thread {
 struct ktls_domain_info {
 	int count;
 	int cpu[MAXCPU];
-	struct ktls_alloc_thread alloc_td;
+	struct ktls_reclaim_thread reclaim_td;
 };
 
 struct ktls_domain_info ktls_domains[MAXMEMDOM];
@@ -139,7 +136,7 @@ SYSCTL_UINT(_kern_ipc_tls, OID_AUTO, ifnet_max_rexmit_pct, CTLFLAG_RWTUN,
     &ktls_ifnet_max_rexmit_pct, 2,
     "Max percent bytes retransmitted before ifnet TLS is disabled");
 
-static bool ktls_offload_enable;
+static bool ktls_offload_enable = true;
 SYSCTL_BOOL(_kern_ipc_tls, OID_AUTO, enable, CTLFLAG_RWTUN,
     &ktls_offload_enable, 0,
     "Enable support for kernel TLS offload");
@@ -154,10 +151,10 @@ SYSCTL_BOOL(_kern_ipc_tls, OID_AUTO, sw_buffer_cache, CTLFLAG_RDTUN,
     &ktls_sw_buffer_cache, 1,
     "Enable caching of output buffers for SW encryption");
 
-static int ktls_max_alloc = 128;
-SYSCTL_INT(_kern_ipc_tls, OID_AUTO, max_alloc, CTLFLAG_RWTUN,
-    &ktls_max_alloc, 128,
-    "Max number of 16k buffers to allocate in thread context");
+static int ktls_max_reclaim = 1024;
+SYSCTL_INT(_kern_ipc_tls, OID_AUTO, max_reclaim, CTLFLAG_RWTUN,
+    &ktls_max_reclaim, 128,
+    "Max number of 16k buffers to reclaim in thread context");
 
 static COUNTER_U64_DEFINE_EARLY(ktls_tasks_active);
 SYSCTL_COUNTER_U64(_kern_ipc_tls, OID_AUTO, tasks_active, CTLFLAG_RD,
@@ -276,7 +273,7 @@ SYSCTL_COUNTER_U64(_kern_ipc_tls_ifnet, OID_AUTO, reset_failed, CTLFLAG_RD,
     &ktls_ifnet_reset_failed,
     "TLS sessions that failed to allocate a new ifnet send tag");
 
-static int ktls_ifnet_permitted;
+static int ktls_ifnet_permitted = 1;
 SYSCTL_UINT(_kern_ipc_tls_ifnet, OID_AUTO, permitted, CTLFLAG_RWTUN,
     &ktls_ifnet_permitted, 1,
     "Whether to permit hardware (ifnet) TLS sessions");
@@ -300,10 +297,109 @@ SYSCTL_COUNTER_U64(_kern_ipc_tls_toe, OID_AUTO, chacha20, CTLFLAG_RD,
 
 static MALLOC_DEFINE(M_KTLS, "ktls", "Kernel TLS");
 
+static void ktls_reclaim_thread(void *ctx);
 static void ktls_reset_receive_tag(void *context, int pending);
 static void ktls_reset_send_tag(void *context, int pending);
 static void ktls_work_thread(void *ctx);
-static void ktls_alloc_thread(void *ctx);
+
+int
+ktls_copyin_tls_enable(struct sockopt *sopt, struct tls_enable *tls)
+{
+	struct tls_enable_v0 tls_v0;
+	int error;
+	uint8_t *cipher_key = NULL, *iv = NULL, *auth_key = NULL;
+
+	if (sopt->sopt_valsize == sizeof(tls_v0)) {
+		error = sooptcopyin(sopt, &tls_v0, sizeof(tls_v0), sizeof(tls_v0));
+		if (error != 0)
+			goto done;
+		memset(tls, 0, sizeof(*tls));
+		tls->cipher_key = tls_v0.cipher_key;
+		tls->iv = tls_v0.iv;
+		tls->auth_key = tls_v0.auth_key;
+		tls->cipher_algorithm = tls_v0.cipher_algorithm;
+		tls->cipher_key_len = tls_v0.cipher_key_len;
+		tls->iv_len = tls_v0.iv_len;
+		tls->auth_algorithm = tls_v0.auth_algorithm;
+		tls->auth_key_len = tls_v0.auth_key_len;
+		tls->flags = tls_v0.flags;
+		tls->tls_vmajor = tls_v0.tls_vmajor;
+		tls->tls_vminor = tls_v0.tls_vminor;
+	} else
+		error = sooptcopyin(sopt, tls, sizeof(*tls), sizeof(*tls));
+
+	if (error != 0)
+		return (error);
+
+	if (tls->cipher_key_len < 0 || tls->cipher_key_len > TLS_MAX_PARAM_SIZE)
+		return (EINVAL);
+	if (tls->iv_len < 0 || tls->iv_len > sizeof(((struct ktls_session *)NULL)->params.iv))
+		return (EINVAL);
+	if (tls->auth_key_len < 0 || tls->auth_key_len > TLS_MAX_PARAM_SIZE)
+		return (EINVAL);
+
+	/* All supported algorithms require a cipher key. */
+	if (tls->cipher_key_len == 0)
+		return (EINVAL);
+
+	/*
+	 * Now do a deep copy of the variable-length arrays in the struct, so that
+	 * subsequent consumers of it can reliably assume kernel memory. This
+	 * requires doing our own allocations, which we will free in the
+	 * error paths so that our caller need only worry about outstanding
+	 * allocations existing on successful return.
+	 */
+	if (tls->cipher_key_len != 0) {
+		cipher_key = malloc(tls->cipher_key_len, M_KTLS, M_WAITOK);
+		if (sopt->sopt_td != NULL) {
+			error = copyin(tls->cipher_key, cipher_key, tls->cipher_key_len);
+			if (error != 0)
+				goto done;
+		} else {
+			bcopy(tls->cipher_key, cipher_key, tls->cipher_key_len);
+		}
+	}
+	if (tls->iv_len != 0) {
+		iv = malloc(tls->iv_len, M_KTLS, M_WAITOK);
+		if (sopt->sopt_td != NULL) {
+			error = copyin(tls->iv, iv, tls->iv_len);
+			if (error != 0)
+				goto done;
+		} else {
+			bcopy(tls->iv, iv, tls->iv_len);
+		}
+	}
+	if (tls->auth_key_len != 0) {
+		auth_key = malloc(tls->auth_key_len, M_KTLS, M_WAITOK);
+		if (sopt->sopt_td != NULL) {
+			error = copyin(tls->auth_key, auth_key, tls->auth_key_len);
+			if (error != 0)
+				goto done;
+		} else {
+			bcopy(tls->auth_key, auth_key, tls->auth_key_len);
+		}
+	}
+	tls->cipher_key = cipher_key;
+	tls->iv = iv;
+	tls->auth_key = auth_key;
+
+done:
+	if (error != 0) {
+		zfree(cipher_key, M_KTLS);
+		zfree(iv, M_KTLS);
+		zfree(auth_key, M_KTLS);
+	}
+
+	return (error);
+}
+
+void
+ktls_cleanup_tls_enable(struct tls_enable *tls)
+{
+	zfree(__DECONST(void *, tls->cipher_key), M_KTLS);
+	zfree(__DECONST(void *, tls->iv), M_KTLS);
+	zfree(__DECONST(void *, tls->auth_key), M_KTLS);
+}
 
 static u_int
 ktls_get_cpu(struct socket *so)
@@ -454,12 +550,12 @@ ktls_init(void)
 				continue;
 			if (CPU_EMPTY(&cpuset_domain[domain]))
 				continue;
-			error = kproc_kthread_add(ktls_alloc_thread,
+			error = kproc_kthread_add(ktls_reclaim_thread,
 			    &ktls_domains[domain], &ktls_proc,
-			    &ktls_domains[domain].alloc_td.td,
-			    0, 0, "KTLS", "alloc_%d", domain);
+			    &ktls_domains[domain].reclaim_td.td,
+			    0, 0, "KTLS", "reclaim_%d", domain);
 			if (error) {
-				printf("Can't add KTLS alloc thread %d error %d\n",
+				printf("Can't add KTLS reclaim thread %d error %d\n",
 				    domain, error);
 				return (error);
 			}
@@ -513,16 +609,6 @@ ktls_create_session(struct socket *so, struct tls_enable *en,
 	    en->tls_vminor > TLS_MINOR_VER_THREE)
 		return (EINVAL);
 
-	if (en->auth_key_len < 0 || en->auth_key_len > TLS_MAX_PARAM_SIZE)
-		return (EINVAL);
-	if (en->cipher_key_len < 0 || en->cipher_key_len > TLS_MAX_PARAM_SIZE)
-		return (EINVAL);
-	if (en->iv_len < 0 || en->iv_len > sizeof(tls->params.iv))
-		return (EINVAL);
-
-	/* All supported algorithms require a cipher key. */
-	if (en->cipher_key_len == 0)
-		return (EINVAL);
 
 	/* No flags are currently supported. */
 	if (en->flags != 0)
@@ -705,18 +791,12 @@ ktls_create_session(struct socket *so, struct tls_enable *en,
 		tls->params.auth_key_len = en->auth_key_len;
 		tls->params.auth_key = malloc(en->auth_key_len, M_KTLS,
 		    M_WAITOK);
-		error = copyin(en->auth_key, tls->params.auth_key,
-		    en->auth_key_len);
-		if (error)
-			goto out;
+		bcopy(en->auth_key, tls->params.auth_key, en->auth_key_len);
 	}
 
 	tls->params.cipher_key_len = en->cipher_key_len;
 	tls->params.cipher_key = malloc(en->cipher_key_len, M_KTLS, M_WAITOK);
-	error = copyin(en->cipher_key, tls->params.cipher_key,
-	    en->cipher_key_len);
-	if (error)
-		goto out;
+	bcopy(en->cipher_key, tls->params.cipher_key, en->cipher_key_len);
 
 	/*
 	 * This holds the implicit portion of the nonce for AEAD
@@ -725,9 +805,7 @@ ktls_create_session(struct socket *so, struct tls_enable *en,
 	 */
 	if (en->iv_len != 0) {
 		tls->params.iv_len = en->iv_len;
-		error = copyin(en->iv, tls->params.iv, en->iv_len);
-		if (error)
-			goto out;
+		bcopy(en->iv, tls->params.iv, en->iv_len);
 
 		/*
 		 * For TLS 1.2 with GCM, generate an 8-byte nonce as a
@@ -743,10 +821,6 @@ ktls_create_session(struct socket *so, struct tls_enable *en,
 
 	*tlsp = tls;
 	return (0);
-
-out:
-	ktls_free(tls);
-	return (error);
 }
 
 static struct ktls_session *
@@ -993,12 +1067,12 @@ ktls_alloc_rcv_tag(struct inpcb *inp, struct ktls_session *tls,
 	INP_RUNLOCK(inp);
 
 	if (inp->inp_vflag & INP_IPV6) {
-		if ((if_getcapenable2(ifp) & IFCAP2_RXTLS6) == 0) {
+		if ((if_getcapenable2(ifp) & IFCAP2_BIT(IFCAP2_RXTLS6)) == 0) {
 			error = EOPNOTSUPP;
 			goto out;
 		}
 	} else {
-		if ((if_getcapenable2(ifp) & IFCAP2_RXTLS4) == 0) {
+		if ((if_getcapenable2(ifp) & IFCAP2_BIT(IFCAP2_RXTLS4)) == 0) {
 			error = EOPNOTSUPP;
 			goto out;
 		}
@@ -1079,11 +1153,11 @@ ktls_use_sw(struct ktls_session *tls)
 }
 
 static int
-ktls_try_sw(struct socket *so, struct ktls_session *tls, int direction)
+ktls_try_sw(struct ktls_session *tls, int direction)
 {
 	int error;
 
-	error = ktls_ocf_try(so, tls, direction);
+	error = ktls_ocf_try(tls, direction);
 	if (error)
 		return (error);
 	ktls_use_sw(tls);
@@ -1240,7 +1314,17 @@ ktls_enable_rx(struct socket *so, struct tls_enable *en)
 	if (error)
 		return (error);
 
-	error = ktls_ocf_try(so, tls, KTLS_RX);
+	error = ktls_ocf_try(tls, KTLS_RX);
+	if (error) {
+		ktls_free(tls);
+		return (error);
+	}
+
+	/*
+	 * Serialize with soreceive_generic() and make sure that we're not
+	 * operating on a listening socket.
+	 */
+	error = SOCK_IO_RECV_LOCK(so, SBL_WAIT);
 	if (error) {
 		ktls_free(tls);
 		return (error);
@@ -1248,10 +1332,11 @@ ktls_enable_rx(struct socket *so, struct tls_enable *en)
 
 	/* Mark the socket as using TLS offload. */
 	SOCK_RECVBUF_LOCK(so);
-	if (SOLISTENING(so)) {
+	if (__predict_false(so->so_rcv.sb_tls_info != NULL)) {
 		SOCK_RECVBUF_UNLOCK(so);
+		SOCK_IO_RECV_UNLOCK(so);
 		ktls_free(tls);
-		return (EINVAL);
+		return (EALREADY);
 	}
 	so->so_rcv.sb_tls_seqno = be64dec(en->rec_seq);
 	so->so_rcv.sb_tls_info = tls;
@@ -1261,6 +1346,7 @@ ktls_enable_rx(struct socket *so, struct tls_enable *en)
 	sb_mark_notready(&so->so_rcv);
 	ktls_check_rx(&so->so_rcv);
 	SOCK_RECVBUF_UNLOCK(so);
+	SOCK_IO_RECV_UNLOCK(so);
 
 	/* Prefer TOE -> ifnet TLS -> software TLS. */
 #ifdef TCP_OFFLOAD
@@ -1321,7 +1407,7 @@ ktls_enable_tx(struct socket *so, struct tls_enable *en)
 #endif
 		error = ktls_try_ifnet(so, tls, KTLS_TX, false);
 	if (error)
-		error = ktls_try_sw(so, tls, KTLS_TX);
+		error = ktls_try_sw(tls, KTLS_TX);
 
 	if (error) {
 		ktls_free(tls);
@@ -1346,6 +1432,13 @@ ktls_enable_tx(struct socket *so, struct tls_enable *en)
 	inp = so->so_pcb;
 	INP_WLOCK(inp);
 	SOCK_SENDBUF_LOCK(so);
+	if (__predict_false(so->so_snd.sb_tls_info != NULL)) {
+		SOCK_SENDBUF_UNLOCK(so);
+		INP_WUNLOCK(inp);
+		SOCK_IO_SEND_UNLOCK(so);
+		ktls_free(tls);
+		return (EALREADY);
+	}
 	so->so_snd.sb_tls_seqno = be64dec(en->rec_seq);
 	so->so_snd.sb_tls_info = tls;
 	if (tls->mode != TCP_TLS_MODE_SW) {
@@ -1506,7 +1599,7 @@ ktls_set_tx_mode(struct socket *so, int mode)
 	if (mode == TCP_TLS_MODE_IFNET)
 		error = ktls_try_ifnet(so, tls_new, KTLS_TX, true);
 	else
-		error = ktls_try_sw(so, tls_new, KTLS_TX);
+		error = ktls_try_sw(tls_new, KTLS_TX);
 	if (error) {
 		counter_u64_add(ktls_switch_failed, 1);
 		ktls_free(tls_new);
@@ -1647,7 +1740,9 @@ out:
 
 	if (ifp != NULL)
 		if_rele(ifp);
+	CURVNET_SET(so->so_vnet);
 	sorele(so);
+	CURVNET_RESTORE();
 	ktls_free(tls);
 }
 
@@ -1715,10 +1810,12 @@ ktls_reset_send_tag(void *context, int pending)
 			CURVNET_SET(inp->inp_vnet);
 			tp = tcp_drop(tp, ECONNABORTED);
 			CURVNET_RESTORE();
-			if (tp != NULL)
+			if (tp != NULL) {
 				counter_u64_add(ktls_ifnet_reset_dropped, 1);
-		}
-		INP_WUNLOCK(inp);
+				INP_WUNLOCK(inp);
+			}
+		} else
+			INP_WUNLOCK(inp);
 		NET_EPOCH_EXIT(et);
 
 		counter_u64_add(ktls_ifnet_reset_failed, 1);
@@ -2702,9 +2799,9 @@ ktls_buffer_alloc(struct ktls_wq *wq, struct mbuf *m)
 		 * see an old value of running == true.
 		 */
 		if (!VM_DOMAIN_EMPTY(domain)) {
-			running = atomic_load_int(&ktls_domains[domain].alloc_td.running);
+			running = atomic_load_int(&ktls_domains[domain].reclaim_td.running);
 			if (!running)
-				wakeup(&ktls_domains[domain].alloc_td);
+				wakeup(&ktls_domains[domain].reclaim_td);
 		}
 	}
 	return (buf);
@@ -2975,6 +3072,7 @@ ktls_encrypt(struct ktls_wq *wq, struct mbuf *top)
 
 		if ((m->m_epg_flags & EPG_FLAG_ANON) == 0)
 			ktls_finish_nonanon(m, &state);
+		m->m_flags |= M_RDONLY;
 
 		npages += m->m_epg_nrdy;
 
@@ -3013,6 +3111,7 @@ ktls_encrypt_cb(struct ktls_ocf_encrypt_state *state, int error)
 
 	if ((m->m_epg_flags & EPG_FLAG_ANON) == 0)
 		ktls_finish_nonanon(m, state);
+	m->m_flags |= M_RDONLY;
 
 	so = state->so;
 	free(state, M_KTLS);
@@ -3121,65 +3220,52 @@ ktls_bind_domain(int domain)
 }
 
 static void
-ktls_alloc_thread(void *ctx)
+ktls_reclaim_thread(void *ctx)
 {
 	struct ktls_domain_info *ktls_domain = ctx;
-	struct ktls_alloc_thread *sc = &ktls_domain->alloc_td;
-	void **buf;
+	struct ktls_reclaim_thread *sc = &ktls_domain->reclaim_td;
 	struct sysctl_oid *oid;
 	char name[80];
-	int domain, error, i, nbufs;
+	int error, domain;
 
 	domain = ktls_domain - ktls_domains;
 	if (bootverbose)
-		printf("Starting KTLS alloc thread for domain %d\n", domain);
+		printf("Starting KTLS reclaim thread for domain %d\n", domain);
 	error = ktls_bind_domain(domain);
 	if (error)
-		printf("Unable to bind KTLS alloc thread for domain %d: error %d\n",
+		printf("Unable to bind KTLS reclaim thread for domain %d: error %d\n",
 		    domain, error);
 	snprintf(name, sizeof(name), "domain%d", domain);
 	oid = SYSCTL_ADD_NODE(NULL, SYSCTL_STATIC_CHILDREN(_kern_ipc_tls), OID_AUTO,
 	    name, CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, "");
-	SYSCTL_ADD_U64(NULL, SYSCTL_CHILDREN(oid), OID_AUTO, "allocs",
-	    CTLFLAG_RD,  &sc->allocs, 0, "buffers allocated");
+	SYSCTL_ADD_U64(NULL, SYSCTL_CHILDREN(oid), OID_AUTO, "reclaims",
+	    CTLFLAG_RD,  &sc->reclaims, 0, "buffers reclaimed");
 	SYSCTL_ADD_U64(NULL, SYSCTL_CHILDREN(oid), OID_AUTO, "wakeups",
 	    CTLFLAG_RD,  &sc->wakeups, 0, "thread wakeups");
 	SYSCTL_ADD_INT(NULL, SYSCTL_CHILDREN(oid), OID_AUTO, "running",
 	    CTLFLAG_RD,  &sc->running, 0, "thread running");
 
-	buf = NULL;
-	nbufs = 0;
 	for (;;) {
 		atomic_store_int(&sc->running, 0);
 		tsleep(sc, PZERO | PNOLOCK, "-",  0);
 		atomic_store_int(&sc->running, 1);
 		sc->wakeups++;
-		if (nbufs != ktls_max_alloc) {
-			free(buf, M_KTLS);
-			nbufs = atomic_load_int(&ktls_max_alloc);
-			buf = malloc(sizeof(void *) * nbufs, M_KTLS,
-			    M_WAITOK | M_ZERO);
-		}
 		/*
-		 * Below we allocate nbufs with different allocation
-		 * flags than we use when allocating normally during
-		 * encryption in the ktls worker thread.  We specify
-		 * M_NORECLAIM in the worker thread. However, we omit
-		 * that flag here and add M_WAITOK so that the VM
-		 * system is permitted to perform expensive work to
-		 * defragment memory.  We do this here, as it does not
-		 * matter if this thread blocks.  If we block a ktls
-		 * worker thread, we risk developing backlogs of
-		 * buffers to be encrypted, leading to surges of
-		 * traffic and potential NIC output drops.
+		 * Below we attempt to reclaim ktls_max_reclaim
+		 * buffers using vm_page_reclaim_contig_domain_ext().
+		 * We do this here, as this function can take several
+		 * seconds to scan all of memory and it does not
+		 * matter if this thread pauses for a while.  If we
+		 * block a ktls worker thread, we risk developing
+		 * backlogs of buffers to be encrypted, leading to
+		 * surges of traffic and potential NIC output drops.
 		 */
-		for (i = 0; i < nbufs; i++) {
-			buf[i] = uma_zalloc(ktls_buffer_zone, M_WAITOK);
-			sc->allocs++;
-		}
-		for (i = 0; i < nbufs; i++) {
-			uma_zfree(ktls_buffer_zone, buf[i]);
-			buf[i] = NULL;
+		if (vm_page_reclaim_contig_domain_ext(domain, VM_ALLOC_NORMAL,
+		    atop(ktls_maxlen), 0, ~0ul, PAGE_SIZE, 0,
+		    ktls_max_reclaim) != 0) {
+			vm_wait_domain(domain);
+		} else {
+			sc->reclaims += ktls_max_reclaim;
 		}
 	}
 }

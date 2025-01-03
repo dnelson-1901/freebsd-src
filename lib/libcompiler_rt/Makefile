@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 PACKAGE=	lib${LIB}
@@ -23,7 +21,7 @@ MK_WERROR.gcc=	no
 .if ${MACHINE_CPUARCH} == "aarch64"
 . for pat in cas swp ldadd ldclr ldeor ldset
 .  for size in 1 2 4 8 16
-.   for model in 1 2 3 4
+.   for model in 1 2 3 4 5
 .    if ${pat} == "cas" || ${size} != "16"
 # Use .for to define lse_name, to get a special loop-local variable
 .     for lse_name in outline_atomic_${pat}${size}_${model}.S
@@ -41,9 +39,6 @@ ${lse_name}: lse.S
 
 .if ${MK_INSTALLLIB} != "no"
 SYMLINKS+=	libcompiler_rt.a ${LIBDIR}/libgcc.a
-.endif
-.if ${MK_PROFILE} != "no"
-SYMLINKS+=	libcompiler_rt_p.a ${LIBDIR}/libgcc_p.a
 .endif
 
 .include <bsd.lib.mk>

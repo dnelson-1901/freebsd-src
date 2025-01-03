@@ -29,20 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1988, 1993\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#ifndef lint
-#if 0
-static char sccsid[] = "@(#)kdump.c	8.1 (Berkeley) 6/6/93";
-#endif
-#endif /* not lint */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #define _WANT_KERNEL_ERRNO
 #ifdef __LP64__
 #define	_WANT_KEVENT32
@@ -60,6 +46,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/ktrace.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/sysent.h>
@@ -72,6 +59,7 @@ __FBSDID("$FreeBSD$");
 #endif
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netlink/netlink.h>
 #include <ctype.h>
 #include <capsicum_helpers.h>
 #include <err.h>
@@ -118,16 +106,19 @@ void ktruser(int, void *);
 void ktrcaprights(cap_rights_t *);
 void ktritimerval(struct itimerval *it);
 void ktrsockaddr(struct sockaddr *);
+void ktrsplice(struct splice *);
 void ktrstat(struct stat *);
 void ktrstruct(char *, size_t);
 void ktrcapfail(struct ktr_cap_fail *);
 void ktrfault(struct ktr_fault *);
 void ktrfaultend(struct ktr_faultend *);
 void ktrkevent(struct kevent *);
+void ktrpollfd(struct pollfd *);
 void ktrstructarray(struct ktr_struct_array *, size_t);
 void ktrbitset(char *, struct bitset *, size_t);
 void ktrsyscall_freebsd(struct ktr_syscall *ktr, register_t **resip,
     int *resnarg, char *resc, u_int sv_flags);
+void ktrexecve(char *, int);
 void usage(void);
 
 #define	TIMESTAMP_NONE		0x0
@@ -526,6 +517,10 @@ main(int argc, char *argv[])
 		case KTR_STRUCT_ARRAY:
 			ktrstructarray((struct ktr_struct_array *)m, ktrlen);
 			break;
+		case KTR_ARGS:
+		case KTR_ENVS:
+			ktrexecve(m, ktrlen);
+			break;
 		default:
 			printf("\n");
 			break;
@@ -710,6 +705,12 @@ dumpheader(struct ktr_header *kth, u_int sv_flags)
 	case KTR_FAULTEND:
 		type = "PRET";
 		break;
+	case KTR_ARGS:
+	        type = "ARGS";
+	        break;
+	case KTR_ENVS:
+	        type = "ENVS";
+	        break;
 	default:
 		sprintf(unknown, "UNKNOWN(%d)", kth->ktr_type);
 		type = unknown;
@@ -936,7 +937,8 @@ ktrsyscall_freebsd(struct ktr_syscall *ktr, register_t **resip,
 				print_number(ip, narg, c);
 				print_number(ip, narg, c);
 				putchar(',');
-				print_mask_arg(sysdecode_close_range_flags, *ip);
+				print_mask_arg0(sysdecode_close_range_flags,
+				    *ip);
 				ip += 3;
 				narg -= 3;
 				break;
@@ -1002,14 +1004,14 @@ ktrsyscall_freebsd(struct ktr_syscall *ktr, register_t **resip,
 				print_number(ip, narg, c);
 				print_number(ip, narg, c);
 				putchar(',');
-				print_mask_arg(sysdecode_mount_flags, *ip);
+				print_mask_arg0(sysdecode_mount_flags, *ip);
 				ip++;
 				narg--;
 				break;
 			case SYS_unmount:
 				print_number(ip, narg, c);
 				putchar(',');
-				print_mask_arg(sysdecode_mount_flags, *ip);
+				print_mask_arg0(sysdecode_mount_flags, *ip);
 				ip++;
 				narg--;
 				break;
@@ -1467,7 +1469,7 @@ ktrsyscall_freebsd(struct ktr_syscall *ktr, register_t **resip,
 				print_number(ip, narg, c);
 				print_number(ip, narg, c);
 				putchar(',');
-				print_mask_arg(sysdecode_mount_flags, *ip);
+				print_mask_arg0(sysdecode_mount_flags, *ip);
 				ip++;
 				narg--;
 				break;
@@ -1654,6 +1656,21 @@ void
 ktrnamei(char *cp, int len)
 {
 	printf("\"%.*s\"\n", len, cp);
+}
+
+void
+ktrexecve(char *m, int len)
+{
+	int i = 0;
+
+	while (i < len) {
+		printf("\"%s\"", m + i);
+		i += strlen(m + i) + 1;
+		if (i != len) {
+			printf(", ");
+		}
+	}
+	printf("\n");
 }
 
 void
@@ -1928,10 +1945,27 @@ ktrsockaddr(struct sockaddr *sa)
 		printf("%.*s", (int)sizeof(sa_un.sun_path), sa_un.sun_path);
 		break;
 	}
+	case AF_NETLINK: {
+		struct sockaddr_nl sa_nl;
+
+		memset(&sa_nl, 0, sizeof(sa_nl));
+		memcpy(&sa_nl, sa, sa->sa_len);
+		printf("netlink[pid=%u, groups=0x%x]",
+		    sa_nl.nl_pid, sa_nl.nl_groups);
+		break;
+	}
 	default:
 		printf("unknown address family");
 	}
 	printf(" }\n");
+}
+
+void
+ktrsplice(struct splice *sp)
+{
+	printf("struct splice { fd=%d, max=%#jx, idle=%jd.%06jd }\n",
+	    sp->sp_fd, (uintmax_t)sp->sp_max, (intmax_t)sp->sp_idle.tv_sec,
+	    (intmax_t)sp->sp_idle.tv_usec);
 }
 
 void
@@ -2122,6 +2156,13 @@ ktrstruct(char *buf, size_t buflen)
 		memcpy(set, data, datalen);
 		ktrbitset(name, set, datalen);
 		free(set);
+	} else if (strcmp(name, "splice") == 0) {
+		struct splice sp;
+
+		if (datalen != sizeof(sp))
+			goto invalid;
+		memcpy(&sp, data, datalen);
+		ktrsplice(&sp);
 	} else {
 #ifdef SYSDECODE_HAVE_LINUX
 		if (ktrstruct_linux(name, data, datalen) == false)
@@ -2136,35 +2177,74 @@ invalid:
 void
 ktrcapfail(struct ktr_cap_fail *ktr)
 {
+	union ktr_cap_data *kcd = &ktr->cap_data;
+
 	switch (ktr->cap_type) {
 	case CAPFAIL_NOTCAPABLE:
 		/* operation on fd with insufficient capabilities */
 		printf("operation requires ");
-		sysdecode_cap_rights(stdout, &ktr->cap_needed);
+		sysdecode_cap_rights(stdout, &kcd->cap_needed);
 		printf(", descriptor holds ");
-		sysdecode_cap_rights(stdout, &ktr->cap_held);
+		sysdecode_cap_rights(stdout, &kcd->cap_held);
 		break;
 	case CAPFAIL_INCREASE:
 		/* requested more capabilities than fd already has */
 		printf("attempt to increase capabilities from ");
-		sysdecode_cap_rights(stdout, &ktr->cap_held);
+		sysdecode_cap_rights(stdout, &kcd->cap_held);
 		printf(" to ");
-		sysdecode_cap_rights(stdout, &ktr->cap_needed);
+		sysdecode_cap_rights(stdout, &kcd->cap_needed);
 		break;
 	case CAPFAIL_SYSCALL:
 		/* called restricted syscall */
-		printf("disallowed system call");
+		printf("system call not allowed: ");
+		syscallname(ktr->cap_code, ktr->cap_svflags);
+		if (syscallabi(ktr->cap_svflags) == SYSDECODE_ABI_FREEBSD) {
+			switch (ktr->cap_code) {
+			case SYS_sysarch:
+				printf(", op: ");
+				print_integer_arg(sysdecode_sysarch_number,
+				    kcd->cap_int);
+				break;
+			case SYS_fcntl:
+				printf(", cmd: ");
+				print_integer_arg(sysdecode_fcntl_cmd,
+				    kcd->cap_int);
+				break;
+			}
+		}
 		break;
-	case CAPFAIL_LOOKUP:
+	case CAPFAIL_SIGNAL:
+		/* sent signal to proc other than self */
+		syscallname(ktr->cap_code, ktr->cap_svflags);
+		printf(": signal delivery not allowed: ");
+		print_integer_arg(sysdecode_signal, kcd->cap_int);
+		break;
+	case CAPFAIL_PROTO:
+		/* created socket with restricted protocol */
+		syscallname(ktr->cap_code, ktr->cap_svflags);
+		printf(": protocol not allowed: ");
+		print_integer_arg(sysdecode_ipproto, kcd->cap_int);
+		break;
+	case CAPFAIL_SOCKADDR:
+		/* unable to look up address */
+		syscallname(ktr->cap_code, ktr->cap_svflags);
+		printf(": restricted address lookup: ");
+		ktrsockaddr(&kcd->cap_sockaddr);
+		return;
+	case CAPFAIL_NAMEI:
 		/* absolute or AT_FDCWD path, ".." path, etc. */
-		printf("restricted VFS lookup");
-		break;
+		syscallname(ktr->cap_code, ktr->cap_svflags);
+		printf(": restricted VFS lookup: %s\n", kcd->cap_path);
+		return;
+	case CAPFAIL_CPUSET:
+		/* modification of an external cpuset */
+		syscallname(ktr->cap_code, ktr->cap_svflags);
+		printf(": restricted cpuset operation\n");
+		return;
 	default:
-		printf("unknown capability failure: ");
-		sysdecode_cap_rights(stdout, &ktr->cap_needed);
-		printf(" ");
-		sysdecode_cap_rights(stdout, &ktr->cap_held);
-		break;
+		syscallname(ktr->cap_code, ktr->cap_svflags);
+		printf(": unknown capability failure\n");
+		return;
 	}
 	printf("\n");
 }
@@ -2223,9 +2303,22 @@ ktrkevent(struct kevent *kev)
 }
 
 void
+ktrpollfd(struct pollfd *pfd)
+{
+
+	printf("{ fd=%d", pfd->fd);
+	printf(", events=");
+	print_mask_arg0(sysdecode_pollfd_events, pfd->events);
+	printf(", revents=");
+	print_mask_arg0(sysdecode_pollfd_events, pfd->revents);
+	printf("}");
+}
+
+void
 ktrstructarray(struct ktr_struct_array *ksa, size_t buflen)
 {
 	struct kevent kev;
+	struct pollfd pfd;
 	char *name, *data;
 	size_t namelen, datalen;
 	int i;
@@ -2307,6 +2400,11 @@ ktrstructarray(struct ktr_struct_array *ksa, size_t buflen)
 			kev.udata = (void *)(uintptr_t)kev32.udata;
 			ktrkevent(&kev);
 #endif
+		} else if (strcmp(name, "pollfd") == 0) {
+			if (ksa->struct_size != sizeof(pfd))
+				goto bad_size;
+			memcpy(&pfd, data, sizeof(pfd));
+			ktrpollfd(&pfd);
 		} else {
 			printf("<unknown structure> }\n");
 			return;

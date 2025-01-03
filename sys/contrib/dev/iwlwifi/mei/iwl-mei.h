@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2022 The FreeBSD Foundation
+ * Copyright (c) 2022-2024 The FreeBSD Foundation
  *
  * This software was developed by Björn Zeeb under sponsorship from
  * the FreeBSD Foundation.
@@ -50,7 +50,12 @@ struct iwl_mei_nvm {
 };
 
 struct iwl_mei_conn_info {
-	int __dummy;
+	uint8_t				lp_state;
+	uint8_t				band;
+	uint8_t				channel;
+	uint8_t				ssid_len;
+	uint8_t				bssid[ETH_ALEN];
+	uint8_t				ssid[IEEE80211_MAX_SSID_LEN];
 };
 
 struct iwl_mei_ops {
@@ -131,6 +136,27 @@ iwl_mei_start_unregister(void)
 
 static __inline void
 iwl_mei_unregister_complete(void)
+{
+}
+
+static __inline void
+iwl_mei_device_state(bool up __unused)
+{
+}
+
+static __inline void
+iwl_mei_alive_notif(bool x __unused)
+{
+}
+
+static __inline bool
+iwl_mei_pldr_req(void)
+{
+	return (false);
+}
+
+static __inline void
+iwl_mei_set_power_limit(__le16 *x __unused)
 {
 }
 #endif

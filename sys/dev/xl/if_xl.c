@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * 3Com 3c90x Etherlink XL PCI NIC driver
  *
@@ -1190,11 +1188,6 @@ xl_attach(device_t dev)
 
 	/* Initialize interface name. */
 	ifp = sc->xl_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 
@@ -1579,8 +1572,6 @@ xl_detach(device_t dev)
 		callout_drain(&sc->xl_tick_callout);
 		ether_ifdetach(ifp);
 	}
-	if (sc->xl_miibus)
-		device_delete_child(dev, sc->xl_miibus);
 	bus_generic_detach(dev);
 	ifmedia_removeall(&sc->ifmedia);
 

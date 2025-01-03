@@ -1,5 +1,6 @@
-# $FreeBSD$
-
 RISCV				opt_global.h	# For cpu RISCV to work
-FPE				opt_global.h
 INTRNG				opt_global.h
+PV_STATS			opt_pmap.h
+
+# SoC Support
+SOC_ALLWINNER_D1		opt_soc.h

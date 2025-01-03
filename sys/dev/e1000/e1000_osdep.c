@@ -31,9 +31,18 @@
   POSSIBILITY OF SUCH DAMAGE.
 
 ******************************************************************************/
-/*$FreeBSD$*/
 
 #include "e1000_api.h"
+
+int e1000_use_pause_delay = 0;
+
+static void
+e1000_enable_pause_delay(void *use_pause_delay)
+{
+	*((int *)use_pause_delay) = 1;
+}
+
+SYSINIT(enable_pause_delay, SI_SUB_CLOCKS, SI_ORDER_ANY, e1000_enable_pause_delay, &e1000_use_pause_delay);
 
 /*
  * NOTE: the following routines using the e1000 

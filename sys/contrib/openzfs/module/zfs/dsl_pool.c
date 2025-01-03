@@ -141,11 +141,6 @@ uint_t zfs_delay_min_dirty_percent = 60;
 uint64_t zfs_delay_scale = 1000 * 1000 * 1000 / 2000;
 
 /*
- * This determines the number of threads used by the dp_sync_taskq.
- */
-static int zfs_sync_taskq_batch_pct = 75;
-
-/*
  * These tunables determine the behavior of how zil_itxg_clean() is
  * called via zil_clean() in the context of spa_sync(). When an itxg
  * list needs to be cleaned, TQ_NOSLEEP will be used when dispatching.
@@ -214,9 +209,7 @@ dsl_pool_open_impl(spa_t *spa, uint64_t txg)
 	txg_list_create(&dp->dp_early_sync_tasks, spa,
 	    offsetof(dsl_sync_task_t, dst_node));
 
-	dp->dp_sync_taskq = taskq_create("dp_sync_taskq",
-	    zfs_sync_taskq_batch_pct, minclsyspri, 1, INT_MAX,
-	    TASKQ_THREADS_CPU_PCT);
+	dp->dp_sync_taskq = spa_sync_tq_create(spa, "dp_sync_taskq");
 
 	dp->dp_zil_clean_taskq = taskq_create("dp_zil_clean_taskq",
 	    zfs_zil_clean_taskq_nthr_pct, minclsyspri,
@@ -409,15 +402,23 @@ dsl_pool_close(dsl_pool_t *dp)
 	txg_list_destroy(&dp->dp_dirty_dirs);
 
 	taskq_destroy(dp->dp_zil_clean_taskq);
-	taskq_destroy(dp->dp_sync_taskq);
+	spa_sync_tq_destroy(dp->dp_spa);
 
-	/*
-	 * We can't set retry to TRUE since we're explicitly specifying
-	 * a spa to flush. This is good enough; any missed buffers for
-	 * this spa won't cause trouble, and they'll eventually fall
-	 * out of the ARC just like any other unused buffer.
-	 */
-	arc_flush(dp->dp_spa, FALSE);
+	if (dp->dp_spa->spa_state == POOL_STATE_EXPORTED ||
+	    dp->dp_spa->spa_state == POOL_STATE_DESTROYED) {
+		/*
+		 * On export/destroy perform the ARC flush asynchronously.
+		 */
+		arc_flush_async(dp->dp_spa);
+	} else {
+		/*
+		 * We can't set retry to TRUE since we're explicitly specifying
+		 * a spa to flush. This is good enough; any missed buffers for
+		 * this spa won't cause trouble, and they'll eventually fall
+		 * out of the ARC just like any other unused buffer.
+		 */
+		arc_flush(dp->dp_spa, FALSE);
+	}
 
 	mmp_fini(dp->dp_spa);
 	txg_fini(dp);
@@ -674,7 +675,7 @@ dsl_early_sync_task_verify(dsl_pool_t *dp, uint64_t txg)
 void
 dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 {
-	zio_t *zio;
+	zio_t *rio;	/* root zio for all dirty dataset syncs */
 	dmu_tx_t *tx;
 	dsl_dir_t *dd;
 	dsl_dataset_t *ds;
@@ -704,9 +705,10 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 	}
 
 	/*
-	 * Write out all dirty blocks of dirty datasets.
+	 * Write out all dirty blocks of dirty datasets. Note, this could
+	 * create a very large (+10k) zio tree.
 	 */
-	zio = zio_root(dp->dp_spa, NULL, NULL, ZIO_FLAG_MUSTSUCCEED);
+	rio = zio_root(dp->dp_spa, NULL, NULL, ZIO_FLAG_MUSTSUCCEED);
 	while ((ds = txg_list_remove(&dp->dp_dirty_datasets, txg)) != NULL) {
 		/*
 		 * We must not sync any non-MOS datasets twice, because
@@ -715,9 +717,9 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 		 */
 		ASSERT(!list_link_active(&ds->ds_synced_link));
 		list_insert_tail(&synced_datasets, ds);
-		dsl_dataset_sync(ds, zio, tx);
+		dsl_dataset_sync(ds, rio, tx);
 	}
-	VERIFY0(zio_wait(zio));
+	VERIFY0(zio_wait(rio));
 
 	/*
 	 * Update the long range free counter after
@@ -748,13 +750,13 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 	 * user accounting information (and we won't get confused
 	 * about which blocks are part of the snapshot).
 	 */
-	zio = zio_root(dp->dp_spa, NULL, NULL, ZIO_FLAG_MUSTSUCCEED);
+	rio = zio_root(dp->dp_spa, NULL, NULL, ZIO_FLAG_MUSTSUCCEED);
 	while ((ds = txg_list_remove(&dp->dp_dirty_datasets, txg)) != NULL) {
 		objset_t *os = ds->ds_objset;
 
 		ASSERT(list_link_active(&ds->ds_synced_link));
 		dmu_buf_rele(ds->ds_dbuf, ds);
-		dsl_dataset_sync(ds, zio, tx);
+		dsl_dataset_sync(ds, rio, tx);
 
 		/*
 		 * Release any key mappings created by calls to
@@ -767,7 +769,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 			key_mapping_rele(dp->dp_spa, ds->ds_key_mapping, ds);
 		}
 	}
-	VERIFY0(zio_wait(zio));
+	VERIFY0(zio_wait(rio));
 
 	/*
 	 * Now that the datasets have been completely synced, we can
@@ -788,6 +790,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 		}
 
 		dsl_dataset_sync_done(ds, tx);
+		dmu_buf_rele(ds->ds_dbuf, ds);
 	}
 
 	while ((dd = txg_list_remove(&dp->dp_dirty_dirs, txg)) != NULL) {
@@ -964,18 +967,18 @@ dsl_pool_need_dirty_delay(dsl_pool_t *dp)
 	uint64_t delay_min_bytes =
 	    zfs_dirty_data_max * zfs_delay_min_dirty_percent / 100;
 
-	mutex_enter(&dp->dp_lock);
-	uint64_t dirty = dp->dp_dirty_total;
-	mutex_exit(&dp->dp_lock);
-
-	return (dirty > delay_min_bytes);
+	/*
+	 * We are not taking the dp_lock here and few other places, since torn
+	 * reads are unlikely: on 64-bit systems due to register size and on
+	 * 32-bit due to memory constraints.  Pool-wide locks in hot path may
+	 * be too expensive, while we do not need a precise result here.
+	 */
+	return (dp->dp_dirty_total > delay_min_bytes);
 }
 
 static boolean_t
 dsl_pool_need_dirty_sync(dsl_pool_t *dp, uint64_t txg)
 {
-	ASSERT(MUTEX_HELD(&dp->dp_lock));
-
 	uint64_t dirty_min_bytes =
 	    zfs_dirty_data_max * zfs_dirty_data_sync_percent / 100;
 	uint64_t dirty = dp->dp_dirty_pertxg[txg & TXG_MASK];
@@ -1052,7 +1055,7 @@ upgrade_clones_cb(dsl_pool_t *dp, dsl_dataset_t *hds, void *arg)
 		 * will be wrong.
 		 */
 		rrw_enter(&ds->ds_bp_rwlock, RW_READER, FTAG);
-		ASSERT0(dsl_dataset_phys(prev)->ds_bp.blk_birth);
+		ASSERT0(BP_GET_LOGICAL_BIRTH(&dsl_dataset_phys(prev)->ds_bp));
 		rrw_exit(&ds->ds_bp_rwlock, FTAG);
 
 		/* The origin doesn't get attached to itself */
@@ -1201,7 +1204,7 @@ dsl_pool_unlinked_drain_taskq(dsl_pool_t *dp)
 void
 dsl_pool_clean_tmp_userrefs(dsl_pool_t *dp)
 {
-	zap_attribute_t za;
+	zap_attribute_t *za;
 	zap_cursor_t zc;
 	objset_t *mos = dp->dp_meta_objset;
 	uint64_t zapobj = dp->dp_tmp_userrefs_obj;
@@ -1213,19 +1216,20 @@ dsl_pool_clean_tmp_userrefs(dsl_pool_t *dp)
 
 	holds = fnvlist_alloc();
 
+	za = zap_attribute_alloc();
 	for (zap_cursor_init(&zc, mos, zapobj);
-	    zap_cursor_retrieve(&zc, &za) == 0;
+	    zap_cursor_retrieve(&zc, za) == 0;
 	    zap_cursor_advance(&zc)) {
 		char *htag;
 		nvlist_t *tags;
 
-		htag = strchr(za.za_name, '-');
+		htag = strchr(za->za_name, '-');
 		*htag = '\0';
 		++htag;
-		if (nvlist_lookup_nvlist(holds, za.za_name, &tags) != 0) {
+		if (nvlist_lookup_nvlist(holds, za->za_name, &tags) != 0) {
 			tags = fnvlist_alloc();
 			fnvlist_add_boolean(tags, htag);
-			fnvlist_add_nvlist(holds, za.za_name, tags);
+			fnvlist_add_nvlist(holds, za->za_name, tags);
 			fnvlist_free(tags);
 		} else {
 			fnvlist_add_boolean(tags, htag);
@@ -1234,6 +1238,7 @@ dsl_pool_clean_tmp_userrefs(dsl_pool_t *dp)
 	dsl_dataset_user_release_tmp(dp, holds);
 	fnvlist_free(holds);
 	zap_cursor_fini(&zc);
+	zap_attribute_free(za);
 }
 
 /*
@@ -1479,9 +1484,6 @@ ZFS_MODULE_PARAM(zfs, zfs_, dirty_data_sync_percent, UINT, ZMOD_RW,
 
 ZFS_MODULE_PARAM(zfs, zfs_, delay_scale, U64, ZMOD_RW,
 	"How quickly delay approaches infinity");
-
-ZFS_MODULE_PARAM(zfs, zfs_, sync_taskq_batch_pct, INT, ZMOD_RW,
-	"Max percent of CPUs that are used to sync dirty data");
 
 ZFS_MODULE_PARAM(zfs_zil, zfs_zil_, clean_taskq_nthr_pct, INT, ZMOD_RW,
 	"Max percent of CPUs that are used per dp_sync_taskq");

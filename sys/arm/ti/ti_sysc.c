@@ -23,12 +23,7 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -50,7 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
-#include <dev/extres/clk/clk.h>
+#include <dev/clk/clk.h>
 
 #include <arm/ti/ti_sysc.h>
 #include <arm/ti/clk/clock_common.h>
@@ -306,6 +301,9 @@ parse_regfields(struct ti_sysc_softc *sc) {
 
 	/* Grab the content of reg properties */
 	nreg = OF_getproplen(node, "reg");
+	if (nreg <= 0)
+		return (ENXIO);
+
 	reg = malloc(nreg, M_DEVBUF, M_WAITOK);
 	OF_getencprop(node, "reg", reg, nreg);
 
@@ -541,7 +539,8 @@ ti_sysc_attach(device_t dev)
 		err = ti_sysc_attach_clocks(sc);
 		if (err) {
 			DPRINTF(sc->dev, "Failed to attach clocks\n");
-			return (bus_generic_attach(sc->dev));
+			bus_attach_children(sc->dev);
+			return (0);
 		}
 	}
 
@@ -554,7 +553,8 @@ ti_sysc_attach(device_t dev)
 
 	sc->attach_done = true;
 
-	return (bus_generic_attach(sc->dev));
+	bus_attach_children(sc->dev);
+	return (0);
 }
 
 static int
@@ -595,7 +595,7 @@ ti_sysc_new_pass(device_t dev)
 	}
 	sc->attach_done = true;
 
-	bus_generic_attach(sc->dev);
+	bus_attach_children(sc->dev);
 }
 
 static device_method_t ti_sysc_methods[] = {

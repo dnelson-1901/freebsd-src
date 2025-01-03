@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <googletest.test.inc.mk>
 
 GTEST_DIR=	${SRCTOP}/contrib/googletest

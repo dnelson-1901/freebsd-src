@@ -19,8 +19,6 @@
  *
  * CDDL HEADER END
  *
- * $FreeBSD$
- *
  */
 /*
  * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
@@ -35,6 +33,7 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
+#include <sys/msan.h>
 #include <sys/proc.h>
 #include <sys/smp.h>
 #include <sys/dtrace_impl.h>
@@ -69,6 +68,8 @@ dtrace_invop(uintptr_t addr, struct trapframe *frame, void **scratch)
 	struct thread *td;
 	dtrace_invop_hdlr_t *hdlr;
 	int rval;
+
+	kmsan_mark(frame, sizeof(*frame), KMSAN_STATE_INITED);
 
 	td = curthread;
 	td->t_dtrace_trapframe = frame;
@@ -285,7 +286,6 @@ dtrace_gethrtime_init_cpu(void *arg)
 		hst_cpu_tsc = rdtsc();
 }
 
-#ifdef EARLY_AP_STARTUP
 static void
 dtrace_gethrtime_init(void *arg)
 {
@@ -293,16 +293,6 @@ dtrace_gethrtime_init(void *arg)
 	uint64_t tsc_f;
 	cpuset_t map;
 	int i;
-#else
-/*
- * Get the frequency and scale factor as early as possible so that they can be
- * used for boot-time tracing.
- */
-static void
-dtrace_gethrtime_init_early(void *arg)
-{
-	uint64_t tsc_f;
-#endif
 
 	/*
 	 * Get TSC frequency known at this moment.
@@ -331,18 +321,6 @@ dtrace_gethrtime_init_early(void *arg)
 	 *   (terahertz) values;
 	 */
 	nsec_scale = ((uint64_t)NANOSEC << SCALE_SHIFT) / tsc_f;
-#ifndef EARLY_AP_STARTUP
-}
-SYSINIT(dtrace_gethrtime_init_early, SI_SUB_CPU, SI_ORDER_ANY,
-    dtrace_gethrtime_init_early, NULL);
-
-static void
-dtrace_gethrtime_init(void *arg)
-{
-	struct pcpu *pc;
-	cpuset_t map;
-	int i;
-#endif
 
 	if (vm_guest != VM_GUEST_NO)
 		return;
@@ -366,13 +344,8 @@ dtrace_gethrtime_init(void *arg)
 	}
 	sched_unpin();
 }
-#ifdef EARLY_AP_STARTUP
 SYSINIT(dtrace_gethrtime_init, SI_SUB_DTRACE, SI_ORDER_ANY,
     dtrace_gethrtime_init, NULL);
-#else
-SYSINIT(dtrace_gethrtime_init, SI_SUB_SMP, SI_ORDER_ANY, dtrace_gethrtime_init,
-    NULL);
-#endif
 
 /*
  * DTrace needs a high resolution time function which can
@@ -449,7 +422,7 @@ dtrace_trap(struct trapframe *frame, u_int type)
 			 * Offset the instruction pointer to the instruction
 			 * following the one causing the fault.
 			 */
-			frame->tf_rip += dtrace_instr_size((u_char *) frame->tf_rip);
+			frame->tf_rip += dtrace_instr_size((uint8_t *) frame->tf_rip);
 			return (1);
 		/* Page fault. */
 		case T_PAGEFLT:
@@ -461,7 +434,7 @@ dtrace_trap(struct trapframe *frame, u_int type)
 			 * Offset the instruction pointer to the instruction
 			 * following the one causing the fault.
 			 */
-			frame->tf_rip += dtrace_instr_size((u_char *) frame->tf_rip);
+			frame->tf_rip += dtrace_instr_size((uint8_t *) frame->tf_rip);
 			return (1);
 		default:
 			/* Handle all other traps in the usual way. */

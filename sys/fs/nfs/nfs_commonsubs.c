@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * These functions support the macros and help fiddle mbuf chains for
  * the nfs op functions. They do things like create the rpc header and
@@ -62,8 +60,8 @@ u_int32_t newnfs_true, newnfs_false, newnfs_xdrneg1;
 /* And other global data */
 nfstype nfsv34_type[9] = { NFNON, NFREG, NFDIR, NFBLK, NFCHR, NFLNK, NFSOCK,
 		      NFFIFO, NFNON };
-enum vtype newnv2tov_type[8] = { VNON, VREG, VDIR, VBLK, VCHR, VLNK, VNON, VNON };
-enum vtype nv34tov_type[8]={ VNON, VREG, VDIR, VBLK, VCHR, VLNK, VSOCK, VFIFO };
+__enum_uint8(vtype) newnv2tov_type[8] = { VNON, VREG, VDIR, VBLK, VCHR, VLNK, VNON, VNON };
+__enum_uint8(vtype) nv34tov_type[8]={ VNON, VREG, VDIR, VBLK, VCHR, VLNK, VSOCK, VFIFO };
 struct timeval nfsboottime;	/* Copy boottime once, so it never changes */
 int nfscl_ticks;
 int nfsrv_useacl = 1;
@@ -227,7 +225,6 @@ static int nfs_bigreply[NFSV42_NPROCS] = { 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0,
 static int nfsrv_skipace(struct nfsrv_descript *nd, int *acesizep);
 static void nfsv4_wanted(struct nfsv4lock *lp);
 static uint32_t nfsv4_filesavail(struct statfs *, struct mount *);
-static int nfsrv_cmpmixedcase(u_char *cp, u_char *cp2, int len);
 static int nfsrv_getuser(int procnum, uid_t uid, gid_t gid, char *name);
 static void nfsrv_removeuser(struct nfsusrgrp *usrp, int isuser);
 static int nfsrv_getrefstr(struct nfsrv_descript *, u_char **, u_char **,
@@ -375,6 +372,10 @@ nfscl_reqstart(struct nfsrv_descript *nd, int procnum, struct nfsmount *nmp,
 	nd->nd_mreq = nd->nd_mb = mb;
 	nd->nd_bpos = mtod(mb, char *);
 
+	/* For NFSPROC_NULL, there are no arguments. */
+	if (procnum == NFSPROC_NULL)
+		goto out;
+
 	/*
 	 * And fill the first file handle into the request.
 	 */
@@ -437,7 +438,7 @@ nfscl_reqstart(struct nfsrv_descript *nd, int procnum, struct nfsmount *nmp,
 		if (nfsv4_opflag[nfsv4_opmap[procnum].op].needscfh > 0) {
 			NFSM_BUILD(tl, u_int32_t *, NFSX_UNSIGNED);
 			*tl = txdr_unsigned(NFSV4OP_PUTFH);
-			nfsm_fhtom(nmp, nd, nfhp, fhlen, 0);
+			(void)nfsm_fhtom(nmp, nd, nfhp, fhlen, 0);
 			if (nfsv4_opflag[nfsv4_opmap[procnum].op].needscfh
 			    == 2 && procnum != NFSPROC_WRITEDS &&
 			    procnum != NFSPROC_COMMITDS) {
@@ -468,8 +469,9 @@ nfscl_reqstart(struct nfsrv_descript *nd, int procnum, struct nfsmount *nmp,
 			*tl = txdr_unsigned(nfsv4_opmap[procnum].op);
 		}
 	} else {
-		nfsm_fhtom(NULL, nd, nfhp, fhlen, 0);
+		(void)nfsm_fhtom(NULL, nd, nfhp, fhlen, 0);
 	}
+out:
 	if (procnum < NFSV42_NPROCS)
 		NFSINCRGLOBAL(nfsstatsv1.rpccnt[procnum]);
 }
@@ -607,8 +609,18 @@ nfscl_fillsattr(struct nfsrv_descript *nd, struct vattr *vap,
 		break;
 	case ND_NFSV4:
 		NFSZERO_ATTRBIT(&attrbits);
-		if (vap->va_mode != (mode_t)VNOVAL)
-			NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_MODE);
+		np = NULL;
+		if (strcmp(vp->v_mount->mnt_vfc->vfc_name, "nfs") == 0)
+			np = VTONFS(vp);
+		if (vap->va_mode != (mode_t)VNOVAL) {
+			if ((flags & NFSSATTR_NEWFILE) != 0 && np != NULL &&
+			    NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr,
+			    NFSATTRBIT_MODEUMASK))
+				NFSSETBIT_ATTRBIT(&attrbits,
+				    NFSATTRBIT_MODEUMASK);
+			else
+				NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_MODE);
+		}
 		if ((flags & NFSSATTR_FULL) && vap->va_uid != (uid_t)VNOVAL)
 			NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_OWNER);
 		if ((flags & NFSSATTR_FULL) && vap->va_gid != (gid_t)VNOVAL)
@@ -619,18 +631,14 @@ nfscl_fillsattr(struct nfsrv_descript *nd, struct vattr *vap,
 			NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEACCESSSET);
 		if (vap->va_mtime.tv_sec != VNOVAL)
 			NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMEMODIFYSET);
-		if (vap->va_birthtime.tv_sec != VNOVAL &&
-		    strcmp(vp->v_mount->mnt_vfc->vfc_name, "nfs") == 0) {
-			/*
-			 * We can only test for support of TimeCreate if
-			 * the "vp" argument is for an NFS vnode.
-			 */
-			np = VTONFS(vp);
-			if (NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr,
-			    NFSATTRBIT_TIMECREATE))
-				NFSSETBIT_ATTRBIT(&attrbits,
-				    NFSATTRBIT_TIMECREATE);
-		}
+		/*
+		 * We can only test for support of TimeCreate if
+		 * the "vp" argument is for an NFS vnode.
+		 */
+		if (vap->va_birthtime.tv_sec != VNOVAL && np != NULL &&
+		    NFSISSET_ATTRBIT(&np->n_vattr.na_suppattr,
+		    NFSATTRBIT_TIMECREATE))
+			NFSSETBIT_ATTRBIT(&attrbits, NFSATTRBIT_TIMECREATE);
 		(void) nfsv4_fillattr(nd, vp->v_mount, vp, NULL, vap, NULL, 0,
 		    &attrbits, NULL, NULL, 0, 0, 0, 0, (uint64_t)0, NULL);
 		break;
@@ -676,17 +684,13 @@ nfsm_mbufuio(struct nfsrv_descript *nd, struct uio *uiop, int siz)
 				    ("len %d, corrupted mbuf?", len));
 			}
 			xfer = (left > len) ? len : left;
-#ifdef notdef
-			/* Not Yet.. */
-			if (uiop->uio_iov->iov_op != NULL)
-				(*(uiop->uio_iov->iov_op))
-				(mbufcp, uiocp, xfer);
-			else
-#endif
 			if (uiop->uio_segflg == UIO_SYSSPACE)
 				NFSBCOPY(mbufcp, uiocp, xfer);
-			else
-				copyout(mbufcp, uiocp, xfer);
+			else {
+				error = copyout(mbufcp, uiocp, xfer);
+				if (error != 0)
+					goto out;
+			}
 			left -= xfer;
 			len -= xfer;
 			mbufcp += xfer;
@@ -1223,6 +1227,47 @@ nfsmout:
 }
 
 /*
+ * Get operation bits from an mbuf list.
+ * Returns EBADRPC for a parsing error, 0 otherwise.
+ */
+int
+nfsrv_getopbits(struct nfsrv_descript *nd, nfsopbit_t *opbitp, int *cntp)
+{
+	uint32_t *tl;
+	int cnt, i, outcnt;
+	int error = 0;
+
+	NFSM_DISSECT(tl, uint32_t *, NFSX_UNSIGNED);
+	cnt = fxdr_unsigned(int, *tl);
+	if (cnt < 0) {
+		error = NFSERR_BADXDR;
+		goto nfsmout;
+	}
+	if (cnt > NFSOPBIT_MAXWORDS)
+		outcnt = NFSOPBIT_MAXWORDS;
+	else
+		outcnt = cnt;
+	NFSZERO_OPBIT(opbitp);
+	if (outcnt > 0) {
+		NFSM_DISSECT(tl, uint32_t *, outcnt * NFSX_UNSIGNED);
+		for (i = 0; i < outcnt; i++)
+			opbitp->bits[i] = fxdr_unsigned(uint32_t, *tl++);
+	}
+	for (i = 0; i < (cnt - outcnt); i++) {
+		NFSM_DISSECT(tl, uint32_t *, NFSX_UNSIGNED);
+		if (*tl != 0) {
+			error = NFSERR_BADXDR;
+			goto nfsmout;
+		}
+	}
+	if (cntp != NULL)
+		*cntp = NFSX_UNSIGNED + (cnt * NFSX_UNSIGNED);
+nfsmout:
+	NFSEXITCODE2(error, nd);
+	return (error);
+}
+
+/*
  * Get the attributes for V4.
  * If the compare flag is true, test for any attribute changes,
  * otherwise return the attribute values.
@@ -1276,6 +1321,7 @@ nfsv4_loadattr(struct nfsrv_descript *nd, vnode_t vp,
 		 * Just set default values to some of the important ones.
 		 */
 		if (nap != NULL) {
+			VATTR_NULL(&nap->na_vattr);
 			nap->na_type = VREG;
 			nap->na_mode = 0;
 			nap->na_rdev = (NFSDEV_T)0;
@@ -3069,6 +3115,18 @@ nfsv4_fillattr(struct nfsrv_descript *nd, struct mount *mp, vnode_t vp,
 				*tl = newnfs_false;
 			retnum += NFSX_UNSIGNED;
 			break;
+		case NFSATTRBIT_MODEUMASK:
+			NFSM_BUILD(tl, uint32_t *, 2 * NFSX_UNSIGNED);
+			/*
+			 * Since FreeBSD applies the umask above the VFS/VOP,
+			 * there is no umask to handle here.  If FreeBSD
+			 * moves handling of umask to below the VFS/VOP,
+			 * this could change.
+			 */
+			*tl++ = vtonfsv34_mode(vap->va_mode);
+			*tl = 0;
+			retnum += 2 * NFSX_UNSIGNED;
+			break;
 		default:
 			printf("EEK! Bad V4 attribute bitpos=%d\n", bitpos);
 		}
@@ -3139,6 +3197,27 @@ nfsrv_putattrbit(struct nfsrv_descript *nd, nfsattrbit_t *attrbitp)
 	*tl++ = txdr_unsigned(cnt);
 	for (i = 0; i < cnt; i++)
 		*tl++ = txdr_unsigned(attrbitp->bits[i]);
+	return (bytesize);
+}
+
+/*
+ * Put the operation bits onto an mbuf list.
+ * Return the number of bytes of output generated.
+ */
+int
+nfsrv_putopbit(struct nfsrv_descript *nd, nfsopbit_t *opbitp)
+{
+	uint32_t *tl;
+	int cnt, i, bytesize;
+
+	for (cnt = NFSOPBIT_MAXWORDS; cnt > 0; cnt--)
+		if (opbitp->bits[cnt - 1])
+			break;
+	bytesize = (cnt + 1) * NFSX_UNSIGNED;
+	NFSM_BUILD(tl, uint32_t *, bytesize);
+	*tl++ = txdr_unsigned(cnt);
+	for (i = 0; i < cnt; i++)
+		*tl++ = txdr_unsigned(opbitp->bits[i]);
 	return (bytesize);
 }
 
@@ -3358,13 +3437,13 @@ tryagain:
 		/*
 		 * If an '@' is found and the domain name matches, search for
 		 * the name with dns stripped off.
-		 * Mixed case alpahbetics will match for the domain name, but
-		 * all upper case will not.
+		 * The match for alphabetics in now case insensitive,
+		 * since RFC8881 defines this string as a DNS domain name.
 		 */
 		if (cnt == 0 && i < len && i > 0 &&
 		    (len - 1 - i) == NFSD_VNET(nfsrv_dnsnamelen) &&
-		    !nfsrv_cmpmixedcase(cp,
-		     NFSD_VNET(nfsrv_dnsname), NFSD_VNET(nfsrv_dnsnamelen))) {
+		    strncasecmp(cp, NFSD_VNET(nfsrv_dnsname),
+		     NFSD_VNET(nfsrv_dnsnamelen)) == 0) {
 			len -= (NFSD_VNET(nfsrv_dnsnamelen) + 1);
 			*(cp - 1) = '\0';
 		}
@@ -3585,8 +3664,8 @@ tryagain:
 		 */
 		if (cnt == 0 && i < len && i > 0 &&
 		    (len - 1 - i) == NFSD_VNET(nfsrv_dnsnamelen) &&
-		    !nfsrv_cmpmixedcase(cp,
-		     NFSD_VNET(nfsrv_dnsname), NFSD_VNET(nfsrv_dnsnamelen))) {
+		    strncasecmp(cp, NFSD_VNET(nfsrv_dnsname),
+		    NFSD_VNET(nfsrv_dnsnamelen)) == 0) {
 			len -= (NFSD_VNET(nfsrv_dnsnamelen) + 1);
 			*(cp - 1) = '\0';
 		}
@@ -3632,35 +3711,6 @@ out:
 	NFSD_CURVNET_RESTORE();
 	NFSEXITCODE(error);
 	return (error);
-}
-
-/*
- * Cmp len chars, allowing mixed case in the first argument to match lower
- * case in the second, but not if the first argument is all upper case.
- * Return 0 for a match, 1 otherwise.
- */
-static int
-nfsrv_cmpmixedcase(u_char *cp, u_char *cp2, int len)
-{
-	int i;
-	u_char tmp;
-	int fndlower = 0;
-
-	for (i = 0; i < len; i++) {
-		if (*cp >= 'A' && *cp <= 'Z') {
-			tmp = *cp++ + ('a' - 'A');
-		} else {
-			tmp = *cp++;
-			if (tmp >= 'a' && tmp <= 'z')
-				fndlower = 1;
-		}
-		if (tmp != *cp2++)
-			return (1);
-	}
-	if (fndlower)
-		return (0);
-	else
-		return (1);
 }
 
 /*
@@ -3971,8 +4021,9 @@ nfssvc_idname(struct nfsd_idargs *nidp)
 			 */
 			cr = crget();
 			cr->cr_uid = cr->cr_ruid = cr->cr_svuid = nidp->nid_uid;
-			crsetgroups(cr, nidp->nid_ngroup, grps);
-			cr->cr_rgid = cr->cr_svgid = cr->cr_groups[0];
+			crsetgroups_fallback(cr, nidp->nid_ngroup, grps,
+			    GID_NOGROUP);
+			cr->cr_rgid = cr->cr_svgid = cr->cr_gid;
 			cr->cr_prison = curthread->td_ucred->cr_prison;
 			prison_hold(cr->cr_prison);
 #ifdef MAC
@@ -5076,11 +5127,13 @@ nfsrpc_destroysession(struct nfsmount *nmp, struct nfsclsession *tsep,
 	struct nfsrv_descript *nd = &nfsd;
 	int error;
 
+	if (tsep == NULL)
+		tsep = nfsmnt_mdssession(nmp);
+	if (tsep == NULL)
+		return (0);
 	nfscl_reqstart(nd, NFSPROC_DESTROYSESSION, nmp, NULL, 0, NULL, NULL, 0,
 	    0, NULL);
 	NFSM_BUILD(tl, uint32_t *, NFSX_V4SESSIONID);
-	if (tsep == NULL)
-		tsep = nfsmnt_mdssession(nmp);
 	bcopy(tsep->nfsess_sessionid, tl, NFSX_V4SESSIONID);
 	nd->nd_flag |= ND_USEGSSNAME;
 	error = newnfs_request(nd, nmp, NULL, &nmp->nm_sockreq, NULL, p, cred,

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Mitsuru IWASAKI <iwasaki@FreeBSD.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	$FreeBSD$
  */
 
 #include <sys/param.h>
@@ -47,7 +45,7 @@ usage(const char *progname)
 {
 
 	fprintf(stderr, "usage: %s [-d] [-t] [-h] [-v] [-f dsdt_input] "
-			"[-o dsdt_output]\n", progname);
+			"[-o dsdt_output] [-T table_name]\n", progname);
 	fprintf(stderr, "To send ASL:\n\t%s -dt | gzip -c9 > foo.asl.gz\n",
 	    progname);
 	exit(1);
@@ -60,6 +58,7 @@ main(int argc, char *argv[])
 	int	c;
 	char	*progname;
 	char	*dsdt_input_file, *dsdt_output_file;
+	char	*tbl = NULL;
 
 	dsdt_input_file = dsdt_output_file = NULL;
 	progname = argv[0];
@@ -67,10 +66,17 @@ main(int argc, char *argv[])
 	if (argc < 2)
 		usage(progname);
 
-	while ((c = getopt(argc, argv, "dhtvf:o:")) != -1) {
+	while ((c = getopt(argc, argv, "df:ho:tT:vs")) != -1) {
 		switch (c) {
 		case 'd':
 			dflag = 1;
+			break;
+		case 'T':
+			tbl = optarg;
+			if (strlen(tbl) != 4) {
+				warnx("Illegal table name %s", tbl);
+				usage(progname);
+			}
 			break;
 		case 't':
 			tflag = 1;
@@ -83,6 +89,9 @@ main(int argc, char *argv[])
 			break;
 		case 'o':
 			dsdt_output_file = optarg;
+			break;
+		case 's':
+			dflag = 2;
 			break;
 		case 'h':
 		default:
@@ -112,10 +121,10 @@ main(int argc, char *argv[])
 	}
 
 	/* Display misc. SDT tables (only available when using /dev/mem) */
-	if (tflag) {
+	if (tflag || tbl != NULL) {
 		if (vflag)
 			warnx("printing various SDT tables");
-		sdt_print_all(rsdt);
+		sdt_print_all(rsdt, tbl);
 	}
 
 	/* Translate RSDT to DSDT pointer */
@@ -138,7 +147,11 @@ main(int argc, char *argv[])
 	if (dflag) {
 		if (vflag)
 			warnx("disassembling DSDT, iasl messages follow");
-		aml_disassemble(rsdt, sdt);
+		if (dflag == 1) {
+			aml_disassemble(rsdt, sdt);
+		} else {
+			aml_disassemble_separate(rsdt, sdt);
+		}
 		if (vflag)
 			warnx("iasl processing complete");
 	}

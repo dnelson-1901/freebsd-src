@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 Stuart Walsh<stu@ipng.org.uk>
  * and Duncan Barclay<dmlb@dmlb.org>
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -480,11 +477,6 @@ bfe_attach(device_t dev)
 
 	/* Set up ifnet structure */
 	ifp = sc->bfe_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "failed to if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -559,8 +551,6 @@ bfe_detach(device_t dev)
 	BFE_UNLOCK(sc);
 
 	bus_generic_detach(dev);
-	if (sc->bfe_miibus != NULL)
-		device_delete_child(dev, sc->bfe_miibus);
 
 	bfe_release_resources(sc);
 	bfe_dma_free(sc);

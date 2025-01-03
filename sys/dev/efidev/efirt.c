@@ -30,7 +30,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#include "opt_acpi.h"
 
 #include <sys/param.h>
 #include <sys/efi.h>
@@ -60,6 +60,10 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm.h>
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
+
+#ifdef DEV_ACPI
+#include <contrib/dev/acpica/include/acpi.h>
+#endif
 
 #define EFI_TABLE_ALLOC_MAX 0x800000
 
@@ -281,6 +285,11 @@ rt_ok(void)
 	return (0);
 }
 
+/*
+ * The fpu_kern_enter() call in allows firmware to use FPU, as
+ * mandated by the specification.  It also enters a critical section,
+ * giving us neccessary protection against context switches.
+ */
 static int
 efi_enter(void)
 {
@@ -300,6 +309,9 @@ efi_enter(void)
 		fpu_kern_leave(td, NULL);
 		mtx_unlock(&efi_lock);
 		PMAP_UNLOCK(curpmap);
+	} else {
+		MPASS((td->td_pflags & TDP_EFIRT) == 0);
+		td->td_pflags |= TDP_EFIRT;
 	}
 	return (error);
 }
@@ -310,10 +322,13 @@ efi_leave(void)
 	struct thread *td;
 	pmap_t curpmap;
 
+	td = curthread;
+	MPASS((td->td_pflags & TDP_EFIRT) != 0);
+	td->td_pflags &= ~TDP_EFIRT;
+
 	efi_arch_leave();
 
 	curpmap = &curproc->p_vmspace->vm_pmap;
-	td = curthread;
 	fpu_kern_leave(td, NULL);
 	mtx_unlock(&efi_lock);
 	PMAP_UNLOCK(curpmap);
@@ -475,31 +490,32 @@ efi_rt_arch_call_nofault(struct efirt_callinfo *ec)
 
 	switch (ec->ec_argcnt) {
 	case 0:
-		ec->ec_efi_status = ((register_t (*)(void))ec->ec_fptr)();
+		ec->ec_efi_status = ((register_t EFIABI_ATTR (*)(void))
+		    ec->ec_fptr)();
 		break;
 	case 1:
-		ec->ec_efi_status = ((register_t (*)(register_t))ec->ec_fptr)
-		    (ec->ec_arg1);
+		ec->ec_efi_status = ((register_t EFIABI_ATTR (*)(register_t))
+		    ec->ec_fptr)(ec->ec_arg1);
 		break;
 	case 2:
-		ec->ec_efi_status = ((register_t (*)(register_t, register_t))
-		    ec->ec_fptr)(ec->ec_arg1, ec->ec_arg2);
+		ec->ec_efi_status = ((register_t EFIABI_ATTR (*)(register_t,
+		    register_t))ec->ec_fptr)(ec->ec_arg1, ec->ec_arg2);
 		break;
 	case 3:
-		ec->ec_efi_status = ((register_t (*)(register_t, register_t,
-		    register_t))ec->ec_fptr)(ec->ec_arg1, ec->ec_arg2,
-		    ec->ec_arg3);
+		ec->ec_efi_status = ((register_t EFIABI_ATTR (*)(register_t,
+		    register_t, register_t))ec->ec_fptr)(ec->ec_arg1,
+		    ec->ec_arg2, ec->ec_arg3);
 		break;
 	case 4:
-		ec->ec_efi_status = ((register_t (*)(register_t, register_t,
-		    register_t, register_t))ec->ec_fptr)(ec->ec_arg1,
-		    ec->ec_arg2, ec->ec_arg3, ec->ec_arg4);
+		ec->ec_efi_status = ((register_t EFIABI_ATTR (*)(register_t,
+		    register_t, register_t, register_t))ec->ec_fptr)(
+		    ec->ec_arg1, ec->ec_arg2, ec->ec_arg3, ec->ec_arg4);
 		break;
 	case 5:
-		ec->ec_efi_status = ((register_t (*)(register_t, register_t,
-		    register_t, register_t, register_t))ec->ec_fptr)(
-		    ec->ec_arg1, ec->ec_arg2, ec->ec_arg3, ec->ec_arg4,
-		    ec->ec_arg5);
+		ec->ec_efi_status = ((register_t EFIABI_ATTR (*)(register_t,
+		    register_t, register_t, register_t, register_t))
+		    ec->ec_fptr)(ec->ec_arg1, ec->ec_arg2, ec->ec_arg3,
+		    ec->ec_arg4, ec->ec_arg5);
 		break;
 	default:
 		panic("efi_rt_arch_call: %d args", (int)ec->ec_argcnt);
@@ -568,6 +584,74 @@ get_time(struct efi_tm *tm)
 	 */
 	error = efi_get_time_locked(tm, &dummy);
 	EFI_TIME_UNLOCK();
+	return (error);
+}
+
+static int
+get_waketime(uint8_t *enabled, uint8_t *pending, struct efi_tm *tm)
+{
+	struct efirt_callinfo ec;
+	int error;
+#ifdef DEV_ACPI
+	UINT32 acpiRtcEnabled;
+#endif
+
+	if (efi_runtime == NULL)
+		return (ENXIO);
+
+	EFI_TIME_LOCK();
+	bzero(&ec, sizeof(ec));
+	ec.ec_name = "rt_getwaketime";
+	ec.ec_argcnt = 3;
+	ec.ec_arg1 = (uintptr_t)enabled;
+	ec.ec_arg2 = (uintptr_t)pending;
+	ec.ec_arg3 = (uintptr_t)tm;
+	ec.ec_fptr = EFI_RT_METHOD_PA(rt_getwaketime);
+	error = efi_call(&ec);
+	EFI_TIME_UNLOCK();
+
+#ifdef DEV_ACPI
+	if (error == 0) {
+		error = AcpiReadBitRegister(ACPI_BITREG_RT_CLOCK_ENABLE,
+		    &acpiRtcEnabled);
+		if (ACPI_SUCCESS(error)) {
+			*enabled = *enabled && acpiRtcEnabled;
+		} else
+			error = EIO;
+	}
+#endif
+
+	return (error);
+}
+
+static int
+set_waketime(uint8_t enable, struct efi_tm *tm)
+{
+	struct efirt_callinfo ec;
+	int error;
+
+	if (efi_runtime == NULL)
+		return (ENXIO);
+
+	EFI_TIME_LOCK();
+	bzero(&ec, sizeof(ec));
+	ec.ec_name = "rt_setwaketime";
+	ec.ec_argcnt = 2;
+	ec.ec_arg1 = (uintptr_t)enable;
+	ec.ec_arg2 = (uintptr_t)tm;
+	ec.ec_fptr = EFI_RT_METHOD_PA(rt_setwaketime);
+	error = efi_call(&ec);
+	EFI_TIME_UNLOCK();
+
+#ifdef DEV_ACPI
+	if (error == 0) {
+		error = AcpiWriteBitRegister(ACPI_BITREG_RT_CLOCK_ENABLE,
+		    (enable != 0) ? 1 : 0);
+		if (ACPI_FAILURE(error))
+			error = EIO;
+	}
+#endif
+
 	return (error);
 }
 
@@ -713,6 +797,8 @@ const static struct efi_ops efi_ops = {
 	.get_time_capabilities = get_time_capabilities,
 	.reset_system = reset_system,
 	.set_time = set_time,
+	.get_waketime = get_waketime,
+	.set_waketime = set_waketime,
 	.var_get = var_get,
 	.var_nextname = var_nextname,
 	.var_set = var_set,

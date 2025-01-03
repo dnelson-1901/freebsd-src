@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999-2006, 2016-2017 Robert N. M. Watson
  * All rights reserved.
@@ -38,9 +38,6 @@
  * ACL system calls and other functions common across different ACL types.
  * Type-specific routines go into subr_acl_<type>.c.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -148,7 +145,7 @@ acl_copyin(const void *user_acl, struct acl *kernel_acl, acl_type_t type)
 		error = copyin(user_acl, &old, sizeof(old));
 		if (error != 0)
 			break;
-		acl_copy_oldacl_into_acl(&old, kernel_acl);
+		error = acl_copy_oldacl_into_acl(&old, kernel_acl);
 		break;
 
 	default:
@@ -436,7 +433,7 @@ sys___acl_get_fd(struct thread *td, struct __acl_get_fd_args *uap)
 	int error;
 
 	AUDIT_ARG_FD(uap->filedes);
-	error = getvnode(td, uap->filedes,
+	error = getvnode_path(td, uap->filedes,
 	    cap_rights_init_one(&rights, CAP_ACL_GET), &fp);
 	if (error == 0) {
 		error = vacl_get_acl(td, fp->f_vnode, uap->type, uap->aclp);
@@ -570,7 +567,7 @@ sys___acl_aclcheck_fd(struct thread *td, struct __acl_aclcheck_fd_args *uap)
 	int error;
 
 	AUDIT_ARG_FD(uap->filedes);
-	error = getvnode(td, uap->filedes,
+	error = getvnode_path(td, uap->filedes,
 	    cap_rights_init_one(&rights, CAP_ACL_CHECK), &fp);
 	if (error == 0) {
 		error = vacl_aclcheck(td, fp->f_vnode, uap->type, uap->aclp);

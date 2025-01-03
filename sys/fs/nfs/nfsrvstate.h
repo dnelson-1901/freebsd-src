@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Rick Macklem, University of Guelph
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _NFS_NFSRVSTATE_H_
@@ -105,6 +103,8 @@ struct nfsclient {
 	time_t		lc_delegtime;		/* Old deleg expiry (sec) */
 	nfsquad_t	lc_clientid;		/* 64 bit clientid */
 	nfsquad_t	lc_confirm;		/* 64 bit confirm value */
+	nfsopbit_t	lc_mustops;		/* Must ops SP4_MACH_CRED */
+	nfsopbit_t	lc_allowops;		/* Allowed ops SP4_MACH_CRED */
 	u_int32_t	lc_program;		/* RPC Program # */
 	u_int32_t	lc_callback;		/* Callback id */
 	u_int32_t	lc_stateindex;		/* Current state index# */
@@ -333,7 +333,7 @@ struct nfsf_rec {
 	u_int32_t	numboots;		/* Number of boottimes */
 };
 
-void nfsrv_cleanclient(struct nfsclient *, NFSPROC_T *);
+void nfsrv_cleanclient(struct nfsclient *, NFSPROC_T *, bool, SVCXPRT **);
 void nfsrv_freedeleglist(struct nfsstatehead *);
 
 /*

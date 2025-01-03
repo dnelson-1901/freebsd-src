@@ -48,13 +48,9 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from:	@(#)fd.c	7.4 (Berkeley) 5/25/91
- *
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_fdc.h"
 
 #include <sys/param.h>
@@ -1844,7 +1840,7 @@ int
 fdc_hints_probe(device_t dev)
 {
 	const char *name, *dname;
-	int i, error, dunit;
+	int i, dunit;
 
 	/*
 	 * Probe and attach any children.  We should probably detect
@@ -1857,8 +1853,7 @@ fdc_hints_probe(device_t dev)
 		fdc_add_child(dev, dname, dunit);
 	}
 
-	if ((error = bus_generic_attach(dev)) != 0)
-		return (error);
+	bus_attach_children(dev);
 	return (0);
 }
 

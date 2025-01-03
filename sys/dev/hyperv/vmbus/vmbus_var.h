@@ -22,8 +22,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _VMBUS_VAR_H_
@@ -34,7 +32,11 @@
 #include <sys/taskqueue.h>
 #include <sys/rman.h>
 
-#include <dev/hyperv/include/hyperv_busdma.h>
+#include <vm/vm.h>
+#include <vm/vm_extern.h>
+#include <vm/vm_param.h>
+#include <vm/pmap.h>
+
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcib_private.h>
 
@@ -72,10 +74,11 @@ struct vmbus_pcpu_data {
 	uint32_t		vcpuid;		/* virtual cpuid */
 	int			event_flags_cnt;/* # of event flags */
 	struct vmbus_evtflags	*event_flags;	/* event flags from host */
+#if defined(__x86_64__)
+	void			*cpu_mem;	/* For Hyper-V tlb hypercall */
+#endif
 
 	/* Rarely used fields */
-	struct hyperv_dma	message_dma;	/* busdma glue */
-	struct hyperv_dma	event_flags_dma;/* busdma glue */
 	struct taskqueue	*event_tq;	/* event taskq */
 	struct taskqueue	*message_tq;	/* message taskq */
 	struct task		message_task;	/* message task */
@@ -105,11 +108,8 @@ struct vmbus_softc {
 
 	/* Shared memory for vmbus_{rx,tx}_evtflags */
 	void			*vmbus_evtflags;
-	struct hyperv_dma	vmbus_evtflags_dma;
 
 	void			*vmbus_mnf1;	/* monitored by VM, unused */
-	struct hyperv_dma	vmbus_mnf1_dma;
-	struct hyperv_dma	vmbus_mnf2_dma;
 
 	bool			vmbus_scandone;
 	struct task		vmbus_scandone_task;
@@ -127,16 +127,15 @@ struct vmbus_softc {
 
 	struct intr_config_hook	vmbus_intrhook;
 
-#ifdef NEW_PCIB
 	/* The list of usable MMIO ranges for PCIe pass-through */
 	struct pcib_host_resources vmbus_mmio_res;
-#endif
 
 #if defined(__aarch64__)
 	struct resource *ires;
 	void *icookie;
 	int vector;
 #endif
+	bus_dma_tag_t   dmat;
 };
 
 #define VMBUS_FLAG_ATTACHED	0x0001	/* vmbus was attached */
@@ -144,6 +143,40 @@ struct vmbus_softc {
 
 #define VMBUS_PCPU_GET(sc, field, cpu)	(sc)->vmbus_pcpu[(cpu)].field
 #define VMBUS_PCPU_PTR(sc, field, cpu)	&(sc)->vmbus_pcpu[(cpu)].field
+#define HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE	0x0002
+#define HVCALL_FLUSH_VIRTUAL_ADDRESS_SPACE_EX	0x0013
+#define HV_FLUSH_ALL_PROCESSORS		BIT(0)
+#define HV_FLUSH_ALL_VIRTUAL_ADDRESS_SPACES	BIT(1)
+#define HV_FLUSH_NON_GLOBAL_MAPPINGS_ONLY	BIT(2)
+#define HV_TLB_FLUSH_UNIT	(4096 * PAGE_SIZE)
+
+
+#define BIT(n)		(1ULL << (n))
+#define BITS_PER_LONG	(sizeof(long) * NBBY)
+#define BIT_MASK(nr)	(1UL << ((nr) & (BITS_PER_LONG - 1)))
+#define BIT_WORD(nr)	((nr) / BITS_PER_LONG)
+#define set_bit(i, a)			\
+	 atomic_set_long(&((volatile unsigned long *)(a))[BIT_WORD(i)], BIT_MASK(i))
+
+#define GENMASK_ULL(h, l)  (((~0ULL) >> (64 - (h) - 1)) & ((~0ULL) << (l)))
+
+#define HVCALL_FLUSH_VIRTUAL_ADDRESS_LIST	0x0003
+#define HVCALL_FLUSH_VIRTUAL_ADDRESS_LIST_EX	0x0014
+#define HYPERV_X64_EX_PROCESSOR_MASKS_RECOMMENDED	BIT(11)
+#define HV_HYPERCALL_RESULT_MASK	GENMASK_ULL(15, 0)
+#define HV_STATUS_SUCCESS	0
+#define HV_HYPERCALL_REP_COMP_MASK	GENMASK_ULL(43, 32)
+#define HV_HYPERCALL_REP_COMP_OFFSET	32
+
+#define HV_HYPERCALL_VARHEAD_OFFSET	17
+
+#define HV_HYPERCALL_REP_START_MASK	GENMASK_ULL(59, 48)
+#define HV_HYPERCALL_REP_START_OFFSET	48
+
+enum HV_GENERIC_SET_FORMAT {
+	HV_GENERIC_SET_SPARSE_4K,
+	HV_GENERIC_SET_ALL,
+};
 
 struct vmbus_channel;
 struct trapframe;
@@ -183,4 +216,17 @@ void    vmbus_synic_setup1(void *xsc);
 void    vmbus_synic_teardown1(void);
 int     vmbus_setup_intr1(struct vmbus_softc *sc);
 void    vmbus_intr_teardown1(struct vmbus_softc *sc);
+
+extern uint32_t hv_max_vp_index;
+
+
+#if defined(__x86_64__)
+void		hyperv_vm_tlb_flush(pmap_t, vm_offset_t,
+		    vm_offset_t, smp_invl_local_cb_t, enum invl_op_codes);
+uint64_t	hv_flush_tlb_others_ex(pmap_t, vm_offset_t, vm_offset_t,
+		    cpuset_t, enum invl_op_codes, struct vmbus_softc *);
+void		hv_vm_tlb_flush(pmap_t, vm_offset_t, vm_offset_t,
+		    enum invl_op_codes, struct vmbus_softc *,
+		    smp_invl_local_cb_t);
+#endif /* __x86_64__ */
 #endif	/* !_VMBUS_VAR_H_ */

@@ -1,5 +1,5 @@
 /*- 
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 The FreeBSD Foundation 
  * 
@@ -27,10 +27,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
  * SUCH DAMAGE. 
  */ 
-#include <sys/cdefs.h>
-#ifdef __FreeBSD__
-__FBSDID("$FreeBSD$");
-#endif
 
 /*
  * IEEE 802.11s Mesh Point (MBSS) support.
@@ -1568,8 +1564,7 @@ mesh_input(struct ieee80211_node *ni, struct mbuf *m,
 	*/
 	wh = mtod(m, struct ieee80211_frame *);
 
-	if ((wh->i_fc[0] & IEEE80211_FC0_VERSION_MASK) !=
-	    IEEE80211_FC0_VERSION_0) {
+	if (!IEEE80211_IS_FC0_CHECK_VER(wh, IEEE80211_FC0_VERSION_0)) {
 		IEEE80211_DISCARD_MAC(vap, IEEE80211_MSG_ANY,
 		    ni->ni_macaddr, NULL, "wrong version %x", wh->i_fc[0]);
 		vap->iv_stats.is_rx_badversion++;
@@ -1882,7 +1877,7 @@ mesh_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0, int subtype,
 				 * XXX check if the beacon we recv'd gives
 				 * us what we need and suppress the probe req
 				 */
-				ieee80211_probe_curchan(vap, 1);
+				ieee80211_probe_curchan(vap, true);
 				ic->ic_flags_ext &= ~IEEE80211_FEXT_PROBECHAN;
 			}
 			ieee80211_add_scan(vap, rxchan, &scan, wh,

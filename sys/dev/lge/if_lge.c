@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Level 1 LXT1001 gigabit ethernet driver for FreeBSD. Public
  * documentation not available, but ask me nicely.
@@ -514,11 +512,6 @@ lge_attach(device_t dev)
 	}
 
 	ifp = sc->lge_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -562,8 +555,7 @@ lge_attach(device_t dev)
 fail:
 	lge_free_jumbo_mem(sc);
 	if (sc->lge_ldata)
-		contigfree(sc->lge_ldata,
-		    sizeof(struct lge_list_data), M_DEVBUF);
+		free(sc->lge_ldata, M_DEVBUF);
 	if (ifp)
 		if_free(ifp);
 	if (sc->lge_irq)
@@ -591,13 +583,12 @@ lge_detach(device_t dev)
 	ether_ifdetach(ifp);
 
 	bus_generic_detach(dev);
-	device_delete_child(dev, sc->lge_miibus);
 
 	bus_teardown_intr(dev, sc->lge_irq, sc->lge_intrhand);
 	bus_release_resource(dev, SYS_RES_IRQ, 0, sc->lge_irq);
 	bus_release_resource(dev, LGE_RES, LGE_RID, sc->lge_res);
 
-	contigfree(sc->lge_ldata, sizeof(struct lge_list_data), M_DEVBUF);
+	free(sc->lge_ldata, M_DEVBUF);
 	if_free(ifp);
 	lge_free_jumbo_mem(sc);
 	mtx_destroy(&sc->lge_mtx);
@@ -791,7 +782,7 @@ lge_free_jumbo_mem(struct lge_softc *sc)
 		free(entry, M_DEVBUF);
 	}
 
-	contigfree(sc->lge_cdata.lge_jumbo_buf, LGE_JMEM, M_DEVBUF);
+	free(sc->lge_cdata.lge_jumbo_buf, M_DEVBUF);
 
 	return;
 }

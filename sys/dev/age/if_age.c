@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -28,9 +28,6 @@
  */
 
 /* Driver for Attansic Technology Corp. L1 Gigabit Ethernet. */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -593,12 +590,6 @@ age_attach(device_t dev)
 	age_get_macaddr(sc);
 
 	ifp = sc->age_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "cannot allocate ifnet structure.\n");
-		error = ENXIO;
-		goto fail;
-	}
-
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -637,12 +628,6 @@ age_attach(device_t dev)
 	/* Create local taskq. */
 	sc->age_tq = taskqueue_create_fast("age_taskq", M_WAITOK,
 	    taskqueue_thread_enqueue, &sc->age_tq);
-	if (sc->age_tq == NULL) {
-		device_printf(dev, "could not create taskqueue.\n");
-		ether_ifdetach(ifp);
-		error = ENXIO;
-		goto fail;
-	}
 	taskqueue_start_threads(&sc->age_tq, 1, PI_NET, "%s taskq",
 	    device_get_nameunit(sc->age_dev));
 
@@ -701,10 +686,6 @@ age_detach(device_t dev)
 		sc->age_tq = NULL;
 	}
 
-	if (sc->age_miibus != NULL) {
-		device_delete_child(dev, sc->age_miibus);
-		sc->age_miibus = NULL;
-	}
 	bus_generic_detach(dev);
 	age_dma_free(sc);
 

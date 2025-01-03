@@ -1,6 +1,5 @@
 /*-
  * Copyright (c) 2009 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Ed Schouten under sponsorship from the
  * FreeBSD Foundation.
@@ -28,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/endian.h>
 #include <sys/param.h>
 #include <sys/font.h>

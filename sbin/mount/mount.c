@@ -29,18 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1980, 1989, 1993, 1994\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#if 0
-static char sccsid[] = "@(#)mount.c	8.25 (Berkeley) 5/8/95";
-#endif
-#endif /* not lint */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #define _WANT_MNTOPTNAMES
 #include <sys/mount.h>
@@ -48,7 +36,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/wait.h>
 
 #include <ctype.h>
-#include <err.h>
+
 #include <errno.h>
 #include <fstab.h>
 #include <paths.h>
@@ -68,7 +56,8 @@ __FBSDID("$FreeBSD$");
 
 #define EXIT(a) {			\
 	xo_close_container("mount");	\
-	xo_finish();			\
+	if (xo_finish() < 0)			\
+		xo_err(EXIT_FAILURE, "stdout");	\
 	exit(a);			\
 	}
 
@@ -154,7 +143,7 @@ exec_mountprog(const char *name, const char *execname, char *const argv[])
 	switch (pid = fork()) {
 	case -1:				/* Error. */
 		xo_warn("fork");
-		EXIT(1);
+		EXIT(EXIT_FAILURE);
 	case 0:					/* Child. */
 		/* Go find an executable. */
 		execvP(execname, _PATH_SYSPATH, argv);
@@ -164,7 +153,7 @@ exec_mountprog(const char *name, const char *execname, char *const argv[])
 				xo_warnx("in path: %s", _PATH_SYSPATH);
 			}
 		}
-		EXIT(1);
+		EXIT(EXIT_FAILURE);
 	default:				/* Parent. */
 		if (waitpid(pid, &status, 0) < 0) {
 			xo_warn("waitpid");
@@ -229,7 +218,7 @@ main(int argc, char *argv[])
 
 	argc = xo_parse_args(argc, argv);
 	if (argc < 0)
-		exit(1);
+		exit(EXIT_FAILURE);
 	xo_open_container("mount");
 
 	while ((ch = getopt(argc, argv, "adF:fLlno:prt:uvw")) != -1)
@@ -301,7 +290,7 @@ main(int argc, char *argv[])
 	if ((init_flags & MNT_UPDATE) && (ro == 0))
 		options = catopt(options, "noro");
 
-	rval = 0;
+	rval = EXIT_SUCCESS;
 	switch (argc) {
 	case 0:
 		if ((mntsize = getmntinfo(&mntbuf,
@@ -332,7 +321,7 @@ main(int argc, char *argv[])
 				if (mountfs(fs->fs_vfstype, fs->fs_spec,
 				    fs->fs_file, init_flags, options,
 				    fs->fs_mntops) && !failok)
-					rval = 1;
+					rval = EXIT_FAILURE;
 			}
 		} else if (fstab_style) {
 			xo_open_list("fstab");
@@ -453,7 +442,7 @@ main(int argc, char *argv[])
 	 * If the mount was successfully, and done by root, tell mountd the
 	 * good news.
 	 */
-	if (rval == 0 && getuid() == 0)
+	if (rval == EXIT_SUCCESS && getuid() == 0)
 		restart_mountd();
 
 	EXIT(rval);
@@ -897,16 +886,18 @@ usage(void)
 "usage: mount [-adflpruvw] [-F fstab] [-o options] [-t ufs | external_type]",
 "       mount [-dfpruvw] special | node",
 "       mount [-dfpruvw] [-o options] [-t ufs | external_type] special node");
-	EXIT(1);
+	EXIT(EXIT_FAILURE);
 }
 
 void
 putfsent(struct statfs *ent)
 {
 	struct fstab *fst;
+	const char *mntfromname;
 	char *opts, *rw;
 	int l;
 
+	mntfromname = ent->f_mntfromname;
 	opts = NULL;
 	/* flags2opts() doesn't return the "rw" option. */
 	if ((ent->f_flags & MNT_RDONLY) != 0)
@@ -917,16 +908,14 @@ putfsent(struct statfs *ent)
 	opts = flags2opts(ent->f_flags);
 	opts = catopt(rw, opts);
 
-	if (strncmp(ent->f_mntfromname, "<below>", 7) == 0 ||
-	    strncmp(ent->f_mntfromname, "<above>", 7) == 0) {
-		strlcpy(ent->f_mntfromname,
-		    (strnstr(ent->f_mntfromname, ":", 8) +1),
-		    sizeof(ent->f_mntfromname));
+	if (strncmp(mntfromname, "<below>:", 8) == 0 ||
+	    strncmp(mntfromname, "<above>:", 8) == 0) {
+		mntfromname += 8;
 	}
 
-	l = strlen(ent->f_mntfromname);
+	l = strlen(mntfromname);
 	xo_emit("{:device}{P:/%s}{P:/%s}{P:/%s}",
-	    ent->f_mntfromname,
+	    mntfromname,
 	    l < 8 ? "\t" : "",
 	    l < 16 ? "\t" : "",
 	    l < 24 ? "\t" : " ");
@@ -942,7 +931,7 @@ putfsent(struct statfs *ent)
 	    l < 8 ? "\t" : " ");
 	free(opts);
 
-	if ((fst = getfsspec(ent->f_mntfromname)))
+	if ((fst = getfsspec(mntfromname)))
 		xo_emit("{P:\t}{n:dump/%u}{P: }{n:pass/%u}\n",
 		    fst->fs_freq, fst->fs_passno);
 	else if ((fst = getfsfile(ent->f_mntonname)))

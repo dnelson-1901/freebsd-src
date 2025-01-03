@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Michal Meloun <mmel@FreeBSD.org>
  *
@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Thermometer and thermal zones driver for RockChip SoCs.
  * Calibration data are taken from Linux, because this part of SoC
@@ -46,9 +44,9 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/syscon/syscon.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/syscon/syscon.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
@@ -820,7 +818,8 @@ tsadc_attach(device_t dev)
 	}
 
 	OF_device_register_xref(OF_xref_from_node(node), dev);
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail_sysctl:
 	sysctl_ctx_free(&tsadc_sysctl_ctx);

@@ -38,7 +38,6 @@
  * Costa Mesa, CA 92626
  */
 
-/* $FreeBSD$ */
 
 #include "opt_inet6.h"
 #include "opt_inet.h"
@@ -171,7 +170,7 @@ static void oce_rx_lro(struct oce_rq *rq, struct nic_hwlro_singleton_cqe *cqe, s
 static void oce_rx_mbuf_chain(struct oce_rq *rq, struct oce_common_cqe_info *cqe_info, struct mbuf **m);
 
 /* Helper function prototypes in this file */
-static int  oce_attach_ifp(POCE_SOFTC sc);
+static void oce_attach_ifp(POCE_SOFTC sc);
 static void oce_add_vlan(void *arg, if_t ifp, uint16_t vtag);
 static void oce_del_vlan(void *arg, if_t ifp, uint16_t vtag);
 static int  oce_vid_config(POCE_SOFTC sc);
@@ -253,7 +252,6 @@ oce_probe(device_t dev)
 	uint16_t vendor = 0;
 	uint16_t device = 0;
 	int i = 0;
-	char str[256] = {0};
 	POCE_SOFTC sc;
 
 	sc = device_get_softc(dev);
@@ -266,9 +264,9 @@ oce_probe(device_t dev)
 	for (i = 0; i < (sizeof(supportedDevices) / sizeof(uint32_t)); i++) {
 		if (vendor == ((supportedDevices[i] >> 16) & 0xffff)) {
 			if (device == (supportedDevices[i] & 0xffff)) {
-				sprintf(str, "%s:%s", "Emulex CNA NIC function",
-					component_revision);
-				device_set_desc_copy(dev, str);
+				device_set_descf(dev,
+				    "%s:%s", "Emulex CNA NIC function",
+				    component_revision);
 
 				switch (device) {
 				case PCI_PRODUCT_BE2:
@@ -336,9 +334,7 @@ oce_attach(device_t dev)
 	if (rc)
 		goto intr_free;
 
-	rc = oce_attach_ifp(sc);
-	if (rc)
-		goto queues_free;
+	oce_attach_ifp(sc);
 
 #if defined(INET6) || defined(INET)
 	rc = oce_init_lro(sc);
@@ -374,6 +370,8 @@ oce_attach(device_t dev)
 	}
 	softc_tail = sc;
 
+	gone_in_dev(dev, 15, "relatively uncommon 10GbE NIC");
+
 	return 0;
 
 stats_free:
@@ -392,7 +390,6 @@ ifp_free:
 #endif
 	ether_ifdetach(sc->ifp);
 	if_free(sc->ifp);
-queues_free:
 	oce_queue_release_all(sc);
 intr_free:
 	oce_intr_free(sc);
@@ -1497,7 +1494,7 @@ oce_correct_header(struct mbuf *m, struct nic_hwlro_cqe_part1 *cqe1, struct nic_
         /* correct tcp header */
         tcp_hdr->th_ack = htonl(cqe2->tcp_ack_num);
         if(cqe2->push) {
-        	tcp_hdr->th_flags |= TH_PUSH;
+		tcp_set_flags(tcp_hdr, tcp_get_flags(tcp_hdr) | TH_PUSH);
         }
         tcp_hdr->th_win = htons(cqe2->tcp_window);
         tcp_hdr->th_sum = 0xffff;
@@ -2099,19 +2096,17 @@ oce_rq_handler(void *arg)
  *		   Helper function prototypes in this file 		     *
  *****************************************************************************/
 
-static int 
+static void
 oce_attach_ifp(POCE_SOFTC sc)
 {
 
 	sc->ifp = if_alloc(IFT_ETHER);
-	if (!sc->ifp)
-		return ENOMEM;
 
 	ifmedia_init(&sc->media, IFM_IMASK, oce_media_change, oce_media_status);
 	ifmedia_add(&sc->media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&sc->media, IFM_ETHER | IFM_AUTO);
 
-	if_setflags(sc->ifp, IFF_BROADCAST | IFF_MULTICAST | IFF_KNOWSEPOCH);
+	if_setflags(sc->ifp, IFF_BROADCAST | IFF_MULTICAST);
 	if_setioctlfn(sc->ifp, oce_ioctl);
 	if_setstartfn(sc->ifp, oce_start);
 	if_setinitfn(sc->ifp, oce_init);
@@ -2148,8 +2143,6 @@ oce_attach_ifp(POCE_SOFTC sc)
 	if_sethwtsomaxsegsize(sc->ifp, 4096);
 
 	ether_ifattach(sc->ifp, sc->macaddr.mac_addr);
-
-	return 0;
 }
 
 static void
@@ -2246,7 +2239,6 @@ oce_handle_passthrough(if_t ifp, caddr_t data)
 	uint32_t req_size;
 	struct mbx_hdr req;
 	OCE_DMA_MEM dma_mem;
-	struct mbx_common_get_cntl_attr *fw_cmd;
 
 	if (copyin(priv_data, cookie, strlen(IOCTL_COOKIE)))
 		return EFAULT;
@@ -2278,17 +2270,25 @@ oce_handle_passthrough(if_t ifp, caddr_t data)
 		goto dma_free;
 	}
 
-	if (copyout(OCE_DMAPTR(&dma_mem,char), ioctl_ptr, req_size))
+	if (copyout(OCE_DMAPTR(&dma_mem,char), ioctl_ptr, req_size)) {
 		rc =  EFAULT;
+		goto dma_free;
+	}
 
 	/* 
 	   firmware is filling all the attributes for this ioctl except
 	   the driver version..so fill it 
 	 */
 	if(req.u0.rsp.opcode == OPCODE_COMMON_GET_CNTL_ATTRIBUTES) {
-		fw_cmd = (struct mbx_common_get_cntl_attr *) ioctl_ptr;
-		strncpy(fw_cmd->params.rsp.cntl_attr_info.hba_attr.drv_ver_str,
-			COMPONENT_REVISION, strlen(COMPONENT_REVISION));	
+		struct mbx_common_get_cntl_attr *fw_cmd =
+		    (struct mbx_common_get_cntl_attr *)ioctl_ptr;
+		_Static_assert(sizeof(COMPONENT_REVISION) <=
+		     sizeof(fw_cmd->params.rsp.cntl_attr_info.hba_attr.drv_ver_str),
+		     "driver version string too long");
+
+		rc = copyout(COMPONENT_REVISION,
+		    fw_cmd->params.rsp.cntl_attr_info.hba_attr.drv_ver_str,
+		    sizeof(COMPONENT_REVISION));
 	}
 
 dma_free:

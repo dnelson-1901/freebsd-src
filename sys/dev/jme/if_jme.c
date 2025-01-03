@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -26,9 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -807,12 +804,6 @@ jme_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->jme_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "cannot allocate ifnet structure.\n");
-		error = ENXIO;
-		goto fail;
-	}
-
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -881,12 +872,6 @@ jme_attach(device_t dev)
 	/* Create local taskq. */
 	sc->jme_tq = taskqueue_create_fast("jme_taskq", M_WAITOK,
 	    taskqueue_thread_enqueue, &sc->jme_tq);
-	if (sc->jme_tq == NULL) {
-		device_printf(dev, "could not create taskqueue.\n");
-		ether_ifdetach(ifp);
-		error = ENXIO;
-		goto fail;
-	}
 	taskqueue_start_threads(&sc->jme_tq, 1, PI_NET, "%s taskq",
 	    device_get_nameunit(sc->jme_dev));
 
@@ -943,10 +928,6 @@ jme_detach(device_t dev)
 		sc->jme_tq = NULL;
 	}
 
-	if (sc->jme_miibus != NULL) {
-		device_delete_child(dev, sc->jme_miibus);
-		sc->jme_miibus = NULL;
-	}
 	bus_generic_detach(dev);
 	jme_dma_free(sc);
 

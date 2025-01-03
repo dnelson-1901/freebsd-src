@@ -37,9 +37,6 @@
  * be picked up and redistributed in Linux with a dual GPL/BSD license.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/systm.h>
@@ -465,7 +462,7 @@ ntb_transport_attach(device_t dev)
 		nc->consumer = i;
 		nc->qpoff = qpu;
 		nc->qpcnt = qp;
-		nc->dev = device_add_child(dev, name, -1);
+		nc->dev = device_add_child(dev, name, DEVICE_UNIT_ANY);
 		if (nc->dev == NULL) {
 			device_printf(dev, "Can not add child.\n");
 			break;
@@ -514,7 +511,7 @@ ntb_transport_attach(device_t dev)
 	if (enable_xeon_watchdog != 0)
 		callout_reset(&nt->link_watchdog, 0, xeon_link_watchdog_hb, nt);
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 	return (0);
 
 err:

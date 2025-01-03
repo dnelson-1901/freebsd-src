@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Orion Hodson <oho@acm.org>
  * All rights reserved.
@@ -47,8 +47,6 @@
 #include <dev/pci/pcivar.h>
 
 #include "mixer_if.h"
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 /* Debugging macro's */
 #undef DEB
@@ -841,17 +839,19 @@ als_pci_attach(device_t dev)
 		goto bad_attach;
 	}
 
-	if (pcm_register(dev, sc, 1, 1)) {
-		device_printf(dev, "failed to register pcm entries\n");
-		goto bad_attach;
-	}
+	pcm_init(dev, sc);
 
 	pcm_addchan(dev, PCMDIR_PLAY, &alspchan_class, sc);
 	pcm_addchan(dev, PCMDIR_REC,  &alsrchan_class, sc);
 
-	snprintf(status, SND_STATUSLEN, "at io 0x%jx irq %jd %s",
-		 rman_get_start(sc->reg), rman_get_start(sc->irq),PCM_KLDSTRING(snd_als4000));
-	pcm_setstatus(dev, status);
+	snprintf(status, SND_STATUSLEN, "port 0x%jx irq %jd on %s",
+		 rman_get_start(sc->reg), rman_get_start(sc->irq),
+		 device_get_nameunit(device_get_parent(dev)));
+	if (pcm_register(dev, status)) {
+		device_printf(dev, "failed to register pcm entries\n");
+		goto bad_attach;
+	}
+
 	return 0;
 
  bad_attach:

@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_JIFFIES_H_
 #define	_LINUXKPI_LINUX_JIFFIES_H_
@@ -40,7 +38,7 @@
 
 #define	jiffies			ticks
 #define	jiffies_64		ticks
-#define	jiffies_to_msecs(x)     (((int64_t)(int)(x)) * 1000 / hz)
+#define	jiffies_to_msecs(x)     ((unsigned int)(((int64_t)(int)(x)) * 1000 / hz))
 
 #define	MAX_JIFFY_OFFSET	((INT_MAX >> 1) - 1)
 
@@ -54,6 +52,7 @@
 	(time_after_eq(a,b) && time_before_eq(a,c))
 #define	time_is_after_eq_jiffies(a) time_after_eq(a, jiffies)
 #define	time_is_after_jiffies(a) time_after(a, jiffies)
+#define	time_is_before_jiffies(a)	time_before(a, jiffies)
 
 #define	HZ	hz
 

@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Memory controller driver for Tegra SoCs.
  */
@@ -44,7 +42,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/resource.h>
 #include <sys/rman.h>
 
-#include <dev/extres/clk/clk.h>
+#include <dev/clk/clk.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
@@ -262,7 +260,8 @@ tegra_mc_attach(device_t dev)
 	/* Enable Interrupts */
 	WR4(sc, MC_INTMASK, MC_INT_INT_MASK);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail:
 	if (sc->clk != NULL)
@@ -282,6 +281,11 @@ static int
 tegra_mc_detach(device_t dev)
 {
 	struct tegra_mc_softc *sc;
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 	if (sc->irq_h != NULL)
@@ -292,7 +296,7 @@ tegra_mc_detach(device_t dev)
 		bus_release_resource(dev, SYS_RES_MEMORY, 0, sc->mem_res);
 
 	LOCK_DESTROY(sc);
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 static device_method_t tegra_mc_methods[] = {

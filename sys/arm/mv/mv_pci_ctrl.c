@@ -37,9 +37,6 @@
  * Marvell integrated PCI/PCI-Express Bus Controller Driver.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -152,7 +149,8 @@ mv_pcib_ctrl_attach(device_t dev)
 	if (err != 0)
 		return (err);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int
@@ -188,7 +186,7 @@ mv_pcib_ofw_bus_attach(device_t dev)
 				continue;
 			}
 
-			child = device_add_child(dev, NULL, -1);
+			child = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
 			if (child == NULL) {
 				if (bootverbose) {
 					device_printf(dev,

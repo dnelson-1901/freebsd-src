@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 IronPort Systems Inc. <ambrisko@ironport.com>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -202,7 +199,7 @@ read_start:
 		goto fail;
 	}
 #ifdef SSIF_DEBUG
-	device_printf("SSIF: READ_START: ok\n");
+	device_printf(dev, "SSIF: READ_START: ok\n");
 #endif
 
 	/*
@@ -362,15 +359,14 @@ ssif_startup(struct ipmi_softc *sc)
 }
 
 static int
-ssif_driver_request(struct ipmi_softc *sc, struct ipmi_request *req, int timo)
+ssif_driver_request(struct ipmi_softc *sc, struct ipmi_request *req)
 {
 	int error;
 
 	IPMI_LOCK(sc);
 	error = ipmi_polled_enqueue_request(sc, req);
 	if (error == 0)
-		error = msleep(req, &sc->ipmi_requests_lock, 0, "ipmireq",
-		    timo);
+		error = msleep(req, &sc->ipmi_requests_lock, 0, "ipmireq", 0);
 	if (error == 0)
 		error = req->ir_error;
 	IPMI_UNLOCK(sc);

@@ -27,9 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)namei.h	8.5 (Berkeley) 1/9/95
- * $FreeBSD$
  */
 
 #ifndef _SYS_NAMEI_H_
@@ -40,6 +37,8 @@
 #include <sys/queue.h>
 #include <sys/_seqc.h>
 #include <sys/_uio.h>
+
+#include <vm/uma.h>
 
 enum nameiop { LOOKUP, CREATE, DELETE, RENAME };
 
@@ -159,8 +158,8 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
  * Namei parameter descriptors.
  */
 #define	RDONLY		0x00000200 /* lookup with read-only semantics */
-/* UNUSED		0x00000400 */
-/* UNUSED		0x00000800 */
+#define	ISRESTARTED	0x00000400 /* restarted namei */
+#define	IGNOREWHITEOUT	0x00000800 /* ignore whiteouts, e.g. when checking if a dir is empty */
 #define	ISWHITEOUT	0x00001000 /* found whiteout */
 #define	DOWHITEOUT	0x00002000 /* do whiteouts */
 #define	WILLBEDIR	0x00004000 /* new files will be dirs; allow trailing / */
@@ -187,7 +186,7 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
  */
 #define NAMEI_INTERNAL_FLAGS	\
 	(NOEXECCHECK | MAKEENTRY | ISSYMLINK | ISLASTCN | ISDOTDOT | \
-	 TRAILINGSLASH)
+	 TRAILINGSLASH | ISRESTARTED)
 
 /*
  * Namei results flags
@@ -199,8 +198,12 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 /*
  * Flags in ni_lcf, valid for the duration of the namei call.
  */
-#define	NI_LCF_STRICTRELATIVE	0x0001	/* relative lookup only */
+#define	NI_LCF_STRICTREL	0x0001	/* relative lookup only */
 #define	NI_LCF_CAP_DOTDOT	0x0002	/* ".." in strictrelative case */
+/* Track capability restrictions seperately for violation ktracing. */
+#define	NI_LCF_STRICTREL_KTR	0x0004	/* trace relative lookups */
+#define	NI_LCF_CAP_DOTDOT_KTR	0x0008	/* ".." in strictrelative case */
+#define	NI_LCF_KTR_FLAGS	(NI_LCF_STRICTREL_KTR | NI_LCF_CAP_DOTDOT_KTR)
 
 /*
  * Initialization of a nameidata structure.
@@ -268,15 +271,6 @@ do {										\
 	(ndp)->ni_vp_seqc = SEQC_MOD;						\
 } while (0)
 
-#define NDF_NO_DVP_RELE		0x00000001
-#define NDF_NO_DVP_UNLOCK	0x00000002
-#define NDF_NO_DVP_PUT		0x00000003
-#define NDF_NO_VP_RELE		0x00000004
-#define NDF_NO_VP_UNLOCK	0x00000008
-#define NDF_NO_VP_PUT		0x0000000c
-#define NDF_NO_STARTDIR_RELE	0x00000010
-#define NDF_NO_FREE_PNBUF	0x00000020
-
 #define NDFREE_IOCTLCAPS(ndp) do {						\
 	struct nameidata *_ndp = (ndp);						\
 	filecaps_free(&_ndp->ni_filecaps);					\
@@ -293,6 +287,13 @@ int	namei(struct nameidata *ndp);
 int	vfs_lookup(struct nameidata *ndp);
 int	vfs_relookup(struct vnode *dvp, struct vnode **vpp,
 	    struct componentname *cnp, bool refstart);
+
+#define namei_setup_rootdir(ndp, cnp, pwd) do {					\
+	if (__predict_true((cnp->cn_flags & ISRESTARTED) == 0))			\
+		ndp->ni_rootdir = pwd->pwd_adir;				\
+	else									\
+		ndp->ni_rootdir = pwd->pwd_rdir;				\
+} while (0)
 #endif
 
 /*

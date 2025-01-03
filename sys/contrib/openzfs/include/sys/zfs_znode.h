@@ -158,6 +158,9 @@ extern "C" {
 #define	ZFS_DIRENT_OBJ(de) BF64_GET(de, 0, 48)
 
 extern int zfs_obj_to_path(objset_t *osp, uint64_t obj, char *buf, int len);
+extern int zfs_obj_to_pobj(objset_t *osp, sa_handle_t *hdl,
+    sa_attr_type_t *sa_table, uint64_t *pobjp, int *is_xattrdir);
+extern int zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value);
 
 #ifdef _KERNEL
 #include <sys/zfs_znode_impl.h>
@@ -280,7 +283,6 @@ extern void	zfs_znode_delete(znode_t *, dmu_tx_t *);
 extern void	zfs_remove_op_tables(void);
 extern int	zfs_create_op_tables(void);
 extern dev_t	zfs_cmpldev(uint64_t);
-extern int	zfs_get_zplprop(objset_t *os, zfs_prop_t prop, uint64_t *value);
 extern int	zfs_get_stats(objset_t *os, nvlist_t *nv);
 extern boolean_t zfs_get_vfs_flag_unmounted(objset_t *os);
 extern void	zfs_znode_dmu_fini(znode_t *);
@@ -307,14 +309,17 @@ extern void zfs_log_rename_whiteout(zilog_t *zilog, dmu_tx_t *tx,
     uint64_t txtype, znode_t *sdzp, const char *sname, znode_t *tdzp,
     const char *dname, znode_t *szp, znode_t *wzp);
 extern void zfs_log_write(zilog_t *zilog, dmu_tx_t *tx, int txtype,
-    znode_t *zp, offset_t off, ssize_t len, int ioflag,
-    zil_callback_t callback, void *callback_data);
+    znode_t *zp, offset_t off, ssize_t len, boolean_t commit,
+    boolean_t o_direct, zil_callback_t callback, void *callback_data);
 extern void zfs_log_truncate(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, uint64_t off, uint64_t len);
 extern void zfs_log_setattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,
     znode_t *zp, vattr_t *vap, uint_t mask_applied, zfs_fuid_info_t *fuidp);
 extern void zfs_log_acl(zilog_t *zilog, dmu_tx_t *tx, znode_t *zp,
     vsecattr_t *vsecp, zfs_fuid_info_t *fuidp);
+extern void zfs_log_clone_range(zilog_t *zilog, dmu_tx_t *tx, int txtype,
+    znode_t *zp, uint64_t offset, uint64_t length, uint64_t blksz,
+    const blkptr_t *bps, size_t nbps);
 extern void zfs_xvattr_set(znode_t *zp, xvattr_t *xvap, dmu_tx_t *tx);
 extern void zfs_upgrade(zfsvfs_t *zfsvfs, dmu_tx_t *tx);
 extern void zfs_log_setsaxattr(zilog_t *zilog, dmu_tx_t *tx, int txtype,

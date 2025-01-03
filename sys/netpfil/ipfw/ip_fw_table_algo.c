@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Lookup table algorithms.
  *
@@ -2695,7 +2693,7 @@ numarray_find(struct table_info *ti, void *key)
 	struct numarray *ri;
 
 	ri = bsearch(key, ti->state, ti->data, sizeof(struct numarray),
-	    compare_ifidx);
+	    compare_numarray);
 
 	return (ri);
 }
@@ -4308,7 +4306,7 @@ ta_find_mac_radix_tentry(void *ta_state, struct table_info *ti,
 	if (tent->subtype == AF_LINK) {
 		struct sa_mac sa;
 		KEY_LEN(sa) = KEY_LEN_MAC;
-		memcpy(tent->k.mac, sa.mac_addr.octet, ETHER_ADDR_LEN);
+		memcpy(sa.mac_addr.octet, tent->k.mac, ETHER_ADDR_LEN);
 		rnh = (struct radix_node_head *)ti->state;
 		e = rnh->rnh_matchaddr(&sa, &rnh->rh);
 	}

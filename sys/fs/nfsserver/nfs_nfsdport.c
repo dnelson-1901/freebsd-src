@@ -33,9 +33,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/capsicum.h>
 #include <sys/extattr.h>
 
@@ -54,6 +51,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 #include <nlm/nlm_prot.h>
 #include <nlm/nlm.h>
+#include <vm/vm_param.h>
+#include <vm/vnode_pager.h>
 
 FEATURE(nfsd, "NFSv4 server");
 
@@ -70,6 +69,7 @@ extern int nfsrv_maxpnfsmirror;
 extern uint32_t nfs_srvmaxio;
 extern int nfs_bufpackets;
 extern u_long sb_max_adj;
+extern struct nfsv4lock nfsv4rootfs_lock;
 
 NFSD_VNET_DECLARE(int, nfsrv_numnfsd);
 NFSD_VNET_DECLARE(struct nfsrv_stablefirst, nfsrv_stablefirst);
@@ -118,6 +118,11 @@ static int nfs_commit_miss;
 extern int nfsrv_issuedelegs;
 extern int nfsrv_dolocallocks;
 extern struct nfsdevicehead nfsrv_devidhead;
+
+/* Map d_type to vnode type. */
+static uint8_t dtype_to_vnode[DT_WHT + 1] = { VNON, VFIFO, VCHR, VNON, VDIR,
+    VNON, VBLK, VNON, VREG, VNON, VLNK, VNON, VSOCK, VNON, VNON };
+#define	NFS_DTYPETOVTYPE(t)	((t) <= DT_WHT ? dtype_to_vnode[(t)] : VNON)
 
 static int nfsrv_createiovec(int, struct mbuf **, struct mbuf **,
     struct iovec **);
@@ -174,8 +179,6 @@ SYSCTL_INT(_vfs_nfsd, OID_AUTO, commit_miss, CTLFLAG_RW, &nfs_commit_miss,
     0, "");
 SYSCTL_INT(_vfs_nfsd, OID_AUTO, issue_delegations, CTLFLAG_RW,
     &nfsrv_issuedelegs, 0, "Enable nfsd to issue delegations");
-SYSCTL_INT(_vfs_nfsd, OID_AUTO, enable_locallocks, CTLFLAG_RW,
-    &nfsrv_dolocallocks, 0, "Enable nfsd to acquire local locks on files");
 SYSCTL_INT(_vfs_nfsd, OID_AUTO, debuglevel, CTLFLAG_RW, &nfsd_debuglevel,
     0, "Debug level for NFS server");
 NFSD_VNET_DECLARE(int, nfsd_enable_stringtouid);
@@ -289,6 +292,38 @@ sysctl_srvmaxio(SYSCTL_HANDLER_ARGS)
 SYSCTL_PROC(_vfs_nfsd, OID_AUTO, srvmaxio,
     CTLTYPE_UINT | CTLFLAG_MPSAFE | CTLFLAG_RW, NULL, 0,
     sysctl_srvmaxio, "IU", "Maximum I/O size in bytes");
+
+static int
+sysctl_dolocallocks(SYSCTL_HANDLER_ARGS)
+{
+	int error, igotlock, newdolocallocks;
+
+	newdolocallocks = nfsrv_dolocallocks;
+	error = sysctl_handle_int(oidp, &newdolocallocks, 0, req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+	if (newdolocallocks == nfsrv_dolocallocks)
+		return (0);
+	if (jailed(curthread->td_ucred))
+		return (EINVAL);
+
+	NFSLOCKV4ROOTMUTEX();
+	do {
+		igotlock = nfsv4_lock(&nfsv4rootfs_lock, 1, NULL,
+		    NFSV4ROOTLOCKMUTEXPTR, NULL);
+	} while (!igotlock);
+	NFSUNLOCKV4ROOTMUTEX();
+
+	nfsrv_dolocallocks = newdolocallocks;
+
+	NFSLOCKV4ROOTMUTEX();
+	nfsv4_unlock(&nfsv4rootfs_lock, 0);
+	NFSUNLOCKV4ROOTMUTEX();
+	return (0);
+}
+SYSCTL_PROC(_vfs_nfsd, OID_AUTO, enable_locallocks,
+    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RW, NULL, 0,
+    sysctl_dolocallocks, "IU", "Enable nfsd to acquire local locks on files");
 
 #define	MAX_REORDERED_RPC	16
 #define	NUM_HEURISTIC		1031
@@ -1283,7 +1318,7 @@ nfsvno_mknod(struct nameidata *ndp, struct nfsvattr *nvap, struct ucred *cred,
     struct thread *p)
 {
 	int error = 0;
-	enum vtype vtyp;
+	__enum_uint8(vtype) vtyp;
 
 	vtyp = nvap->na_type;
 	/*
@@ -1651,8 +1686,8 @@ out1:
  * Link vnode op.
  */
 int
-nfsvno_link(struct nameidata *ndp, struct vnode *vp, struct ucred *cred,
-    struct thread *p, struct nfsexstuff *exp)
+nfsvno_link(struct nameidata *ndp, struct vnode *vp, nfsquad_t clientid,
+    struct ucred *cred, struct thread *p, struct nfsexstuff *exp)
 {
 	struct vnode *xp;
 	int error = 0;
@@ -1667,9 +1702,11 @@ nfsvno_link(struct nameidata *ndp, struct vnode *vp, struct ucred *cred,
 	}
 	if (!error) {
 		NFSVOPLOCK(vp, LK_EXCLUSIVE | LK_RETRY);
-		if (!VN_IS_DOOMED(vp))
-			error = VOP_LINK(ndp->ni_dvp, vp, &ndp->ni_cnd);
-		else
+		if (!VN_IS_DOOMED(vp)) {
+			error = nfsrv_checkremove(vp, 0, NULL, clientid, p);
+			if (error == 0)
+				error = VOP_LINK(ndp->ni_dvp, vp, &ndp->ni_cnd);
+		} else
 			error = EPERM;
 		if (ndp->ni_dvp == vp) {
 			vrele(ndp->ni_dvp);
@@ -1713,11 +1750,7 @@ nfsvno_fsync(struct vnode *vp, u_int64_t off, int cnt, struct ucred *cred,
 		/*
 		 * Give up and do the whole thing
 		 */
-		if (vp->v_object && vm_object_mightbedirty(vp->v_object)) {
-			VM_OBJECT_WLOCK(vp->v_object);
-			vm_object_page_clean(vp->v_object, 0, 0, OBJPC_SYNC);
-			VM_OBJECT_WUNLOCK(vp->v_object);
-		}
+		vnode_pager_clean_sync(vp);
 		error = VOP_FSYNC(vp, MNT_WAIT, td);
 	} else {
 		/*
@@ -2251,12 +2284,12 @@ again:
 			if (nd->nd_flag & ND_NFSV3) {
 				NFSM_BUILD(tl, u_int32_t *, 3 * NFSX_UNSIGNED);
 				*tl++ = newnfs_true;
-				*tl++ = 0;
+				txdr_hyper(dp->d_fileno, tl);
 			} else {
 				NFSM_BUILD(tl, u_int32_t *, 2 * NFSX_UNSIGNED);
 				*tl++ = newnfs_true;
+				*tl = txdr_unsigned(dp->d_fileno);
 			}
-			*tl = txdr_unsigned(dp->d_fileno);
 			(void) nfsm_strtom(nd, dp->d_name, nlen);
 			if (nd->nd_flag & ND_NFSV3) {
 				NFSM_BUILD(tl, u_int32_t *, 2 * NFSX_UNSIGNED);
@@ -2312,7 +2345,7 @@ nfsrvd_readdirplus(struct nfsrv_descript *nd, int isdgram,
 	caddr_t bpos0, bpos1;
 	u_int64_t off, toff, verf __unused;
 	uint64_t *cookies = NULL, *cookiep;
-	nfsattrbit_t attrbits, rderrbits, savbits;
+	nfsattrbit_t attrbits, rderrbits, savbits, refbits;
 	struct uio io;
 	struct iovec iv;
 	struct componentname cn;
@@ -2363,9 +2396,20 @@ nfsrvd_readdirplus(struct nfsrv_descript *nd, int isdgram,
 		if (error)
 			goto nfsmout;
 		NFSSET_ATTRBIT(&savbits, &attrbits);
+		NFSSET_ATTRBIT(&refbits, &attrbits);
 		NFSCLRNOTFILLABLE_ATTRBIT(&attrbits, nd);
 		NFSZERO_ATTRBIT(&rderrbits);
 		NFSSETBIT_ATTRBIT(&rderrbits, NFSATTRBIT_RDATTRERROR);
+		/*
+		 * If these 4 bits are the only attributes requested by the
+		 * client, they can be satisfied without acquiring the vnode
+		 * for the file object unless it is a directory.
+		 * This will be indicated by savbits being all 0s.
+		 */
+		NFSCLRBIT_ATTRBIT(&savbits, NFSATTRBIT_TYPE);
+		NFSCLRBIT_ATTRBIT(&savbits, NFSATTRBIT_FILEID);
+		NFSCLRBIT_ATTRBIT(&savbits, NFSATTRBIT_MOUNTEDONFILEID);
+		NFSCLRBIT_ATTRBIT(&savbits, NFSATTRBIT_RDATTRERROR);
 	} else {
 		NFSZERO_ATTRBIT(&attrbits);
 	}
@@ -2608,7 +2652,10 @@ again:
 			new_mp = mp;
 			mounted_on_fileno = (uint64_t)dp->d_fileno;
 			if ((nd->nd_flag & ND_NFSV3) ||
-			    NFSNONZERO_ATTRBIT(&savbits)) {
+			    NFSNONZERO_ATTRBIT(&savbits) ||
+			    dp->d_type == DT_UNKNOWN ||
+			    (dp->d_type == DT_DIR &&
+			     nfsrv_enable_crossmntpt != 0)) {
 				if (nd->nd_flag & ND_NFSV4)
 					refp = nfsv4root_getreferral(NULL,
 					    vp, dp->d_fileno);
@@ -2745,6 +2792,11 @@ again:
 						break;
 					}
 				}
+			} else if (NFSNONZERO_ATTRBIT(&attrbits)) {
+				/* Only need Type and/or Fileid. */
+				VATTR_NULL(&nvap->na_vattr);
+				nvap->na_fileid = dp->d_fileno;
+				nvap->na_type = NFS_DTYPETOVTYPE(dp->d_type);
 			}
 
 			/*
@@ -2753,8 +2805,7 @@ again:
 			if (nd->nd_flag & ND_NFSV3) {
 				NFSM_BUILD(tl, u_int32_t *, 3 * NFSX_UNSIGNED);
 				*tl++ = newnfs_true;
-				*tl++ = 0;
-				*tl = txdr_unsigned(dp->d_fileno);
+				txdr_hyper(dp->d_fileno, tl);
 				dirlen += nfsm_strtom(nd, dp->d_name, nlen);
 				NFSM_BUILD(tl, u_int32_t *, 2 * NFSX_UNSIGNED);
 				txdr_hyper(*cookiep, tl);
@@ -2777,7 +2828,7 @@ again:
 					supports_nfsv4acls = 0;
 				if (refp != NULL) {
 					dirlen += nfsrv_putreferralattr(nd,
-					    &savbits, refp, 0,
+					    &refbits, refp, 0,
 					    &nd->nd_repstat);
 					if (nd->nd_repstat) {
 						if (nvp != NULL)
@@ -2975,6 +3026,8 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 	/*
 	 * Loop around getting the setable attributes. If an unsupported
 	 * one is found, set nd_repstat == NFSERR_ATTRNOTSUPP and return.
+	 * Once nd_repstat != 0, do not set the attribute value, but keep
+	 * parsing the attribute(s).
 	 */
 	if (retnotsup) {
 		nd->nd_repstat = NFSERR_ATTRNOTSUPP;
@@ -2992,12 +3045,13 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 		switch (bitpos) {
 		case NFSATTRBIT_SIZE:
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_HYPER);
-                     if (vp != NULL && vp->v_type != VREG) {
-                            error = (vp->v_type == VDIR) ? NFSERR_ISDIR :
-                                NFSERR_INVAL;
-                            goto nfsmout;
+			if (!nd->nd_repstat) {
+				if (vp != NULL && vp->v_type != VREG)
+					nd->nd_repstat = (vp->v_type == VDIR) ?
+					    NFSERR_ISDIR : NFSERR_INVAL;
+				else
+					nvap->na_size = fxdr_hyper(tl);
 			}
-			nvap->na_size = fxdr_hyper(tl);
 			attrsum += NFSX_HYPER;
 			break;
 		case NFSATTRBIT_ACL:
@@ -3034,7 +3088,8 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 		case NFSATTRBIT_MODE:
 			moderet = NFSERR_INVAL;	/* Can't do MODESETMASKED. */
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
-			nvap->na_mode = nfstov_mode(*tl);
+			if (!nd->nd_repstat)
+				nvap->na_mode = nfstov_mode(*tl);
 			attrsum += NFSX_UNSIGNED;
 			break;
 		case NFSATTRBIT_OWNER:
@@ -3102,10 +3157,11 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			attrsum += NFSX_UNSIGNED;
 			if (fxdr_unsigned(int, *tl)==NFSV4SATTRTIME_TOCLIENT) {
 			    NFSM_DISSECT(tl, u_int32_t *, NFSX_V4TIME);
-			    fxdr_nfsv4time(tl, &nvap->na_atime);
+			    if (!nd->nd_repstat)
+				fxdr_nfsv4time(tl, &nvap->na_atime);
 			    toclient = 1;
 			    attrsum += NFSX_V4TIME;
-			} else {
+			} else if (!nd->nd_repstat) {
 			    vfs_timestamp(&nvap->na_atime);
 			    nvap->na_vaflags |= VA_UTIMES_NULL;
 			}
@@ -3118,7 +3174,8 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			break;
 		case NFSATTRBIT_TIMECREATE:
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_V4TIME);
-			fxdr_nfsv4time(tl, &nvap->na_btime);
+			if (!nd->nd_repstat)
+				fxdr_nfsv4time(tl, &nvap->na_btime);
 			attrsum += NFSX_V4TIME;
 			break;
 		case NFSATTRBIT_TIMEMODIFYSET:
@@ -3126,10 +3183,11 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			attrsum += NFSX_UNSIGNED;
 			if (fxdr_unsigned(int, *tl)==NFSV4SATTRTIME_TOCLIENT) {
 			    NFSM_DISSECT(tl, u_int32_t *, NFSX_V4TIME);
-			    fxdr_nfsv4time(tl, &nvap->na_mtime);
+			    if (!nd->nd_repstat)
+				fxdr_nfsv4time(tl, &nvap->na_mtime);
 			    nvap->na_vaflags &= ~VA_UTIMES_NULL;
 			    attrsum += NFSX_V4TIME;
-			} else {
+			} else if (!nd->nd_repstat) {
 			    vfs_timestamp(&nvap->na_mtime);
 			    if (!toclient)
 				nvap->na_vaflags |= VA_UTIMES_NULL;
@@ -3147,18 +3205,40 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 			 * specified and this attribute cannot be done in the
 			 * same Setattr operation.
 			 */
-			if ((nd->nd_flag & ND_NFSV41) == 0)
-				nd->nd_repstat = NFSERR_ATTRNOTSUPP;
-			else if ((mode & ~07777) != 0 || (mask & ~07777) != 0 ||
-			    vp == NULL)
-				nd->nd_repstat = NFSERR_INVAL;
-			else if (moderet == 0)
-				moderet = VOP_GETATTR(vp, &va, nd->nd_cred);
-			if (moderet == 0)
-				nvap->na_mode = (mode & mask) |
-				    (va.va_mode & ~mask);
-			else
-				nd->nd_repstat = moderet;
+			if (!nd->nd_repstat) {
+				if ((nd->nd_flag & ND_NFSV41) == 0)
+					nd->nd_repstat = NFSERR_ATTRNOTSUPP;
+				else if ((mode & ~07777) != 0 ||
+				    (mask & ~07777) != 0 || vp == NULL)
+					nd->nd_repstat = NFSERR_INVAL;
+				else if (moderet == 0)
+					moderet = VOP_GETATTR(vp, &va,
+					    nd->nd_cred);
+				if (moderet == 0)
+					nvap->na_mode = (mode & mask) |
+					    (va.va_mode & ~mask);
+				else
+					nd->nd_repstat = moderet;
+			}
+			attrsum += 2 * NFSX_UNSIGNED;
+			break;
+		case NFSATTRBIT_MODEUMASK:
+			NFSM_DISSECT(tl, uint32_t *, 2 * NFSX_UNSIGNED);
+			mode = fxdr_unsigned(u_short, *tl++);
+			mask = fxdr_unsigned(u_short, *tl);
+			/*
+			 * If moderet != 0, mode has already been done.
+			 * If vp != NULL, this is not a file object creation.
+			 */
+			if (!nd->nd_repstat) {
+				if ((nd->nd_flag & ND_NFSV42) == 0)
+					nd->nd_repstat = NFSERR_ATTRNOTSUPP;
+				else if ((mask & ~0777) != 0 || vp != NULL ||
+				    moderet != 0)
+					nd->nd_repstat = NFSERR_INVAL;
+				else
+					nvap->na_mode = (mode & ~mask);
+			}
 			attrsum += 2 * NFSX_UNSIGNED;
 			break;
 		default:
@@ -3173,7 +3253,7 @@ nfsv4_sattr(struct nfsrv_descript *nd, vnode_t vp, struct nfsvattr *nvap,
 
 	/*
 	 * some clients pad the attrlist, so we need to skip over the
-	 * padding.
+	 * padding.  This also skips over unparsed non-supported attributes.
 	 */
 	if (attrsum > attrsize) {
 		error = NFSERR_BADXDR;
@@ -3231,7 +3311,11 @@ nfsd_excred(struct nfsrv_descript *nd, struct nfsexstuff *exp,
 		     NFSVNO_EXPORTANON(exp) ||
 		     (nd->nd_flag & ND_AUTHNONE) != 0) {
 			nd->nd_cred->cr_uid = credanon->cr_uid;
-			nd->nd_cred->cr_gid = credanon->cr_gid;
+			/*
+			 * 'credanon' is already a 'struct ucred' that was built
+			 * internally with calls to crsetgroups_fallback(), so
+			 * we don't need a fallback here.
+			 */
 			crsetgroups(nd->nd_cred, credanon->cr_ngroups,
 			    credanon->cr_groups);
 		} else if ((nd->nd_flag & ND_GSS) == 0) {
@@ -7035,7 +7119,7 @@ nfsm_trimtrailing(struct nfsrv_descript *nd, struct mbuf *mb, char *bpos,
  * be identified by the fact that the file handle's type is VDIR.
  */
 bool
-nfsrv_checkwrongsec(struct nfsrv_descript *nd, int nextop, enum vtype vtyp)
+nfsrv_checkwrongsec(struct nfsrv_descript *nd, int nextop, __enum_uint8(vtype) vtyp)
 {
 
 	if ((nd->nd_flag & ND_NFSV4) == 0)

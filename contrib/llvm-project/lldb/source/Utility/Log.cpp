@@ -39,6 +39,7 @@ char LogHandler::ID;
 char StreamLogHandler::ID;
 char CallbackLogHandler::ID;
 char RotatingLogHandler::ID;
+char TeeLogHandler::ID;
 
 llvm::ManagedStatic<Log::ChannelMap> Log::g_channel_map;
 
@@ -60,13 +61,14 @@ void Log::ListCategories(llvm::raw_ostream &stream,
                   });
 }
 
-uint32_t Log::GetFlags(llvm::raw_ostream &stream, const ChannelMap::value_type &entry,
-                         llvm::ArrayRef<const char *> categories) {
+Log::MaskType Log::GetFlags(llvm::raw_ostream &stream,
+                            const ChannelMap::value_type &entry,
+                            llvm::ArrayRef<const char *> categories) {
   bool list_categories = false;
-  uint32_t flags = 0;
+  Log::MaskType flags = 0;
   for (const char *category : categories) {
     if (llvm::StringRef("all").equals_insensitive(category)) {
-      flags |= UINT32_MAX;
+      flags |= std::numeric_limits<Log::MaskType>::max();
       continue;
     }
     if (llvm::StringRef("default").equals_insensitive(category)) {
@@ -91,7 +93,7 @@ uint32_t Log::GetFlags(llvm::raw_ostream &stream, const ChannelMap::value_type &
 }
 
 void Log::Enable(const std::shared_ptr<LogHandler> &handler_sp,
-                 uint32_t options, uint32_t flags) {
+                 uint32_t options, Log::MaskType flags) {
   llvm::sys::ScopedWriter lock(m_mutex);
 
   MaskType mask = m_mask.fetch_or(flags, std::memory_order_relaxed);
@@ -102,7 +104,7 @@ void Log::Enable(const std::shared_ptr<LogHandler> &handler_sp,
   }
 }
 
-void Log::Disable(uint32_t flags) {
+void Log::Disable(Log::MaskType flags) {
   llvm::sys::ScopedWriter lock(m_mutex);
 
   MaskType mask = m_mask.fetch_and(~flags, std::memory_order_relaxed);
@@ -126,12 +128,19 @@ const Flags Log::GetOptions() const {
   return m_options.load(std::memory_order_relaxed);
 }
 
-const Flags Log::GetMask() const {
+Log::MaskType Log::GetMask() const {
   return m_mask.load(std::memory_order_relaxed);
 }
 
-void Log::PutCString(const char *cstr) { Printf("%s", cstr); }
-void Log::PutString(llvm::StringRef str) { PutCString(str.str().c_str()); }
+void Log::PutCString(const char *cstr) { PutString(cstr); }
+
+void Log::PutString(llvm::StringRef str) {
+  std::string FinalMessage;
+  llvm::raw_string_ostream Stream(FinalMessage);
+  WriteHeader(Stream, "", "");
+  Stream << str << "\n";
+  WriteMessage(FinalMessage);
+}
 
 // Simple variable argument logging with flags.
 void Log::Printf(const char *format, ...) {
@@ -141,20 +150,25 @@ void Log::Printf(const char *format, ...) {
   va_end(args);
 }
 
-// All logging eventually boils down to this function call. If we have a
-// callback registered, then we call the logging callback. If we have a valid
-// file handle, we also log to the file.
 void Log::VAPrintf(const char *format, va_list args) {
-  llvm::SmallString<64> FinalMessage;
-  llvm::raw_svector_ostream Stream(FinalMessage);
-  WriteHeader(Stream, "", "");
-
   llvm::SmallString<64> Content;
   lldb_private::VASprintf(Content, format, args);
+  PutString(Content);
+}
 
-  Stream << Content << "\n";
+void Log::Formatf(llvm::StringRef file, llvm::StringRef function,
+                  const char *format, ...) {
+  va_list args;
+  va_start(args, format);
+  VAFormatf(file, function, format, args);
+  va_end(args);
+}
 
-  WriteMessage(std::string(FinalMessage.str()));
+void Log::VAFormatf(llvm::StringRef file, llvm::StringRef function,
+                    const char *format, va_list args) {
+  llvm::SmallString<64> Content;
+  lldb_private::VASprintf(Content, format, args);
+  Format(file, function, llvm::formatv("{0}", Content));
 }
 
 // Printing of errors that are not fatal.
@@ -197,13 +211,13 @@ void Log::Warning(const char *format, ...) {
 void Log::Register(llvm::StringRef name, Channel &channel) {
   auto iter = g_channel_map->try_emplace(name, channel);
   assert(iter.second == true);
-  (void)iter;
+  UNUSED_IF_ASSERT_DISABLED(iter);
 }
 
 void Log::Unregister(llvm::StringRef name) {
   auto iter = g_channel_map->find(name);
   assert(iter != g_channel_map->end());
-  iter->second.Disable(UINT32_MAX);
+  iter->second.Disable(std::numeric_limits<MaskType>::max());
   g_channel_map->erase(iter);
 }
 
@@ -216,7 +230,7 @@ bool Log::EnableLogChannel(const std::shared_ptr<LogHandler> &log_handler_sp,
     error_stream << llvm::formatv("Invalid log channel '{0}'.\n", channel);
     return false;
   }
-  uint32_t flags = categories.empty()
+  MaskType flags = categories.empty()
                        ? iter->second.m_channel.default_flags
                        : GetFlags(error_stream, *iter, categories);
   iter->second.Enable(log_handler_sp, log_options, flags);
@@ -231,8 +245,8 @@ bool Log::DisableLogChannel(llvm::StringRef channel,
     error_stream << llvm::formatv("Invalid log channel '{0}'.\n", channel);
     return false;
   }
-  uint32_t flags = categories.empty()
-                       ? UINT32_MAX
+  MaskType flags = categories.empty()
+                       ? std::numeric_limits<MaskType>::max()
                        : GetFlags(error_stream, *iter, categories);
   iter->second.Disable(flags);
   return true;
@@ -267,7 +281,7 @@ bool Log::ListChannelCategories(llvm::StringRef channel,
 
 void Log::DisableAllLogChannels() {
   for (auto &entry : *g_channel_map)
-    entry.second.Disable(UINT32_MAX);
+    entry.second.Disable(std::numeric_limits<MaskType>::max());
 }
 
 void Log::ForEachChannelCategory(
@@ -343,7 +357,9 @@ void Log::WriteHeader(llvm::raw_ostream &OS, llvm::StringRef file,
   }
 }
 
-void Log::WriteMessage(const std::string &message) {
+// If we have a callback registered, then we call the logging callback. If we
+// have a valid file handle, we also log to the file.
+void Log::WriteMessage(llvm::StringRef message) {
   // Make a copy of our stream shared pointer in case someone disables our log
   // while we are logging and releases the stream
   auto handler_sp = GetHandler();
@@ -422,4 +438,17 @@ void RotatingLogHandler::Dump(llvm::raw_ostream &stream) const {
     stream << m_messages[idx];
   }
   stream.flush();
+}
+
+TeeLogHandler::TeeLogHandler(std::shared_ptr<LogHandler> first_log_handler,
+                             std::shared_ptr<LogHandler> second_log_handler)
+    : m_first_log_handler(first_log_handler),
+      m_second_log_handler(second_log_handler) {
+  assert(m_first_log_handler && "first log handler must be valid");
+  assert(m_second_log_handler && "second log handler must be valid");
+}
+
+void TeeLogHandler::Emit(llvm::StringRef message) {
+  m_first_log_handler->Emit(message);
+  m_second_log_handler->Emit(message);
 }

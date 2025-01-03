@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020 Alexander V. Chernikov
  *
@@ -26,7 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_route.h"
@@ -96,6 +95,8 @@ static int delete_route(struct rib_head *rnh, struct rtentry *rt,
 static int rt_delete_conditional(struct rib_head *rnh, struct rtentry *rt,
     int prio, rib_filter_f_t *cb, void *cbdata, struct rib_cmd_info *rc);
 
+static bool fill_pxmask_family(int family, int plen, struct sockaddr *_dst,
+    struct sockaddr **pmask);
 static int get_prio_from_info(const struct rt_addrinfo *info);
 static int nhop_get_prio(const struct nhop_object *nh);
 
@@ -389,6 +390,18 @@ lookup_prefix(struct rib_head *rnh, const struct rt_addrinfo *info,
 	    info->rti_info[RTAX_NETMASK], rnd);
 
 	return (rt);
+}
+
+const struct rtentry *
+rib_lookup_prefix_plen(struct rib_head *rnh, struct sockaddr *dst, int plen,
+    struct route_nhop_data *rnd)
+{
+	union sockaddr_union mask_storage;
+	struct sockaddr *netmask = &mask_storage.sa;
+
+	if (fill_pxmask_family(dst->sa_family, plen, dst, &netmask))
+		return (lookup_prefix_bysa(rnh, dst, netmask, rnd));
+	return (NULL);
 }
 
 static bool
@@ -759,12 +772,15 @@ add_route_byinfo(struct rib_head *rnh, struct rt_addrinfo *info,
 	rnd_add.rnd_weight = get_info_weight(info, RT_DEFAULT_WEIGHT);
 
 	int op_flags = RTM_F_CREATE;
-	if (get_prio_from_info(info) == NH_PRIORITY_HIGH)
-		op_flags |= RTM_F_FORCE;
-	else
-		op_flags |= RTM_F_APPEND;
-	return (add_route_flags(rnh, rt, &rnd_add, op_flags, rc));
 
+	/*
+	 * Set the desired action when the route already exists:
+	 * If RTF_PINNED is present, assume the direct kernel routes that cannot be multipath.
+	 * Otherwise, append the path.
+	 */
+	op_flags |= (info->rti_flags & RTF_PINNED) ? RTM_F_REPLACE : RTM_F_APPEND;
+
+	return (add_route_flags(rnh, rt, &rnd_add, op_flags, rc));
 }
 
 static int

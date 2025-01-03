@@ -29,8 +29,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <machine/asmacros.h>
@@ -388,7 +386,7 @@ END(savectx)
 /*
  * resumectx(pcb)
  * Resuming processor state from pcb.
- */     
+ */
 ENTRY(resumectx)
 	/* Switch to KPML5/4phys. */
 	movq	KPML4phys,%rax

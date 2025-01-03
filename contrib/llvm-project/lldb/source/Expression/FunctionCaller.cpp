@@ -44,7 +44,8 @@ FunctionCaller::FunctionCaller(ExecutionContextScope &exe_scope,
       m_function_return_type(return_type),
       m_wrapper_function_name("__lldb_caller_function"),
       m_wrapper_struct_name("__lldb_caller_struct"), m_wrapper_args_addrs(),
-      m_struct_valid(false), m_arg_values(arg_value_list), m_compiled(false),
+      m_struct_valid(false), m_struct_size(0), m_return_size(0),
+      m_return_offset(0), m_arg_values(arg_value_list), m_compiled(false),
       m_JITted(false) {
   m_jit_process_wp = lldb::ProcessWP(exe_scope.CalculateProcess());
   // Can't make a FunctionCaller without a process.
@@ -65,17 +66,29 @@ bool FunctionCaller::WriteFunctionWrapper(
     ExecutionContext &exe_ctx, DiagnosticManager &diagnostic_manager) {
   Process *process = exe_ctx.GetProcessPtr();
 
-  if (!process)
+  if (!process) {
+    diagnostic_manager.Printf(lldb::eSeverityError, "no process.");
     return false;
-
+  }
+  
   lldb::ProcessSP jit_process_sp(m_jit_process_wp.lock());
 
-  if (process != jit_process_sp.get())
+  if (process != jit_process_sp.get()) {
+    diagnostic_manager.Printf(lldb::eSeverityError,
+                              "process does not match the stored process.");
     return false;
-
-  if (!m_compiled)
+  }
+    
+  if (process->GetState() != lldb::eStateStopped) {
+    diagnostic_manager.Printf(lldb::eSeverityError, "process is not stopped");
     return false;
+  }
 
+  if (!m_compiled) {
+    diagnostic_manager.Printf(lldb::eSeverityError, "function not compiled");
+    return false;
+  }
+  
   if (m_JITted)
     return true;
 
@@ -86,7 +99,7 @@ bool FunctionCaller::WriteFunctionWrapper(
       can_interpret, eExecutionPolicyAlways));
 
   if (!jit_error.Success()) {
-    diagnostic_manager.Printf(eDiagnosticSeverityError,
+    diagnostic_manager.Printf(lldb::eSeverityError,
                               "Error in PrepareForExecution: %s.",
                               jit_error.AsCString());
     return false;
@@ -98,10 +111,10 @@ bool FunctionCaller::WriteFunctionWrapper(
     if (jit_module_sp) {
       ConstString const_func_name(FunctionName());
       FileSpec jit_file;
-      jit_file.GetFilename() = const_func_name;
+      jit_file.SetFilename(const_func_name);
       jit_module_sp->SetFileSpecAndObjectName(jit_file, ConstString());
       m_jit_module_wp = jit_module_sp;
-      process->GetTarget().GetImages().Append(jit_module_sp, 
+      process->GetTarget().GetImages().Append(jit_module_sp,
                                               true /* notify */);
     }
   }
@@ -129,7 +142,7 @@ bool FunctionCaller::WriteFunctionArguments(
   // All the information to reconstruct the struct is provided by the
   // StructExtractor.
   if (!m_struct_valid) {
-    diagnostic_manager.PutString(eDiagnosticSeverityError,
+    diagnostic_manager.PutString(lldb::eSeverityError,
                                  "Argument information was not correctly "
                                  "parsed, so the function cannot be called.");
     return false;
@@ -177,7 +190,7 @@ bool FunctionCaller::WriteFunctionArguments(
   size_t num_args = arg_values.GetSize();
   if (num_args != m_arg_values.GetSize()) {
     diagnostic_manager.Printf(
-        eDiagnosticSeverityError,
+        lldb::eSeverityError,
         "Wrong number of arguments - was: %" PRIu64 " should be: %" PRIu64 "",
         (uint64_t)num_args, (uint64_t)m_arg_values.GetSize());
     return false;
@@ -212,6 +225,17 @@ bool FunctionCaller::WriteFunctionArguments(
 bool FunctionCaller::InsertFunction(ExecutionContext &exe_ctx,
                                     lldb::addr_t &args_addr_ref,
                                     DiagnosticManager &diagnostic_manager) {
+  // Since we might need to call allocate memory and maybe call code to make
+  // the caller, we need to be stopped.
+  Process *process = exe_ctx.GetProcessPtr();
+  if (!process) {
+    diagnostic_manager.PutString(lldb::eSeverityError, "no process");
+    return false;
+  }
+  if (process->GetState() != lldb::eStateStopped) {
+    diagnostic_manager.PutString(lldb::eSeverityError, "process running");
+    return false;
+  }
   if (CompileFunction(exe_ctx.GetThreadSP(), diagnostic_manager) != 0)
     return false;
   if (!WriteFunctionWrapper(exe_ctx, diagnostic_manager))
@@ -241,8 +265,7 @@ lldb::ThreadPlanSP FunctionCaller::GetThreadPlanToCallFunction(
   Thread *thread = exe_ctx.GetThreadPtr();
   if (thread == nullptr) {
     diagnostic_manager.PutString(
-        eDiagnosticSeverityError,
-        "Can't call a function without a valid thread.");
+        lldb::eSeverityError, "Can't call a function without a valid thread.");
     return nullptr;
   }
 

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 LIB_CXX=	lutok
 INTERNALLIB=
 

@@ -27,13 +27,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)uipc_socket2.c	8.1 (Berkeley) 6/10/93
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_kern_tls.h"
 #include "opt_param.h"
 
@@ -44,6 +40,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
+#include <sys/msan.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
 #include <sys/protosw.h>
@@ -511,6 +508,32 @@ sowakeup(struct socket *so, const sb_which which)
 	SOCK_BUF_UNLOCK_ASSERT(so, which);
 }
 
+static void
+splice_push(struct socket *so)
+{
+	struct so_splice *sp;
+
+	SOCK_RECVBUF_LOCK_ASSERT(so);
+
+	sp = so->so_splice;
+	mtx_lock(&sp->mtx);
+	SOCK_RECVBUF_UNLOCK(so);
+	so_splice_dispatch(sp);
+}
+
+static void
+splice_pull(struct socket *so)
+{
+	struct so_splice *sp;
+
+	SOCK_SENDBUF_LOCK_ASSERT(so);
+
+	sp = so->so_splice_back;
+	mtx_lock(&sp->mtx);
+	SOCK_SENDBUF_UNLOCK(so);
+	so_splice_dispatch(sp);
+}
+
 /*
  * Do we need to notify the other side when I/O is possible?
  */
@@ -525,7 +548,9 @@ void
 sorwakeup_locked(struct socket *so)
 {
 	SOCK_RECVBUF_LOCK_ASSERT(so);
-	if (sb_notify(&so->so_rcv))
+	if (so->so_rcv.sb_flags & SB_SPLICED)
+		splice_push(so);
+	else if (sb_notify(&so->so_rcv))
 		sowakeup(so, SO_RCV);
 	else
 		SOCK_RECVBUF_UNLOCK(so);
@@ -535,7 +560,9 @@ void
 sowwakeup_locked(struct socket *so)
 {
 	SOCK_SENDBUF_LOCK_ASSERT(so);
-	if (sb_notify(&so->so_snd))
+	if (so->so_snd.sb_flags & SB_SPLICED)
+		splice_pull(so);
+	else if (sb_notify(&so->so_snd))
 		sowakeup(so, SO_SND);
 	else
 		SOCK_SENDBUF_UNLOCK(so);
@@ -908,6 +935,7 @@ sbappend_locked(struct sockbuf *sb, struct mbuf *m, int flags)
 
 	if (m == NULL)
 		return;
+	kmsan_check_mbuf(m, "sbappend");
 	sbm_clrprotoflags(m, flags);
 	SBLASTRECORDCHK(sb);
 	n = sb->sb_mb;
@@ -1021,6 +1049,8 @@ sbappendstream_locked(struct sockbuf *sb, struct mbuf *m, int flags)
 	SOCKBUF_LOCK_ASSERT(sb);
 
 	KASSERT(m->m_nextpkt == NULL,("sbappendstream 0"));
+
+	kmsan_check_mbuf(m, "sbappend");
 
 #ifdef KERN_TLS
 	/*
@@ -1170,7 +1200,10 @@ sbappendrecord_locked(struct sockbuf *sb, struct mbuf *m0)
 
 	if (m0 == NULL)
 		return;
+
+	kmsan_check_mbuf(m0, "sbappend");
 	m_clrprotoflags(m0);
+
 	/*
 	 * Put the first mbuf on the queue.  Note this permits zero length
 	 * records.
@@ -1207,6 +1240,12 @@ sbappendaddr_locked_internal(struct sockbuf *sb, const struct sockaddr *asa,
     struct mbuf *m0, struct mbuf *control, struct mbuf *ctrl_last)
 {
 	struct mbuf *m, *n, *nlast;
+
+	if (m0 != NULL)
+		kmsan_check_mbuf(m0, "sbappend");
+	if (control != NULL)
+		kmsan_check_mbuf(control, "sbappend");
+
 #if MSIZE <= 256
 	if (asa->sa_len > MLEN)
 		return (0);
@@ -1316,6 +1355,10 @@ sbappendcontrol_locked(struct sockbuf *sb, struct mbuf *m0,
     struct mbuf *control, int flags)
 {
 	struct mbuf *m, *mlast;
+
+	if (m0 != NULL)
+		kmsan_check_mbuf(m0, "sbappend");
+	kmsan_check_mbuf(control, "sbappend");
 
 	sbm_clrprotoflags(m0, flags);
 	m_last(control)->m_next = m0;

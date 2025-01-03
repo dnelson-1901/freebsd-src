@@ -34,8 +34,6 @@
 /* Generic ECAM PCIe driver FDT attachment */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -172,8 +170,9 @@ pci_host_generic_fdt_attach(device_t dev)
 	if (error != 0)
 		return (error);
 
-	device_add_child(dev, "pci", -1);
-	return (bus_generic_attach(dev));
+	device_add_child(dev, "pci", DEVICE_UNIT_ANY);
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int
@@ -185,7 +184,6 @@ parse_pci_mem_ranges(device_t dev, struct generic_pcie_core_softc *sc)
 	int nbase_ranges;
 	phandle_t node;
 	int i, j, k;
-	int tuple;
 
 	node = ofw_bus_get_node(dev);
 
@@ -217,6 +215,7 @@ parse_pci_mem_ranges(device_t dev, struct generic_pcie_core_softc *sc)
 			sc->ranges[i].flags |= FLAG_TYPE_MEM;
 		}
 
+		sc->ranges[i].rid = -1;
 		sc->ranges[i].pci_base = 0;
 		for (k = 0; k < (pci_addr_cells - 1); k++) {
 			sc->ranges[i].pci_base <<= 32;
@@ -239,16 +238,6 @@ parse_pci_mem_ranges(device_t dev, struct generic_pcie_core_softc *sc)
 		sc->ranges[i].pci_base = 0;
 		sc->ranges[i].phys_base = 0;
 		sc->ranges[i].size = 0;
-	}
-
-	if (bootverbose) {
-		for (tuple = 0; tuple < MAX_RANGES_TUPLES; tuple++) {
-			device_printf(dev,
-			    "\tPCI addr: 0x%jx, CPU addr: 0x%jx, Size: 0x%jx\n",
-			    sc->ranges[tuple].pci_base,
-			    sc->ranges[tuple].phys_base,
-			    sc->ranges[tuple].size);
-		}
 	}
 
 	free(base_ranges, M_DEVBUF);
@@ -482,8 +471,6 @@ generic_pcie_ofw_bus_attach(device_t dev)
 static device_method_t generic_pcie_fdt_methods[] = {
 	DEVMETHOD(device_probe,		generic_pcie_fdt_probe),
 	DEVMETHOD(device_attach,	pci_host_generic_fdt_attach),
-	DEVMETHOD(bus_alloc_resource,	pci_host_generic_core_alloc_resource),
-	DEVMETHOD(bus_release_resource,	pci_host_generic_core_release_resource),
 
 	/* pcib interface */
 	DEVMETHOD(pcib_route_interrupt,	generic_pcie_fdt_route_interrupt),

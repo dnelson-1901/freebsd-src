@@ -29,14 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#if 0
-#ifndef lint
-static char sccsid[] = "@(#)keyword.c	8.5 (Berkeley) 4/2/94";
-#endif /* not lint */
-#endif
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -44,7 +36,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 #include <sys/user.h>
 
-#include <err.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -258,7 +249,8 @@ showkey(void)
 	}
 	xo_emit("\n");
 	xo_close_list("key");
-	xo_finish();
+	if (xo_finish() < 0)
+		xo_err(1, "stdout");
 }
 
 void
@@ -299,7 +291,7 @@ parsefmt(const char *p, int user)
 				continue;
 		}
 		if ((vent = malloc(sizeof(struct varent))) == NULL)
-			errx(1, "malloc failed");
+			xo_errx(1, "malloc failed");
 		vent->header = v->header;
 		if (hp) {
 			hp = strdup(hp);
@@ -308,13 +300,13 @@ parsefmt(const char *p, int user)
 		}
 		vent->var = malloc(sizeof(*vent->var));
 		if (vent->var == NULL)
-			errx(1, "malloc failed");
+			xo_errx(1, "malloc failed");
 		memcpy(vent->var, v, sizeof(*vent->var));
 		STAILQ_INSERT_TAIL(&varlist, vent, next_ve);
 	}
 	free(tempstr1);
 	if (STAILQ_EMPTY(&varlist)) {
-		warnx("no valid keywords; valid keywords:");
+		xo_warnx("no valid keywords; valid keywords:");
 		showkey();
 		exit(1);
 	}
@@ -353,7 +345,7 @@ findvar(char *p, int user, char **header)
 			rflen = strlen(v->alias) + strlen(hp) + 2;
 			realfmt = malloc(rflen);
 			if (realfmt == NULL)
-				errx(1, "malloc failed");
+				xo_errx(1, "malloc failed");
 			snprintf(realfmt, rflen, "%s=%s", v->alias, hp);
 			parsefmt(realfmt, user);
 			free(realfmt);
@@ -361,7 +353,7 @@ findvar(char *p, int user, char **header)
 		return ((VAR *)NULL);
 	}
 	if (!v) {
-		warnx("%s: keyword not found", p);
+		xo_warnx("%s: keyword not found", p);
 		eval = 1;
 	}
 	if (header)

@@ -30,10 +30,6 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-#
-#	@(#)vnode_if.sh	8.1 (Berkeley) 6/10/93
-# $FreeBSD$
-#
 # Script to produce VFS front-end sugar.
 #
 # usage: vnode_if.awk <srcfile> [-c | -h | -p | -q]
@@ -173,8 +169,6 @@ common_head = \
     "/*\n" \
     " * This file is " generated " automatically.\n" \
     " * Do not modify anything in here by hand.\n" \
-    " *\n" \
-    " * Created from $FreeBSD$\n" \
     " */\n" \
     "\n";
 
@@ -331,7 +325,7 @@ while ((getline < srcfile) > 0) {
 
 		# Print out function prototypes.
 		printh("int " uname "_AP(struct " name "_args *);");
-		printh("int " uname "_APV(struct vop_vector *vop, struct " name "_args *);");
+		printh("int " uname "_APV(const struct vop_vector *vop, struct " name "_args *);");
 		printh("");
 		printh("static __inline int " uname "(");
 		for (i = 0; i < numargs; ++i) {
@@ -395,7 +389,7 @@ while ((getline < srcfile) > 0) {
 		printc("");
 		printc("\treturn(" uname "_APV(a->a_" args[0] "->v_op, a));");
 		printc("}");
-		printc("\nint\n" uname "_APV(struct vop_vector *vop, struct " name "_args *a)");
+		printc("\nint\n" uname "_APV(const struct vop_vector *vop, struct " name "_args *a)");
 		printc("{");
 		printc("\tint rc;");
 		printc("");
@@ -472,6 +466,8 @@ if (cfile) {
 	printc("\tif (orig_vop->registered)");
 	printc("\t\tpanic(\"%s: vop_vector %p already registered\",")
 	printc("\t\t    __func__, orig_vop);");
+	printc("");
+	printc("\tcache_vop_vector_register(orig_vop);");
 	printc("");
 	for (name in funcarr) {
 		printc("\tvop = orig_vop;");

@@ -22,8 +22,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef RTL8192E_H
@@ -48,6 +46,7 @@ void	r92e_detach_private(struct rtwn_softc *);
 
 /* r92e_chan.c */
 void	r92e_set_chan(struct rtwn_softc *, struct ieee80211_channel *);
+int	r92e_set_tx_power(struct rtwn_softc *sc, struct ieee80211vap *vap);
 
 /* r92e_fw.c */
 #ifndef RTWN_WITHOUT_UCODE

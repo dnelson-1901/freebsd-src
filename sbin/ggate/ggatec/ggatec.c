@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004 Pawel Jakub Dawidek <pjd@FreeBSD.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <stdio.h>
@@ -54,7 +52,6 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
-#include <geom/gate/g_gate.h>
 #include "ggate.h"
 
 
@@ -64,6 +61,7 @@ static const char *path = NULL;
 static const char *host = NULL;
 static int unit = G_GATE_UNIT_AUTO;
 static unsigned flags = 0;
+static int direct_flag = 0;
 static int force = 0;
 static unsigned queue_size = G_GATE_QUEUE_SIZE;
 static unsigned port = G_GATE_PORT;
@@ -80,10 +78,12 @@ static void
 usage(void)
 {
 
-	fprintf(stderr, "usage: %s create [-nv] [-o <ro|wo|rw>] [-p port] "
+	fprintf(stderr, "usage: %s create [-nv] [-o <ro|wo|rw>] "
+	    "[-o <direct>] [-p port] "
 	    "[-q queue_size] [-R rcvbuf] [-S sndbuf] [-s sectorsize] "
 	    "[-t timeout] [-u unit] <host> <path>\n", getprogname());
-	fprintf(stderr, "       %s rescue [-nv] [-o <ro|wo|rw>] [-p port] "
+	fprintf(stderr, "       %s rescue [-nv] [-o <ro|wo|rw>] "
+	    "[-o <direct>] [-p port] "
 	    "[-R rcvbuf] [-S sndbuf] <-u unit> <host> <path>\n", getprogname());
 	fprintf(stderr, "       %s destroy [-f] <-u unit>\n", getprogname());
 	fprintf(stderr, "       %s list [-v] [-u unit]\n", getprogname());
@@ -363,7 +363,7 @@ handshake(int dir)
 		close(sfd);
 		return (-1);
 	}
-	cinit.gc_flags = flags | dir;
+	cinit.gc_flags = flags | direct_flag | dir;
 	cinit.gc_token = token;
 	cinit.gc_nconn = 2;
 	g_gate_swap2n_cinit(&cinit);
@@ -587,6 +587,8 @@ main(int argc, char *argv[])
 				flags = G_GATE_FLAG_WRITEONLY;
 			else if (strcasecmp("rw", optarg) == 0)
 				flags = 0;
+			else if (strcasecmp("direct", optarg) == 0)
+				direct_flag = GGATE_FLAG_DIRECT;
 			else {
 				errx(EXIT_FAILURE,
 				    "Invalid argument for '-o' option.");

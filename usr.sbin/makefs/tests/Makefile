@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 ATF_TESTS_SH+=	makefs_cd9660_tests

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2021 Axcient
 #
@@ -24,8 +24,6 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
-
-# $FreeBSD$
 
 atf_test_case both_pidfile cleanup
 both_pidfile_head() {
@@ -141,8 +139,11 @@ restart_child_body() {
 	kill $orig_sleep_pid
 	# Wait up to 10s for the daemon to restart the child.
 	for t in `seq 0 0.1 10`; do
-		new_sleep_pid=`cat sleep.pid`
-		[ "$orig_sleep_pid" -ne "$new_sleep_pid" ] && break
+		if [ -s "sleep.pid" ]; then
+			new_sleep_pid=`cat sleep.pid`
+			[ "$orig_sleep_pid" -ne "$new_sleep_pid" ] && break
+		fi
+
 		sleep 0.1
 	done
 	[ "$orig_sleep_pid" -ne "$new_sleep_pid" ] || \
@@ -151,6 +152,43 @@ restart_child_body() {
 }
 restart_child_cleanup() {
 	[ -f daemon.pid ] && kill `cat daemon.pid`
+}
+
+atf_test_case restart_hang cleanup
+restart_hang_head() {
+	atf_set "descr" "daemon should terminate with SIGTERM even pending child restart"
+}
+restart_hang_body() {
+	daemon -rP daemon.pid -R 10 -p sleep.pid sleep 300
+	atf_check -s exit:0 test -f daemon.pid
+	atf_check -s exit:0 test -f sleep.pid
+	read sleep_pid < sleep.pid
+	1>&2 echo "$sleep_pid"
+	kill "$sleep_pid"
+
+	# Wait up to 5s for the child to exit
+	for t in `seq 0 0.1 5`; do
+		[ ! -s "sleep.pid" ] && break
+		sleep 0.1
+	done
+
+	atf_check test ! -s "sleep.pid"
+
+	read daemon_pid < daemon.pid
+	kill -TERM "$daemon_pid"
+
+	# Wait up to 10s for the daemon to terminate
+	for t in `seq 0 0.1 10`; do
+		[ ! -f "daemon.pid" ] && break
+		sleep 0.1
+	done
+
+	atf_check test ! -f "daemon.pid"
+	atf_check test ! -f "sleep.pid"
+}
+restart_hang_cleanup() {
+	[ -s daemon.pid ] && kill -9 `cat daemon.pid`
+	true
 }
 
 atf_test_case supervisor_pidfile cleanup
@@ -217,6 +255,7 @@ atf_init_test_cases() {
 	atf_add_test_case newsyslog
 	atf_add_test_case output_file
 	atf_add_test_case restart_child
+	atf_add_test_case restart_hang
 	atf_add_test_case supervisor_pidfile
 	atf_add_test_case supervisor_pidfile_lock
 	atf_add_test_case title

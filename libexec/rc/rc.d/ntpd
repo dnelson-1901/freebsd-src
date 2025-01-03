@@ -1,6 +1,5 @@
 #!/bin/sh
 #
-# $FreeBSD$
 #
 
 # PROVIDE: ntpd
@@ -28,6 +27,9 @@ _ntp_old_driftfile="/var/db/ntpd.drift"
 pidfile="${_ntp_default_dir}/${name}.pid"
 
 load_rc_config $name
+
+# doesn't make sense to run in a svcj: nojail keyword
+ntpd_svcj="NO"
 
 leapfile_is_disabled() {
 	# Return true (0) if automatic leapfile handling is disabled.

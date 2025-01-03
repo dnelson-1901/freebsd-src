@@ -31,8 +31,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef RTLD_MACHDEP_H
@@ -44,6 +42,8 @@
 
 struct Struct_Obj_Entry;
 
+#define	MD_OBJ_ENTRY
+
 uint64_t set_gp(struct Struct_Obj_Entry *obj);
 
 /* Return the address of the .dynamic section in the dynamic linker. */
@@ -53,6 +53,12 @@ uint64_t set_gp(struct Struct_Obj_Entry *obj);
 	__asm __volatile("lla       %0, _DYNAMIC" : "=r"(_dynamic_addr));   \
 	(const Elf_Dyn *)_dynamic_addr;                                 \
 })
+
+/* No arch-specific dynamic tags */
+#define	arch_digest_dynamic(obj, dynp)	false
+
+/* No architecture specific notes */
+#define	arch_digest_note(obj, note)	false
 
 Elf_Addr reloc_jmpslot(Elf_Addr *where, Elf_Addr target,
     const struct Struct_Obj_Entry *defobj, const struct Struct_Obj_Entry *obj,
@@ -77,8 +83,11 @@ Elf_Addr reloc_jmpslot(Elf_Addr *where, Elf_Addr target,
 	__asm __volatile("mv    gp, %0" :: "r"(old1));			\
 })
 
+extern unsigned long elf_hwcap;
 #define	call_ifunc_resolver(ptr) \
-	(((Elf_Addr (*)(void))ptr)())
+	(((Elf_Addr (*)(unsigned long, unsigned long, unsigned long,	\
+	    unsigned long, unsigned long, unsigned long, unsigned long,	\
+	    unsigned long))ptr)(elf_hwcap, 0, 0, 0, 0, 0, 0, 0))
 
 /*
  * TLS

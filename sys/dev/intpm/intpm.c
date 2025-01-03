@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -205,8 +202,7 @@ intsmb_release_resources(device_t dev)
 {
 	struct intsmb_softc *sc = device_get_softc(dev);
 
-	if (sc->smbus)
-		device_delete_child(dev, sc->smbus);
+	device_delete_children(dev);
 	if (sc->irq_hand)
 		bus_teardown_intr(dev, sc->irq_res, sc->irq_hand);
 	if (sc->irq_res)
@@ -329,7 +325,7 @@ intsmb_attach(device_t dev)
 
 no_intr:
 	sc->isbusy = 0;
-	sc->smbus = device_add_child(dev, "smbus", -1);
+	sc->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 	if (sc->smbus == NULL) {
 		device_printf(dev, "failed to add smbus child\n");
 		error = ENXIO;

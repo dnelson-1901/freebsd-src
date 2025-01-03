@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000, 2001 Michael Smith
  * Copyright (c) 2000 BSDi
@@ -30,9 +30,6 @@
 /*
  * Print information about system device configuration.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 #include <err.h>
@@ -137,6 +134,8 @@ print_dev(struct devinfo_dev *dev)
 {
 
 	printf("%s", dev->dd_name[0] ? dev->dd_name : "unknown");
+	if (vflag && *dev->dd_desc)
+		printf(" <%s>", dev->dd_desc);
 	if (vflag && *dev->dd_pnpinfo)
 		printf(" pnpinfo %s", dev->dd_pnpinfo);
 	if (vflag && *dev->dd_location)

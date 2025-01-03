@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -122,7 +120,7 @@ pca9547_attach(device_t dev)
 	rv = iicmux_attach(sc->dev, device_get_parent(dev), 8);
 	if (rv != 0)
 		return (rv);
-	rv = bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (rv);
 }

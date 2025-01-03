@@ -28,9 +28,6 @@
  * Power Management support for the Acer M15x3 chipsets
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -221,12 +218,12 @@ alpm_attach(device_t dev)
 	mtx_init(&alpm->lock, device_get_nameunit(dev), "alpm", MTX_DEF);
 
 	/* attach the smbus */
-	alpm->smbus = device_add_child(dev, "smbus", -1);
+	alpm->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 	if (alpm->smbus == NULL) {
 		alpm_detach(dev);
 		return (EINVAL);
 	}
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -235,11 +232,12 @@ static int
 alpm_detach(device_t dev)
 {
 	struct alpm_softc *alpm = device_get_softc(dev);
+	int error;
 
-	if (alpm->smbus) {
-		device_delete_child(dev, alpm->smbus);
-		alpm->smbus = NULL;
-	}
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
+
 	mtx_destroy(&alpm->lock);
 
 	if (alpm->res)

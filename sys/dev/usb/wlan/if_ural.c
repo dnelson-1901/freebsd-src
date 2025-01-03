@@ -1,4 +1,3 @@
-/*	$FreeBSD$	*/
 
 /*-
  * Copyright (c) 2005, 2006
@@ -21,8 +20,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*-
  * Ralink Technology RT2500USB chipset driver
  * http://www.ralinktech.com/
@@ -849,7 +846,6 @@ ural_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	struct ural_softc *sc = usbd_xfer_softc(xfer);
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_node *ni;
-	struct epoch_tracker et;
 	struct mbuf *m = NULL;
 	struct usb_page_cache *pc;
 	uint32_t flags;
@@ -930,13 +926,11 @@ tr_setup:
 		if (m) {
 			ni = ieee80211_find_rxnode(ic,
 			    mtod(m, struct ieee80211_frame_min *));
-			NET_EPOCH_ENTER(et);
 			if (ni != NULL) {
 				(void) ieee80211_input(ni, m, rssi, nf);
 				ieee80211_free_node(ni);
 			} else
 				(void) ieee80211_input_all(ic, m, rssi, nf);
-			NET_EPOCH_EXIT(et);
 		}
 		RAL_LOCK(sc);
 		ural_start(sc);
@@ -1103,10 +1097,7 @@ ural_tx_mgt(struct ural_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 		USETW(wh->i_dur, dur);
 
 		/* tell hardware to add timestamp for probe responses */
-		if ((wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
-		    IEEE80211_FC0_TYPE_MGT &&
-		    (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) ==
-		    IEEE80211_FC0_SUBTYPE_PROBE_RESP)
+		if (IEEE80211_IS_MGMT_PROBE_RESP(wh))
 			flags |= RAL_TX_TIMESTAMP;
 	}
 

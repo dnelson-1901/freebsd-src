@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Nikolai Saoukh
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver to take care of holes in ISA I/O memory occupied
  * by option rom(s)
@@ -96,7 +94,7 @@ orm_identify(driver_t* driver, device_t parent)
 	if (resource_disabled("orm", 0))
 		return;
 
-	child = BUS_ADD_CHILD(parent, ISA_ORDER_SENSITIVE, "orm", -1);
+	child = BUS_ADD_CHILD(parent, ISA_ORDER_SENSITIVE, "orm", DEVICE_UNIT_ANY);
 	device_set_driver(child, driver);
 	isa_set_logicalid(child, ORM_ID);
 	isa_set_vendorid(child, ORM_ID);

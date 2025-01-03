@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2018 Ian Lepore <ian@freebsd.org>
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver for imx Enhanced Configurable SPI; master-mode only.
  */
@@ -475,9 +473,6 @@ spi_detach(device_t dev)
 	if ((error = bus_generic_detach(sc->dev)) != 0)
 		return (error);
 
-	if (sc->spibus != NULL)
-		device_delete_child(dev, sc->spibus);
-
 	for (idx = 0; idx < nitems(sc->cspins); ++idx) {
 		if (sc->cspins[idx] != NULL)
 			gpio_pin_release(sc->cspins[idx]);
@@ -565,8 +560,9 @@ spi_attach(device_t dev)
 	 * devices as its children, and those devices may need to do IO during
 	 * their attach. We can't do IO until timers and interrupts are working.
 	 */
-	sc->spibus = device_add_child(dev, "spibus", -1);
-	return (bus_delayed_attach_children(dev));
+	sc->spibus = device_add_child(dev, "spibus", DEVICE_UNIT_ANY);
+	bus_delayed_attach_children(dev);
+	return (0);
 }
 
 static int

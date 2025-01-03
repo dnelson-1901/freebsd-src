@@ -18,8 +18,6 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MIXER_H_
@@ -117,6 +115,7 @@ int mixer_get_dunit(void);
 int mixer_set_dunit(struct mixer *, int);
 int mixer_get_mode(int);
 int mixer_get_nmixers(void);
+int mixer_get_path(char *, size_t, int);
 
 __END_DECLS
 

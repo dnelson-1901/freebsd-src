@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Oleksandr Tymoshenko <gonzo@freebsd.org>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -154,7 +151,7 @@ static struct cdevsw gpioc_cdevsw = {
 	.d_name		= "gpioc",
 };
 
-static struct filterops gpioc_read_filterops = {
+static const struct filterops gpioc_read_filterops = {
 	.f_isfd =	true,
 	.f_attach =	NULL,
 	.f_detach =	gpioc_kqdetach,
@@ -680,18 +677,17 @@ static int
 gpioc_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 {
 	struct gpioc_cdevpriv *priv;
-	int err;
+	int err = 0;
 
 	priv = malloc(sizeof(*priv), M_GPIOC, M_WAITOK | M_ZERO);
 	priv->sc = dev->si_drv1;
-	priv->report_option = GPIO_EVENT_REPORT_DETAIL;
-	err = devfs_set_cdevpriv(priv, gpioc_cdevpriv_dtor);
-	if (err != 0) {
-		gpioc_cdevpriv_dtor(priv);
-		return (err);
-	}
+
 	mtx_init(&priv->mtx, "gpioc priv", NULL, MTX_DEF);
 	knlist_init_mtx(&priv->selinfo.si_note, &priv->mtx);
+
+	priv->async = false;
+	priv->report_option = GPIO_EVENT_REPORT_DETAIL;
+	priv->sigio = NULL;
 
 	/*
 	 * Allocate a circular buffer for events.  The scheme we use for summary
@@ -704,7 +700,13 @@ gpioc_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	priv->events = malloc(priv->numevents * sizeof(struct gpio_event_detail),
 	    M_GPIOC, M_WAITOK | M_ZERO);
 
-	return (0);
+	priv->evidx_head = priv->evidx_tail = 0;
+	SLIST_INIT(&priv->pins);
+
+	err = devfs_set_cdevpriv(priv, gpioc_cdevpriv_dtor);
+	if (err != 0)
+		gpioc_cdevpriv_dtor(priv);
+	return (err);
 }
 
 static int

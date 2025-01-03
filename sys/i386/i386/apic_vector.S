@@ -28,7 +28,6 @@
  * SUCH DAMAGE.
  *
  *	from: vector.s, 386BSD 0.1 unknown origin
- * $FreeBSD$
  */
 
 /*
@@ -183,7 +182,7 @@ IDTVEC(xen_intr_upcall)
 	cld
 	KENTER
 	pushl	%esp
-	movl	$xen_intr_handle_upcall, %eax
+	movl	$xen_arch_intr_handle_upcall, %eax
 	call	*%eax
 	add	$4, %esp
 	jmp	doreti

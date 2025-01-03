@@ -1,9 +1,10 @@
 #
 # DEFAULTS -- Default kernel configuration file for FreeBSD/i386
 #
-# $FreeBSD$
 
 machine		i386
+
+options		EARLY_AP_STARTUP
 
 # Bus support.
 device		isa
@@ -28,4 +29,4 @@ options 	CC_CUBIC		# include CUBIC congestion control
 # enable support for native hardware
 device		atpic
 
-options 	NEW_PCIB
+options 	NETLINK			# netlink(4) support

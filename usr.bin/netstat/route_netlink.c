@@ -29,9 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/protosw.h>
 #include <sys/socket.h>
@@ -65,7 +62,6 @@ __FBSDID("$FreeBSD$");
 #include <string.h>
 #include <sysexits.h>
 #include <unistd.h>
-#include <err.h>
 #include <libxo/xo.h>
 #include "netstat.h"
 #include "common.h"
@@ -107,7 +103,7 @@ prepare_ifmap_netlink(struct snl_state *ss, size_t *pifmap_size)
 		if (link.ifi_index >= ifmap_size) {
 			size_t size = roundup2(link.ifi_index + 1, 32) * sizeof(struct ifmap_entry);
 			if ((ifmap = realloc(ifmap, size)) == NULL)
-				errx(2, "realloc(%zu) failed", size);
+				xo_errx(EX_OSERR, "realloc(%zu) failed", size);
 			memset(&ifmap[ifmap_size], 0,
 			    size - ifmap_size *
 			    sizeof(struct ifmap_entry));
@@ -237,11 +233,11 @@ p_rtentry_netlink(struct snl_state *ss, const char *name, struct nlmsghdr *hdr)
 	if (rt.rtax_weight == 0)
 		rt.rtax_weight = rt_default_weight;
 
-	if (rt.rta_multipath != NULL) {
+	if (rt.rta_multipath.num_nhops != 0) {
 		uint32_t orig_rtflags = rt.rta_rtflags;
 		uint32_t orig_mtu = rt.rtax_mtu;
-		for (int i = 0; i < rt.rta_multipath->num_nhops; i++) {
-			struct rta_mpath_nh *nhop = &rt.rta_multipath->nhops[i];
+		for (uint32_t i = 0; i < rt.rta_multipath.num_nhops; i++) {
+			struct rta_mpath_nh *nhop = rt.rta_multipath.nhops[i];
 
 			rt.rta_gw = nhop->gw;
 			rt.rta_oif = nhop->ifindex;

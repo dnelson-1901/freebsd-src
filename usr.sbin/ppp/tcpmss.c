@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Ruslan Ermilov and Brian Somers <brian@Awfulhak.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -117,7 +115,7 @@ MSSFixup(struct tcphdr *tc, size_t pktlen, u_int16_t maxmss)
     return;
 
   /* MSS option only allowed within SYN packets. */
-  if (!(tc->th_flags & TH_SYN))
+  if (!(__tcp_get_flags(tc) & TH_SYN))
     return;
 
   for (olen = hlen - sizeof(struct tcphdr), opt = (u_char *)(tc + 1);

@@ -32,14 +32,6 @@
  * SUCH DAMAGE.
  */
 
-#if 0
-#ifndef lint
-static char sccsid[] = "@(#)print.c	8.4 (Berkeley) 4/17/94";
-#endif /* not lint */
-#endif
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/acl.h>
@@ -229,14 +221,16 @@ printlong(const DISPLAY *dp)
 			(void)printf("%*ju ",
 			    dp->s_inode, (uintmax_t)sp->st_ino);
 		if (f_size)
-			(void)printf("%*jd ",
+			(void)printf(f_thousands ? "%'*jd " : "%*jd ",
 			    dp->s_block, howmany(sp->st_blocks, blocksize));
 		strmode(sp->st_mode, buf);
 		aclmode(buf, p);
 		np = p->fts_pointer;
-		(void)printf("%s %*ju %-*s  %-*s  ", buf, dp->s_nlink,
-		    (uintmax_t)sp->st_nlink, dp->s_user, np->user, dp->s_group,
-		    np->group);
+		(void)printf("%s %*ju ", buf, dp->s_nlink,
+		    (uintmax_t)sp->st_nlink);
+		if (!f_sowner)
+			(void)printf("%-*s ", dp->s_user, np->user);
+		(void)printf("%-*s ", dp->s_group, np->group);
 		if (f_flags)
 			(void)printf("%-*s ", dp->s_flags, np->flags);
 		if (f_label)
@@ -406,7 +400,7 @@ printaname(const FTSENT *p, u_long inodefield, u_long sizefield)
 		chcnt += printf("%*ju ",
 		    (int)inodefield, (uintmax_t)sp->st_ino);
 	if (f_size)
-		chcnt += printf("%*jd ",
+		chcnt += printf(f_thousands ? "%'*jd " : "%*jd ",
 		    (int)sizefield, howmany(sp->st_blocks, blocksize));
 #ifdef COLORLS
 	if (f_color)
@@ -764,12 +758,10 @@ printsize(size_t width, off_t bytes)
 		humanize_number(buf, sizeof(buf), (int64_t)bytes, "",
 		    HN_AUTOSCALE, HN_B | HN_NOSPACE | HN_DECIMAL);
 		(void)printf("%*s ", (u_int)width, buf);
-	} else if (f_thousands) {		/* with commas */
-		/* This format assignment needed to work round gcc bug. */
-		const char *format = "%*j'd ";
-		(void)printf(format, (u_int)width, bytes);
-	} else
-		(void)printf("%*jd ", (u_int)width, bytes);
+	} else {
+		(void)printf(f_thousands ? "%'*jd " : "%*jd ",
+		    (u_int)width, bytes);
+	}
 }
 
 /*

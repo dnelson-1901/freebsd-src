@@ -22,12 +22,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -439,12 +434,12 @@ zy7_spi_attach(device_t dev)
 		return (err);
 	}
 
-	sc->child = device_add_child(dev, "spibus", -1);
+	sc->child = device_add_child(dev, "spibus", DEVICE_UNIT_ANY);
 
 	zy7_spi_add_sysctls(dev);
 
 	/* Attach spibus driver as a child later when interrupts work. */
-	config_intrhook_oneshot((ich_func_t)bus_generic_attach, dev);
+	bus_delayed_attach_children(dev);
 
 	return (0);
 }
@@ -453,13 +448,11 @@ static int
 zy7_spi_detach(device_t dev)
 {
 	struct zy7_spi_softc *sc = device_get_softc(dev);
+	int error;
 
-	if (device_is_attached(dev))
-		bus_generic_detach(dev);
-
-	/* Delete child bus. */
-	if (sc->child)
-		device_delete_child(dev, sc->child);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	/* Disable hardware. */
 	if (sc->mem_res != NULL) {

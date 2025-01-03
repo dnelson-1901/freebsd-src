@@ -35,8 +35,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bootp.h"
 #include "opt_nfsroot.h"
 #include "opt_kern_tls.h"
@@ -417,7 +415,7 @@ ncl_fsinfo(struct nfsmount *nmp, struct vnode *vp, struct ucred *cred,
 }
 
 /*
- * Mount a remote root fs via. nfs. This depends on the info in the
+ * Mount a remote root fs via nfs. This depends on the info in the
  * nfs_diskless structure that has been filled in properly by some primary
  * bootstrap.
  * It goes something like this:

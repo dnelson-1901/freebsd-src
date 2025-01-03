@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000,2001 Michael Smith
  * Copyright (c) 2000 BSDi
@@ -26,9 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -80,14 +77,22 @@ acpi_get_root_from_memory(void)
 	return (0);
 }
 
+void
+acpi_set_root(vm_paddr_t addr)
+{
+
+	KASSERT(acpi_root_phys == 0, ("ACPI root pointer already set"));
+	acpi_root_phys = addr;
+}
+
 ACPI_PHYSICAL_ADDRESS
 AcpiOsGetRootPointer(void)
 {
 
 	if (acpi_root_phys == 0) {
-		acpi_root_phys = acpi_get_root_from_loader();
+		acpi_set_root(acpi_get_root_from_loader());
 		if (acpi_root_phys == 0)
-			acpi_root_phys = acpi_get_root_from_memory();
+			acpi_set_root(acpi_get_root_from_memory());
 	}
 
 	return (acpi_root_phys);

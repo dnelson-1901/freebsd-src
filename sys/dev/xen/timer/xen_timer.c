@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Adrian Chadd
  * Copyright (c) 2012 Spectra Logic Corporation
@@ -32,9 +32,6 @@
  * \file dev/xen/timer/xen_timer.c
  * \brief A timer driver for the Xen hypervisor's PV clock.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -87,7 +84,7 @@ __FBSDID("$FreeBSD$");
 struct xentimer_pcpu_data {
 	uint64_t timer;
 	uint64_t last_processed;
-	void *irq_handle;
+	xen_intr_handle_t irq_handle;
 };
 
 DPCPU_DEFINE(struct xentimer_pcpu_data, xentimer_pcpu);

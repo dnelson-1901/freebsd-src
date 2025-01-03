@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,12 +24,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -38,8 +33,9 @@ __FBSDID("$FreeBSD$");
 #include <x86/specialreg.h>
 #include <x86/apicreg.h>
 
+#include <dev/vmm/vmm_ktr.h>
+
 #include <machine/vmm.h>
-#include "vmm_ktr.h"
 #include "vmm_lapic.h"
 #include "vlapic.h"
 

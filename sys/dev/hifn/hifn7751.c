@@ -43,8 +43,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver for various Hifn encryption processors.
  */
@@ -639,8 +637,6 @@ hifn_detach(device_t dev)
 
 	crypto_unregister_all(sc->sc_cid);
 
-	bus_generic_detach(dev);	/*XXX should be no children, right? */
-
 	bus_teardown_intr(dev, sc->sc_irq, sc->sc_intrhand);
 	/* XXX don't store rid */
 	bus_release_resource(dev, SYS_RES_IRQ, 0, sc->sc_irq);
@@ -880,7 +876,7 @@ hifn_set_retry(struct hifn_softc *sc)
 }
 
 /*
- * Resets the board.  Values in the regesters are left as is
+ * Resets the board.  Values in the registers are left as is
  * from the reset (i.e. initial values are assigned elsewhere).
  */
 static void

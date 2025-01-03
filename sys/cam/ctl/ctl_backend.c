@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 Silicon Graphics International Corp.
  * All rights reserved.
@@ -37,9 +37,6 @@
  * Author: Ken Merry <ken@FreeBSD.org>
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -61,8 +58,6 @@ __FBSDID("$FreeBSD$");
 #include <cam/ctl/ctl_ha.h>
 #include <cam/ctl/ctl_private.h>
 #include <cam/ctl/ctl_debug.h>
-
-extern struct ctl_softc *control_softc;
 
 int
 ctl_backend_register(struct ctl_backend_driver *be)

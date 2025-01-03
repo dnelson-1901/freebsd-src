@@ -1,7 +1,7 @@
 /*	$NetBSD: lance.c,v 1.34 2005/12/24 20:27:30 perry Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1997, 1998 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -62,12 +62,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)if_le.c	8.2 (Berkeley) 11/16/93
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -112,8 +107,6 @@ lance_config(struct lance_softc *sc, const char* name, int unit)
 		return (ENXIO);
 
 	ifp = sc->sc_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL)
-		return (ENOSPC);
 
 	callout_init_mtx(&sc->sc_wdog_ch, &sc->sc_mtx, 0);
 
@@ -199,6 +192,8 @@ lance_attach(struct lance_softc *sc)
 	if_setifheaderlen(ifp, sizeof(struct ether_vlan_header));
 	if_setcapabilitiesbit(ifp, IFCAP_VLAN_MTU, 0);
 	if_setcapenablebit(ifp, IFCAP_VLAN_MTU, 0);
+
+	gone_in(15, "le: 10/100 NIC no longer needed for Qemu/MIPS");
 }
 
 void

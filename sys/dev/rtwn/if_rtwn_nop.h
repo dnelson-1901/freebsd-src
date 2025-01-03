@@ -12,8 +12,6 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *
- * $FreeBSD$
  */
 
 #ifndef IF_RTWN_NOP_H
@@ -54,6 +52,12 @@ rtwn_nop_softc_chan(struct rtwn_softc *sc, struct ieee80211_channel *c)
 static __inline void
 rtwn_nop_softc_vap(struct rtwn_softc *sc, struct ieee80211vap *vap)
 {
+}
+
+static __inline int
+rtwn_nop_int_softc_vap(struct rtwn_softc *sc, struct ieee80211vap *vap)
+{
+	return (0);
 }
 
 static __inline void

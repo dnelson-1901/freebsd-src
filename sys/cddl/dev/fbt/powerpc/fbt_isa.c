@@ -21,8 +21,6 @@
  * Portions Copyright 2006-2008 John Birrell jb@freebsd.org
  * Portions Copyright 2013 Justin Hibbits jhibbits@freebsd.org
  *
- * $FreeBSD$
- *
  */
 
 /*
@@ -30,7 +28,6 @@
  * Use is subject to license terms.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/dtrace.h>
 #include <machine/md_var.h>
@@ -46,8 +43,6 @@
 #define FBT_BR_MASK		0x03fffffc
 #define FBT_IS_JUMP(instr)	((instr & ~FBT_BR_MASK) == FBT_BRANCH)
 
-#define	FBT_ENTRY	"entry"
-#define	FBT_RETURN	"return"
 #define	FBT_AFRAMES	5
 
 int

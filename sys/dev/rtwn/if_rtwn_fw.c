@@ -19,8 +19,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_wlan.h"
 
 #include <sys/param.h>
@@ -143,7 +141,8 @@ rtwn_load_firmware(struct rtwn_softc *sc)
 		sc->fwver = le16toh(hdr->version);
 
 		RTWN_DPRINTF(sc, RTWN_DEBUG_FIRMWARE,
-		    "FW V%u.%u %02u-%02u %02u:%02u\n",
+		    "FW (%s) V%u.%u %02u-%02u %02u:%02u\n",
+		    sc->fwname,
 		    le16toh(hdr->version), le16toh(hdr->subversion),
 		    hdr->month, hdr->date, hdr->hour, hdr->minute);
 		ptr += sizeof(*hdr);

@@ -1,7 +1,7 @@
 /*	$NetBSD: tmpfs_vfsops.c,v 1.10 2005/12/11 12:24:29 christos Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -45,9 +45,6 @@
 
 #include "opt_ddb.h"
 #include "opt_tmpfs.h"
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -93,7 +90,7 @@ static int	tmpfs_statfs(struct mount *, struct statfs *);
 
 static const char *tmpfs_opts[] = {
 	"from", "easize", "size", "maxfilesize", "inodes", "uid", "gid", "mode",
-	"export", "union", "nonc", "nomtime", "nosymfollow", NULL
+	"export", "union", "nonc", "nomtime", "nosymfollow", "pgread", NULL
 };
 
 static const char *tmpfs_updateopts[] = {
@@ -211,7 +208,7 @@ again:
 			continue;
 		}
 		vm = vmspace_acquire_ref(p);
-		_PHOLD_LITE(p);
+		_PHOLD(p);
 		PROC_UNLOCK(p);
 		if (vm == NULL) {
 			PRELE(p);
@@ -329,7 +326,7 @@ tmpfs_mount(struct mount *mp)
 	struct tmpfs_mount *tmp;
 	struct tmpfs_node *root;
 	int error;
-	bool nomtime, nonc;
+	bool nomtime, nonc, pgread;
 	/* Size counters. */
 	u_quad_t pages;
 	off_t nodes_max, size_max, maxfilesize, ea_max_size;
@@ -412,6 +409,7 @@ tmpfs_mount(struct mount *mp)
 		ea_max_size = 0;
 	nonc = vfs_getopt(mp->mnt_optnew, "nonc", NULL, NULL) == 0;
 	nomtime = vfs_getopt(mp->mnt_optnew, "nomtime", NULL, NULL) == 0;
+	pgread = vfs_getopt(mp->mnt_optnew, "pgread", NULL, NULL) == 0;
 
 	/* Do not allow mounts if we do not have enough memory to preserve
 	 * the minimum reserved pages. */
@@ -462,6 +460,7 @@ tmpfs_mount(struct mount *mp)
 	tmp->tm_ronly = (mp->mnt_flag & MNT_RDONLY) != 0;
 	tmp->tm_nonc = nonc;
 	tmp->tm_nomtime = nomtime;
+	tmp->tm_pgread = pgread;
 
 	/* Allocate the root node. */
 	error = tmpfs_alloc_node(mp, tmp, VDIR, root_uid, root_gid,
@@ -586,29 +585,25 @@ static int
 tmpfs_fhtovp(struct mount *mp, struct fid *fhp, int flags,
     struct vnode **vpp)
 {
-	struct tmpfs_fid_data tfd;
+	struct tmpfs_fid_data *tfd;
 	struct tmpfs_mount *tmp;
 	struct tmpfs_node *node;
 	int error;
 
-	if (fhp->fid_len != sizeof(tfd))
+	if (fhp->fid_len != sizeof(*tfd))
 		return (EINVAL);
 
-	/*
-	 * Copy from fid_data onto the stack to avoid unaligned pointer use.
-	 * See the comment in sys/mount.h on struct fid for details.
-	 */
-	memcpy(&tfd, fhp->fid_data, fhp->fid_len);
+	tfd = (struct tmpfs_fid_data *)fhp;
 
 	tmp = VFS_TO_TMPFS(mp);
 
-	if (tfd.tfd_id >= tmp->tm_nodes_max)
+	if (tfd->tfd_id >= tmp->tm_nodes_max)
 		return (EINVAL);
 
 	TMPFS_LOCK(tmp);
 	LIST_FOREACH(node, &tmp->tm_nodes_used, tn_entries) {
-		if (node->tn_id == tfd.tfd_id &&
-		    node->tn_gen == tfd.tfd_gen) {
+		if (node->tn_id == tfd->tfd_id &&
+		    node->tn_gen == tfd->tfd_gen) {
 			tmpfs_ref_node(node);
 			break;
 		}

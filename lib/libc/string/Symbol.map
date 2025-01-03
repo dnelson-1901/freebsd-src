@@ -1,7 +1,3 @@
-/*
- * $FreeBSD$
- */
-
 FBSD_1.0 {
 	bcmp;
 	bcopy;
@@ -118,6 +114,10 @@ FBSD_1.7 {
 	mempcpy;
 	strverscmp;
 	wmempcpy;
+};
+
+FBSD_1.8 {
+	memset_explicit;
 };
 
 FBSDprivate_1.0 {

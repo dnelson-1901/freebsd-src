@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004 Poul-Henning Kamp
  * Copyright (c) 1994,1997 John S. Dyson
@@ -44,9 +44,6 @@
  * see man buf(9) for more info.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/asan.h>
@@ -63,10 +60,12 @@ __FBSDID("$FreeBSD$");
 #include <sys/limits.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
+#include <sys/memdesc.h>
 #include <sys/mount.h>
 #include <sys/mutex.h>
 #include <sys/kernel.h>
 #include <sys/kthread.h>
+#include <sys/pctrie.h>
 #include <sys/proc.h>
 #include <sys/racct.h>
 #include <sys/refcount.h>
@@ -118,7 +117,7 @@ struct bufqueue {
 #define	BQ_ASSERT_LOCKED(bq)	mtx_assert(BQ_LOCKPTR((bq)), MA_OWNED)
 
 struct bufdomain {
-	struct bufqueue	bd_subq[MAXCPU + 1]; /* Per-cpu sub queues + global */
+	struct bufqueue	*bd_subq;
 	struct bufqueue bd_dirtyq;
 	struct bufqueue	*bd_cleanq;
 	struct mtx_padalign bd_run_lock;
@@ -160,6 +159,9 @@ nbufp(unsigned i)
 }
 
 caddr_t __read_mostly unmapped_buf;
+#ifdef INVARIANTS
+caddr_t	poisoned_buf = (void *)-1;
+#endif
 
 /* Used below and for softdep flushing threads in ufs/ffs/ffs_softdep.c */
 struct proc *bufdaemonproc;
@@ -204,7 +206,7 @@ static int sysctl_bufspace(SYSCTL_HANDLER_ARGS);
 int vmiodirenable = TRUE;
 SYSCTL_INT(_vfs, OID_AUTO, vmiodirenable, CTLFLAG_RW, &vmiodirenable, 0,
     "Use the VM system for directory writes");
-long runningbufspace;
+static long runningbufspace;
 SYSCTL_LONG(_vfs, OID_AUTO, runningbufspace, CTLFLAG_RD, &runningbufspace, 0,
     "Amount of presently outstanding async buffer io");
 SYSCTL_PROC(_vfs, OID_AUTO, bufspace, CTLTYPE_LONG|CTLFLAG_MPSAFE|CTLFLAG_RD,
@@ -320,7 +322,8 @@ SYSCTL_COUNTER_U64(_vfs, OID_AUTO, notbufdflushes, CTLFLAG_RD, &notbufdflushes,
 static long barrierwrites;
 SYSCTL_LONG(_vfs, OID_AUTO, barrierwrites, CTLFLAG_RW | CTLFLAG_STATS,
     &barrierwrites, 0, "Number of barrier writes");
-SYSCTL_INT(_vfs, OID_AUTO, unmapped_buf_allowed, CTLFLAG_RD,
+SYSCTL_INT(_vfs, OID_AUTO, unmapped_buf_allowed,
+    CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
     &unmapped_buf_allowed, 0,
     "Permit the use of the unmapped i/o");
 int maxbcachebuf = MAXBCACHEBUF;
@@ -938,6 +941,16 @@ runningbufwakeup(struct buf *bp)
 	runningwakeup();
 }
 
+long
+runningbufclaim(struct buf *bp, int space)
+{
+	long old;
+
+	old = atomic_fetchadd_long(&runningbufspace, space);
+	bp->b_runningbufspace = space;
+	return (old);
+}
+
 /*
  *	waitrunningbufspace()
  *
@@ -1168,7 +1181,12 @@ kern_vfs_bio_buffer_alloc(caddr_t v, long physmem_est)
 	}
 
 	if (nswbuf == 0) {
-		nswbuf = min(nbuf / 4, 256);
+		/*
+		 * Pager buffers are allocated for short periods, so scale the
+		 * number of reserved buffers based on the number of CPUs rather
+		 * than amount of memory.
+		 */
+		nswbuf = min(nbuf / 4, 32 * mp_ncpus);
 		if (nswbuf < NSWBUF_MIN)
 			nswbuf = NSWBUF_MIN;
 	}
@@ -1196,6 +1214,7 @@ bufinit(void)
 	struct buf *bp;
 	int i;
 
+	TSENTER();
 	KASSERT(maxbcachebuf >= MAXBSIZE,
 	    ("maxbcachebuf (%d) must be >= MAXBSIZE (%d)\n", maxbcachebuf,
 	    MAXBSIZE));
@@ -1205,6 +1224,9 @@ bufinit(void)
 	mtx_init(&bdirtylock, "dirty buf lock", NULL, MTX_DEF);
 
 	unmapped_buf = (caddr_t)kva_alloc(maxphys);
+#ifdef INVARIANTS
+	poisoned_buf = unmapped_buf;
+#endif
 
 	/* finally, initialize each buffer header and stick on empty q */
 	for (i = 0; i < nbuf; i++) {
@@ -1241,15 +1263,16 @@ bufinit(void)
 	bufspacethresh = lobufspace + (hibufspace - lobufspace) / 2;
 
 	/*
-	 * Note: The 16 MiB upper limit for hirunningspace was chosen
-	 * arbitrarily and may need further tuning. It corresponds to
-	 * 128 outstanding write IO requests (if IO size is 128 KiB),
-	 * which fits with many RAID controllers' tagged queuing limits.
+	 * Note: The upper limit for hirunningspace was chosen arbitrarily and
+	 * may need further tuning. It corresponds to 128 outstanding write IO
+	 * requests, which fits with many RAID controllers' tagged queuing
+	 * limits.
+	 *
 	 * The lower 1 MiB limit is the historical upper limit for
 	 * hirunningspace.
 	 */
 	hirunningspace = lmax(lmin(roundup(hibufspace / 64, maxbcachebuf),
-	    16 * 1024 * 1024), 1024 * 1024);
+	    128 * maxphys), 1024 * 1024);
 	lorunningspace = roundup((hirunningspace * 2) / 3, maxbcachebuf);
 
 	/*
@@ -1331,6 +1354,7 @@ bufinit(void)
 	buffreekvacnt = counter_u64_alloc(M_WAITOK);
 	bufdefragcnt = counter_u64_alloc(M_WAITOK);
 	bufkvaspace = counter_u64_alloc(M_WAITOK);
+	TSEXIT();
 }
 
 #ifdef INVARIANTS
@@ -1914,6 +1938,9 @@ bd_init(struct bufdomain *bd)
 {
 	int i;
 
+	/* Per-CPU clean buf queues, plus one global queue. */
+	bd->bd_subq = mallocarray(mp_maxid + 2, sizeof(struct bufqueue),
+	    M_BIOBUF, M_WAITOK | M_ZERO);
 	bd->bd_cleanq = &bd->bd_subq[mp_maxid + 1];
 	bq_init(bd->bd_cleanq, QUEUE_CLEAN, mp_maxid + 1, "bufq clean lock");
 	bq_init(&bd->bd_dirtyq, QUEUE_DIRTY, -1, "bufq dirty lock");
@@ -2288,10 +2315,10 @@ breadn_flags(struct vnode *vp, daddr_t blkno, daddr_t dblkno, int size,
 int
 bufwrite(struct buf *bp)
 {
-	int oldflags;
 	struct vnode *vp;
 	long space;
-	int vp_md;
+	int oldflags, retval;
+	bool vp_md;
 
 	CTR3(KTR_BUF, "bufwrite(%p) vp %p flags %X", bp, bp->b_vp, bp->b_flags);
 	if ((bp->b_bufobj->bo_flag & BO_DEAD) != 0) {
@@ -2300,24 +2327,21 @@ bufwrite(struct buf *bp)
 		brelse(bp);
 		return (ENXIO);
 	}
-	if (bp->b_flags & B_INVAL) {
+	if ((bp->b_flags & B_INVAL) != 0) {
 		brelse(bp);
 		return (0);
 	}
 
-	if (bp->b_flags & B_BARRIER)
+	if ((bp->b_flags & B_BARRIER) != 0)
 		atomic_add_long(&barrierwrites, 1);
 
 	oldflags = bp->b_flags;
 
-	KASSERT(!(bp->b_vflags & BV_BKGRDINPROG),
+	KASSERT((bp->b_vflags & BV_BKGRDINPROG) == 0,
 	    ("FFS background buffer should not get here %p", bp));
 
 	vp = bp->b_vp;
-	if (vp)
-		vp_md = vp->v_vflag & VV_MD;
-	else
-		vp_md = 0;
+	vp_md = vp != NULL && (vp->v_vflag & VV_MD) != 0;
 
 	/*
 	 * Mark the buffer clean.  Increment the bufobj write count
@@ -2338,8 +2362,7 @@ bufwrite(struct buf *bp)
 	/*
 	 * Normal bwrites pipeline writes
 	 */
-	bp->b_runningbufspace = bp->b_bufsize;
-	space = atomic_fetchadd_long(&runningbufspace, bp->b_runningbufspace);
+	space = runningbufclaim(bp, bp->b_bufsize);
 
 #ifdef RACCT
 	if (racct_enable) {
@@ -2349,24 +2372,22 @@ bufwrite(struct buf *bp)
 	}
 #endif /* RACCT */
 	curthread->td_ru.ru_oublock++;
-	if (oldflags & B_ASYNC)
+	if ((oldflags & B_ASYNC) != 0)
 		BUF_KERNPROC(bp);
 	bp->b_iooffset = dbtob(bp->b_blkno);
 	buf_track(bp, __func__);
 	bstrategy(bp);
 
 	if ((oldflags & B_ASYNC) == 0) {
-		int rtval = bufwait(bp);
+		retval = bufwait(bp);
 		brelse(bp);
-		return (rtval);
+		return (retval);
 	} else if (space > hirunningspace) {
 		/*
-		 * don't allow the async write to saturate the I/O
-		 * system.  We will not deadlock here because
-		 * we are blocking waiting for I/O that is already in-progress
-		 * to complete. We do not block here if it is the update
-		 * or syncer daemon trying to clean up as that can lead
-		 * to deadlock.
+		 * Don't allow the async write to saturate the I/O
+		 * system.  We do not block here if it is the update
+		 * or syncer daemon trying to clean up as that can
+		 * lead to deadlock.
 		 */
 		if ((curthread->td_pflags & TDP_NORUNNINGBUF) == 0 && !vp_md)
 			waitrunningbufspace();
@@ -3969,9 +3990,11 @@ getblkx(struct vnode *vp, daddr_t blkno, daddr_t dblkno, int size, int slpflag,
 	    ("GB_KVAALLOC only makes sense with GB_UNMAPPED"));
 	if (vp->v_type != VCHR)
 		ASSERT_VOP_LOCKED(vp, "getblk");
-	if (size > maxbcachebuf)
-		panic("getblk: size(%d) > maxbcachebuf(%d)\n", size,
+	if (size > maxbcachebuf) {
+		printf("getblkx: size(%d) > maxbcachebuf(%d)\n", size,
 		    maxbcachebuf);
+		return (EIO);
+	}
 	if (!unmapped_buf_allowed)
 		flags &= ~(GB_UNMAPPED | GB_KVAALLOC);
 
@@ -3984,16 +4007,37 @@ getblkx(struct vnode *vp, daddr_t blkno, daddr_t dblkno, int size, int slpflag,
 		/*
 		 * With GB_NOCREAT we must be sure about not finding the buffer
 		 * as it may have been reassigned during unlocked lookup.
+		 * If BO_NONSTERILE is still unset, no reassign has occurred.
 		 */
-		if ((flags & GB_NOCREAT) != 0)
+		if ((flags & GB_NOCREAT) != 0) {
+			/* Ensure bo_flag is loaded after gbincore_unlocked. */
+			atomic_thread_fence_acq();
+			if ((bo->bo_flag & BO_NONSTERILE) == 0)
+				return (EEXIST);
 			goto loop;
+		}
 		goto newbuf_unlocked;
 	}
 
 	error = BUF_TIMELOCK(bp, LK_EXCLUSIVE | LK_NOWAIT, NULL, "getblku", 0,
 	    0);
-	if (error != 0)
+	if (error != 0) {
+		KASSERT(error == EBUSY,
+		    ("getblk: unexpected error %d from buf try-lock", error));
+		/*
+		 * We failed a buf try-lock.
+		 *
+		 * With GB_LOCK_NOWAIT, just return, rather than taking the
+		 * bufobj interlock and trying again, since we would probably
+		 * fail again anyway.  This is okay even if the buf's identity
+		 * changed and we contended on the wrong lock, as changing
+		 * identity itself requires the buf lock, and we could have
+		 * contended on the right lock.
+		 */
+		if ((flags & GB_LOCK_NOWAIT) != 0)
+			return (error);
 		goto loop;
+	}
 
 	/* Verify buf identify has not changed since lookup. */
 	if (bp->b_bufobj == bo && bp->b_lblkno == blkno)
@@ -4001,6 +4045,10 @@ getblkx(struct vnode *vp, daddr_t blkno, daddr_t dblkno, int size, int slpflag,
 
 	/* It changed, fallback to locked lookup. */
 	BUF_UNLOCK_RAW(bp);
+
+	/* As above, with GB_LOCK_NOWAIT, just return. */
+	if ((flags & GB_LOCK_NOWAIT) != 0)
+		return (EBUSY);
 
 loop:
 	BO_RLOCK(bo);
@@ -4145,6 +4193,12 @@ newbuf_unlocked:
 		vmio = vp->v_object != NULL;
 		if (vmio) {
 			maxsize = size + (offset & PAGE_MASK);
+			if (maxsize > maxbcachebuf) {
+				printf(
+			    "getblkx: maxsize(%d) > maxbcachebuf(%d)\n",
+				    maxsize, maxbcachebuf);
+				return (EIO);
+			}
 		} else {
 			maxsize = size;
 			/* Do not allow non-VMIO notmapped buffers. */
@@ -4188,35 +4242,29 @@ newbuf_unlocked:
 		}
 
 		/*
-		 * This code is used to make sure that a buffer is not
-		 * created while the getnewbuf routine is blocked.
-		 * This can be a problem whether the vnode is locked or not.
-		 * If the buffer is created out from under us, we have to
-		 * throw away the one we just created.
 		 *
-		 * Note: this must occur before we associate the buffer
-		 * with the vp especially considering limitations in
-		 * the splay tree implementation when dealing with duplicate
-		 * lblkno's.
+		 * Insert the buffer into the hash, so that it can
+		 * be found by incore.
+		 *
+		 * We don't hold the bufobj interlock while allocating the new
+		 * buffer.  Consequently, we can race on buffer creation.  This
+		 * can be a problem whether the vnode is locked or not.  If the
+		 * buffer is created out from under us, we have to throw away
+		 * the one we just created.
 		 */
-		BO_LOCK(bo);
-		if (gbincore(bo, blkno)) {
-			BO_UNLOCK(bo);
+		bp->b_lblkno = blkno;
+		bp->b_blkno = d_blkno;
+		bp->b_offset = offset;
+		error = bgetvp(vp, bp);
+		if (error != 0) {
+			KASSERT(error == EEXIST,
+			    ("getblk: unexpected error %d from bgetvp",
+			    error));
 			bp->b_flags |= B_INVAL;
 			bufspace_release(bufdomain(bp), maxsize);
 			brelse(bp);
 			goto loop;
 		}
-
-		/*
-		 * Insert the buffer into the hash, so that it can
-		 * be found by incore.
-		 */
-		bp->b_lblkno = blkno;
-		bp->b_blkno = d_blkno;
-		bp->b_offset = offset;
-		bgetvp(vp, bp);
-		BO_UNLOCK(bo);
 
 		/*
 		 * set B_VMIO bit.  allocbuf() the buffer bigger.  Since the
@@ -5142,7 +5190,9 @@ bufobj_init(struct bufobj *bo, void *private)
         rw_init(BO_LOCKPTR(bo), "bufobj interlock");
         bo->bo_private = private;
         TAILQ_INIT(&bo->bo_clean.bv_hd);
+	pctrie_init(&bo->bo_clean.bv_root);
         TAILQ_INIT(&bo->bo_dirty.bv_hd);
+	pctrie_init(&bo->bo_dirty.bv_root);
 }
 
 void
@@ -5218,6 +5268,20 @@ bdata2bio(struct buf *bp, struct bio *bip)
 		bip->bio_data = bp->b_data;
 		bip->bio_ma = NULL;
 	}
+}
+
+struct memdesc
+memdesc_bio(struct bio *bio)
+{
+	if ((bio->bio_flags & BIO_VLIST) != 0)
+		return (memdesc_vlist((struct bus_dma_segment *)bio->bio_data,
+		    bio->bio_ma_n));
+
+	if ((bio->bio_flags & BIO_UNMAPPED) != 0)
+		return (memdesc_vmpages(bio->bio_ma, bio->bio_bcount,
+		    bio->bio_ma_offset));
+
+	return (memdesc_vaddr(bio->bio_data, bio->bio_bcount));
 }
 
 static int buf_pager_relbuf;
@@ -5426,16 +5490,16 @@ DB_SHOW_COMMAND(buffer, db_show_buffer)
 	}
 
 	db_printf("buf at %p\n", bp);
-	db_printf("b_flags = 0x%b, b_xflags=0x%b\n",
+	db_printf("b_flags = 0x%b, b_xflags = 0x%b\n",
 	    (u_int)bp->b_flags, PRINT_BUF_FLAGS,
 	    (u_int)bp->b_xflags, PRINT_BUF_XFLAGS);
-	db_printf("b_vflags=0x%b b_ioflags0x%b\n",
+	db_printf("b_vflags = 0x%b, b_ioflags = 0x%b\n",
 	    (u_int)bp->b_vflags, PRINT_BUF_VFLAGS,
 	    (u_int)bp->b_ioflags, PRINT_BIO_FLAGS);
 	db_printf(
 	    "b_error = %d, b_bufsize = %ld, b_bcount = %ld, b_resid = %ld\n"
-	    "b_bufobj = (%p), b_data = %p\n, b_blkno = %jd, b_lblkno = %jd, "
-	    "b_vp = %p, b_dep = %p\n",
+	    "b_bufobj = %p, b_data = %p\n"
+	    "b_blkno = %jd, b_lblkno = %jd, b_vp = %p, b_dep = %p\n",
 	    bp->b_error, bp->b_bufsize, bp->b_bcount, bp->b_resid,
 	    bp->b_bufobj, bp->b_data, (intmax_t)bp->b_blkno,
 	    (intmax_t)bp->b_lblkno, bp->b_vp, bp->b_dep.lh_first);
@@ -5472,7 +5536,6 @@ DB_SHOW_COMMAND(buffer, db_show_buffer)
 #elif defined(BUF_TRACKING)
 	db_printf("b_io_tracking: %s\n", bp->b_io_tracking);
 #endif
-	db_printf(" ");
 }
 
 DB_SHOW_COMMAND_FLAGS(bufqueues, bufqueues, DB_CMD_MEMSAFE)

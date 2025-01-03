@@ -49,10 +49,10 @@
 #include <dev/pci/pcib_private.h>
 #include <dev/pci/pci_dw.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/phy/phy.h>
-#include <dev/extres/regulator/regulator.h>
-#include <dev/extres/hwreset/hwreset.h>
+#include <dev/clk/clk.h>
+#include <dev/phy/phy.h>
+#include <dev/regulator/regulator.h>
+#include <dev/hwreset/hwreset.h>
 
 #include <machine/bus.h>
 #include <machine/intr.h>
@@ -362,7 +362,8 @@ rk3568_pcie_attach(device_t dev)
 		goto fail;
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 fail:
 	rk3568_pcie_detach(dev);
 	return (ENXIO);
@@ -394,4 +395,4 @@ static device_method_t rk3568_pcie_methods[] = {
 
 DEFINE_CLASS_1(pcib, rk3568_pcie_driver, rk3568_pcie_methods,
     sizeof(struct rk3568_pcie_softc), pci_dw_driver);
-DRIVER_MODULE(mv_pcie, simplebus, rk3568_pcie_driver, NULL, NULL);
+DRIVER_MODULE(rk3568_pcie, simplebus, rk3568_pcie_driver, NULL, NULL);

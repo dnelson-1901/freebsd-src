@@ -1,4 +1,3 @@
-/*	$FreeBSD$ */
 
 /*
  * Copyright (C) 2012 by Darren Reed.
@@ -92,10 +91,6 @@
 /* END OF INCLUDES */
 
 
-#if !defined(lint)
-static const char sccsid[] = "@(#)ip_state.c	1.8 6/5/96 (C) 1993-2000 Darren Reed";
-static const char rcsid[] = "@(#)$Id$";
-#endif
 
 
 static ipftuneable_t ipf_state_tuneables[] = {
@@ -1255,7 +1250,7 @@ ipf_state_matchisps(ipstate_t *is1, ipstate_t *is2)
 		case IPPROTO_TCP :
 		case IPPROTO_UDP :
 		case IPPROTO_GRE :
-			/* greinfo_t can be also interprted as port pair */
+			/* greinfo_t can be also interpreted as port pair */
 			rv = ipf_state_matchports(&is1->is_ps.is_us,
 						  &is2->is_ps.is_us);
 			break;
@@ -1525,7 +1520,7 @@ ipf_state_add(ipf_main_softc_t *softc, fr_info_t *fin, ipstate_t **stsave,
 	case IPPROTO_TCP :
 		tcp = fin->fin_dp;
 
-		if (tcp->th_flags & TH_RST) {
+		if (tcp_get_flags(tcp) & TH_RST) {
 			SBUMPD(ipf_state_stats, iss_tcp_rstadd);
 			return (-4);
 		}
@@ -1558,15 +1553,15 @@ ipf_state_add(ipf_main_softc_t *softc, fr_info_t *fin, ipstate_t **stsave,
 		if ((fin->fin_flx & FI_IGNORE) == 0) {
 			is->is_send = ntohl(tcp->th_seq) + fin->fin_dlen -
 				      (TCP_OFF(tcp) << 2) +
-				      ((tcp->th_flags & TH_SYN) ? 1 : 0) +
-				      ((tcp->th_flags & TH_FIN) ? 1 : 0);
+				      ((tcp_get_flags(tcp) & TH_SYN) ? 1 : 0) +
+				      ((tcp_get_flags(tcp) & TH_FIN) ? 1 : 0);
 			is->is_maxsend = is->is_send;
 
 			/*
 			 * Window scale option is only present in
 			 * SYN/SYN-ACK packet.
 			 */
-			if ((tcp->th_flags & ~(TH_FIN|TH_ACK|TH_ECNALL)) ==
+			if ((tcp_get_flags(tcp) & ~(TH_FIN|TH_ACK|TH_ECNALL)) ==
 			    TH_SYN &&
 			    (TCP_OFF(tcp) > (sizeof(tcphdr_t) >> 2))) {
 				if (ipf_tcpoptions(softs, fin, tcp,
@@ -1581,7 +1576,7 @@ ipf_state_add(ipf_main_softc_t *softc, fr_info_t *fin, ipstate_t **stsave,
 				ipf_fixoutisn(fin, is);
 			}
 
-			if ((tcp->th_flags & TH_OPENING) == TH_SYN)
+			if ((tcp_get_flags(tcp) & TH_OPENING) == TH_SYN)
 				flags |= IS_TCPFSM;
 			else {
 				is->is_maxdwin = is->is_maxswin * 2;
@@ -1973,7 +1968,7 @@ ipf_state_tcp(ipf_main_softc_t *softc, ipf_state_softc_t *softs,
 	 * If a SYN packet is received for a connection that is on the way out
 	 * but hasn't yet departed then advance this session along the way.
 	 */
-	if ((tcp->th_flags & TH_OPENING) == TH_SYN) {
+	if ((tcp_get_flags(tcp) & TH_OPENING) == TH_SYN) {
 		if ((is->is_state[0] > IPF_TCPS_ESTABLISHED) &&
 		    (is->is_state[1] > IPF_TCPS_ESTABLISHED)) {
 			is->is_state[!source] = IPF_TCPS_CLOSED;
@@ -2016,7 +2011,7 @@ ipf_state_tcp(ipf_main_softc_t *softc, ipf_state_softc_t *softs,
 		 * Window scale option is only present in SYN/SYN-ACK packet.
 		 * Compare with ~TH_FIN to mask out T/TCP setups.
 		 */
-		flags = tcp->th_flags & ~(TH_FIN|TH_ECNALL);
+		flags = tcp_get_flags(tcp) & ~(TH_FIN|TH_ECNALL);
 		if (flags == (TH_SYN|TH_ACK)) {
 			is->is_s0[source] = ntohl(tcp->th_ack);
 			is->is_s0[!source] = ntohl(tcp->th_seq) + 1;
@@ -2115,7 +2110,7 @@ ipf_state_tcpinwindow(fr_info_t *fin, tcpdata_t  *fdata, tcpdata_t *tdata,
 	/*
 	 * Find difference between last checked packet and this packet.
 	 */
-	tcpflags = tcp->th_flags;
+	tcpflags = tcp_get_flags(tcp);
 	seq = ntohl(tcp->th_seq);
 	ack = ntohl(tcp->th_ack);
 	if (tcpflags & TH_SYN)
@@ -2318,8 +2313,8 @@ ipf_state_clone(fr_info_t *fin, tcphdr_t *tcp, ipstate_t *is)
 	clone->is_state[0] = 0;
 	clone->is_state[1] = 0;
 	send = ntohl(tcp->th_seq) + fin->fin_dlen - (TCP_OFF(tcp) << 2) +
-		((tcp->th_flags & TH_SYN) ? 1 : 0) +
-		((tcp->th_flags & TH_FIN) ? 1 : 0);
+		((tcp_get_flags(tcp) & TH_SYN) ? 1 : 0) +
+		((tcp_get_flags(tcp) & TH_FIN) ? 1 : 0);
 
 	if (fin->fin_rev == 1) {
 		clone->is_dend = send;
@@ -3959,7 +3954,7 @@ ipf_tcp_age(ipftqent_t *tqe, fr_info_t *fin, ipftq_t *tqtab, int flags, int ok)
 
 	rval = 0;
 	dir = fin->fin_rev;
-	tcpflags = tcp->th_flags;
+	tcpflags = tcp_get_flags(tcp);
 	dlen = fin->fin_dlen - (TCP_OFF(tcp) << 2);
 	ostate = tqe->tqe_state[1 - dir];
 	nstate = tqe->tqe_state[dir];

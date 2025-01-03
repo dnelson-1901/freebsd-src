@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Rick Macklem, University of Guelph
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_NFS_NFSCL_H
@@ -70,10 +68,11 @@ struct nfsv4node {
  * These flag bits are used for the argument to nfscl_fillsattr() to
  * indicate special handling of the attributes.
  */
-#define	NFSSATTR_FULL		0x1
-#define	NFSSATTR_SIZE0		0x2
-#define	NFSSATTR_SIZENEG1	0x4
-#define	NFSSATTR_SIZERDEV	0x8
+#define	NFSSATTR_FULL		0x01
+#define	NFSSATTR_SIZE0		0x02
+#define	NFSSATTR_SIZENEG1	0x04
+#define	NFSSATTR_SIZERDEV	0x08
+#define	NFSSATTR_NEWFILE	0x10
 
 /* Use this macro for debug printfs. */
 #define	NFSCL_DEBUG(level, ...)	do {					\

@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * SiS 900/SiS 7016 fast ethernet PCI NIC driver. Datasheets are
  * available from http://www.sis.com.tw.
@@ -1059,11 +1057,6 @@ sis_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->sis_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -1153,8 +1146,6 @@ sis_detach(device_t dev)
 		callout_drain(&sc->sis_stat_ch);
 		ether_ifdetach(ifp);
 	}
-	if (sc->sis_miibus)
-		device_delete_child(dev, sc->sis_miibus);
 	bus_generic_detach(dev);
 
 	if (sc->sis_intrhand)

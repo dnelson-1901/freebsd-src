@@ -28,9 +28,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -46,7 +43,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_cpu.h>
 
 #if defined(__arm__) || defined(__arm64__) || defined(__riscv__)
-#include <dev/extres/clk/clk.h>
+#include <dev/clk/clk.h>
 #endif
 
 static int	ofw_cpulist_probe(device_t);
@@ -89,10 +86,10 @@ static driver_t ofw_cpulist_driver = {
 
 DRIVER_MODULE(ofw_cpulist, ofwbus, ofw_cpulist_driver, 0, 0);
 
-static int 
-ofw_cpulist_probe(device_t dev) 
+static int
+ofw_cpulist_probe(device_t dev)
 {
-	const char	*name;
+	const char *name;
 
 	name = ofw_bus_get_name(dev);
 
@@ -104,8 +101,8 @@ ofw_cpulist_probe(device_t dev)
 	return (0);
 }
 
-static int 
-ofw_cpulist_attach(device_t dev) 
+static int
+ofw_cpulist_attach(device_t dev)
 {
 	struct ofw_cpulist_softc *sc;
 	phandle_t root, child;
@@ -122,28 +119,29 @@ ofw_cpulist_attach(device_t dev)
 	for (child = OF_child(root); child != 0; child = OF_peer(child)) {
 		dinfo = malloc(sizeof(*dinfo), M_OFWCPU, M_WAITOK | M_ZERO);
 
-                if (ofw_bus_gen_setup_devinfo(dinfo, child) != 0) {
-                        free(dinfo, M_OFWCPU);
-                        continue;
-                }
-                cdev = device_add_child(dev, NULL, -1);
-                if (cdev == NULL) {
-                        device_printf(dev, "<%s>: device_add_child failed\n",
-                            dinfo->obd_name);
-                        ofw_bus_gen_destroy_devinfo(dinfo);
-                        free(dinfo, M_OFWCPU);
-                        continue;
-                }
+		if (ofw_bus_gen_setup_devinfo(dinfo, child) != 0) {
+			free(dinfo, M_OFWCPU);
+			continue;
+		}
+		cdev = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
+		if (cdev == NULL) {
+			device_printf(dev, "<%s>: device_add_child failed\n",
+			    dinfo->obd_name);
+			ofw_bus_gen_destroy_devinfo(dinfo);
+			free(dinfo, M_OFWCPU);
+			continue;
+		}
 		device_set_ivars(cdev, dinfo);
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static const struct ofw_bus_devinfo *
-ofw_cpulist_get_devinfo(device_t dev, device_t child) 
+ofw_cpulist_get_devinfo(device_t dev, device_t child)
 {
-	return (device_get_ivars(child));	
+	return (device_get_ivars(child));
 }
 
 static int	ofw_cpu_probe(device_t);
@@ -154,7 +152,7 @@ static int	ofw_cpu_read_ivar(device_t dev, device_t child, int index,
 struct ofw_cpu_softc {
 	struct pcpu	*sc_cpu_pcpu;
 	uint32_t	 sc_nominal_mhz;
-	boolean_t	 sc_reg_valid;
+	bool		 sc_reg_valid;
 	pcell_t		 sc_reg[2];
 };
 
@@ -192,6 +190,11 @@ ofw_cpu_probe(device_t dev)
 		return (ENXIO);
 
 	device_set_desc(dev, "Open Firmware CPU");
+	if (!bootverbose && device_get_unit(dev) != 0) {
+		device_quiet(dev);
+		device_quiet_children(dev);
+	}
+
 	return (0);
 }
 
@@ -242,8 +245,8 @@ ofw_cpu_attach(device_t dev)
 		struct cpuref cpuref;
 		cell_t *servers;
 		int i, nservers, rv;
-		
-		if ((nservers = OF_getencprop_alloc(node, 
+
+		if ((nservers = OF_getencprop_alloc(node,
 		    "ibm,ppc-interrupt-server#s", (void **)&servers)) < 0)
 			return (ENXIO);
 		nservers /= sizeof(cell_t);
@@ -295,8 +298,9 @@ ofw_cpu_attach(device_t dev)
 	if (sc->sc_nominal_mhz != 0 && bootverbose)
 		device_printf(dev, "Nominal frequency %dMhz\n",
 		    sc->sc_nominal_mhz);
-	bus_generic_probe(dev);
-	return (bus_generic_attach(dev));
+	bus_identify_children(dev);
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int
@@ -333,7 +337,7 @@ ofw_cpu_read_ivar(device_t dev, device_t child, int index, uintptr_t *result)
 }
 
 int
-ofw_cpu_early_foreach(ofw_cpu_foreach_cb callback, boolean_t only_runnable)
+ofw_cpu_early_foreach(ofw_cpu_foreach_cb callback, bool only_runnable)
 {
 	phandle_t node, child;
 	pcell_t addr_cells, reg[2];

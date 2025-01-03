@@ -1,14 +1,11 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 PROG_CXX=	llvm-objcopy
 
 SRCDIR=		llvm/tools/llvm-objcopy
 SRCS+=		ObjcopyOptions.cpp
+SRCS+=		llvm-objcopy-driver.cpp
 SRCS+=		llvm-objcopy.cpp
-
-CFLAGS.llvm-objcopy.cpp+=	-Dllvm_objcopy_main=main
 
 .include "${SRCTOP}/lib/clang/llvm.pre.mk"
 
@@ -23,20 +20,17 @@ ${hdr}.inc: ${LLVM_BASE}/${SRCDIR}/${hdr}.td
 TGHDRS+=	${hdr}.inc
 .endfor
 
-${TGHDRS}: ${LLVM_TBLGEN_BIN}
-
 DEPENDFILES+=	${TGHDRS:C/$/.d/}
 DPSRCS+=	${TGHDRS}
 CLEANFILES+=	${TGHDRS} ${TGHDRS:C/$/.d/}
 
-LIBADD+=	z
-
-LINKS+=		${BINDIR}/llvm-objcopy ${BINDIR}/llvm-strip
+LINKS=		${BINDIR}/llvm-objcopy ${BINDIR}/llvm-strip
 
 .if ${MK_LLVM_BINUTILS} != "no"
 LINKS+=		${BINDIR}/llvm-objcopy ${BINDIR}/objcopy \
 		${BINDIR}/llvm-strip ${BINDIR}/strip
-MLINKS=		llvm-objcopy.1 objcopy.1
+MLINKS=		llvm-objcopy.1 objcopy.1 \
+		llvm-objcopy.1 strip.1
 .endif
 
 .include "../llvm.prog.mk"

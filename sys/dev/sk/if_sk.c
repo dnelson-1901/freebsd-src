@@ -50,8 +50,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * SysKonnect SK-NET gigabit ethernet driver for FreeBSD. Supports
  * the SK-984x series adapters, both single port and dual port.
@@ -187,6 +185,7 @@ static const struct sk_type sk_devs[] = {
 
 static int skc_probe(device_t);
 static int skc_attach(device_t);
+static void skc_child_deleted(device_t, device_t);
 static int skc_detach(device_t);
 static int skc_shutdown(device_t);
 static int skc_suspend(device_t);
@@ -293,6 +292,7 @@ static device_method_t skc_methods[] = {
 	DEVMETHOD(device_resume,	skc_resume),
 	DEVMETHOD(device_shutdown,	skc_shutdown),
 
+	DEVMETHOD(bus_child_deleted,	skc_child_deleted),
 	DEVMETHOD(bus_get_dma_tag,	skc_get_dma_tag),
 
 	DEVMETHOD_END
@@ -1281,11 +1281,6 @@ sk_attach(device_t dev)
 	sk_dma_jumbo_alloc(sc_if);
 
 	ifp = sc_if->sk_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(sc_if->sk_if_dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc_if);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -1686,7 +1681,7 @@ skc_attach(device_t dev)
 		device_printf(dev, "SRAM size = 0x%06x\n", sc->sk_ramsize);
 	}
 
-	sc->sk_devs[SK_PORT_A] = device_add_child(dev, "sk", -1);
+	sc->sk_devs[SK_PORT_A] = device_add_child(dev, "sk", DEVICE_UNIT_ANY);
 	if (sc->sk_devs[SK_PORT_A] == NULL) {
 		device_printf(dev, "failed to add child for PORT_A\n");
 		error = ENXIO;
@@ -1703,7 +1698,7 @@ skc_attach(device_t dev)
 	device_set_ivars(sc->sk_devs[SK_PORT_A], port);
 
 	if (!(sk_win_read_1(sc, SK_CONFIG) & SK_CONFIG_SINGLEMAC)) {
-		sc->sk_devs[SK_PORT_B] = device_add_child(dev, "sk", -1);
+		sc->sk_devs[SK_PORT_B] = device_add_child(dev, "sk", DEVICE_UNIT_ANY);
 		if (sc->sk_devs[SK_PORT_B] == NULL) {
 			device_printf(dev, "failed to add child for PORT_B\n");
 			error = ENXIO;
@@ -1723,11 +1718,7 @@ skc_attach(device_t dev)
 	/* Turn on the 'driver is loaded' LED. */
 	CSR_WRITE_2(sc, SK_LED, SK_LED_GREEN_ON);
 
-	error = bus_generic_attach(dev);
-	if (error) {
-		device_printf(dev, "failed to attach port(s)\n");
-		goto fail;
-	}
+	bus_attach_children(dev);
 
 	/* Hook interrupt last to avoid having to lock softc */
 	error = bus_setup_intr(dev, sc->sk_res[1], INTR_TYPE_NET|INTR_MPSAFE,
@@ -1743,6 +1734,12 @@ fail:
 		skc_detach(dev);
 
 	return(error);
+}
+
+static void
+skc_child_deleted(device_t dev, device_t child)
+{
+	free(device_get_ivars(child), M_DEVBUF);
 }
 
 /*
@@ -1774,15 +1771,6 @@ sk_detach(device_t dev)
 		ether_ifdetach(ifp);
 		SK_IF_LOCK(sc_if);
 	}
-	/*
-	 * We're generally called from skc_detach() which is using
-	 * device_delete_child() to get to here. It's already trashed
-	 * miibus for us, so don't do it here or we'll panic.
-	 */
-	/*
-	if (sc_if->sk_miibus != NULL)
-		device_delete_child(dev, sc_if->sk_miibus);
-	*/
 	bus_generic_detach(dev);
 	sk_dma_jumbo_free(sc_if);
 	sk_dma_free(sc_if);
@@ -1801,17 +1789,7 @@ skc_detach(device_t dev)
 	sc = device_get_softc(dev);
 	KASSERT(mtx_initialized(&sc->sk_mtx), ("sk mutex not initialized"));
 
-	if (device_is_alive(dev)) {
-		if (sc->sk_devs[SK_PORT_A] != NULL) {
-			free(device_get_ivars(sc->sk_devs[SK_PORT_A]), M_DEVBUF);
-			device_delete_child(dev, sc->sk_devs[SK_PORT_A]);
-		}
-		if (sc->sk_devs[SK_PORT_B] != NULL) {
-			free(device_get_ivars(sc->sk_devs[SK_PORT_B]), M_DEVBUF);
-			device_delete_child(dev, sc->sk_devs[SK_PORT_B]);
-		}
-		bus_generic_detach(dev);
-	}
+	bus_generic_detach(dev);
 
 	if (sc->sk_intrhand)
 		bus_teardown_intr(dev, sc->sk_res[1], sc->sk_intrhand);
@@ -2571,7 +2549,7 @@ skc_resume(device_t dev)
  * to get correct checksum value but couldn't get correct one. So TCP/UDP
  * checksum offload was disabled at the moment and only IP checksum offload
  * was enabled.
- * As nomral IP header size is 20 bytes I can't expect it would give an
+ * As normal IP header size is 20 bytes I can't expect it would give an
  * increase in throughput. However it seems it doesn't hurt performance in
  * my testing. If there is a more detailed information for checksum secret
  * of the hardware in question please contact yongari@FreeBSD.org to add

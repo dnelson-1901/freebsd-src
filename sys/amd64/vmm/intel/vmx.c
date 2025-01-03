@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -25,13 +25,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bhyve_snapshot.h"
 
 #include <sys/param.h>
@@ -46,6 +42,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 
 #include <vm/vm.h>
+#include <vm/vm_extern.h>
 #include <vm/pmap.h>
 
 #include <machine/psl.h>
@@ -61,10 +58,11 @@ __FBSDID("$FreeBSD$");
 #include <machine/vmm_instruction_emul.h>
 #include <machine/vmm_snapshot.h>
 
+#include <dev/vmm/vmm_ktr.h>
+
 #include "vmm_lapic.h"
 #include "vmm_host.h"
 #include "vmm_ioport.h"
-#include "vmm_ktr.h"
 #include "vmm_stat.h"
 #include "vatpic.h"
 #include "vlapic.h"
@@ -134,7 +132,7 @@ SYSCTL_NODE(_hw_vmm, OID_AUTO, vmx, CTLFLAG_RW | CTLFLAG_MPSAFE, NULL,
     NULL);
 
 int vmxon_enabled[MAXCPU];
-static char vmxon_region[MAXCPU][PAGE_SIZE] __aligned(PAGE_SIZE);
+static uint8_t *vmxon_region;
 
 static uint32_t pinbased_ctls, procbased_ctls, procbased_ctls2;
 static uint32_t exit_ctls, entry_ctls;
@@ -195,15 +193,18 @@ SYSCTL_INT(_hw_vmm_vmx_cap, OID_AUTO, invpcid, CTLFLAG_RD, &cap_invpcid,
     0, "Guests are allowed to use INVPCID");
 
 static int tpr_shadowing;
-SYSCTL_INT(_hw_vmm_vmx_cap, OID_AUTO, tpr_shadowing, CTLFLAG_RD,
+SYSCTL_INT(_hw_vmm_vmx_cap, OID_AUTO, tpr_shadowing,
+    CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
     &tpr_shadowing, 0, "TPR shadowing support");
 
 static int virtual_interrupt_delivery;
-SYSCTL_INT(_hw_vmm_vmx_cap, OID_AUTO, virtual_interrupt_delivery, CTLFLAG_RD,
+SYSCTL_INT(_hw_vmm_vmx_cap, OID_AUTO, virtual_interrupt_delivery,
+    CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
     &virtual_interrupt_delivery, 0, "APICv virtual interrupt delivery support");
 
 static int posted_interrupts;
-SYSCTL_INT(_hw_vmm_vmx_cap, OID_AUTO, posted_interrupts, CTLFLAG_RD,
+SYSCTL_INT(_hw_vmm_vmx_cap, OID_AUTO, posted_interrupts,
+    CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
     &posted_interrupts, 0, "APICv posted interrupt support");
 
 static int pirvec = -1;
@@ -216,10 +217,10 @@ SYSCTL_UINT(_hw_vmm_vmx, OID_AUTO, vpid_alloc_failed, CTLFLAG_RD,
 	    &vpid_alloc_failed, 0, NULL);
 
 int guest_l1d_flush;
-SYSCTL_INT(_hw_vmm_vmx, OID_AUTO, l1d_flush, CTLFLAG_RD,
+SYSCTL_INT(_hw_vmm_vmx, OID_AUTO, l1d_flush, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
     &guest_l1d_flush, 0, NULL);
 int guest_l1d_flush_sw;
-SYSCTL_INT(_hw_vmm_vmx, OID_AUTO, l1d_flush_sw, CTLFLAG_RD,
+SYSCTL_INT(_hw_vmm_vmx, OID_AUTO, l1d_flush_sw, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
     &guest_l1d_flush_sw, 0, NULL);
 
 static struct msr_entry msr_load_list[1] __aligned(16);
@@ -619,6 +620,9 @@ vmx_modcleanup(void)
 
 	smp_rendezvous(NULL, vmx_disable, NULL, NULL);
 
+	if (vmxon_region != NULL)
+		kmem_free(vmxon_region, (mp_maxid + 1) * PAGE_SIZE);
+
 	return (0);
 }
 
@@ -638,10 +642,18 @@ vmx_enable(void *arg __unused)
 
 	load_cr4(rcr4() | CR4_VMXE);
 
-	*(uint32_t *)vmxon_region[curcpu] = vmx_revision();
-	error = vmxon(vmxon_region[curcpu]);
+	*(uint32_t *)&vmxon_region[curcpu * PAGE_SIZE] = vmx_revision();
+	error = vmxon(&vmxon_region[curcpu * PAGE_SIZE]);
 	if (error == 0)
 		vmxon_enabled[curcpu] = 1;
+}
+
+static void
+vmx_modsuspend(void)
+{
+
+	if (vmxon_enabled[curcpu])
+		vmx_disable(NULL);
 }
 
 static void
@@ -649,7 +661,7 @@ vmx_modresume(void)
 {
 
 	if (vmxon_enabled[curcpu])
-		vmxon(vmxon_region[curcpu]);
+		vmx_enable(NULL);
 }
 
 static int
@@ -832,7 +844,11 @@ vmx_modinit(int ipinum)
 	    &tmp);
 	if (error == 0) {
 		tpr_shadowing = 1;
+#ifndef BURN_BRIDGES
 		TUNABLE_INT_FETCH("hw.vmm.vmx.use_tpr_shadowing",
+		    &tpr_shadowing);
+#endif
+		TUNABLE_INT_FETCH("hw.vmm.vmx.cap.tpr_shadowing",
 		    &tpr_shadowing);
 	}
 
@@ -854,7 +870,11 @@ vmx_modinit(int ipinum)
 	    procbased2_vid_bits, 0, &tmp);
 	if (error == 0 && tpr_shadowing) {
 		virtual_interrupt_delivery = 1;
+#ifndef BURN_BRIDGES
 		TUNABLE_INT_FETCH("hw.vmm.vmx.use_apic_vid",
+		    &virtual_interrupt_delivery);
+#endif
+		TUNABLE_INT_FETCH("hw.vmm.vmx.cap.virtual_interrupt_delivery",
 		    &virtual_interrupt_delivery);
 	}
 
@@ -881,7 +901,11 @@ vmx_modinit(int ipinum)
 				}
 			} else {
 				posted_interrupts = 1;
+#ifndef BURN_BRIDGES
 				TUNABLE_INT_FETCH("hw.vmm.vmx.use_apic_pir",
+				    &posted_interrupts);
+#endif
+				TUNABLE_INT_FETCH("hw.vmm.vmx.cap.posted_interrupts",
 				    &posted_interrupts);
 			}
 		}
@@ -899,7 +923,10 @@ vmx_modinit(int ipinum)
 
 	guest_l1d_flush = (cpu_ia32_arch_caps &
 	    IA32_ARCH_CAP_SKIP_L1DFL_VMENTRY) == 0;
+#ifndef BURN_BRIDGES
 	TUNABLE_INT_FETCH("hw.vmm.l1d_flush", &guest_l1d_flush);
+#endif
+	TUNABLE_INT_FETCH("hw.vmm.vmx.l1d_flush", &guest_l1d_flush);
 
 	/*
 	 * L1D cache flush is enabled.  Use IA32_FLUSH_CMD MSR when
@@ -911,7 +938,11 @@ vmx_modinit(int ipinum)
 	if (guest_l1d_flush) {
 		if ((cpu_stdext_feature3 & CPUID_STDEXT3_L1D_FLUSH) == 0) {
 			guest_l1d_flush_sw = 1;
+#ifndef BURN_BRIDGES
 			TUNABLE_INT_FETCH("hw.vmm.l1d_flush_sw",
+			    &guest_l1d_flush_sw);
+#endif
+			TUNABLE_INT_FETCH("hw.vmm.vmx.l1d_flush_sw",
 			    &guest_l1d_flush_sw);
 		}
 		if (guest_l1d_flush_sw) {
@@ -953,6 +984,8 @@ vmx_modinit(int ipinum)
 	vmx_msr_init();
 
 	/* enable VMX operation */
+	vmxon_region = kmem_malloc((mp_maxid + 1) * PAGE_SIZE,
+	    M_WAITOK | M_ZERO);
 	smp_rendezvous(NULL, vmx_enable, NULL, NULL);
 
 	vmx_initialized = 1;
@@ -1432,6 +1465,10 @@ vmx_inject_interrupts(struct vmx_vcpu *vcpu, struct vlapic *vlapic,
 	int vector, need_nmi_exiting, extint_pending;
 	uint64_t rflags, entryinfo;
 	uint32_t gi, info;
+
+	if (vcpu->cap.set & (1 << VM_CAP_MASK_HWINTR)) {
+		return;
+	}
 
 	if (vcpu->state.nextrip != guestrip) {
 		gi = vmcs_read(VMCS_GUEST_INTERRUPTIBILITY);
@@ -3376,8 +3413,16 @@ vmx_getreg(void *vcpui, int reg, uint64_t *retval)
 		panic("vmx_getreg: %s%d is running", vm_name(vmx->vm),
 		    vcpu->vcpuid);
 
-	if (reg == VM_REG_GUEST_INTR_SHADOW)
+	switch (reg) {
+	case VM_REG_GUEST_INTR_SHADOW:
 		return (vmx_get_intr_shadow(vcpu, running, retval));
+	case VM_REG_GUEST_KGS_BASE:
+		*retval = vcpu->guest_msrs[IDX_MSR_KGSBASE];
+		return (0);
+	case VM_REG_GUEST_TPR:
+		*retval = vlapic_get_cr8(vm_lapic(vcpu->vcpu));
+		return (0);
+	}
 
 	if (vmxctx_getreg(&vcpu->ctx, reg, retval) == 0)
 		return (0);
@@ -3628,6 +3673,9 @@ vmx_setcap(void *vcpui, int type, int val)
 		vlapic = vm_lapic(vcpu->vcpu);
 		vlapic->ipi_exit = val;
 		break;
+	case VM_CAP_MASK_HWINTR:
+		retval = 0;
+		break;
 	default:
 		break;
 	}
@@ -3763,7 +3811,8 @@ vmx_pending_intr(struct vlapic *vlapic, int *vecptr)
 	struct pir_desc *pir_desc;
 	struct LAPIC *lapic;
 	uint64_t pending, pirval;
-	uint32_t ppr, vpr;
+	uint8_t ppr, vpr, rvi;
+	struct vm_exit *vmexit;
 	int i;
 
 	/*
@@ -3774,31 +3823,26 @@ vmx_pending_intr(struct vlapic *vlapic, int *vecptr)
 
 	vlapic_vtx = (struct vlapic_vtx *)vlapic;
 	pir_desc = vlapic_vtx->pir_desc;
+	lapic = vlapic->apic_page;
+
+	/*
+	 * While a virtual interrupt may have already been
+	 * processed the actual delivery maybe pending the
+	 * interruptibility of the guest.  Recognize a pending
+	 * interrupt by reevaluating virtual interrupts
+	 * following Section 30.2.1 in the Intel SDM Volume 3.
+	 */
+	vmexit = vm_exitinfo(vlapic->vcpu);
+	KASSERT(vmexit->exitcode == VM_EXITCODE_HLT,
+	    ("vmx_pending_intr: exitcode not 'HLT'"));
+	rvi = vmexit->u.hlt.intr_status & APIC_TPR_INT;
+	ppr = lapic->ppr & APIC_TPR_INT;
+	if (rvi > ppr)
+		return (1);
 
 	pending = atomic_load_acq_long(&pir_desc->pending);
-	if (!pending) {
-		/*
-		 * While a virtual interrupt may have already been
-		 * processed the actual delivery maybe pending the
-		 * interruptibility of the guest.  Recognize a pending
-		 * interrupt by reevaluating virtual interrupts
-		 * following Section 29.2.1 in the Intel SDM Volume 3.
-		 */
-		struct vm_exit *vmexit;
-		uint8_t rvi, ppr;
-
-		vmexit = vm_exitinfo(vlapic->vcpu);
-		KASSERT(vmexit->exitcode == VM_EXITCODE_HLT,
-		    ("vmx_pending_intr: exitcode not 'HLT'"));
-		rvi = vmexit->u.hlt.intr_status & APIC_TPR_INT;
-		lapic = vlapic->apic_page;
-		ppr = lapic->ppr & APIC_TPR_INT;
-		if (rvi > ppr) {
-			return (1);
-		}
-
+	if (!pending)
 		return (0);
-	}
 
 	/*
 	 * If there is an interrupt pending then it will be recognized only
@@ -3807,8 +3851,6 @@ vmx_pending_intr(struct vlapic *vlapic, int *vecptr)
 	 * Special case: if the processor priority is zero then any pending
 	 * interrupt will be recognized.
 	 */
-	lapic = vlapic->apic_page;
-	ppr = lapic->ppr & APIC_TPR_INT;
 	if (ppr == 0)
 		return (1);
 
@@ -4172,6 +4214,12 @@ vmx_vcpu_snapshot(void *vcpui, struct vm_snapshot_meta *meta)
 	SNAPSHOT_BUF_OR_LEAVE(vcpu->guest_msrs,
 	    sizeof(vcpu->guest_msrs), meta, err, done);
 
+	SNAPSHOT_BUF_OR_LEAVE(vcpu->pir_desc,
+	    sizeof(*vcpu->pir_desc), meta, err, done);
+
+	SNAPSHOT_BUF_OR_LEAVE(&vcpu->mtrr,
+	    sizeof(vcpu->mtrr), meta, err, done);
+
 	vmxctx = &vcpu->ctx;
 	SNAPSHOT_VAR_OR_LEAVE(vmxctx->guest_rdi, meta, err, done);
 	SNAPSHOT_VAR_OR_LEAVE(vmxctx->guest_rsi, meta, err, done);
@@ -4231,6 +4279,7 @@ vmx_restore_tsc(void *vcpui, uint64_t offset)
 const struct vmm_ops vmm_ops_intel = {
 	.modinit	= vmx_modinit,
 	.modcleanup	= vmx_modcleanup,
+	.modsuspend	= vmx_modsuspend,
 	.modresume	= vmx_modresume,
 	.init		= vmx_init,
 	.run		= vmx_run,

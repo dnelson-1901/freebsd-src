@@ -23,8 +23,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_LOADER_EFI_COPY_H_
@@ -34,7 +32,7 @@
 #include <readin.h>
 #include <efi.h>
 
-#ifdef __amd64__
+#if defined(__amd64__) || defined(__i386__)
 enum {
 	COPY_STAGING_ENABLE,
 	COPY_STAGING_DISABLE,
@@ -42,6 +40,10 @@ enum {
 };
 extern int copy_staging;
 #endif
+
+/* Useful for various calculations */
+#define	M(x)	((x) * 1024 * 1024)
+#define	G(x)	(1ULL * (x) * 1024 * 1024 * 1024)
 
 extern EFI_LOADED_IMAGE *boot_img;
 
@@ -56,5 +58,13 @@ void * efi_translate(vm_offset_t ptr);
 
 void	efi_copy_finish(void);
 void	efi_copy_finish_nop(void);
+
+#if defined(__amd64__) || defined(__i386__)
+/* Need this to setup page tables */
+extern EFI_PHYSICAL_ADDRESS staging;
+#endif
+
+int bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp,
+    bool exit_bs);
 
 #endif	/* _LOADER_EFI_COPY_H_ */

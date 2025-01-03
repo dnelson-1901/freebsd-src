@@ -25,9 +25,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #define __ELF_WORD_SIZE 64
 #include <sys/param.h>
 #include <sys/exec.h>
@@ -43,19 +40,7 @@ __FBSDID("$FreeBSD$");
 
 #include "bootstrap.h"
 
-#include "platform/acfreebsd.h"
-#include "acconfig.h"
-#define ACPI_SYSTEM_XFACE
-#include "actypes.h"
-#include "actbl.h"
-
 #include "loader_efi.h"
-
-static EFI_GUID acpi_guid = ACPI_TABLE_GUID;
-static EFI_GUID acpi20_guid = ACPI_20_TABLE_GUID;
-
-extern int bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp,
-    bool exit_bs);
 
 static int	elf64_exec(struct preloaded_file *amp);
 static int	elf64_obj_exec(struct preloaded_file *amp);
@@ -86,8 +71,6 @@ static pdp_entry_t *PT3_l, *PT3_u;
 static pd_entry_t *PT2;
 static pd_entry_t *PT2_l0, *PT2_l1, *PT2_l2, *PT2_l3, *PT2_u0, *PT2_u1;
 
-extern EFI_PHYSICAL_ADDRESS staging;
-
 static void (*trampoline)(uint64_t stack, void *copy_finish, uint64_t kernend,
     uint64_t modulep, pml4_entry_t *pagetable, uint64_t entry);
 
@@ -106,9 +89,6 @@ elf64_exec(struct preloaded_file *fp)
 	Elf_Ehdr 		*ehdr;
 	vm_offset_t		modulep, kernend, trampcode, trampstack;
 	int			err, i;
-	ACPI_TABLE_RSDP		*rsdp;
-	char			buf[24];
-	int			revision;
 	bool			copy_auto;
 
 	copy_auto = copy_staging == COPY_STAGING_AUTO;
@@ -116,45 +96,12 @@ elf64_exec(struct preloaded_file *fp)
 		copy_staging = fp->f_kernphys_relocatable ?
 		    COPY_STAGING_DISABLE : COPY_STAGING_ENABLE;
 
-	/*
-	 * Report the RSDP to the kernel. While this can be found with
-	 * a BIOS boot, the RSDP may be elsewhere when booted from UEFI.
-	 */
-
-	rsdp = efi_get_table(&acpi20_guid);
-	if (rsdp == NULL) {
-		rsdp = efi_get_table(&acpi_guid);
-	}
-	if (rsdp != NULL) {
-		sprintf(buf, "0x%016llx", (unsigned long long)rsdp);
-		setenv("acpi.rsdp", buf, 1);
-		revision = rsdp->Revision;
-		if (revision == 0)
-			revision = 1;
-		sprintf(buf, "%d", revision);
-		setenv("acpi.revision", buf, 1);
-		strncpy(buf, rsdp->OemId, sizeof(rsdp->OemId));
-		buf[sizeof(rsdp->OemId)] = '\0';
-		setenv("acpi.oem", buf, 1);
-		sprintf(buf, "0x%016x", rsdp->RsdtPhysicalAddress);
-		setenv("acpi.rsdt", buf, 1);
-		if (revision >= 2) {
-			/* XXX extended checksum? */
-			sprintf(buf, "0x%016llx",
-			    (unsigned long long)rsdp->XsdtPhysicalAddress);
-			setenv("acpi.xsdt", buf, 1);
-			sprintf(buf, "%d", rsdp->Length);
-			setenv("acpi.xsdt_length", buf, 1);
-		}
-	}
-
 	if ((md = file_findmetadata(fp, MODINFOMD_ELFHDR)) == NULL)
 		return (EFTYPE);
 	ehdr = (Elf_Ehdr *)&(md->md_data);
 
 	trampcode = copy_staging == COPY_STAGING_ENABLE ?
-	    (vm_offset_t)0x0000000040000000 /* 1G */ :
-	    (vm_offset_t)0x0000000100000000; /* 4G */;
+	    (vm_offset_t)G(1) : (vm_offset_t)G(4);
 	err = BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, 1,
 	    (EFI_PHYSICAL_ADDRESS *)&trampcode);
 	if (EFI_ERROR(err)) {
@@ -169,7 +116,7 @@ elf64_exec(struct preloaded_file *fp)
 	trampoline = (void *)trampcode;
 
 	if (copy_staging == COPY_STAGING_ENABLE) {
-		PT4 = (pml4_entry_t *)0x0000000040000000;
+		PT4 = (pml4_entry_t *)G(1);
 		err = BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, 3,
 		    (EFI_PHYSICAL_ADDRESS *)&PT4);
 		if (EFI_ERROR(err)) {
@@ -206,11 +153,11 @@ elf64_exec(struct preloaded_file *fp)
 			/*
 			 * The L2 page slots are mapped with 2MB pages for 1GB.
 			 */
-			PT2[i] = (pd_entry_t)i * (2 * 1024 * 1024);
+			PT2[i] = (pd_entry_t)i * M(2);
 			PT2[i] |= PG_V | PG_RW | PG_PS;
 		}
 	} else {
-		PT4 = (pml4_entry_t *)0x0000000100000000; /* 4G */
+		PT4 = (pml4_entry_t *)G(4);
 		err = BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, 9,
 		    (EFI_PHYSICAL_ADDRESS *)&PT4);
 		if (EFI_ERROR(err)) {

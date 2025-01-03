@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -102,7 +100,7 @@ mtkswitch_probe(device_t dev)
 	bzero(sc, sizeof(*sc));
 	sc->sc_switchtype = switch_type;
 
-	device_set_desc_copy(dev, "MTK Switch Driver");
+	device_set_desc(dev, "MTK Switch Driver");
 
 	return (0);
 }
@@ -123,12 +121,6 @@ mtkswitch_attach_phys(struct mtkswitch_softc *sc)
 			continue;
 		}
 		sc->ifp[phy] = if_alloc(IFT_ETHER);
-		if (sc->ifp[phy] == NULL) {
-			device_printf(sc->sc_dev, "couldn't allocate ifnet structure\n");
-			err = ENOMEM;
-			break;
-		}
-
 		sc->ifp[phy]->if_softc = sc;
 		sc->ifp[phy]->if_flags |= IFF_UP | IFF_BROADCAST |
 		    IFF_DRV_RUNNING | IFF_SIMPLEX;
@@ -239,12 +231,9 @@ mtkswitch_attach(device_t dev)
 	if (err != 0)
 		return (err);
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
-	err = bus_generic_attach(dev);
-	DPRINTF(dev, "%s: bus_generic_attach: err=%d\n", __func__, err);
-	if (err != 0)
-		return (err);
+	bus_attach_children(dev);
 
 	callout_init_mtx(&sc->callout_tick, &sc->sc_mtx, 0);
 
@@ -259,19 +248,20 @@ static int
 mtkswitch_detach(device_t dev)
 {
 	struct mtkswitch_softc *sc = device_get_softc(dev);
-	int phy;
+	int error, phy;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	callout_drain(&sc->callout_tick);
 
 	for (phy = 0; phy < MTKSWITCH_MAX_PHYS; phy++) {
-		if (sc->miibus[phy] != NULL)
-			device_delete_child(dev, sc->miibus[phy]);
 		if (sc->ifp[phy] != NULL)
 			if_free(sc->ifp[phy]);
 		free(sc->ifname[phy], M_DEVBUF);
 	}
 
-	bus_generic_detach(dev);
 	mtx_destroy(&sc->sc_mtx);
 
 	return (0);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009, Nathan Whitehorn <nwhitehorn@FreeBSD.org>
  * Copyright (c) 2013 The FreeBSD Foundation
@@ -29,9 +29,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -71,7 +68,7 @@ ofw_spibus_probe(device_t dev)
 		return (ENXIO);
 	device_set_desc(dev, "OFW SPI bus");
 
-	return (BUS_PROBE_DEFAULT);
+	return (BUS_PROBE_DEFAULT + 1);
 }
 
 static int
@@ -86,7 +83,7 @@ ofw_spibus_attach(device_t dev)
 
 	sc->dev = dev;
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
 
 	/*
@@ -151,7 +148,7 @@ ofw_spibus_attach(device_t dev)
 			free(dinfo, M_DEVBUF);
 			continue;
 		}
-		childdev = device_add_child(dev, NULL, -1);
+		childdev = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
 
 		resource_list_init(&dinfo->opd_dinfo.rl);
 		ofw_bus_intr_to_rl(childdev, child,
@@ -159,7 +156,8 @@ ofw_spibus_attach(device_t dev)
 		device_set_ivars(childdev, dinfo);
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static device_t
@@ -193,6 +191,12 @@ ofw_spibus_add_child(device_t dev, u_int order, const char *name, int unit)
 	return (child);
 }
 
+static void
+ofw_spibus_child_deleted(device_t dev, device_t child)
+{
+	free(device_get_ivars(child), M_DEVBUF);
+}
+
 static const struct ofw_bus_devinfo *
 ofw_spibus_get_devinfo(device_t bus, device_t dev)
 {
@@ -219,6 +223,7 @@ static device_method_t ofw_spibus_methods[] = {
 	/* Bus interface */
 	DEVMETHOD(bus_child_pnpinfo,	ofw_bus_gen_child_pnpinfo),
 	DEVMETHOD(bus_add_child,	ofw_spibus_add_child),
+	DEVMETHOD(bus_child_deleted,	ofw_spibus_child_deleted),
 	DEVMETHOD(bus_get_resource_list, ofw_spibus_get_resource_list),
 
 	/* ofw_bus interface */

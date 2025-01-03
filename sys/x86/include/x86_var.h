@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _X86_X86_VAR_H_
@@ -59,9 +57,12 @@ extern	u_int	cpu_max_ext_state_size;
 extern	u_int	cpu_mxcsr_mask;
 extern	u_int	cpu_procinfo;
 extern	u_int	cpu_procinfo2;
+extern	u_int	cpu_procinfo3;
 extern	char	cpu_vendor[];
+extern	char	cpu_model[];
 extern	u_int	cpu_vendor_id;
 extern	u_int	cpu_mon_mwait_flags;
+extern	u_int	cpu_mon_mwait_edx;
 extern	u_int	cpu_mon_min_size;
 extern	u_int	cpu_mon_max_size;
 extern	u_int	cpu_maxphyaddr;
@@ -92,6 +93,7 @@ extern	int	hw_ssb_active;
 extern	int	x86_taa_enable;
 extern	int	cpu_flush_rsb_ctxsw;
 extern	int	x86_rngds_mitg_enable;
+extern	int	zenbleed_enable;
 extern	int	cpu_amdc1e_bug;
 extern	char	bootmethod[16];
 
@@ -142,9 +144,13 @@ void	hw_mds_recalculate(void);
 void	hw_ssb_recalculate(bool all_cpus);
 void	x86_taa_recalculate(void);
 void	x86_rngds_mitg_recalculate(bool all_cpus);
+void	zenbleed_sanitize_enable(void);
+void	zenbleed_check_and_apply(bool all_cpus);
 void	nmi_call_kdb(u_int cpu, u_int type, struct trapframe *frame);
 void	nmi_call_kdb_smp(u_int type, struct trapframe *frame);
-void	nmi_handle_intr(u_int type, struct trapframe *frame);
+void	nmi_register_handler(int (*handler)(struct trapframe *));
+void	nmi_remove_handler(int (*handler)(struct trapframe *));
+void	nmi_handle_intr(struct trapframe *frame);
 void	pagecopy(void *from, void *to);
 void	printcpuinfo(void);
 int	pti_get_default(void);

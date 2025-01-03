@@ -22,8 +22,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MLX5_TLS_H_
@@ -86,7 +84,7 @@ struct mlx5e_tls {
 	struct workqueue_struct *wq;
 	uma_zone_t zone;
 	uint32_t max_resources;		/* max number of resources */
-	volatile uint32_t num_resources;	/* current number of resources */
+	int zone_max;
 	int init;			/* set when ready */
 	char zname[32];
 };

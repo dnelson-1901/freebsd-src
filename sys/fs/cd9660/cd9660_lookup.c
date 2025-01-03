@@ -32,13 +32,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)ufs_lookup.c	7.33 (Berkeley) 5/19/91
- *	@(#)cd9660_lookup.c	8.2 (Berkeley) 1/23/94
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -53,8 +47,8 @@ __FBSDID("$FreeBSD$");
 #include <fs/cd9660/iso_rrip.h>
 
 struct cd9660_ino_alloc_arg {
-	cd_ino_t ino;
-	cd_ino_t i_ino;
+	ino_t ino;
+	ino_t i_ino;
 	struct iso_directory_record *ep;
 };
 
@@ -121,7 +115,7 @@ cd9660_lookup(struct vop_cachedlookup_args *ap)
 	struct cd9660_ino_alloc_arg dd_arg;
 	u_long bmask;			/* block offset mask */
 	int error;
-	cd_ino_t ino, i_ino;
+	ino_t ino, i_ino;
 	int ltype, reclen;
 	u_short namelen;
 	int isoflags;

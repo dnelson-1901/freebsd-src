@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Dmitry Chagin <dchagin@FreeBSD.org>
  *
@@ -24,9 +24,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/elf.h>
 #include <sys/errno.h>
@@ -64,7 +61,7 @@ write(int fd, const void *buf, size_t size)
 	(
 	    "syscall"
 	    : "=a"(res)
-	    : "a"(LINUX_SYS_write), "D"(fd), "S"(buf), "d"(size)
+	    : "a"(LINUX_SYS_linux_write), "D"(fd), "S"(buf), "d"(size)
 	    : "cc", "rcx", "r11", "memory"
 	);
 	return (res);

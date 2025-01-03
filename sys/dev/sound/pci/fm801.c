@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Dmitry Dicky diwil@dataart.com
  * All rights reserved.
@@ -34,8 +34,6 @@
 #include <dev/sound/pcm/ac97.h>
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcivar.h>
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 #define PCI_VENDOR_FORTEMEDIA	0x1319
 #define PCI_DEVICE_FORTEMEDIA1	0x08011319	/* Audio controller */
@@ -638,18 +636,20 @@ fm801_pci_attach(device_t dev)
 		goto oops;
 	}
 
-	snprintf(status, 64, "at %s 0x%jx irq %jd %s",
-		(fm801->regtype == SYS_RES_IOPORT)? "io" : "memory",
-		rman_get_start(fm801->reg), rman_get_start(fm801->irq),PCM_KLDSTRING(snd_fm801));
+	snprintf(status, SND_STATUSLEN, "%s 0x%jx irq %jd on %s",
+		(fm801->regtype == SYS_RES_IOPORT)? "port" : "mem",
+		rman_get_start(fm801->reg), rman_get_start(fm801->irq),
+		device_get_nameunit(device_get_parent(dev)));
 
 #define FM801_MAXPLAYCH	1
-	if (pcm_register(dev, fm801, FM801_MAXPLAYCH, 1)) goto oops;
+	pcm_init(dev, fm801);
 	pcm_addchan(dev, PCMDIR_PLAY, &fm801ch_class, fm801);
 	pcm_addchan(dev, PCMDIR_REC, &fm801ch_class, fm801);
-	pcm_setstatus(dev, status);
+	if (pcm_register(dev, status))
+		goto oops;
 
-	fm801->radio = device_add_child(dev, "radio", -1);
-	bus_generic_attach(dev);
+	fm801->radio = device_add_child(dev, "radio", DEVICE_UNIT_ANY);
+	bus_attach_children(dev);
 
 	return 0;
 
@@ -676,12 +676,6 @@ fm801_pci_detach(device_t dev)
 	r = bus_generic_detach(dev);
 	if (r)
 		return r;
-	if (fm801->radio != NULL) {
-		r = device_delete_child(dev, fm801->radio);
-		if (r)
-			return r;
-		fm801->radio = NULL;
-	}
 
 	r = pcm_unregister(dev);
 	if (r)
@@ -729,8 +723,7 @@ fm801_alloc_resource(device_t bus, device_t child, int type, int *rid,
 }
 
 static int
-fm801_release_resource(device_t bus, device_t child, int type, int rid,
-		       struct resource *r)
+fm801_release_resource(device_t bus, device_t child, struct resource *r)
 {
 	return (0);
 }

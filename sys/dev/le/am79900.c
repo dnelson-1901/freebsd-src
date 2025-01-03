@@ -1,7 +1,7 @@
 /*	$NetBSD: am79900.c,v 1.17 2005/12/24 20:27:29 perry Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD AND BSD-3-Clause
+ * SPDX-License-Identifier: BSD-2-Clause AND BSD-3-Clause
  *
  * Copyright (c) 1997 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -61,8 +61,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)if_le.c	8.2 (Berkeley) 11/16/93
  */
 
 /*-
@@ -100,12 +98,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)if_le.c	8.2 (Berkeley) 11/16/93
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>

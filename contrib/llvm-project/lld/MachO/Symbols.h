@@ -12,8 +12,7 @@
 #include "Config.h"
 #include "InputFiles.h"
 #include "Target.h"
-#include "lld/Common/ErrorHandler.h"
-#include "lld/Common/Strings.h"
+
 #include "llvm/Object/Archive.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -39,6 +38,7 @@ public:
     DylibKind,
     LazyArchiveKind,
     LazyObjectKind,
+    AliasKind,
   };
 
   virtual ~Symbol() {}
@@ -58,14 +58,14 @@ public:
 
   virtual uint64_t getVA() const { return 0; }
 
-  virtual bool isWeakDef() const { llvm_unreachable("cannot be weak def"); }
+  virtual bool isWeakDef() const { return false; }
 
   // Only undefined or dylib symbols can be weak references. A weak reference
   // need not be satisfied at runtime, e.g. due to the symbol not being
   // available on a given target platform.
   virtual bool isWeakRef() const { return false; }
 
-  virtual bool isTlv() const { llvm_unreachable("cannot be TLV"); }
+  virtual bool isTlv() const { return false; }
 
   // Whether this symbol is in the GOT or TLVPointer sections.
   bool isInGot() const { return gotIndex != UINT32_MAX; }
@@ -74,6 +74,7 @@ public:
   bool isInStubs() const { return stubsIndex != UINT32_MAX; }
 
   uint64_t getStubVA() const;
+  uint64_t getLazyPtrVA() const;
   uint64_t getGotVA() const;
   uint64_t getTlvVA() const;
   uint64_t resolveBranchVA() const {
@@ -117,9 +118,9 @@ class Defined : public Symbol {
 public:
   Defined(StringRefZ name, InputFile *file, InputSection *isec, uint64_t value,
           uint64_t size, bool isWeakDef, bool isExternal, bool isPrivateExtern,
-          bool includeInSymtab, bool isThumb, bool isReferencedDynamically,
-          bool noDeadStrip, bool canOverrideWeakDef = false,
-          bool isWeakDefCanBeHidden = false, bool interposable = false);
+          bool includeInSymtab, bool isReferencedDynamically, bool noDeadStrip,
+          bool canOverrideWeakDef = false, bool isWeakDefCanBeHidden = false,
+          bool interposable = false);
 
   bool isWeakDef() const override { return weakDef; }
   bool isExternalWeakDef() const {
@@ -128,15 +129,21 @@ public:
   bool isTlv() const override;
 
   bool isExternal() const { return external; }
-  bool isAbsolute() const { return isec == nullptr; }
+  bool isAbsolute() const { return originalIsec == nullptr; }
 
   uint64_t getVA() const override;
 
+  // Returns the object file that this symbol was defined in. This value differs
+  // from `getFile()` if the symbol originated from a bitcode file.
+  ObjFile *getObjectFile() const;
+
   std::string getSourceLocation();
 
-  // Ensure this symbol's pointers to InputSections point to their canonical
-  // copies.
-  void canonicalize();
+  // Get the canonical InputSection of the symbol.
+  InputSection *isec() const;
+
+  // Get the canonical unwind entry of the symbol.
+  ConcatInputSection *unwindEntry() const;
 
   static bool classof(const Symbol *s) { return s->kind() == DefinedKind; }
 
@@ -149,8 +156,6 @@ public:
   bool includeInSymtab : 1;
   // Whether this symbol was folded into a different symbol during ICF.
   bool wasIdenticalCodeFolded : 1;
-  // Only relevant when compiling for Thumb-supporting arm32 archs.
-  bool thumb : 1;
   // Symbols marked referencedDynamically won't be removed from the output's
   // symbol table by tools like strip. In theory, this could be set on arbitrary
   // symbols in input object files. In practice, it's used solely for the
@@ -179,14 +184,17 @@ private:
   const bool external : 1;
 
 public:
-  InputSection *isec;
+  // The native InputSection of the symbol. The symbol may be moved to another
+  // InputSection in which case originalIsec->canonical() will point to the new
+  // InputSection
+  InputSection *originalIsec;
   // Contains the offset from the containing subsection. Note that this is
   // different from nlist::n_value, which is the absolute address of the symbol.
   uint64_t value;
   // size is only calculated for regular (non-bitcode) symbols.
   uint64_t size;
   // This can be a subsection of either __compact_unwind or __eh_frame.
-  ConcatInputSection *unwindEntry = nullptr;
+  ConcatInputSection *originalUnwindEntry = nullptr;
 };
 
 // This enum does double-duty: as a symbol property, it indicates whether & how
@@ -198,8 +206,10 @@ enum class RefState : uint8_t { Unreferenced = 0, Weak = 1, Strong = 2 };
 
 class Undefined : public Symbol {
 public:
-  Undefined(StringRefZ name, InputFile *file, RefState refState)
-      : Symbol(UndefinedKind, name, file), refState(refState) {
+  Undefined(StringRefZ name, InputFile *file, RefState refState,
+            bool wasBitcodeSymbol)
+      : Symbol(UndefinedKind, name, file), refState(refState),
+        wasBitcodeSymbol(wasBitcodeSymbol) {
     assert(refState != RefState::Unreferenced);
   }
 
@@ -208,6 +218,7 @@ public:
   static bool classof(const Symbol *s) { return s->kind() == UndefinedKind; }
 
   RefState refState : 2;
+  bool wasBitcodeSymbol;
 };
 
 // On Unix, it is traditionally allowed to write variable definitions without
@@ -246,8 +257,8 @@ class DylibSymbol : public Symbol {
 public:
   DylibSymbol(DylibFile *file, StringRefZ name, bool isWeakDef,
               RefState refState, bool isTlv)
-      : Symbol(DylibKind, name, file), refState(refState), weakDef(isWeakDef),
-        tlv(isTlv) {
+      : Symbol(DylibKind, name, file), shouldReexport(false),
+        refState(refState), weakDef(isWeakDef), tlv(isTlv) {
     if (file && refState > RefState::Unreferenced)
       file->numReferencedSymbols++;
   }
@@ -289,6 +300,7 @@ public:
     }
   }
 
+  bool shouldReexport : 1;
 private:
   RefState refState : 2;
   const bool weakDef : 1;
@@ -321,6 +333,26 @@ public:
   static bool classof(const Symbol *s) { return s->kind() == LazyObjectKind; }
 };
 
+// Represents N_INDR symbols. Note that if we are given valid, linkable inputs,
+// then all AliasSymbol instances will be converted into one of the other Symbol
+// types after `createAliases()` runs.
+class AliasSymbol final : public Symbol {
+public:
+  AliasSymbol(InputFile *file, StringRef name, StringRef aliasedName,
+              bool isPrivateExtern)
+      : Symbol(AliasKind, name, file), privateExtern(isPrivateExtern),
+        aliasedName(aliasedName) {}
+
+  StringRef getAliasedName() const { return aliasedName; }
+
+  static bool classof(const Symbol *s) { return s->kind() == AliasKind; }
+
+  const bool privateExtern;
+
+private:
+  StringRef aliasedName;
+};
+
 union SymbolUnion {
   alignas(Defined) char a[sizeof(Defined)];
   alignas(Undefined) char b[sizeof(Undefined)];
@@ -328,6 +360,7 @@ union SymbolUnion {
   alignas(DylibSymbol) char d[sizeof(DylibSymbol)];
   alignas(LazyArchive) char e[sizeof(LazyArchive)];
   alignas(LazyObject) char f[sizeof(LazyObject)];
+  alignas(AliasSymbol) char g[sizeof(AliasSymbol)];
 };
 
 template <typename T, typename... ArgT>
@@ -346,6 +379,20 @@ T *replaceSymbol(Symbol *s, ArgT &&...arg) {
   return sym;
 }
 
+// Can a symbol's address only be resolved at runtime?
+inline bool needsBinding(const Symbol *sym) {
+  if (isa<DylibSymbol>(sym))
+    return true;
+  if (const auto *defined = dyn_cast<Defined>(sym))
+    return defined->isExternalWeakDef() || defined->interposable;
+  return false;
+}
+
+// Symbols with `l` or `L` as a prefix are linker-private and never appear in
+// the output.
+inline bool isPrivateLabel(StringRef name) {
+  return name.starts_with("l") || name.starts_with("L");
+}
 } // namespace macho
 
 std::string toString(const macho::Symbol &);

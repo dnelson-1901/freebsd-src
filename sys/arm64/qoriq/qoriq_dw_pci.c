@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright 2020 Michal Meloun <mmel@FreeBSD.org>
  *
@@ -27,10 +27,6 @@
  */
 
 /* Layerscape DesignWare PCIe driver */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -64,7 +60,7 @@ __FBSDID("$FreeBSD$");
 
 struct qoriq_dw_pci_cfg {
 	uint32_t	pex_pf0_dgb;	/* offset of PEX_PF0_DBG register */
-	uint32_t	ltssm_bit;	/* LSB bit of of LTSSM state field */
+	uint32_t	ltssm_bit;	/* LSB bit of LTSSM state field */
 };
 
 struct qorif_dw_pci_softc {
@@ -245,7 +241,8 @@ qorif_dw_pci_attach(device_t dev)
 		goto out;
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 out:
 	/* XXX Cleanup */
 	return (rv);

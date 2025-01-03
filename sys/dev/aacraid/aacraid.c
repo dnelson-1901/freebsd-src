@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Michael Smith
  * Copyright (c) 2001 Scott Long
@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver for the Adaptec by PMC Series 6,7,8,... families of RAID controllers
  */
@@ -337,7 +335,7 @@ aacraid_attach(struct aac_softc *sc)
 		aac_get_bus_info(sc);
 
 	/* poke the bus to actually attach the child devices */
-	bus_generic_attach(sc->aac_dev);
+	bus_attach_children(sc->aac_dev);
 
 	/* mark the controller up */
 	sc->aac_state &= ~AAC_STATE_SUSPEND;
@@ -741,6 +739,10 @@ aacraid_detach(device_t dev)
 	sc = device_get_softc(dev);
 	fwprintf(sc, HBA_FLAGS_DBG_FUNCTION_ENTRY_B, "");
 
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
+
 	callout_drain(&sc->aac_daemontime);
 	/* Remove the child containers */
 	while ((co = TAILQ_FIRST(&sc->aac_container_tqh)) != NULL) {
@@ -751,9 +753,6 @@ aacraid_detach(device_t dev)
 	/* Remove the CAM SIMs */
 	while ((sim = TAILQ_FIRST(&sc->aac_sim_tqh)) != NULL) {
 		TAILQ_REMOVE(&sc->aac_sim_tqh, sim, sim_link);
-		error = device_delete_child(dev, sim->sim_dev);
-		if (error)
-			return (error);
 		free(sim, M_AACRAIDBUF);
 	}
 
@@ -3610,7 +3609,7 @@ aac_container_bus(struct aac_softc *sc)
 	    	"No memory to add container bus\n");
 		panic("Out of memory?!");
 	}
-	child = device_add_child(sc->aac_dev, "aacraidp", -1);
+	child = device_add_child(sc->aac_dev, "aacraidp", DEVICE_UNIT_ANY);
 	if (child == NULL) {
 		device_printf(sc->aac_dev,
 	    	"device_add_child failed for container bus\n");
@@ -3633,7 +3632,7 @@ aac_container_bus(struct aac_softc *sc)
 	device_set_desc(child, aac_describe_code(aac_container_types,
 			mir->MntTable[0].VolType));
 	*/
-	bus_generic_attach(sc->aac_dev);
+	bus_attach_children(sc->aac_dev);
 }
 
 static void
@@ -3727,7 +3726,7 @@ aac_get_bus_info(struct aac_softc *sc)
 			break;
 		}
 
-		child = device_add_child(sc->aac_dev, "aacraidp", -1);
+		child = device_add_child(sc->aac_dev, "aacraidp", DEVICE_UNIT_ANY);
 		if (child == NULL) {
 			device_printf(sc->aac_dev,
 			    "device_add_child failed for passthrough bus %d\n",

@@ -24,9 +24,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -98,7 +95,7 @@ lkpi_iicbb_attach(device_t dev)
 		device_printf(dev, "Couldn't add iicbb child, aborting\n");
 		return (ENXIO);
 	}
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 	return (0);
 }
 
@@ -306,7 +303,6 @@ int
 lkpi_i2c_bit_add_bus(struct i2c_adapter *adapter)
 {
 	device_t lkpi_iicbb;
-	int error;
 
 	if (bootverbose)
 		device_printf(adapter->dev.parent->bsddev,
@@ -320,14 +316,8 @@ lkpi_i2c_bit_add_bus(struct i2c_adapter *adapter)
 	}
 
 	bus_topo_lock();
-	error = bus_generic_attach(adapter->dev.parent->bsddev);
+	bus_attach_children(adapter->dev.parent->bsddev);
 	bus_topo_unlock();
-	if (error) {
-		device_printf(adapter->dev.parent->bsddev,
-		  "failed to attach child: error %d\n", error);
-		sx_xunlock(&lkpi_sx_i2cbb);
-		return (ENXIO);
-	}
 	LKPI_IIC_ADD_ADAPTER(lkpi_iicbb, adapter);
 	sx_xunlock(&lkpi_sx_i2cbb);
 	return (0);

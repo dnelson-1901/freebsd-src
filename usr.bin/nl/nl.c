@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -29,14 +29,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-#ifndef lint
-__COPYRIGHT(
-"@(#) Copyright (c) 1999\
- The NetBSD Foundation, Inc.  All rights reserved.");
-__RCSID("$FreeBSD$");
-#endif    
-
 #include <sys/types.h>
 
 #include <err.h>
@@ -49,6 +41,8 @@ __RCSID("$FreeBSD$");
 #include <string.h>
 #include <unistd.h>
 #include <wchar.h>
+
+#include <capsicum_helpers.h>
 
 typedef enum {
 	number_all,		/* number all lines */
@@ -251,6 +245,11 @@ main(int argc, char *argv[])
 		usage();
 		/* NOTREACHED */
 	}
+
+	/* Limit standard descriptors and enter capability mode */
+	caph_cache_catpages();
+	if (caph_limit_stdio() < 0 || caph_enter() < 0)
+		err(EXIT_FAILURE, "capsicum");
 
 	/* Generate the delimiter sequence */
 	memcpy(delim, delim1, delim1len);

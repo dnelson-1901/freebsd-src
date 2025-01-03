@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_wlan.h"
 
 #include <sys/param.h>
@@ -92,4 +90,13 @@ r12a_beacon_set_rate(void *buf, int is5ghz)
 		    RTWN_RIDX_OFDM6));
 	} else
 		txd->txdw4 = htole32(SM(R12A_TXDW4_DATARATE, RTWN_RIDX_CCK1));
+}
+
+/*
+ * For now (no rate control) don't change the beacon configuration
+ * in STA mode.
+ */
+void
+r12a_sta_beacon_enable(struct rtwn_softc *sc, int id, bool enable)
+{
 }

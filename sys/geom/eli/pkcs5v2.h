@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Pawel Jakub Dawidek <pjd@FreeBSD.org>
  * All rights reserved.
@@ -24,14 +24,15 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _PKCS5V2_H_
 #define	_PKCS5V2_H_
 void pkcs5v2_genkey(uint8_t *key, unsigned keylen, const uint8_t *salt,
     size_t saltsize, const char *passphrase, u_int iterations);
+void pkcs5v2_genkey_raw(uint8_t *key, unsigned keylen, const uint8_t *salt,
+    size_t saltsize, const uint8_t *passphrase, size_t passlen,
+    u_int iterations);
 #ifndef _KERNEL
 int pkcs5v2_calculate(int usecs);
 #endif

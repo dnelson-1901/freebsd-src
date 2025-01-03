@@ -17,8 +17,6 @@
  *    is allowed if this notation is included.
  * 5. Modifications may be freely made to this file if the above conditions
  *    are met.
- *
- * $FreeBSD$
  */
 
 #ifndef _SYS_PIPE_H_
@@ -54,7 +52,7 @@
  * See sys_pipe.c for info on what these limits mean. 
  */
 extern long	maxpipekva;
-extern struct	fileops pipeops;
+extern const struct fileops pipeops;
 #endif
 
 /*
@@ -138,6 +136,7 @@ struct pipepair {
 	struct pipe	pp_wpipe;
 	struct mtx	pp_mtx;
 	struct label	*pp_label;
+	struct ucred	*pp_owner;	/* to dec pipe usage count */
 };
 
 #define PIPE_MTX(pipe)		(&(pipe)->pipe_pair->pp_mtx)

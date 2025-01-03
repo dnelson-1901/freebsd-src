@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PACKAGE=lib${LIB}
 LIB=		lzma
 LZMADIR=	${SRCTOP}/contrib/xz/src/liblzma
@@ -127,6 +125,7 @@ SRCS+=	simple_coder.c \
 	arm.c \
 	arm64.c \
 	armthumb.c \
+	riscv.c \
 	sparc.c
 
 .PATH: ${LZMADIR}
@@ -157,7 +156,6 @@ LIBADD+=	md pthread
 
 VERSION_DEF=	${.CURDIR}/Versions.def
 SYMBOL_MAPS=	${.CURDIR}/Symbol.map
-CFLAGS+=	-DSYMBOL_VERSIONING
 
 CLEANFILES+=	liblzma.pc
 

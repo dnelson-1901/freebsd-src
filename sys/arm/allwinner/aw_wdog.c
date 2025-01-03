@@ -25,8 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/eventhandler.h>
@@ -203,6 +201,9 @@ aw_wdog_attach(device_t dev)
 	EVENTHANDLER_REGISTER(watchdog_list, aw_wdog_watchdog_fn, sc, 0);
 	EVENTHANDLER_REGISTER(shutdown_final, aw_wdog_shutdown_fn, sc,
 	    SHUTDOWN_PRI_LAST - 1);
+
+	/* Disable watchdog for now. */
+	WRITE(sc, sc->wdog_mode, sc->wdog_mode_key);
 
 	return (0);
 }

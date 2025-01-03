@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  *  Copyright (c) 2009-2020 Alexander Motin <mav@FreeBSD.org>
  *  Copyright (c) 1997-2009 by Matthew Jacob
@@ -44,7 +44,6 @@
 #endif
 #ifdef	__FreeBSD__
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include <dev/isp/isp_freebsd.h>
 #endif
 #ifdef	__OpenBSD__
@@ -482,10 +481,14 @@ isp_acknak_abts(ispsoftc_t *isp, void *arg, int errno)
 	ISP_MEMCPY(rsp, abts, QENTRY_LEN);
 	rsp->abts_rsp_header.rqs_entry_type = RQSTYPE_ABTS_RSP;
 
+	isp_prt(isp, ISP_LOGTINFO, "[0x%x] ABTS of 0x%x being %s'd",
+	    rsp->abts_rsp_rxid_abts, rsp->abts_rsp_rxid_task,
+	    (errno == 0) ? "BA_ACC" : "BA_RJT");
+	rsp->abts_rsp_r_ctl = (errno == 0) ? BA_ACC : BA_RJT;
+
 	/*
 	 * Swap destination and source for response.
 	 */
-	rsp->abts_rsp_r_ctl = BA_ACC;
 	tmpw = rsp->abts_rsp_did_lo;
 	tmpb = rsp->abts_rsp_did_hi;
 	rsp->abts_rsp_did_lo = rsp->abts_rsp_sid_lo;
@@ -506,15 +509,14 @@ isp_acknak_abts(ispsoftc_t *isp, void *arg, int errno)
 		rx_id = rsp->abts_rsp_rx_id;
 		ox_id = rsp->abts_rsp_ox_id;
 		ISP_MEMZERO(&rsp->abts_rsp_payload.ba_acc, sizeof (rsp->abts_rsp_payload.ba_acc));
-                isp_prt(isp, ISP_LOGTINFO, "[0x%x] ABTS of 0x%x being BA_ACC'd", rsp->abts_rsp_rxid_abts, rsp->abts_rsp_rxid_task);
                 rsp->abts_rsp_payload.ba_acc.aborted_rx_id = rx_id;
                 rsp->abts_rsp_payload.ba_acc.aborted_ox_id = ox_id;
                 rsp->abts_rsp_payload.ba_acc.high_seq_cnt = 0xffff;
 	} else {
-		ISP_MEMZERO(&rsp->abts_rsp_payload.ba_rjt, sizeof (rsp->abts_rsp_payload.ba_acc));
+		ISP_MEMZERO(&rsp->abts_rsp_payload.ba_rjt, sizeof (rsp->abts_rsp_payload.ba_rjt));
 		switch (errno) {
 		case ENOMEM:
-			rsp->abts_rsp_payload.ba_rjt.reason = 5;	/* Logical Unit Busy */
+			rsp->abts_rsp_payload.ba_rjt.reason = 5;	/* Logical busy */
 			break;
 		default:
 			rsp->abts_rsp_payload.ba_rjt.reason = 9;	/* Unable to perform command request */

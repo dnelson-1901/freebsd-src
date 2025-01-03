@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 Nathan Whitehorn
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -148,7 +145,7 @@ vdevice_attach(device_t dev)
 
 		ofw_bus_intr_to_rl(dev, child, &dinfo->mdi_resources, NULL);
 
-                cdev = device_add_child(dev, NULL, -1);
+                cdev = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
                 if (cdev == NULL) {
                         device_printf(dev, "<%s>: device_add_child failed\n",
                             dinfo->mdi_obdinfo.obd_name);
@@ -159,7 +156,8 @@ vdevice_attach(device_t dev)
 		device_set_ivars(cdev, dinfo);
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static const struct ofw_bus_devinfo *

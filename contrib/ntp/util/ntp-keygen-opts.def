@@ -7,7 +7,7 @@ autogen definitions options;
 #include autogen-version.def
 
 prog-name      = "ntp-keygen";
-prog-title     = "Create a NTP host key";
+prog-title     = "create a Network Time Protocol host key";
 package        = ntp;
 
 include        = '#include <stdlib.h>';
@@ -22,7 +22,7 @@ flag = {
     ifdef     = AUTOKEY;
     descrip   = "identity modulus bits";
     doc = <<-  _EndOfDoc_
-	The number of bits in the identity modulus.  The default is 256.
+	The number of bits in the identity modulus.  The default is 512.
 	_EndOfDoc_;
 };
 

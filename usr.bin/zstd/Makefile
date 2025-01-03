@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PROG=	zstd
 SRCS=	\
 	benchfn.c \

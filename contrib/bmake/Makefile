@@ -1,4 +1,4 @@
-#	$Id: Makefile,v 1.123 2023/01/28 02:49:20 sjg Exp $
+#	$Id: Makefile,v 1.127 2024/03/19 16:03:23 sjg Exp $
 
 PROG=	bmake
 
@@ -48,7 +48,7 @@ CFLAGS+= -I. -I${srcdir} ${XDEFS} -DMAKE_NATIVE
 CFLAGS+= ${COPTS.${.ALLSRC:M*.c:T:u}}
 COPTS.main.c+= "-DMAKE_VERSION=\"${_MAKE_VERSION}\""
 
-.for x in FORCE_MACHINE FORCE_MACHINE_ARCH
+.for x in FORCE_MAKE_OS FORCE_MACHINE FORCE_MACHINE_ARCH
 .ifdef $x
 COPTS.main.c+= "-D$x=\"${$x}\""
 .endif
@@ -68,7 +68,9 @@ FILEMON_H ?= /usr/include/dev/filemon/filemon.h
 .if exists(${FILEMON_H}) && ${FILEMON_H:T} == "filemon.h"
 COPTS.filemon_dev.c += -DHAVE_FILEMON_H -I${FILEMON_H:H}
 .endif
-.endif				# USE_FILEMON == dev
+.elif ${USE_FILEMON} == "ktrace"
+COPTS.filemon_ktrace.c += -Wno-error=unused-parameter
+.endif
 
 .endif				# USE_FILEMON
 
@@ -88,9 +90,8 @@ OS := ${.MAKE.OS:U${uname -s:L:sh}}
 # are we 4.4BSD ?
 isBSD44:=${BSD44_LIST:M${OS}}
 
-.if ${isBSD44} == "" && ${OS:NDarwin:NLinux} != ""
-MANTARGET= cat
-INSTALL?=${srcdir}/install-sh
+.if ${isBSD44} == "" && ${OS:NCygwin:NDarwin:NLinux} != ""
+MANTARGET?= cat
 .if ${MACHINE} == "sun386"
 # even I don't have one of these anymore :-)
 CFLAGS+= -DPORTAR
@@ -176,9 +177,7 @@ SHAREDIR= ${SHAREDIR.bmake:U${prefix}/share}
 BINDIR= ${BINDIR.bmake:U${prefix}/bin}
 MANDIR= ${MANDIR.bmake:U${SHAREDIR}/man}
 
-.if !exists(.depend)
 ${OBJS}: config.h
-.endif
 
 # start-delete2 for bsd.after-import.mk
 

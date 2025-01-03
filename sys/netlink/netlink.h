@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Ng Peng Nam Sean
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
@@ -61,7 +61,7 @@
 #ifndef _NETLINK_NETLINK_H_
 #define _NETLINK_NETLINK_H_
 
-#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/socket.h>
 
 struct sockaddr_nl {
@@ -89,6 +89,7 @@ struct sockaddr_nl {
 #define NETLINK_EXT_ACK			11 /* Ack support for receiving additional TLVs in ack */
 #define NETLINK_GET_STRICT_CHK		12 /* Strict header checking */
 
+#define	NETLINK_MSG_INFO		257 /* (FreeBSD-specific) Receive message originator data in cmsg */
 
 /*
  * RFC 3549, 2.3.2 Netlink Message Header
@@ -183,40 +184,45 @@ enum nlmsgerr_attrs {
 	NLMSGERR_ATTR_MAX = __NLMSGERR_ATTR_MAX - 1
 };
 
+/* FreeBSD-specific debugging info */
 
-#ifndef roundup2
-#define	roundup2(x, y)	(((x)+((y)-1))&(~((y)-1))) /* if y is powers of two */
-#endif
+enum nlmsginfo_attrs {
+	NLMSGINFO_ATTR_UNUSED,
+	NLMSGINFO_ATTR_PROCESS_ID	= 1, /* u32, source process PID */
+	NLMSGINFO_ATTR_PORT_ID		= 2, /* u32, source socket nl_pid */
+	NLMSGINFO_ATTR_SEQ_ID		= 3, /* u32, source message seq_id */
+};
+
+
 #define	NL_ITEM_ALIGN_SIZE		sizeof(uint32_t)
-#define	NL_ITEM_ALIGN(_len)		roundup2(_len, NL_ITEM_ALIGN_SIZE)
+#define	NL_ITEM_ALIGN(_len)		__align_up(_len, NL_ITEM_ALIGN_SIZE)
 #define	NL_ITEM_DATA(_ptr, _off)	((void *)((char *)(_ptr) + _off))
 #define	NL_ITEM_DATA_CONST(_ptr, _off)	((const void *)((const char *)(_ptr) + _off))
 
 #define	NL_ITEM_OK(_ptr, _len, _hlen, _LEN_M)	\
 	((_len) >= _hlen && _LEN_M(_ptr) >= _hlen && _LEN_M(_ptr) <= (_len))
-#define	NL_ITEM_NEXT(_ptr, _LEN_M)	((typeof(_ptr))((char *)(_ptr) + _LEN_M(_ptr)))
+#define	NL_ITEM_NEXT(_ptr, _LEN_M)	((__typeof(_ptr))((char *)(_ptr) + _LEN_M(_ptr)))
 #define	NL_ITEM_ITER(_ptr, _len, _LEN_MACRO)	\
 	((_len) -= _LEN_MACRO(_ptr), NL_ITEM_NEXT(_ptr, _LEN_MACRO))
 
+/* part of netlink(3) API */
+#define	NLMSG_ALIGNTO			NL_ITEM_ALIGN_SIZE
+#define	NLMSG_ALIGN(_len)		NL_ITEM_ALIGN(_len)
 
 #ifndef _KERNEL
 /* part of netlink(3) API */
-#define NLMSG_ALIGNTO			NL_ITEM_ALIGN_SIZE
-#define NLMSG_ALIGN(_len)		NL_ITEM_ALIGN(_len)
-#define NLMSG_HDRLEN			((int)sizeof(struct nlmsghdr))
-#define NLMSG_LENGTH(_len)		((_len) + NLMSG_HDRLEN)
-#define NLMSG_SPACE(_len)		NLMSG_ALIGN(NLMSG_LENGTH(_len))
-#define NLMSG_DATA(_hdr)		NL_ITEM_DATA(_hdr, NLMSG_HDRLEN)
-#define	_NLMSG_LEN(_hdr)		((int)(_hdr)->nlmsg_len)
+#define	NLMSG_HDRLEN			(sizeof(struct nlmsghdr))
+#define	NLMSG_LENGTH(_len)		((_len) + NLMSG_HDRLEN)
+#define	NLMSG_SPACE(_len)		NLMSG_ALIGN(NLMSG_LENGTH(_len))
+#define	NLMSG_DATA(_hdr)		NL_ITEM_DATA(_hdr, NLMSG_HDRLEN)
+#define	_NLMSG_LEN(_hdr)		((_hdr)->nlmsg_len)
 #define	_NLMSG_ALIGNED_LEN(_hdr)	NLMSG_ALIGN(_NLMSG_LEN(_hdr))
 #define	NLMSG_OK(_hdr, _len)		NL_ITEM_OK(_hdr, _len, NLMSG_HDRLEN, _NLMSG_LEN)
 #define NLMSG_PAYLOAD(_hdr,_len)	(_NLMSG_LEN(_hdr) - NLMSG_SPACE((_len)))
 #define	NLMSG_NEXT(_hdr, _len)		NL_ITEM_ITER(_hdr, _len, _NLMSG_ALIGNED_LEN)
 
 #else
-#define NLMSG_ALIGNTO 4U
-#define NLMSG_ALIGN(len) (((len) + NLMSG_ALIGNTO - 1) & ~(NLMSG_ALIGNTO - 1))
-#define NLMSG_HDRLEN ((int)NLMSG_ALIGN(sizeof(struct nlmsghdr)))
+#define	NLMSG_HDRLEN			(NLMSG_ALIGN(sizeof(struct nlmsghdr)))
 #endif
 
 /*

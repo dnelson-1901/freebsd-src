@@ -1,11 +1,10 @@
 /*	$NetBSD: grep.c,v 1.6 2011/04/18 03:48:23 joerg Exp $	*/
-/* 	$FreeBSD$	*/
 /*	$OpenBSD: grep.c,v 1.42 2010/07/02 22:18:03 tedu Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
- * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
+ * Copyright (c) 1999 James Howard and Dag-Erling Smørgrav
  * Copyright (C) 2008-2009 Gabor Kovesdan <gabor@FreeBSD.org>
  * All rights reserved.
  *
@@ -32,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -115,7 +112,7 @@ int	 binbehave = BINFILE_BIN;	/* -aIU: handling of binary files */
 int	 filebehave = FILE_STDIO;
 int	 devbehave = DEV_READ;		/* -D: handling of devices */
 int	 dirbehave = DIR_READ;		/* -dRr: handling of directories */
-int	 linkbehave = LINK_READ;	/* -OpS: handling of symlinks */
+int	 linkbehave = LINK_SKIP;	/* -OpS: handling of symlinks */
 
 bool	 dexclude, dinclude;	/* --exclude-dir and --include-dir */
 bool	 fexclude, finclude;	/* --exclude and --include */

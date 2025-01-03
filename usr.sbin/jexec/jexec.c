@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 Mike Barcroft <mike@FreeBSD.org>
  * Copyright (c) 2008 Bjoern A. Zeeb <bz@FreeBSD.org>
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -131,7 +129,7 @@ main(int argc, char *argv[])
 		setenv("HOME", pwd->pw_dir, 1);
 		setenv("SHELL",
 		    *pwd->pw_shell ? pwd->pw_shell : _PATH_BSHELL, 1);
-		if (clean && chdir(pwd->pw_dir) < 0)
+		if (clean && username && chdir(pwd->pw_dir) < 0)
 			err(1, "chdir: %s", pwd->pw_dir);
 		endpwent();
 	}

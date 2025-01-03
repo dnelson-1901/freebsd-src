@@ -30,8 +30,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MACHINE_ASM_H_
@@ -70,5 +68,10 @@
 #define	EXIT_USER_ACCESS(tmp)						\
 	li	tmp, SSTATUS_SUM;					\
 	csrc	sstatus, tmp
+
+#define	SBI_CALL(ext, func)						\
+	li	a7, ext;						\
+	li	a6, func;						\
+	ecall
 
 #endif /* _MACHINE_ASM_H_ */

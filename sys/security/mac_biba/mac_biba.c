@@ -37,8 +37,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -89,8 +87,6 @@
 
 #include <security/mac/mac_policy.h>
 #include <security/mac_biba/mac_biba.h>
-
-SYSCTL_DECL(_security_mac);
 
 static SYSCTL_NODE(_security_mac, OID_AUTO, biba,
     CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
@@ -1926,6 +1922,7 @@ biba_priv_check(struct ucred *cred, int priv)
 	 */
 	case PRIV_SEEOTHERGIDS:
 	case PRIV_SEEOTHERUIDS:
+	case PRIV_SEEJAILPROC:
 		break;
 
 	/*

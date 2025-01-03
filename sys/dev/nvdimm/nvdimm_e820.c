@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Dell EMC Isilon
  *
@@ -24,9 +24,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bio.h>
@@ -278,7 +275,7 @@ nvdimm_e820_identify(driver_t *driver, device_t parent)
 	if (smapbase == NULL)
 		return;
 
-	child = BUS_ADD_CHILD(parent, 0, driver->name, -1);
+	child = BUS_ADD_CHILD(parent, 0, driver->name, DEVICE_UNIT_ANY);
 	if (child == NULL)
 		device_printf(parent, "add %s child failed\n", driver->name);
 }

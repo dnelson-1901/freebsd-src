@@ -35,6 +35,7 @@
 
 #include <cassert>
 #include <memory>
+#include <optional>
 
 namespace lldb_private {
 class ExecutionContextScope;
@@ -93,19 +94,23 @@ ConstString ValueObjectVariable::GetQualifiedTypeName() {
   return ConstString();
 }
 
-size_t ValueObjectVariable::CalculateNumChildren(uint32_t max) {
+llvm::Expected<uint32_t>
+ValueObjectVariable::CalculateNumChildren(uint32_t max) {
   CompilerType type(GetCompilerType());
 
   if (!type.IsValid())
-    return 0;
+    return llvm::make_error<llvm::StringError>("invalid type",
+                                               llvm::inconvertibleErrorCode());
 
   ExecutionContext exe_ctx(GetExecutionContextRef());
   const bool omit_empty_base_classes = true;
   auto child_count = type.GetNumChildren(omit_empty_base_classes, &exe_ctx);
-  return child_count <= max ? child_count : max;
+  if (!child_count)
+    return child_count;
+  return *child_count <= max ? *child_count : max;
 }
 
-llvm::Optional<uint64_t> ValueObjectVariable::GetByteSize() {
+std::optional<uint64_t> ValueObjectVariable::GetByteSize() {
   ExecutionContext exe_ctx(GetExecutionContextRef());
 
   CompilerType type(GetCompilerType());
@@ -159,8 +164,11 @@ bool ValueObjectVariable::UpdateValue() {
                 target);
     }
     Value old_value(m_value);
-    if (expr_list.Evaluate(&exe_ctx, nullptr, loclist_base_load_addr, nullptr,
-                           nullptr, m_value, &m_error)) {
+    llvm::Expected<Value> maybe_value = expr_list.Evaluate(
+        &exe_ctx, nullptr, loclist_base_load_addr, nullptr, nullptr);
+
+    if (maybe_value) {
+      m_value = *maybe_value;
       m_resolved_value = m_value;
       m_value.SetContext(Value::ContextType::Variable, variable);
 
@@ -241,6 +249,7 @@ bool ValueObjectVariable::UpdateValue() {
 
       SetValueIsValid(m_error.Success());
     } else {
+      m_error = maybe_value.takeError();
       // could not find location, won't allow editing
       m_resolved_value.SetContext(Value::ContextType::Invalid, nullptr);
     }
@@ -398,7 +407,7 @@ bool ValueObjectVariable::SetData(DataExtractor &data, Status &error) {
       error.SetErrorString("unable to retrieve register info");
       return false;
     }
-    error = reg_value.SetValueFromData(reg_info, data, 0, true);
+    error = reg_value.SetValueFromData(*reg_info, data, 0, true);
     if (error.Fail())
       return false;
     if (reg_ctx->WriteRegister(reg_info, reg_value)) {

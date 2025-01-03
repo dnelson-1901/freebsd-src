@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2002-2008 Sam Leffler, Errno Consulting
  * All rights reserved.
@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * IEEE 802.11 scanning support.
  */
@@ -515,7 +513,7 @@ ieee80211_scan_done(struct ieee80211vap *vap)
  * then we'll transmit a probe request.
  */
 void
-ieee80211_probe_curchan(struct ieee80211vap *vap, int force)
+ieee80211_probe_curchan(struct ieee80211vap *vap, bool force)
 {
 	struct ieee80211com *ic = vap->iv_ic;
 

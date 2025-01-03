@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -199,13 +196,13 @@ nfsmbsub_attach(device_t dev)
 	mtx_init(&nfsmbsub_sc->lock, device_get_nameunit(dev), "nfsmb",
 	    MTX_DEF);
 
-	nfsmbsub_sc->smbus = device_add_child(dev, "smbus", -1);
+	nfsmbsub_sc->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 	if (nfsmbsub_sc->smbus == NULL) {
 		nfsmbsub_detach(dev);
 		return (EINVAL);
 	}
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -235,7 +232,7 @@ nfsmb_attach(device_t dev)
 	mtx_init(&nfsmb_sc->lock, device_get_nameunit(dev), "nfsmb", MTX_DEF);
 
 	/* Allocate a new smbus device */
-	nfsmb_sc->smbus = device_add_child(dev, "smbus", -1);
+	nfsmb_sc->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 	if (!nfsmb_sc->smbus) {
 		nfsmb_detach(dev);
 		return (EINVAL);
@@ -258,7 +255,7 @@ nfsmb_attach(device_t dev)
 	case NFSMB_DEVICEID_NF4_78S_SMB:
 	case NFSMB_DEVICEID_NF4_79_SMB:
 		/* Trying to add secondary device as slave */
-		nfsmb_sc->subdev = device_add_child(dev, "nfsmb", -1);
+		nfsmb_sc->subdev = device_add_child(dev, "nfsmb", DEVICE_UNIT_ANY);
 		if (!nfsmb_sc->subdev) {
 			nfsmb_detach(dev);
 			return (EINVAL);
@@ -268,7 +265,7 @@ nfsmb_attach(device_t dev)
 		break;
 	}
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -278,13 +275,13 @@ nfsmbsub_detach(device_t dev)
 {
 	device_t parent;
 	struct nfsmb_softc *nfsmbsub_sc = device_get_softc(dev);
+	int error;
 
 	parent = device_get_parent(dev);
 
-	if (nfsmbsub_sc->smbus) {
-		device_delete_child(dev, nfsmbsub_sc->smbus);
-		nfsmbsub_sc->smbus = NULL;
-	}
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 	mtx_destroy(&nfsmbsub_sc->lock);
 	if (nfsmbsub_sc->res) {
 		bus_release_resource(parent, SYS_RES_IOPORT, nfsmbsub_sc->rid,
@@ -298,16 +295,11 @@ static int
 nfsmb_detach(device_t dev)
 {
 	struct nfsmb_softc *nfsmb_sc = device_get_softc(dev);
+	int error;
 
-	if (nfsmb_sc->subdev) {
-		device_delete_child(dev, nfsmb_sc->subdev);
-		nfsmb_sc->subdev = NULL;
-	}
-
-	if (nfsmb_sc->smbus) {
-		device_delete_child(dev, nfsmb_sc->smbus);
-		nfsmb_sc->smbus = NULL;
-	}
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	mtx_destroy(&nfsmb_sc->lock);
 	if (nfsmb_sc->res) {

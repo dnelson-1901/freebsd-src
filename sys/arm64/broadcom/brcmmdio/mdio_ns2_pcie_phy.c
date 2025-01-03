@@ -25,9 +25,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -157,5 +154,6 @@ ns2_pcie_phy_fdt_attach(device_t dev)
 	if (ns2_pci_phy_init(dev) < 0)
 		return (EINVAL);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }

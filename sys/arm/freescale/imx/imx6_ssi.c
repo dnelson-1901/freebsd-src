@@ -31,9 +31,6 @@
  * Rev. 1, 04/2013
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -45,7 +42,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/timetc.h>
 
 #include <dev/sound/pcm/sound.h>
-#include <dev/sound/chip.h>
 #include <mixer_if.h>
 
 #include <dev/ofw/openfirm.h>
@@ -814,18 +810,18 @@ ssi_attach(device_t dev)
 
 	pcm_setflags(dev, pcm_getflags(dev) | SD_F_MPSAFE);
 
-	err = pcm_register(dev, scp, 1, 0);
-	if (err) {
-		device_printf(dev, "Can't register pcm.\n");
-		return (ENXIO);
-	}
+	pcm_init(dev, scp);
 
 	scp->chnum = 0;
 	pcm_addchan(dev, PCMDIR_PLAY, &ssichan_class, scp);
 	scp->chnum++;
 
 	snprintf(status, SND_STATUSLEN, "at simplebus");
-	pcm_setstatus(dev, status);
+	err = pcm_register(dev, status);
+	if (err) {
+		device_printf(dev, "Can't register pcm.\n");
+		return (ENXIO);
+	}
 
 	mixer_init(dev, &ssimixer_class, scp);
 	setup_ssi(sc);

@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/module.h>
@@ -219,7 +216,7 @@ opaldev_attach(device_t dev)
 			free(dinfo, M_DEVBUF);
 			continue;
 		}
-		cdev = device_add_child(dev, NULL, -1);
+		cdev = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
 		if (cdev == NULL) {
 			device_printf(dev, "<%s>: device_add_child failed\n",
 			    dinfo->obd_name);
@@ -230,7 +227,8 @@ opaldev_attach(device_t dev)
 		device_set_ivars(cdev, dinfo);
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int
@@ -346,10 +344,12 @@ static void
 opal_shutdown(void *arg, int howto)
 {
 
-	if (howto & RB_HALT)
+	if ((howto & RB_POWEROFF) != 0)
 		opal_call(OPAL_CEC_POWER_DOWN, 0 /* Normal power off */);
-	else
+	else if ((howto & RB_HALT) == 0)
 		opal_call(OPAL_CEC_REBOOT);
+	else
+		return;
 
 	opal_call(OPAL_RETURN_CPU);
 }

@@ -10,9 +10,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <optional>
 #include <unordered_map>
 
-#include "lldb/Core/FileSpecList.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Core/PluginManager.h"
@@ -26,6 +26,7 @@
 #include "lldb/Target/Target.h"
 #include "lldb/Utility/ArchSpec.h"
 #include "lldb/Utility/DataBufferHeap.h"
+#include "lldb/Utility/FileSpecList.h"
 #include "lldb/Utility/LLDBLog.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/RangeMap.h"
@@ -113,13 +114,15 @@ public:
 
   static unsigned RelocSymbol64(const ELFRelocation &rel);
 
-  static unsigned RelocOffset32(const ELFRelocation &rel);
+  static elf_addr RelocOffset32(const ELFRelocation &rel);
 
-  static unsigned RelocOffset64(const ELFRelocation &rel);
+  static elf_addr RelocOffset64(const ELFRelocation &rel);
 
-  static unsigned RelocAddend32(const ELFRelocation &rel);
+  static elf_sxword RelocAddend32(const ELFRelocation &rel);
 
-  static unsigned RelocAddend64(const ELFRelocation &rel);
+  static elf_sxword RelocAddend64(const ELFRelocation &rel);
+
+  bool IsRela() { return (reloc.is<ELFRela *>()); }
 
 private:
   typedef llvm::PointerUnion<ELFRel *, ELFRela *> RelocUnion;
@@ -182,28 +185,28 @@ unsigned ELFRelocation::RelocSymbol64(const ELFRelocation &rel) {
     return ELFRela::RelocSymbol64(*rel.reloc.get<ELFRela *>());
 }
 
-unsigned ELFRelocation::RelocOffset32(const ELFRelocation &rel) {
+elf_addr ELFRelocation::RelocOffset32(const ELFRelocation &rel) {
   if (rel.reloc.is<ELFRel *>())
     return rel.reloc.get<ELFRel *>()->r_offset;
   else
     return rel.reloc.get<ELFRela *>()->r_offset;
 }
 
-unsigned ELFRelocation::RelocOffset64(const ELFRelocation &rel) {
+elf_addr ELFRelocation::RelocOffset64(const ELFRelocation &rel) {
   if (rel.reloc.is<ELFRel *>())
     return rel.reloc.get<ELFRel *>()->r_offset;
   else
     return rel.reloc.get<ELFRela *>()->r_offset;
 }
 
-unsigned ELFRelocation::RelocAddend32(const ELFRelocation &rel) {
+elf_sxword ELFRelocation::RelocAddend32(const ELFRelocation &rel) {
   if (rel.reloc.is<ELFRel *>())
     return 0;
   else
     return rel.reloc.get<ELFRela *>()->r_addend;
 }
 
-unsigned ELFRelocation::RelocAddend64(const ELFRelocation &rel) {
+elf_sxword  ELFRelocation::RelocAddend64(const ELFRelocation &rel) {
   if (rel.reloc.is<ELFRel *>())
     return 0;
   else
@@ -318,6 +321,18 @@ static uint32_t ppc64VariantFromElfFlags(const elf::ELFHeader &header) {
     return ArchSpec::eCore_ppc64_generic;
 }
 
+static uint32_t loongarchVariantFromElfFlags(const elf::ELFHeader &header) {
+  uint32_t fileclass = header.e_ident[EI_CLASS];
+  switch (fileclass) {
+  case llvm::ELF::ELFCLASS32:
+    return ArchSpec::eLoongArchSubType_loongarch32;
+  case llvm::ELF::ELFCLASS64:
+    return ArchSpec::eLoongArchSubType_loongarch64;
+  default:
+    return ArchSpec::eLoongArchSubType_unknown;
+  }
+}
+
 static uint32_t subTypeFromElfHeader(const elf::ELFHeader &header) {
   if (header.e_machine == llvm::ELF::EM_MIPS)
     return mipsVariantFromElfFlags(header);
@@ -325,6 +340,8 @@ static uint32_t subTypeFromElfHeader(const elf::ELFHeader &header) {
     return ppc64VariantFromElfFlags(header);
   else if (header.e_machine == llvm::ELF::EM_RISCV)
     return riscvVariantFromElfFlags(header);
+  else if (header.e_machine == llvm::ELF::EM_LOONGARCH)
+    return loongarchVariantFromElfFlags(header);
 
   return LLDB_INVALID_CPUTYPE;
 }
@@ -430,8 +447,8 @@ bool ObjectFileELF::MagicBytesMatch(DataBufferSP &data_sp,
 }
 
 static uint32_t calc_crc32(uint32_t init, const DataExtractor &data) {
-  return llvm::crc32(
-      init, llvm::makeArrayRef(data.GetDataStart(), data.GetByteSize()));
+  return llvm::crc32(init,
+                     llvm::ArrayRef(data.GetDataStart(), data.GetByteSize()));
 }
 
 uint32_t ObjectFileELF::CalculateELFNotesSegmentsCRC32(
@@ -538,6 +555,14 @@ size_t ObjectFileELF::GetModuleSpecifications(
     if (header.Parse(data, &header_offset)) {
       if (data_sp) {
         ModuleSpec spec(file);
+        // In Android API level 23 and above, bionic dynamic linker is able to
+        // load .so file directly from zip file. In that case, .so file is
+        // page aligned and uncompressed, and this module spec should retain the
+        // .so file offset and file size to pass through the information from
+        // lldb-server to LLDB. For normal file, file_offset should be 0,
+        // length should be the size of the file.
+        spec.SetObjectOffset(file_offset);
+        spec.SetObjectSize(length);
 
         const uint32_t sub_type = subTypeFromElfHeader(header);
         spec.GetArchitecture().SetArchitecture(
@@ -569,8 +594,12 @@ size_t ObjectFileELF::GetModuleSpecifications(
                       __FUNCTION__, file.GetPath().c_str());
           }
 
+          // When ELF file does not contain GNU build ID, the later code will
+          // calculate CRC32 with this data_sp file_offset and length. It is
+          // important for Android zip .so file, which is a slice of a file,
+          // to not access the outside of the file slice range.
           if (data_sp->GetByteSize() < length)
-            data_sp = MapFileData(file, -1, file_offset);
+            data_sp = MapFileData(file, length, file_offset);
           if (data_sp)
             data.SetData(data_sp);
           // In case there is header extension in the section #0, the header we
@@ -606,7 +635,7 @@ size_t ObjectFileELF::GetModuleSpecifications(
             if (!gnu_debuglink_crc) {
               LLDB_SCOPED_TIMERF(
                   "Calculating module crc32 %s with size %" PRIu64 " KiB",
-                  file.GetLastPathComponent().AsCString(),
+                  file.GetFilename().AsCString(),
                   (length - file_offset) / 1024);
 
               // For core files - which usually don't happen to have a
@@ -627,13 +656,13 @@ size_t ObjectFileELF::GetModuleSpecifications(
             if (gnu_debuglink_crc) {
               // Use 4 bytes of crc from the .gnu_debuglink section.
               u32le data(gnu_debuglink_crc);
-              uuid = UUID::fromData(&data, sizeof(data));
+              uuid = UUID(&data, sizeof(data));
             } else if (core_notes_crc) {
               // Use 8 bytes - first 4 bytes for *magic* prefix, mainly to make
               // it look different form .gnu_debuglink crc followed by 4 bytes
               // of note segments crc.
               u32le data[] = {u32le(g_core_uuid_magic), u32le(core_notes_crc)};
-              uuid = UUID::fromData(data, sizeof(data));
+              uuid = UUID(data, sizeof(data));
             }
           }
 
@@ -688,6 +717,20 @@ bool ObjectFileELF::SetLoadAddress(Target &target, lldb::addr_t value,
         // Iterate through the object file sections to find all of the sections
         // that have SHF_ALLOC in their flag bits.
         SectionSP section_sp(section_list->GetSectionAtIndex(sect_idx));
+
+        // PT_TLS segments can have the same p_vaddr and p_paddr as other
+        // PT_LOAD segments so we shouldn't load them. If we do load them, then
+        // the SectionLoadList will incorrectly fill in the instance variable
+        // SectionLoadList::m_addr_to_sect with the same address as a PT_LOAD
+        // segment and we won't be able to resolve addresses in the PT_LOAD
+        // segment whose p_vaddr entry matches that of the PT_TLS. Any variables
+        // that appear in the PT_TLS segments get resolved by the DWARF
+        // expressions. If this ever changes we will need to fix all object
+        // file plug-ins, but until then, we don't want PT_TLS segments to
+        // remove the entry from SectionLoadList::m_addr_to_sect when we call
+        // SetSectionLoadAddress() below.
+        if (section_sp->IsThreadSpecific())
+          continue;
         if (section_sp->Test(SHF_ALLOC) ||
             section_sp->GetType() == eSectionTypeContainer) {
           lldb::addr_t load_addr = section_sp->GetFileAddress();
@@ -788,7 +831,7 @@ UUID ObjectFileELF::GetUUID() {
         // look different form .gnu_debuglink crc - followed by 4 bytes of note
         // segments crc.
         u32le data[] = {u32le(g_core_uuid_magic), u32le(core_notes_crc)};
-        m_uuid = UUID::fromData(data, sizeof(data));
+        m_uuid = UUID(data, sizeof(data));
       }
     } else {
       if (!m_gnu_debuglink_crc)
@@ -796,7 +839,7 @@ UUID ObjectFileELF::GetUUID() {
       if (m_gnu_debuglink_crc) {
         // Use 4 bytes of crc from the .gnu_debuglink section.
         u32le data(m_gnu_debuglink_crc);
-        m_uuid = UUID::fromData(&data, sizeof(data));
+        m_uuid = UUID(&data, sizeof(data));
       }
     }
   }
@@ -804,9 +847,9 @@ UUID ObjectFileELF::GetUUID() {
   return m_uuid;
 }
 
-llvm::Optional<FileSpec> ObjectFileELF::GetDebugLink() {
+std::optional<FileSpec> ObjectFileELF::GetDebugLink() {
   if (m_gnu_debuglink_file.empty())
-    return llvm::None;
+    return std::nullopt;
   return FileSpec(m_gnu_debuglink_file);
 }
 
@@ -906,6 +949,16 @@ lldb_private::Address ObjectFileELF::GetEntryPointAddress() {
 }
 
 Address ObjectFileELF::GetBaseAddress() {
+  if (GetType() == ObjectFile::eTypeObjectFile) {
+    for (SectionHeaderCollIter I = std::next(m_section_headers.begin());
+         I != m_section_headers.end(); ++I) {
+      const ELFSectionHeaderInfo &header = *I;
+      if (header.sh_flags & SHF_ALLOC)
+        return Address(GetSectionList()->FindSectionByID(SectionIndex(I)), 0);
+    }
+    return LLDB_INVALID_ADDRESS;
+  }
+
   for (const auto &EnumPHdr : llvm::enumerate(ProgramHeaders())) {
     const ELFProgramHeader &H = EnumPHdr.value();
     if (H.p_type != PT_LOAD)
@@ -1134,7 +1187,7 @@ ObjectFileELF::RefineModuleDetailsFromNote(lldb_private::DataExtractor &data,
           if (note.n_descsz >= 4) {
             if (const uint8_t *buf = data.PeekData(offset, note.n_descsz)) {
               // Save the build id as the UUID for the module.
-              uuid = UUID::fromData(buf, note.n_descsz);
+              uuid = UUID(buf, note.n_descsz);
             } else {
               error.SetErrorString("failed to read GNU_BUILD_ID note payload");
               return error;
@@ -1643,12 +1696,13 @@ static SectionType GetSectionTypeFromName(llvm::StringRef Name) {
   return llvm::StringSwitch<SectionType>(Name)
       .Case(".ARM.exidx", eSectionTypeARMexidx)
       .Case(".ARM.extab", eSectionTypeARMextab)
-      .Cases(".bss", ".tbss", eSectionTypeZeroFill)
+      .Case(".ctf", eSectionTypeDebug)
       .Cases(".data", ".tdata", eSectionTypeData)
       .Case(".eh_frame", eSectionTypeEHFrame)
       .Case(".gnu_debugaltlink", eSectionTypeDWARFGNUDebugAltLink)
       .Case(".gosymtab", eSectionTypeGoSymtab)
       .Case(".text", eSectionTypeCode)
+      .Case(".swift_ast", eSectionTypeSwiftModules)
       .Default(eSectionTypeOther);
 }
 
@@ -1657,6 +1711,10 @@ SectionType ObjectFileELF::GetSectionType(const ELFSectionHeaderInfo &H) const {
   case SHT_PROGBITS:
     if (H.sh_flags & SHF_EXECINSTR)
       return eSectionTypeCode;
+    break;
+  case SHT_NOBITS:
+    if (H.sh_flags & SHF_ALLOC)
+      return eSectionTypeZeroFill;
     break;
   case SHT_SYMTAB:
     return eSectionTypeELFSymbolTable;
@@ -1733,7 +1791,12 @@ class VMAddressProvider {
   VMRange GetVMRange(const ELFSectionHeader &H) {
     addr_t Address = H.sh_addr;
     addr_t Size = H.sh_flags & SHF_ALLOC ? H.sh_size : 0;
-    if (ObjectType == ObjectFile::Type::eTypeObjectFile && Segments.empty() && (H.sh_flags & SHF_ALLOC)) {
+
+    // When this is a debug file for relocatable file, the address is all zero
+    // and thus needs to use accumulate method
+    if ((ObjectType == ObjectFile::Type::eTypeObjectFile ||
+         (ObjectType == ObjectFile::Type::eTypeDebugInfo && H.sh_addr == 0)) &&
+        Segments.empty() && (H.sh_flags & SHF_ALLOC)) {
       NextVMAddress =
           llvm::alignTo(NextVMAddress, std::max<addr_t>(H.sh_addralign, 1));
       Address = NextVMAddress;
@@ -1750,22 +1813,22 @@ public:
     return llvm::formatv("{0}[{1}]", SegmentName, SegmentCount).str();
   }
 
-  llvm::Optional<VMRange> GetAddressInfo(const ELFProgramHeader &H) {
+  std::optional<VMRange> GetAddressInfo(const ELFProgramHeader &H) {
     if (H.p_memsz == 0) {
       LLDB_LOG(Log, "Ignoring zero-sized {0} segment. Corrupt object file?",
                SegmentName);
-      return llvm::None;
+      return std::nullopt;
     }
 
     if (Segments.overlaps(H.p_vaddr, H.p_vaddr + H.p_memsz)) {
       LLDB_LOG(Log, "Ignoring overlapping {0} segment. Corrupt object file?",
                SegmentName);
-      return llvm::None;
+      return std::nullopt;
     }
     return VMRange(H.p_vaddr, H.p_memsz);
   }
 
-  llvm::Optional<SectionAddressInfo> GetAddressInfo(const ELFSectionHeader &H) {
+  std::optional<SectionAddressInfo> GetAddressInfo(const ELFSectionHeader &H) {
     VMRange Range = GetVMRange(H);
     SectionSP Segment;
     auto It = Segments.find(Range.GetRangeBase());
@@ -1785,7 +1848,7 @@ public:
     if (Range.GetByteSize() > 0 &&
         Sections.overlaps(Range.GetRangeBase(), Range.GetRangeEnd())) {
       LLDB_LOG(Log, "Ignoring overlapping section. Corrupt object file?");
-      return llvm::None;
+      return std::nullopt;
     }
     if (Segment)
       Range.Slide(-Segment->GetFileAddress());
@@ -1806,6 +1869,39 @@ public:
                     std::move(Sect));
   }
 };
+}
+
+// We have to do this because ELF doesn't have section IDs, and also
+// doesn't require section names to be unique.  (We use the section index
+// for section IDs, but that isn't guaranteed to be the same in separate
+// debug images.)
+static SectionSP FindMatchingSection(const SectionList &section_list,
+                                     SectionSP section) {
+  SectionSP sect_sp;
+
+  addr_t vm_addr = section->GetFileAddress();
+  ConstString name = section->GetName();
+  offset_t byte_size = section->GetByteSize();
+  bool thread_specific = section->IsThreadSpecific();
+  uint32_t permissions = section->GetPermissions();
+  uint32_t alignment = section->GetLog2Align();
+
+  for (auto sect : section_list) {
+    if (sect->GetName() == name &&
+        sect->IsThreadSpecific() == thread_specific &&
+        sect->GetPermissions() == permissions &&
+        sect->GetByteSize() == byte_size && sect->GetFileAddress() == vm_addr &&
+        sect->GetLog2Align() == alignment) {
+      sect_sp = sect;
+      break;
+    } else {
+      sect_sp = FindMatchingSection(sect->GetChildren(), section);
+      if (sect_sp)
+        break;
+    }
+  }
+
+  return sect_sp;
 }
 
 void ObjectFileELF::CreateSections(SectionList &unified_section_list) {
@@ -1935,7 +2031,7 @@ std::shared_ptr<ObjectFileELF> ObjectFileELF::GetGnuDebugDataObjectFile() {
   auto err = lldb_private::lzma::uncompress(data.GetData(), uncompressedData);
   if (err) {
     GetModule()->ReportWarning(
-        "An error occurred while decompression the section %s: %s",
+        "An error occurred while decompression the section {0}: {1}",
         section->GetName().AsCString(), llvm::toString(std::move(err)).c_str());
     return nullptr;
   }
@@ -1981,13 +2077,17 @@ static char FindArmAarch64MappingSymbol(const char *symbol_name) {
 #define IS_MICROMIPS(ST_OTHER) (((ST_OTHER)&STO_MIPS_ISA) == STO_MICROMIPS)
 
 // private
-unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
-                                     SectionList *section_list,
-                                     const size_t num_symbols,
-                                     const DataExtractor &symtab_data,
-                                     const DataExtractor &strtab_data) {
+std::pair<unsigned, ObjectFileELF::FileAddressToAddressClassMap>
+ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
+                            SectionList *section_list, const size_t num_symbols,
+                            const DataExtractor &symtab_data,
+                            const DataExtractor &strtab_data) {
   ELFSymbol symbol;
   lldb::offset_t offset = 0;
+  // The changes these symbols would make to the class map. We will also update
+  // m_address_class_map but need to tell the caller what changed because the
+  // caller may be another object file.
+  FileAddressToAddressClassMap address_class_map;
 
   static ConstString text_section_name(".text");
   static ConstString init_section_name(".init");
@@ -2012,7 +2112,7 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
   // contain the note section specifying the environment to Android but the
   // custom extension and file name makes it highly unlikely that this will
   // collide with anything else.
-  ConstString file_extension = m_file.GetFileNameExtension();
+  llvm::StringRef file_extension = m_file.GetFileNameExtension();
   bool skip_oatdata_oatexec =
       file_extension == ".oat" || file_extension == ".odex";
 
@@ -2021,10 +2121,12 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
   SectionList *module_section_list =
       module_sp ? module_sp->GetSectionList() : nullptr;
 
-  // Local cache to avoid doing a FindSectionByName for each symbol. The "const
-  // char*" key must came from a ConstString object so they can be compared by
-  // pointer
-  std::unordered_map<const char *, lldb::SectionSP> section_name_to_section;
+  // We might have debug information in a separate object, in which case
+  // we need to map the sections from that object to the sections in the
+  // main object during symbol lookup.  If we had to compare the sections
+  // for every single symbol, that would be expensive, so this map is
+  // used to accelerate the process.
+  std::unordered_map<lldb::SectionSP, lldb::SectionSP> section_map;
 
   unsigned i;
   for (i = 0; i < num_symbols; ++i) {
@@ -2132,18 +2234,18 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
             switch (mapping_symbol) {
             case 'a':
               // $a[.<any>]* - marks an ARM instruction sequence
-              m_address_class_map[symbol.st_value] = AddressClass::eCode;
+              address_class_map[symbol.st_value] = AddressClass::eCode;
               break;
             case 'b':
             case 't':
               // $b[.<any>]* - marks a THUMB BL instruction sequence
               // $t[.<any>]* - marks a THUMB instruction sequence
-              m_address_class_map[symbol.st_value] =
+              address_class_map[symbol.st_value] =
                   AddressClass::eCodeAlternateISA;
               break;
             case 'd':
               // $d[.<any>]* - marks a data item sequence (e.g. lit pool)
-              m_address_class_map[symbol.st_value] = AddressClass::eData;
+              address_class_map[symbol.st_value] = AddressClass::eData;
               break;
             }
           }
@@ -2157,11 +2259,11 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
             switch (mapping_symbol) {
             case 'x':
               // $x[.<any>]* - marks an A64 instruction sequence
-              m_address_class_map[symbol.st_value] = AddressClass::eCode;
+              address_class_map[symbol.st_value] = AddressClass::eCode;
               break;
             case 'd':
               // $d[.<any>]* - marks a data item sequence (e.g. lit pool)
-              m_address_class_map[symbol.st_value] = AddressClass::eData;
+              address_class_map[symbol.st_value] = AddressClass::eData;
               break;
             }
           }
@@ -2179,11 +2281,11 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
             // conjunction with symbol.st_value to produce the final
             // symbol_value that we store in the symtab.
             symbol_value_offset = -1;
-            m_address_class_map[symbol.st_value ^ 1] =
+            address_class_map[symbol.st_value ^ 1] =
                 AddressClass::eCodeAlternateISA;
           } else {
             // This address is ARM
-            m_address_class_map[symbol.st_value] = AddressClass::eCode;
+            address_class_map[symbol.st_value] = AddressClass::eCode;
           }
         }
       }
@@ -2204,17 +2306,17 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
       */
       if (arch.IsMIPS()) {
         if (IS_MICROMIPS(symbol.st_other))
-          m_address_class_map[symbol.st_value] = AddressClass::eCodeAlternateISA;
+          address_class_map[symbol.st_value] = AddressClass::eCodeAlternateISA;
         else if ((symbol.st_value & 1) && (symbol_type == eSymbolTypeCode)) {
           symbol.st_value = symbol.st_value & (~1ull);
-          m_address_class_map[symbol.st_value] = AddressClass::eCodeAlternateISA;
+          address_class_map[symbol.st_value] = AddressClass::eCodeAlternateISA;
         } else {
           if (symbol_type == eSymbolTypeCode)
-            m_address_class_map[symbol.st_value] = AddressClass::eCode;
+            address_class_map[symbol.st_value] = AddressClass::eCode;
           else if (symbol_type == eSymbolTypeData)
-            m_address_class_map[symbol.st_value] = AddressClass::eData;
+            address_class_map[symbol.st_value] = AddressClass::eData;
           else
-            m_address_class_map[symbol.st_value] = AddressClass::eUnknown;
+            address_class_map[symbol.st_value] = AddressClass::eUnknown;
         }
       }
     }
@@ -2223,37 +2325,20 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
     // symbols. See above for more details.
     uint64_t symbol_value = symbol.st_value + symbol_value_offset;
 
-    if (symbol_section_sp == nullptr && shndx == SHN_ABS &&
-        symbol.st_size != 0) {
-      // We don't have a section for a symbol with non-zero size. Create a new
-      // section for it so the address range covered by the symbol is also
-      // covered by the module (represented through the section list). It is
-      // needed so module lookup for the addresses covered by this symbol will
-      // be successfull. This case happens for absolute symbols.
-      ConstString fake_section_name(std::string(".absolute.") + symbol_name);
-      symbol_section_sp =
-          std::make_shared<Section>(module_sp, this, SHN_ABS, fake_section_name,
-                                    eSectionTypeAbsoluteAddress, symbol_value,
-                                    symbol.st_size, 0, 0, 0, SHF_ALLOC);
-
-      module_section_list->AddSection(symbol_section_sp);
-      section_list->AddSection(symbol_section_sp);
-    }
-
     if (symbol_section_sp &&
         CalculateType() != ObjectFile::Type::eTypeObjectFile)
       symbol_value -= symbol_section_sp->GetFileAddress();
 
     if (symbol_section_sp && module_section_list &&
         module_section_list != section_list) {
-      ConstString sect_name = symbol_section_sp->GetName();
-      auto section_it = section_name_to_section.find(sect_name.GetCString());
-      if (section_it == section_name_to_section.end())
-        section_it =
-            section_name_to_section
-                .emplace(sect_name.GetCString(),
-                         module_section_list->FindSectionByName(sect_name))
-                .first;
+      auto section_it = section_map.find(symbol_section_sp);
+      if (section_it == section_map.end()) {
+        section_it = section_map
+                         .emplace(symbol_section_sp,
+                                  FindMatchingSection(*module_section_list,
+                                                      symbol_section_sp))
+                         .first;
+      }
       if (section_it->second)
         symbol_section_sp = section_it->second;
     }
@@ -2292,13 +2377,30 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
     bool symbol_size_valid =
         symbol.st_size != 0 || symbol.getType() != STT_FUNC;
 
+    bool is_trampoline = false;
+    if (arch.IsValid() && (arch.GetMachine() == llvm::Triple::aarch64)) {
+      // On AArch64, trampolines are registered as code.
+      // If we detect a trampoline (which starts with __AArch64ADRPThunk_ or
+      // __AArch64AbsLongThunk_) we register the symbol as a trampoline. This
+      // way we will be able to detect the trampoline when we step in a function
+      // and step through the trampoline.
+      if (symbol_type == eSymbolTypeCode) {
+        llvm::StringRef trampoline_name = mangled.GetName().GetStringRef();
+        if (trampoline_name.starts_with("__AArch64ADRPThunk_") ||
+            trampoline_name.starts_with("__AArch64AbsLongThunk_")) {
+          symbol_type = eSymbolTypeTrampoline;
+          is_trampoline = true;
+        }
+      }
+    }
+
     Symbol dc_symbol(
         i + start_id, // ID is the original symbol table index.
         mangled,
         symbol_type,                    // Type of this symbol
         is_global,                      // Is this globally visible?
         false,                          // Is this symbol debug info?
-        false,                          // Is this symbol a trampoline?
+        is_trampoline,                  // Is this symbol a trampoline?
         false,                          // Is this symbol artificial?
         AddressRange(symbol_section_sp, // Section in which this symbol is
                                         // defined or null.
@@ -2311,24 +2413,33 @@ unsigned ObjectFileELF::ParseSymbols(Symtab *symtab, user_id_t start_id,
       dc_symbol.SetIsWeak(true);
     symtab->AddSymbol(dc_symbol);
   }
-  return i;
+
+  m_address_class_map.merge(address_class_map);
+  return {i, address_class_map};
 }
 
-unsigned ObjectFileELF::ParseSymbolTable(Symtab *symbol_table,
-                                         user_id_t start_id,
-                                         lldb_private::Section *symtab) {
+std::pair<unsigned, ObjectFileELF::FileAddressToAddressClassMap>
+ObjectFileELF::ParseSymbolTable(Symtab *symbol_table, user_id_t start_id,
+                                lldb_private::Section *symtab) {
   if (symtab->GetObjectFile() != this) {
     // If the symbol table section is owned by a different object file, have it
     // do the parsing.
     ObjectFileELF *obj_file_elf =
         static_cast<ObjectFileELF *>(symtab->GetObjectFile());
-    return obj_file_elf->ParseSymbolTable(symbol_table, start_id, symtab);
+    auto [num_symbols, address_class_map] =
+        obj_file_elf->ParseSymbolTable(symbol_table, start_id, symtab);
+
+    // The other object file returned the changes it made to its address
+    // class map, make the same changes to ours.
+    m_address_class_map.merge(address_class_map);
+
+    return {num_symbols, address_class_map};
   }
 
   // Get section list for this object file.
   SectionList *section_list = m_sections_up.get();
   if (!section_list)
-    return 0;
+    return {};
 
   user_id_t symtab_id = symtab->GetID();
   const ELFSectionHeaderInfo *symtab_hdr = GetSectionHeaderByIndex(symtab_id);
@@ -2354,7 +2465,7 @@ unsigned ObjectFileELF::ParseSymbolTable(Symtab *symbol_table,
     }
   }
 
-  return 0;
+  return {0, {}};
 }
 
 size_t ObjectFileELF::ParseDynamicSymbols() {
@@ -2593,6 +2704,88 @@ ObjectFileELF::ParseTrampolineSymbols(Symtab *symbol_table, user_id_t start_id,
                              rel_data, symtab_data, strtab_data);
 }
 
+static void ApplyELF64ABS64Relocation(Symtab *symtab, ELFRelocation &rel,
+                                      DataExtractor &debug_data,
+                                      Section *rel_section) {
+  Symbol *symbol = symtab->FindSymbolByID(ELFRelocation::RelocSymbol64(rel));
+  if (symbol) {
+    addr_t value = symbol->GetAddressRef().GetFileAddress();
+    DataBufferSP &data_buffer_sp = debug_data.GetSharedDataBuffer();
+    // ObjectFileELF creates a WritableDataBuffer in CreateInstance.
+    WritableDataBuffer *data_buffer =
+        llvm::cast<WritableDataBuffer>(data_buffer_sp.get());
+    uint64_t *dst = reinterpret_cast<uint64_t *>(
+        data_buffer->GetBytes() + rel_section->GetFileOffset() +
+        ELFRelocation::RelocOffset64(rel));
+    uint64_t val_offset = value + ELFRelocation::RelocAddend64(rel);
+    memcpy(dst, &val_offset, sizeof(uint64_t));
+  }
+}
+
+static void ApplyELF64ABS32Relocation(Symtab *symtab, ELFRelocation &rel,
+                                      DataExtractor &debug_data,
+                                      Section *rel_section, bool is_signed) {
+  Symbol *symbol = symtab->FindSymbolByID(ELFRelocation::RelocSymbol64(rel));
+  if (symbol) {
+    addr_t value = symbol->GetAddressRef().GetFileAddress();
+    value += ELFRelocation::RelocAddend32(rel);
+    if ((!is_signed && (value > UINT32_MAX)) ||
+        (is_signed &&
+         ((int64_t)value > INT32_MAX || (int64_t)value < INT32_MIN))) {
+      Log *log = GetLog(LLDBLog::Modules);
+      LLDB_LOGF(log, "Failed to apply debug info relocations");
+      return;
+    }
+    uint32_t truncated_addr = (value & 0xFFFFFFFF);
+    DataBufferSP &data_buffer_sp = debug_data.GetSharedDataBuffer();
+    // ObjectFileELF creates a WritableDataBuffer in CreateInstance.
+    WritableDataBuffer *data_buffer =
+        llvm::cast<WritableDataBuffer>(data_buffer_sp.get());
+    uint32_t *dst = reinterpret_cast<uint32_t *>(
+        data_buffer->GetBytes() + rel_section->GetFileOffset() +
+        ELFRelocation::RelocOffset32(rel));
+    memcpy(dst, &truncated_addr, sizeof(uint32_t));
+  }
+}
+
+static void ApplyELF32ABS32RelRelocation(Symtab *symtab, ELFRelocation &rel,
+                                         DataExtractor &debug_data,
+                                         Section *rel_section) {
+  Log *log = GetLog(LLDBLog::Modules);
+  Symbol *symbol = symtab->FindSymbolByID(ELFRelocation::RelocSymbol32(rel));
+  if (symbol) {
+    addr_t value = symbol->GetAddressRef().GetFileAddress();
+    if (value == LLDB_INVALID_ADDRESS) {
+      const char *name = symbol->GetName().GetCString();
+      LLDB_LOGF(log, "Debug info symbol invalid: %s", name);
+      return;
+    }
+    assert(llvm::isUInt<32>(value) && "Valid addresses are 32-bit");
+    DataBufferSP &data_buffer_sp = debug_data.GetSharedDataBuffer();
+    // ObjectFileELF creates a WritableDataBuffer in CreateInstance.
+    WritableDataBuffer *data_buffer =
+        llvm::cast<WritableDataBuffer>(data_buffer_sp.get());
+    uint8_t *dst = data_buffer->GetBytes() + rel_section->GetFileOffset() +
+                   ELFRelocation::RelocOffset32(rel);
+    // Implicit addend is stored inline as a signed value.
+    int32_t addend;
+    memcpy(&addend, dst, sizeof(int32_t));
+    // The sum must be positive. This extra check prevents UB from overflow in
+    // the actual range check below.
+    if (addend < 0 && static_cast<uint32_t>(-addend) > value) {
+      LLDB_LOGF(log, "Debug info relocation overflow: 0x%" PRIx64,
+                static_cast<int64_t>(value) + addend);
+      return;
+    }
+    if (!llvm::isUInt<32>(value + addend)) {
+      LLDB_LOGF(log, "Debug info relocation out of range: 0x%" PRIx64, value);
+      return;
+    }
+    uint32_t addr = value + addend;
+    memcpy(dst, &addr, sizeof(uint32_t));
+  }
+}
+
 unsigned ObjectFileELF::ApplyRelocations(
     Symtab *symtab, const ELFHeader *hdr, const ELFSectionHeader *rel_hdr,
     const ELFSectionHeader *symtab_hdr, const ELFSectionHeader *debug_hdr,
@@ -2614,76 +2807,119 @@ unsigned ObjectFileELF::ApplyRelocations(
   }
 
   for (unsigned i = 0; i < num_relocations; ++i) {
-    if (!rel.Parse(rel_data, &offset))
+    if (!rel.Parse(rel_data, &offset)) {
+      GetModule()->ReportError(".rel{0}[{1:d}] failed to parse relocation",
+                               rel_section->GetName().AsCString(), i);
       break;
-
+    }
     Symbol *symbol = nullptr;
 
     if (hdr->Is32Bit()) {
-      switch (reloc_type(rel)) {
-      case R_386_32:
-      case R_386_PC32:
+      switch (hdr->e_machine) {
+      case llvm::ELF::EM_ARM:
+        switch (reloc_type(rel)) {
+        case R_ARM_ABS32:
+          ApplyELF32ABS32RelRelocation(symtab, rel, debug_data, rel_section);
+          break;
+        case R_ARM_REL32:
+          GetModule()->ReportError("unsupported AArch32 relocation:"
+                                   " .rel{0}[{1}], type {2}",
+                                   rel_section->GetName().AsCString(), i,
+                                   reloc_type(rel));
+          break;
+        default:
+          assert(false && "unexpected relocation type");
+        }
+        break;
+      case llvm::ELF::EM_386:
+        switch (reloc_type(rel)) {
+        case R_386_32:
+          symbol = symtab->FindSymbolByID(reloc_symbol(rel));
+          if (symbol) {
+            addr_t f_offset =
+                rel_section->GetFileOffset() + ELFRelocation::RelocOffset32(rel);
+            DataBufferSP &data_buffer_sp = debug_data.GetSharedDataBuffer();
+            // ObjectFileELF creates a WritableDataBuffer in CreateInstance.
+            WritableDataBuffer *data_buffer =
+                llvm::cast<WritableDataBuffer>(data_buffer_sp.get());
+            uint32_t *dst = reinterpret_cast<uint32_t *>(
+                data_buffer->GetBytes() + f_offset);
+
+            addr_t value = symbol->GetAddressRef().GetFileAddress();
+            if (rel.IsRela()) {
+              value += ELFRelocation::RelocAddend32(rel);
+            } else {
+              value += *dst;
+            }
+            *dst = value;
+          } else {
+            GetModule()->ReportError(".rel{0}[{1}] unknown symbol id: {2:d}",
+                                    rel_section->GetName().AsCString(), i,
+                                    reloc_symbol(rel));
+          }
+          break;
+        case R_386_NONE:
+        case R_386_PC32:
+          GetModule()->ReportError("unsupported i386 relocation:"
+                                   " .rel{0}[{1}], type {2}",
+                                   rel_section->GetName().AsCString(), i,
+                                   reloc_type(rel));
+          break;
+        default:
+          assert(false && "unexpected relocation type");
+          break;
+        }
+        break;
       default:
-        // FIXME: This asserts with this input:
-        //
-        // foo.cpp
-        // int main(int argc, char **argv) { return 0; }
-        //
-        // clang++.exe --target=i686-unknown-linux-gnu -g -c foo.cpp -o foo.o
-        //
-        // and running this on the foo.o module.
-        assert(false && "unexpected relocation type");
+        GetModule()->ReportError("unsupported 32-bit ELF machine arch: {0}", hdr->e_machine);
+        break;
       }
     } else {
-      switch (reloc_type(rel)) {
-      case R_AARCH64_ABS64:
-      case R_X86_64_64: {
-        symbol = symtab->FindSymbolByID(reloc_symbol(rel));
-        if (symbol) {
-          addr_t value = symbol->GetAddressRef().GetFileAddress();
-          DataBufferSP &data_buffer_sp = debug_data.GetSharedDataBuffer();
-          // ObjectFileELF creates a WritableDataBuffer in CreateInstance.
-          WritableDataBuffer *data_buffer =
-              llvm::cast<WritableDataBuffer>(data_buffer_sp.get());
-          uint64_t *dst = reinterpret_cast<uint64_t *>(
-              data_buffer->GetBytes() + rel_section->GetFileOffset() +
-              ELFRelocation::RelocOffset64(rel));
-          uint64_t val_offset = value + ELFRelocation::RelocAddend64(rel);
-          memcpy(dst, &val_offset, sizeof(uint64_t));
+      switch (hdr->e_machine) {
+      case llvm::ELF::EM_AARCH64:
+        switch (reloc_type(rel)) {
+        case R_AARCH64_ABS64:
+          ApplyELF64ABS64Relocation(symtab, rel, debug_data, rel_section);
+          break;
+        case R_AARCH64_ABS32:
+          ApplyELF64ABS32Relocation(symtab, rel, debug_data, rel_section, true);
+          break;
+        default:
+          assert(false && "unexpected relocation type");
         }
         break;
-      }
-      case R_X86_64_32:
-      case R_X86_64_32S:
-      case R_AARCH64_ABS32: {
-        symbol = symtab->FindSymbolByID(reloc_symbol(rel));
-        if (symbol) {
-          addr_t value = symbol->GetAddressRef().GetFileAddress();
-          value += ELFRelocation::RelocAddend32(rel);
-          if ((reloc_type(rel) == R_X86_64_32 && (value > UINT32_MAX)) ||
-              (reloc_type(rel) == R_X86_64_32S &&
-               ((int64_t)value > INT32_MAX && (int64_t)value < INT32_MIN)) ||
-              (reloc_type(rel) == R_AARCH64_ABS32 &&
-               ((int64_t)value > INT32_MAX && (int64_t)value < INT32_MIN))) {
-            Log *log = GetLog(LLDBLog::Modules);
-            LLDB_LOGF(log, "Failed to apply debug info relocations");
-            break;
-          }
-          uint32_t truncated_addr = (value & 0xFFFFFFFF);
-          DataBufferSP &data_buffer_sp = debug_data.GetSharedDataBuffer();
-          // ObjectFileELF creates a WritableDataBuffer in CreateInstance.
-          WritableDataBuffer *data_buffer =
-              llvm::cast<WritableDataBuffer>(data_buffer_sp.get());
-          uint32_t *dst = reinterpret_cast<uint32_t *>(
-              data_buffer->GetBytes() + rel_section->GetFileOffset() +
-              ELFRelocation::RelocOffset32(rel));
-          memcpy(dst, &truncated_addr, sizeof(uint32_t));
+      case llvm::ELF::EM_LOONGARCH:
+        switch (reloc_type(rel)) {
+        case R_LARCH_64:
+          ApplyELF64ABS64Relocation(symtab, rel, debug_data, rel_section);
+          break;
+        case R_LARCH_32:
+          ApplyELF64ABS32Relocation(symtab, rel, debug_data, rel_section, true);
+          break;
+        default:
+          assert(false && "unexpected relocation type");
         }
         break;
-      }
-      case R_X86_64_PC32:
+      case llvm::ELF::EM_X86_64:
+        switch (reloc_type(rel)) {
+        case R_X86_64_64:
+          ApplyELF64ABS64Relocation(symtab, rel, debug_data, rel_section);
+          break;
+        case R_X86_64_32:
+          ApplyELF64ABS32Relocation(symtab, rel, debug_data, rel_section,
+                                    false);
+          break;
+        case R_X86_64_32S:
+          ApplyELF64ABS32Relocation(symtab, rel, debug_data, rel_section, true);
+          break;
+        case R_X86_64_PC32:
+        default:
+          assert(false && "unexpected relocation type");
+        }
+        break;
       default:
-        assert(false && "unexpected relocation type");
+        GetModule()->ReportError("unsupported 64-bit ELF machine arch: {0}", hdr->e_machine);
+        break;
       }
     }
   }
@@ -2743,9 +2979,8 @@ void ObjectFileELF::ParseSymtab(Symtab &lldb_symtab) {
   if (!module_sp)
     return;
 
-  Progress progress(
-      llvm::formatv("Parsing symbol table for {0}",
-                    m_file.GetFilename().AsCString("<Unknown>")));
+  Progress progress("Parsing symbol table",
+                    m_file.GetFilename().AsCString("<Unknown>"));
   ElapsedTime elapsed(module_sp->GetSymtabParseTime());
 
   // We always want to use the main object file so we (hopefully) only have one
@@ -2767,8 +3002,12 @@ void ObjectFileELF::ParseSymtab(Symtab &lldb_symtab) {
   // while the reverse is not necessarily true.
   Section *symtab =
       section_list->FindSectionByType(eSectionTypeELFSymbolTable, true).get();
-  if (symtab)
-    symbol_id += ParseSymbolTable(&lldb_symtab, symbol_id, symtab);
+  if (symtab) {
+    auto [num_symbols, address_class_map] =
+        ParseSymbolTable(&lldb_symtab, symbol_id, symtab);
+    m_address_class_map.merge(address_class_map);
+    symbol_id += num_symbols;
+  }
 
   // The symtab section is non-allocable and can be stripped, while the
   // .dynsym section which should always be always be there. To support the
@@ -2781,8 +3020,12 @@ void ObjectFileELF::ParseSymtab(Symtab &lldb_symtab) {
     Section *dynsym =
         section_list->FindSectionByType(eSectionTypeELFDynamicSymbols, true)
             .get();
-    if (dynsym)
-      symbol_id += ParseSymbolTable(&lldb_symtab, symbol_id, dynsym);
+    if (dynsym) {
+      auto [num_symbols, address_class_map] =
+          ParseSymbolTable(&lldb_symtab, symbol_id, dynsym);
+      symbol_id += num_symbols;
+      m_address_class_map.merge(address_class_map);
+    }
   }
 
   // DT_JMPREL
@@ -3315,10 +3558,28 @@ ObjectFile::Strata ObjectFileELF::CalculateStrata() {
 
   case llvm::ELF::ET_EXEC:
     // 2 - Executable file
-    // TODO: is there any way to detect that an executable is a kernel
-    // related executable by inspecting the program headers, section headers,
-    // symbols, or any other flag bits???
-    return eStrataUser;
+    {
+      SectionList *section_list = GetSectionList();
+      if (section_list) {
+        static ConstString loader_section_name(".interp");
+        SectionSP loader_section =
+            section_list->FindSectionByName(loader_section_name);
+        if (loader_section) {
+          char buffer[256];
+          size_t read_size =
+              ReadSectionData(loader_section.get(), 0, buffer, sizeof(buffer));
+
+          // We compare the content of .interp section
+          // It will contains \0 when counting read_size, so the size needs to
+          // decrease by one
+          llvm::StringRef loader_name(buffer, read_size - 1);
+          llvm::StringRef freebsd_kernel_loader_name("/red/herring");
+          if (loader_name == freebsd_kernel_loader_name)
+            return eStrataKernel;
+        }
+      }
+      return eStrataUser;
+    }
 
   case llvm::ELF::ET_DYN:
     // 3 - Shared object file
@@ -3375,7 +3636,7 @@ size_t ObjectFileELF::ReadSectionData(Section *section,
       GetByteOrder() == eByteOrderLittle, GetAddressByteSize() == 8);
   if (!Decompressor) {
     GetModule()->ReportWarning(
-        "Unable to initialize decompressor for section '%s': %s",
+        "Unable to initialize decompressor for section '{0}': {1}",
         section->GetName().GetCString(),
         llvm::toString(Decompressor.takeError()).c_str());
     section_data.Clear();
@@ -3386,10 +3647,9 @@ size_t ObjectFileELF::ReadSectionData(Section *section,
       std::make_shared<DataBufferHeap>(Decompressor->getDecompressedSize(), 0);
   if (auto error = Decompressor->decompress(
           {buffer_sp->GetBytes(), size_t(buffer_sp->GetByteSize())})) {
-    GetModule()->ReportWarning(
-        "Decompression of section '%s' failed: %s",
-        section->GetName().GetCString(),
-        llvm::toString(std::move(error)).c_str());
+    GetModule()->ReportWarning("Decompression of section '{0}' failed: {1}",
+                               section->GetName().GetCString(),
+                               llvm::toString(std::move(error)).c_str());
     section_data.Clear();
     return 0;
   }

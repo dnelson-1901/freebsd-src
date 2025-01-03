@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007-2009 Marcel Moolenaar
  * All rights reserved.
@@ -27,9 +27,6 @@
  */
 
 #include "opt_geom.h"
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bio.h>
@@ -127,6 +124,7 @@ static struct g_part_scheme g_part_ebr_scheme = {
 	sizeof(struct g_part_ebr_table),
 	.gps_entrysz = sizeof(struct g_part_ebr_entry),
 	.gps_minent = 1,
+	.gps_defent = 1,
 	.gps_maxent = INT_MAX,
 };
 G_PART_SCHEME_DECLARE(g_part_ebr);

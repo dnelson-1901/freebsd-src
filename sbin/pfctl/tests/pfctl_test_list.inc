@@ -29,8 +29,6 @@
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -123,3 +121,15 @@ PFCTL_TEST(1009, "Ethernet rule with mask")
 PFCTL_TEST(1010, "POM_STICKYADDRESS test")
 PFCTL_TEST(1011, "Test disabling scrub fragment reassemble")
 PFCTL_TEST(1012, "Test scrub fragment reassemble is default")
+PFCTL_TEST(1013, "Ethernet rule with ridentifier")
+PFCTL_TEST(1014, "Ethernet rule with one label")
+PFCTL_TEST(1015, "Ethernet rule with several labels")
+PFCTL_TEST(1016, "Ethernet rule with ridentifier and one label")
+PFCTL_TEST(1017, "Ethernet rule with ridentifier and several labels")
+PFCTL_TEST(1018, "Test dynamic address mask")
+PFCTL_TEST(1019, "Test pflow option")
+PFCTL_TEST(1020, "Test hashmark and semicolon comment")
+PFCTL_TEST(1021, "Endpoint-independent")
+PFCTL_TEST(1022, "Test received-on")
+PFCTL_TEST(1023, "Test match log(matches)")
+PFCTL_TEST(1024, "nat64")

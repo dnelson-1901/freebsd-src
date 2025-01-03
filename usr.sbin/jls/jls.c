@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 Mike Barcroft <mike@FreeBSD.org>
  * Copyright (c) 2008 Bjoern A. Zeeb <bz@FreeBSD.org>
@@ -29,9 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/jail.h>
 #include <sys/socket.h>
@@ -40,7 +37,6 @@ __FBSDID("$FreeBSD$");
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-#include <err.h>
 #include <errno.h>
 #include <jail.h>
 #include <limits.h>
@@ -251,8 +247,9 @@ main(int argc, char **argv)
 	}
 	xo_close_list("jail");
 	xo_close_container("jail-information");
-	xo_finish();
-	return (0);
+	if (xo_finish() < 0)
+		xo_err(1, "stdout");
+	exit(0);
 }
 
 static int
@@ -384,7 +381,10 @@ print_jail(int pflags, int jflags)
 {
 	char *nname, *xo_nname;
 	char **param_values;
-	int i, jid, n, spc;
+	int i, jid, spc;
+#if (defined INET || defined INET6)
+	int n;
+#endif
 
 	jid = jailparam_get(params, nparams, jflags);
 	if (jid < 0)
@@ -402,7 +402,9 @@ print_jail(int pflags, int jflags)
 		    (char *)params[3].jp_value,
 		    *(int *)params[4].jp_value ? "DYING" : "ACTIVE");
 		xo_emit("{P:        }{:cpusetid/%d}\n", *(int *)params[5].jp_value);
+#if (defined INET || defined INET6)
 		n = 6;
+#endif
 #ifdef INET
 		if (ip4_ok && !strcmp(params[n].jp_name, "ip4.addr")) {
 			emit_ip_addr_list(AF_INET, "ipv4_addrs", params + n);

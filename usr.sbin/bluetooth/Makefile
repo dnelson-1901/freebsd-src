@@ -1,5 +1,4 @@
 # $Id: Makefile,v 1.5 2003/09/08 02:28:35 max Exp $
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -20,6 +19,7 @@ SUBDIR+=	bcmfw
 SUBDIR+=	bthidcontrol
 SUBDIR+=	bthidd
 SUBDIR+=	iwmbtfw
+SUBDIR+=	rtlbtfw
 .endif
 
 .include <bsd.subdir.mk>

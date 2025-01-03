@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999 Doug Rabson
  * Copyright (c) 2000 Mitsuru IWASAKI <iwasaki@FreeBSD.org>
@@ -25,16 +25,17 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	$FreeBSD$
  */
 
 #ifndef _ACPIDUMP_H_
 #define	_ACPIDUMP_H_
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include <contrib/dev/acpica/include/acpi.h>
 #include <contrib/dev/acpica/include/acconfig.h>
 #include <contrib/dev/acpica/include/actbl1.h>
+#pragma GCC diagnostic pop
 
 /* GAS address space ID constants. */
 #define	ACPI_GAS_MEMORY		0
@@ -139,10 +140,11 @@ ACPI_TABLE_HEADER *dsdt_load_file(char *);
 void	 dsdt_save_file(char *, ACPI_TABLE_HEADER *, ACPI_TABLE_HEADER *);
 
 /* Print out as many fixed tables as possible, given the RSD PTR */
-void	 sdt_print_all(ACPI_TABLE_HEADER *);
+void	 sdt_print_all(ACPI_TABLE_HEADER *, const char *);
 
 /* Disassemble the AML in the DSDT */
 void	 aml_disassemble(ACPI_TABLE_HEADER *, ACPI_TABLE_HEADER *);
+void	 aml_disassemble_separate(ACPI_TABLE_HEADER *, ACPI_TABLE_HEADER *);
 
 /* Routines for accessing tables in physical memory */
 ACPI_TABLE_RSDP *acpi_find_rsd_ptr(void);

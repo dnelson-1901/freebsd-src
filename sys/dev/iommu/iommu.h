@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 The FreeBSD Foundation
  *
@@ -26,14 +26,16 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _DEV_IOMMU_IOMMU_H_
 #define _DEV_IOMMU_IOMMU_H_
 
+#include <sys/_task.h>
+#include <vm/vm.h>
+#include <vm/vm_page.h>
 #include <dev/iommu/iommu_types.h>
+#include <dev/pci/pcireg.h>
 
 struct bus_dma_tag_common;
 struct iommu_map_entry;
@@ -63,12 +65,14 @@ struct iommu_map_entry {
 	RB_ENTRY(iommu_map_entry) rb_entry;	 /* Links for domain entries */
 	struct iommu_domain *domain;
 	struct iommu_qi_genseq gseq;
+	struct spglist pgtbl_free;
 };
 
 struct iommu_unit {
 	struct mtx lock;
 	device_t dev;
 	int unit;
+	struct sysctl_ctx_list sysctl_ctx;
 
 	int dma_enabled;
 
@@ -87,10 +91,10 @@ struct iommu_unit {
 };
 
 struct iommu_domain_map_ops {
-	int (*map)(struct iommu_domain *domain, iommu_gaddr_t base,
-	    iommu_gaddr_t size, vm_page_t *ma, uint64_t pflags, int flags);
-	int (*unmap)(struct iommu_domain *domain, iommu_gaddr_t base,
-	    iommu_gaddr_t size, int flags);
+	int (*map)(struct iommu_domain *domain, struct iommu_map_entry *entry,
+	    vm_page_t *ma, uint64_t pflags, int flags);
+	int (*unmap)(struct iommu_domain *domain, struct iommu_map_entry *entry,
+	    int flags);
 };
 
 /*
@@ -117,11 +121,14 @@ struct iommu_domain {
 	iommu_gaddr_t msi_base;		/* (d) Arch-specific */
 	vm_paddr_t msi_phys;		/* (d) Arch-specific */
 	u_int flags;			/* (u) */
+	LIST_HEAD(, iommu_ctx) contexts;/* (u) */
 };
 
 struct iommu_ctx {
 	struct iommu_domain *domain;	/* (c) */
 	struct bus_dma_tag_iommu *tag;	/* (c) Root tag */
+	LIST_ENTRY(iommu_ctx) link;	/* (u) Member in the domain list */
+	u_int refs;			/* (u) References from tags */
 	u_long loads;			/* atomic updates, for stat only */
 	u_long unloads;			/* same */
 	u_int flags;			/* (u) */
@@ -160,6 +167,7 @@ void iommu_domain_unload_entry(struct iommu_map_entry *entry, bool free,
 void iommu_domain_unload(struct iommu_domain *domain,
     struct iommu_map_entries_tailq *entries, bool cansleep);
 
+void iommu_unit_pre_instantiate_ctx(struct iommu_unit *iommu);
 struct iommu_ctx *iommu_instantiate_ctx(struct iommu_unit *iommu,
     device_t dev, bool rmrr);
 device_t iommu_get_requester(device_t dev, uint16_t *rid);

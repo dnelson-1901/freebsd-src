@@ -19,8 +19,6 @@
  * CDDL HEADER END
  *
  * Portions Copyright 2010 The FreeBSD Foundation
- *
- * $FreeBSD$
  */
 
 /*
@@ -983,7 +981,7 @@ fasttrap_pid_probe(struct trapframe *tf)
 			sx_sunlock(&proctree_lock);
 			return (-1);
 		}
-		_PHOLD_LITE(pp);
+		_PHOLD(pp);
 		PROC_UNLOCK(pp);
 	}
 	sx_sunlock(&proctree_lock);

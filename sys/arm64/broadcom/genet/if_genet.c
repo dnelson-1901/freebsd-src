@@ -22,8 +22,6 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -36,9 +34,6 @@
  */
 
 #include "opt_device_polling.h"
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -370,10 +365,7 @@ static void
 gen_destroy(struct gen_softc *sc)
 {
 
-	if (sc->miibus) {	/* can't happen */
-		device_delete_child(sc->dev, sc->miibus);
-		sc->miibus = NULL;
-	}
+	device_delete_children(sc->dev);
 	bus_teardown_intr(sc->dev, sc->res[_RES_IRQ1], sc->ih);
 	bus_teardown_intr(sc->dev, sc->res[_RES_IRQ2], sc->ih2);
 	gen_bus_dma_teardown(sc);
@@ -1040,7 +1032,7 @@ gen_start_locked(struct gen_softc *sc)
 				if_sendq_prepend(ifp, m);
 			break;
 		}
-		if_bpfmtap(ifp, m);
+		bpf_mtap_if(ifp, m);
 	}
 }
 
@@ -1074,6 +1066,10 @@ gen_encap(struct gen_softc *sc, struct mbuf **mp)
 	GEN_ASSERT_LOCKED(sc);
 
 	q = &sc->tx_queue[DEF_TXQUEUE];
+	if (q->queued == q->nentries) {
+		/* tx_queue is full */
+		return (ENOBUFS);
+	}
 
 	m = *mp;
 

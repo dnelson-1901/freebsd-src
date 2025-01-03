@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #ifdef HAVE_KERNEL_OPTION_HEADERS
 #include "opt_device_polling.h"
 #endif
@@ -989,11 +987,6 @@ ste_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->ste_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 
 	/* Do MII setup. */
 	phy = MII_PHY_ANY;
@@ -1081,8 +1074,6 @@ ste_detach(device_t dev)
 		STE_UNLOCK(sc);
 		callout_drain(&sc->ste_callout);
 	}
-	if (sc->ste_miibus)
-		device_delete_child(dev, sc->ste_miibus);
 	bus_generic_detach(dev);
 
 	if (sc->ste_intrhand)

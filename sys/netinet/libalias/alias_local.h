@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Charles Mott <cm@linktel.net>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -96,10 +94,12 @@ struct libalias {
 	 * if no aliasing link already exists */
 	struct in_addr	targetAddress;
 	/* Lookup table of pointers to chains of link records.
-	 * Each link record is doubly indexed into input and
-	 * output lookup tables. */
+	 * Each link record is indexed into input,
+	 * output and "internal endpoint" lookup tables. */
 	SPLAY_HEAD(splay_out, alias_link) linkSplayOut;
 	SPLAY_HEAD(splay_in,  group_in)   linkSplayIn;
+	SPLAY_HEAD(splay_internal_endpoint, alias_link)
+	    linkSplayInternalEndpoint;
 	LIST_HEAD (, alias_link) pptpList;
 	/* HouseKeeping */
 	TAILQ_HEAD    (, alias_link) checkExpire;

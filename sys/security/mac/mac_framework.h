@@ -37,8 +37,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -74,6 +72,7 @@ struct mbuf;
 struct mount;
 struct msg;
 struct msqid_kernel;
+struct pipepair;
 struct proc;
 struct semid_kernel;
 struct shmfd;
@@ -82,13 +81,15 @@ struct sockaddr;
 struct socket;
 struct sysctl_oid;
 struct sysctl_req;
-struct pipepair;
 struct thread;
 struct timespec;
 struct ucred;
 struct vattr;
 struct vnode;
 struct vop_setlabel_args;
+
+struct in_addr;
+struct in6_addr;
 
 #include <sys/acl.h>			/* XXX acl_type_t */
 #include <sys/types.h>			/* accmode_t */
@@ -114,6 +115,10 @@ int	mac_cred_check_setaudit(struct ucred *cred, struct auditinfo *ai);
 int	mac_cred_check_setaudit_addr(struct ucred *cred,
 	    struct auditinfo_addr *aia);
 int	mac_cred_check_setauid(struct ucred *cred, uid_t auid);
+void	mac_cred_setcred_enter(void);
+int	mac_cred_check_setcred(u_int flags, const struct ucred *old_cred,
+	    struct ucred *new_cred);
+void	mac_cred_setcred_exit(void);
 int	mac_cred_check_setegid(struct ucred *cred, gid_t egid);
 int	mac_cred_check_seteuid(struct ucred *cred, uid_t euid);
 int	mac_cred_check_setgid(struct ucred *cred, gid_t gid);
@@ -191,6 +196,12 @@ int	mac_ifnet_ioctl_get(struct ucred *cred, struct ifreq *ifr,
 int	mac_ifnet_ioctl_set(struct ucred *cred, struct ifreq *ifr,
 	    struct ifnet *ifp);
 
+/* Check if the IP address is allowed for the interface. */
+int	mac_inet_check_add_addr(struct ucred *cred,
+	    const struct in_addr *ia, struct ifnet *ifp);
+int	mac_inet6_check_add_addr(struct ucred *cred,
+	    const struct in6_addr *ia6, struct ifnet *ifp);
+
 int	mac_inpcb_check_deliver(struct inpcb *inp, struct mbuf *m);
 int	mac_inpcb_check_visible(struct ucred *cred, struct inpcb *inp);
 void	mac_inpcb_create(struct socket *so, struct inpcb *inp);
@@ -214,6 +225,7 @@ void	mac_ipq_reassemble(struct ipq *q, struct mbuf *m);
 void	mac_ipq_update(struct mbuf *m, struct ipq *q);
 
 int	mac_kdb_check_backend(struct kdb_dbbe *be);
+int	mac_kdb_grant_backend(struct kdb_dbbe *be);
 
 int	mac_kenv_check_dump(struct ucred *cred);
 int	mac_kenv_check_get(struct ucred *cred, char *name);
@@ -400,11 +412,11 @@ void	mac_socket_destroy(struct socket *);
 int	mac_socket_init(struct socket *, int);
 void	mac_socket_newconn(struct socket *oldso, struct socket *newso);
 int	mac_getsockopt_label(struct ucred *cred, struct socket *so,
-	    struct mac *extmac);
+	    const struct mac *extmac);
 int	mac_getsockopt_peerlabel(struct ucred *cred, struct socket *so,
-	    struct mac *extmac);
+	    const struct mac *extmac);
 int	mac_setsockopt_label(struct ucred *cred, struct socket *so,
-	    struct mac *extmac);
+	    const struct mac *extmac);
 
 void	mac_socketpeer_set_from_mbuf(struct mbuf *m, struct socket *so);
 void	mac_socketpeer_set_from_socket(struct socket *oldso,

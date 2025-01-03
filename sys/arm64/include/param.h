@@ -25,10 +25,11 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)param.h	5.8 (Berkeley) 6/28/91
- * $FreeBSD$
  */
+
+#ifdef __arm__
+#include <arm/param.h>
+#else /* !__arm__ */
 
 #ifndef _MACHINE_PARAM_H_
 #define	_MACHINE_PARAM_H_
@@ -56,7 +57,7 @@
 
 #ifdef SMP
 #ifndef MAXCPU
-#define	MAXCPU		256
+#define	MAXCPU		1024
 #endif
 #else
 #define	MAXCPU		1
@@ -96,7 +97,7 @@
 #define	PAGE_SIZE	(1 << PAGE_SHIFT)
 #define	PAGE_MASK	(PAGE_SIZE - 1)
 
-#define	MAXPAGESIZES	3		/* maximum number of supported page sizes */
+#define	MAXPAGESIZES	4		/* maximum number of supported page sizes */
 
 #ifndef KSTACK_PAGES
 #if defined(KASAN) || defined(KMSAN)
@@ -130,3 +131,5 @@
 #define	pgtok(x)		((unsigned long)(x) * (PAGE_SIZE / 1024))
 
 #endif /* !_MACHINE_PARAM_H_ */
+
+#endif /* !__arm__ */

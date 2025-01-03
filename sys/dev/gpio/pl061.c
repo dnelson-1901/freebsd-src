@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020 Amazon.com, Inc. or its affiliates.
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -462,6 +459,9 @@ pl061_attach(device_t dev)
 		device_printf(dev, "can't allocate IRQ resource\n");
 		goto free_mem;
 	}
+
+	/* Mask all interrupts. They will be unmasked as needed later */
+	bus_write_1(sc->sc_mem_res, PL061_INTMASK, 0);
 
 	ret = bus_setup_intr(dev, sc->sc_irq_res, INTR_TYPE_MISC | INTR_MPSAFE,
 	    pl061_intr, NULL, sc, &sc->sc_irq_hdlr);

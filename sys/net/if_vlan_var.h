@@ -25,8 +25,6 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _NET_IF_VLAN_VAR_H_
@@ -127,6 +125,11 @@ struct	vlanreq {
 #define	MTAG_8021Q_PCP_OUT	1		/* Output priority. */
 
 #define	VLAN_PCP_MAX		7
+
+#define	DOT1Q_VID_NULL		0x0
+#define	DOT1Q_VID_DEF_PVID	0x1
+#define	DOT1Q_VID_DEF_SR_PVID	0x2
+#define	DOT1Q_VID_RSVD_IMPL	0xfff
 
 /*
  * 802.1q full tag. Proto and vid are stored in host byte order.

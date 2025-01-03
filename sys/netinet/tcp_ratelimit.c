@@ -32,7 +32,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_ipsec.h"
@@ -1297,6 +1296,12 @@ tcp_rl_ifnet_departure(void *arg __unused, struct ifnet *ifp)
 	}
 	mtx_unlock(&rs_mtx);
 	NET_EPOCH_EXIT(et);
+}
+
+void
+tcp_rl_release_ifnet(struct ifnet *ifp)
+{
+	tcp_rl_ifnet_departure(NULL, ifp);
 }
 
 static void

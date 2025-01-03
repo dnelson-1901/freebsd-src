@@ -34,7 +34,6 @@
  ***********************************************************************/
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include "opt_route.h"
 
 #include <sys/param.h>
@@ -54,6 +53,7 @@ __FBSDID("$FreeBSD$");
 
 #include <net/vnet.h>
 #include <net/route.h>
+#include <net/route/route_ctl.h>
 #include <net/route/route_var.h>
 
 /* Kernel config default option. */
@@ -231,11 +231,6 @@ grow_rtables(uint32_t num_tables)
 	new_rt_tables = mallocarray(num_tables * (AF_MAX + 1), sizeof(void *),
 	    M_RTABLE, M_WAITOK | M_ZERO);
 
-	if ((num_tables > 1) && (V_rt_add_addr_allfibs == 0))
-		printf("WARNING: Adding ifaddrs to all fibs has been turned off "
-			"by default. Consider tuning %s if needed\n",
-			"net.add_addr_allfibs");
-
 #ifdef FIB_ALGO
 	fib_grow_rtables(num_tables);
 #endif
@@ -319,7 +314,7 @@ vnet_rtables_init(const void *unused __unused)
 	RTABLES_UNLOCK();
 }
 VNET_SYSINIT(vnet_rtables_init, SI_SUB_PROTO_DOMAIN, SI_ORDER_FOURTH,
-    vnet_rtables_init, 0);
+    vnet_rtables_init, NULL);
 
 #ifdef VIMAGE
 static void
@@ -358,7 +353,7 @@ rtables_destroy(const void *unused __unused)
 #endif
 }
 VNET_SYSUNINIT(rtables_destroy, SI_SUB_PROTO_DOMAIN, SI_ORDER_FIRST,
-    rtables_destroy, 0);
+    rtables_destroy, NULL);
 #endif
 
 static inline struct rib_head *
@@ -384,6 +379,16 @@ struct rib_head *
 rt_tables_get_rnh(uint32_t table, sa_family_t family)
 {
 
+	return (rt_tables_get_rnh_ptr(table, family));
+}
+
+struct rib_head *
+rt_tables_get_rnh_safe(uint32_t table, sa_family_t family)
+{
+	if (__predict_false(table >= V_rt_numfibs))
+		return (NULL);
+	if (__predict_false(family >= (AF_MAX + 1)))
+		return (NULL);
 	return (rt_tables_get_rnh_ptr(table, family));
 }
 

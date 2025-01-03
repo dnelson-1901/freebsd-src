@@ -29,23 +29,11 @@
  * SUCH DAMAGE.
  */
 
-#ifndef lint
-static char const copyright[] =
-"@(#) Copyright (c) 1983, 1988, 1993\n\
-	Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#if 0
-#ifndef lint
-static char sccsid[] = "@(#)main.c	8.4 (Berkeley) 3/1/94";
-#endif /* not lint */
-#endif
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/file.h>
+#ifdef JAIL
+#include <sys/jail.h>
+#endif
 #include <sys/protosw.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
@@ -58,8 +46,10 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #include <ctype.h>
-#include <err.h>
 #include <errno.h>
+#ifdef JAIL
+#include <jail.h>
+#endif
 #include <kvm.h>
 #include <limits.h>
 #include <netdb.h>
@@ -70,6 +60,7 @@ __FBSDID("$FreeBSD$");
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sysexits.h>
 #include <unistd.h>
 #include "netstat.h"
 #include "nl_defs.h"
@@ -88,9 +79,9 @@ static struct protox {
 	int	pr_usesysctl;		/* non-zero if we use sysctl, not kvm */
 	int	pr_protocol;
 } protox[] = {
-	{ N_TCBINFO,	N_TCPSTAT,	1,	protopr,
+	{ -1	,	N_TCPSTAT,	1,	protopr,
 	  tcp_stats,	NULL,		"tcp",	1,	IPPROTO_TCP },
-	{ N_UDBINFO,	N_UDPSTAT,	1,	protopr,
+	{ -1	,	N_UDPSTAT,	1,	protopr,
 	  udp_stats,	NULL,		"udp",	1,	IPPROTO_UDP },
 #ifdef SCTP
 	{ -1,		N_SCTPSTAT,	1,	sctp_protopr,
@@ -100,13 +91,13 @@ static struct protox {
 	{ -1,		-1,		1,	protopr,
 	 NULL,		NULL,		"sdp",	1,	IPPROTO_TCP },
 #endif
-	{ N_DIVCBINFO,	-1,		1,	protopr,
+	{ -1	,	-1,		1,	protopr,
 	  divert_stats,	NULL,		"divert", 1,	0 },
-	{ N_RIPCBINFO,	N_IPSTAT,	1,	protopr,
+	{ -1	,	N_IPSTAT,	1,	protopr,
 	  ip_stats,	NULL,		"ip",	1,	IPPROTO_RAW },
-	{ N_RIPCBINFO,	N_ICMPSTAT,	1,	protopr,
+	{ -1	,	N_ICMPSTAT,	1,	protopr,
 	  icmp_stats,	NULL,		"icmp",	1,	IPPROTO_ICMP },
-	{ N_RIPCBINFO,	N_IGMPSTAT,	1,	protopr,
+	{ -1	,	N_IGMPSTAT,	1,	protopr,
 	  igmp_stats,	NULL,		"igmp",	1,	IPPROTO_IGMP },
 #ifdef IPSEC
 	{ -1,		N_IPSEC4STAT,	1,	NULL,	/* keep as compat */
@@ -118,13 +109,15 @@ static struct protox {
 	{ -1,		N_IPCOMPSTAT,	1,	NULL,
 	  ipcomp_stats,	NULL,		"ipcomp", 1,	0},
 #endif
-	{ N_RIPCBINFO,	N_PIMSTAT,	1,	protopr,
+	{ -1	,	N_PIMSTAT,	1,	protopr,
 	  pim_stats,	NULL,		"pim",	1,	IPPROTO_PIM },
 	{ -1,		N_CARPSTATS,	1,	NULL,
 	  carp_stats,	NULL,		"carp",	1,	0 },
 #ifdef PF
 	{ -1,		N_PFSYNCSTATS,	1,	NULL,
 	  pfsync_stats,	NULL,		"pfsync", 1,	0 },
+	{ -1,		N_PFLOWSTATS,	1,	NULL,
+	  pflow_stats,	NULL,		"pflow", 1,	0 },
 #endif
 	{ -1,		N_ARPSTAT,	1,	NULL,
 	  arp_stats,	NULL,		"arp", 1,	0 },
@@ -134,13 +127,13 @@ static struct protox {
 
 #ifdef INET6
 static struct protox ip6protox[] = {
-	{ N_TCBINFO,	N_TCPSTAT,	1,	protopr,
+	{ -1	,	N_TCPSTAT,	1,	protopr,
 	  tcp_stats,	NULL,		"tcp",	1,	IPPROTO_TCP },
-	{ N_UDBINFO,	N_UDPSTAT,	1,	protopr,
+	{ -1	,	N_UDPSTAT,	1,	protopr,
 	  udp_stats,	NULL,		"udp",	1,	IPPROTO_UDP },
-	{ N_RIPCBINFO,	N_IP6STAT,	1,	protopr,
+	{ -1	,	N_IP6STAT,	1,	protopr,
 	  ip6_stats,	ip6_ifstats,	"ip6",	1,	IPPROTO_RAW },
-	{ N_RIPCBINFO,	N_ICMP6STAT,	1,	protopr,
+	{ -1	,	N_ICMP6STAT,	1,	protopr,
 	  icmp6_stats,	icmp6_ifstats,	"icmp6", 1,	IPPROTO_ICMPV6 },
 #ifdef SDP
 	{ -1,		-1,		1,	protopr,
@@ -192,7 +185,7 @@ static struct protox *protoprotox[] = {
 					 NULL };
 
 static void printproto(struct protox *, const char *, bool *);
-static void usage(void);
+static void usage(void) __dead2;
 static struct protox *name2protox(const char *);
 static struct protox *knownname(const char *);
 
@@ -233,6 +226,9 @@ int	interval;	/* repeat interval for i/f stats */
 
 char	*interface;	/* desired i/f for stats, or NULL for all i/fs */
 int	unit;		/* unit number for above */
+#ifdef JAIL
+char	*jail_name;	/* desired jail to operate in */
+#endif
 
 static int	af;		/* address family */
 int	live;		/* true if we are examining a live system */
@@ -245,6 +241,9 @@ main(int argc, char *argv[])
 	int fib = -1;
 	char *endptr;
 	bool first = true;
+#ifdef JAIL
+	int jid;
+#endif
 
 	af = AF_UNSPEC;
 
@@ -252,21 +251,21 @@ main(int argc, char *argv[])
 	if (argc < 0)
 		exit(EXIT_FAILURE);
 
-	while ((ch = getopt(argc, argv, "46AaBbCcdF:f:ghI:iLlM:mN:nOoPp:Qq:RrSTsuWw:xz"))
+	while ((ch = getopt(argc, argv, "46AaBbCcdF:f:ghI:ij:LlM:mN:nOoPp:Qq:RrSTsuWw:xz"))
 	    != -1)
 		switch(ch) {
 		case '4':
 #ifdef INET
 			af = AF_INET;
 #else
-			errx(1, "IPv4 support is not compiled in");
+			xo_errx(EX_UNAVAILABLE, "IPv4 support is not compiled in");
 #endif
 			break;
 		case '6':
 #ifdef INET6
 			af = AF_INET6;
 #else
-			errx(1, "IPv6 support is not compiled in");
+			xo_errx(EX_UNAVAILABLE, "IPv6 support is not compiled in");
 #endif
 			break;
 		case 'A':
@@ -294,7 +293,7 @@ main(int argc, char *argv[])
 			fib = strtol(optarg, &endptr, 0);
 			if (*endptr != '\0' ||
 			    (fib == 0 && (errno == EINVAL || errno == ERANGE)))
-				xo_errx(1, "%s: invalid fib", optarg);
+				xo_errx(EX_DATAERR, "%s: invalid fib", optarg);
 			break;
 		case 'f':
 			if (strcmp(optarg, "inet") == 0)
@@ -318,7 +317,7 @@ main(int argc, char *argv[])
 			else if (strcmp(optarg, "link") == 0)
 				af = AF_LINK;
 			else {
-				xo_errx(1, "%s: unknown address family",
+				xo_errx(EX_DATAERR, "%s: unknown address family",
 				    optarg);
 			}
 			break;
@@ -339,6 +338,15 @@ main(int argc, char *argv[])
 		}
 		case 'i':
 			iflag = 1;
+			break;
+		case 'j':
+#ifdef JAIL
+			if (optarg == NULL)
+				usage();
+			jail_name = optarg;
+#else
+			xo_errx(EX_UNAVAILABLE, "Jail support is not compiled in");
+#endif
 			break;
 		case 'L':
 			Lflag = 1;
@@ -366,7 +374,7 @@ main(int argc, char *argv[])
 			break;
 		case 'p':
 			if ((tp = name2protox(optarg)) == NULL) {
-				xo_errx(1, "%s: unknown or uninstrumented "
+				xo_errx(EX_DATAERR, "%s: unknown or uninstrumented "
 				    "protocol", optarg);
 			}
 			pflag = 1;
@@ -436,6 +444,16 @@ main(int argc, char *argv[])
 	}
 #endif
 
+#ifdef JAIL
+	if (jail_name != NULL) {
+		jid = jail_getid(jail_name);
+		if (jid == -1)
+			xo_errx(EX_UNAVAILABLE, "Jail not found");
+		if (jail_attach(jid) != 0)
+			xo_errx(EX_UNAVAILABLE, "Cannot attach to jail");
+	}
+#endif
+
 	/*
 	 * Discard setgid privileges if not the running kernel so that bad
 	 * guys can't print interesting stuff from kernel memory.
@@ -443,20 +461,21 @@ main(int argc, char *argv[])
 	live = (nlistf == NULL && memf == NULL);
 	if (!live) {
 		if (setgid(getgid()) != 0)
-			xo_err(-1, "setgid");
+			xo_err(EX_OSERR, "setgid");
 		/* Load all necessary kvm symbols */
 		kresolve_list(nl);
 	}
 
 	if (xflag && Tflag)
-		xo_errx(1, "-x and -T are incompatible, pick one.");
+		xo_errx(EX_USAGE, "-x and -T are incompatible, pick one.");
 
 	if (Bflag) {
 		if (!live)
 			usage();
 		bpf_stats(interface);
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 	if (mflag) {
 		if (!live) {
@@ -464,8 +483,9 @@ main(int argc, char *argv[])
 				mbpr(kvmd, nl[N_SFSTAT].n_value);
 		} else
 			mbpr(NULL, 0);
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 	if (Qflag) {
 		if (!live) {
@@ -473,8 +493,9 @@ main(int argc, char *argv[])
 				netisr_stats();
 		} else
 			netisr_stats();
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 #if 0
 	/*
@@ -492,43 +513,49 @@ main(int argc, char *argv[])
 #endif
 	if (iflag && !sflag) {
 		xo_open_container("statistics");
+		xo_set_version(NETSTAT_XO_VERSION);
 		intpr(NULL, af);
 		xo_close_container("statistics");
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 	if (rflag) {
 		xo_open_container("statistics");
-		if (sflag) {
-			if (live) {
-				kresolve_list(nl);
-			}
+		xo_set_version(NETSTAT_XO_VERSION);
+		if (sflag)
 			rt_stats();
-		} else
+		else
 			routepr(fib, af);
 		xo_close_container("statistics");
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 	if (oflag) {
 		xo_open_container("statistics");
+		xo_set_version(NETSTAT_XO_VERSION);
 		nhops_print(fib, af);
 		xo_close_container("statistics");
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 	if (Oflag) {
 		xo_open_container("statistics");
+		xo_set_version(NETSTAT_XO_VERSION);
 		nhgrp_print(fib, af);
 		xo_close_container("statistics");
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 
 
 
 	if (gflag) {
 		xo_open_container("statistics");
+		xo_set_version(NETSTAT_XO_VERSION);
 		if (sflag) {
 			if (af == AF_INET || af == AF_UNSPEC)
 				mrt_stats();
@@ -545,21 +572,25 @@ main(int argc, char *argv[])
 #endif
 		}
 		xo_close_container("statistics");
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 
 	if (tp) {
 		xo_open_container("statistics");
+		xo_set_version(NETSTAT_XO_VERSION);
 		printproto(tp, tp->pr_name, &first);
 		if (!first)
 			xo_close_list("socket");
 		xo_close_container("statistics");
-		xo_finish();
-		exit(0);
+		if (xo_finish() < 0)
+			xo_err(EX_IOERR, "stdout");
+		exit(EX_OK);
 	}
 
 	xo_open_container("statistics");
+	xo_set_version(NETSTAT_XO_VERSION);
 	if (af == AF_INET || af == AF_UNSPEC)
 		for (tp = protox; tp->pr_name; tp++)
 			printproto(tp, tp->pr_name, &first);
@@ -586,8 +617,9 @@ main(int argc, char *argv[])
 	if (!first)
 		xo_close_list("socket");
 	xo_close_container("statistics");
-	xo_finish();
-	exit(0);
+	if (xo_finish() < 0)
+		xo_err(EX_IOERR, "stdout");
+	exit(EX_OK);
 }
 
 static int
@@ -707,7 +739,7 @@ kvmd_init(void)
 
 	kvmd = kvm_openfiles(nlistf, memf, NULL, O_RDONLY, errbuf);
 	if (setgid(getgid()) != 0)
-		xo_err(-1, "setgid");
+		xo_err(EX_OSERR, "setgid");
 
 	if (kvmd == NULL) {
 		xo_warnx("kvm not available: %s", errbuf);
@@ -732,10 +764,10 @@ kresolve_list(struct nlist *_nl)
 
 	if (kvm_nlist(kvmd, _nl) < 0) {
 		if (nlistf)
-			xo_errx(1, "%s: kvm_nlist: %s", nlistf,
+			xo_errx(EX_UNAVAILABLE, "%s: kvm_nlist: %s", nlistf,
 			    kvm_geterr(kvmd));
 		else
-			xo_errx(1, "kvm_nlist: %s", kvm_geterr(kvmd));
+			xo_errx(EX_UNAVAILABLE, "kvm_nlist: %s", kvm_geterr(kvmd));
 	}
 
 	return (0);
@@ -749,10 +781,10 @@ kset_dpcpu(u_int cpuid)
 {
 
 	if ((kvmd == NULL) && (kvmd_init() != 0))
-		xo_errx(-1, "%s: kvm is not available", __func__);
+		xo_errx(EX_UNAVAILABLE, "%s: kvm is not available", __func__);
 
 	if (kvm_dpcpu_setcpu(kvmd, cpuid) < 0)
-		xo_errx(-1, "%s: kvm_dpcpu_setcpu(%u): %s", __func__,
+		xo_errx(EX_UNAVAILABLE, "%s: kvm_dpcpu_setcpu(%u): %s", __func__,
 		    cpuid, kvm_geterr(kvmd)); 
 	return;
 }
@@ -809,7 +841,7 @@ kread_counters(u_long addr, void *buf, size_t size)
 
 	n = size / sizeof(uint64_t);
 	if ((counters = malloc(n * sizeof(u_long))) == NULL)
-		xo_err(-1, "malloc");
+		xo_err(EX_OSERR, "malloc");
 	if (kread(addr, counters, n * sizeof(u_long)) < 0) {
 		free(counters);
 		return (-1);
@@ -889,25 +921,24 @@ name2protox(const char *name)
 static void
 usage(void)
 {
-	(void)xo_error("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
-"usage: netstat [-46AaCcLnRSTWx] [-f protocol_family | -p protocol]\n"
+	xo_error("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
+"usage: netstat [-j jail] [-46AaCcLnRSTWx] [-f protocol_family | -p protocol]\n"
 "               [-M core] [-N system]",
-"       netstat -i | -I interface [-46abdhnW] [-f address_family]\n"
+"       netstat [-j jail] -i | -I interface [-46abdhnW] [-f address_family]\n"
 "               [-M core] [-N system]",
-"       netstat -w wait [-I interface] [-46d] [-M core] [-N system]\n"
+"       netstat [-j jail] -w wait [-I interface] [-46d] [-M core] [-N system]\n"
 "               [-q howmany]",
-"       netstat -s [-46sz] [-f protocol_family | -p protocol]\n"
+"       netstat [-j jail] -s [-46sz] [-f protocol_family | -p protocol]\n"
 "               [-M core] [-N system]",
-"       netstat -i | -I interface -s [-46s]\n"
+"       netstat [-j jail] -i | -I interface -s [-46s]\n"
 "               [-f protocol_family | -p protocol] [-M core] [-N system]",
-"       netstat -m [-M core] [-N system]",
-"       netstat -B [-z] [-I interface]",
-"       netstat -r [-46AnW] [-F fibnum] [-f address_family]\n"
+"       netstat [-j jail] -m [-M core] [-N system]",
+"       netstat [-j jail] -B [-z] [-I interface]",
+"       netstat [-j jail] -r [-46AnW] [-F fibnum] [-f address_family]\n"
 "               [-M core] [-N system]",
-"       netstat -rs [-s] [-M core] [-N system]",
-"       netstat -g [-46W] [-f address_family] [-M core] [-N system]",
-"       netstat -gs [-46s] [-f address_family] [-M core] [-N system]",
-"       netstat -Q");
-	xo_finish();
-	exit(1);
+"       netstat [-j jail] -rs [-s] [-M core] [-N system]",
+"       netstat [-j jail] -g [-46W] [-f address_family] [-M core] [-N system]",
+"       netstat [-j jail] -gs [-46s] [-f address_family] [-M core] [-N system]",
+"       netstat [-j jail] -Q");
+	exit(EX_USAGE);
 }

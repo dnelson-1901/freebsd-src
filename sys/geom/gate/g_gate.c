@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004-2006 Pawel Jakub Dawidek <pjd@FreeBSD.org>
  * Copyright (c) 2009-2010 The FreeBSD Foundation
@@ -29,9 +29,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -332,7 +329,6 @@ static void
 g_gate_release(struct g_gate_softc *sc)
 {
 
-	g_topology_assert_not();
 	mtx_lock(&g_gate_units_lock);
 	sc->sc_ref--;
 	KASSERT(sc->sc_ref >= 0, ("Negative sc_ref for %s.", sc->sc_name));
@@ -456,9 +452,7 @@ g_gate_dumpconf(struct sbuf *sb, const char *indent, struct g_geom *gp,
 	    sc->sc_queue_size);
 	sbuf_printf(sb, "%s<ref>%u</ref>\n", indent, sc->sc_ref);
 	sbuf_printf(sb, "%s<unit>%d</unit>\n", indent, sc->sc_unit);
-	g_topology_unlock();
 	g_gate_release(sc);
-	g_topology_lock();
 }
 
 static int

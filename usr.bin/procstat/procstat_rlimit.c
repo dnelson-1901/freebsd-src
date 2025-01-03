@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 Mikolaj Golub
  * Copyright (c) 2015 Allan Jude <allanjude@freebsd.org>
@@ -27,9 +27,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -50,7 +47,7 @@ __FBSDID("$FreeBSD$");
 static struct {
 	const char *name;
 	const char *suffix;
-} rlimit_param[15] = {
+} rlimit_param[] = {
 	{"cputime",          "sec"},
 	{"filesize",         "B  "},
 	{"datasize",         "B  "},
@@ -66,11 +63,11 @@ static struct {
 	{"swapuse",          "B  "},
 	{"kqueues",          "   "},
 	{"umtxp",            "   "},
+	{"pipebuf",          "B  "},
 };
 
-#if RLIM_NLIMITS > 15
-#error "Resource limits have grown. Add new entries to rlimit_param[]."
-#endif
+_Static_assert(nitems(rlimit_param) == RLIM_NLIMITS,
+    "Resource limits have grown. Add new entries to rlimit_param[].");
 
 static const char *
 humanize_rlimit(int indx, rlim_t limit)

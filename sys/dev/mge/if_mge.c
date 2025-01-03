@@ -37,9 +37,6 @@
 #include "opt_device_polling.h"
 #endif
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/endian.h>
@@ -850,12 +847,6 @@ mge_attach(device_t dev)
 
 	/* Allocate network interface */
 	ifp = sc->ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "if_alloc() failed\n");
-		mge_detach(dev);
-		return (ENOMEM);
-	}
-
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setsoftc(ifp, sc);
 	if_setflags(ifp, IFF_SIMPLEX | IFF_MULTICAST | IFF_BROADCAST);
@@ -927,8 +918,8 @@ mge_attach(device_t dev)
 
 	if (sc->switch_attached) {
 		MGE_WRITE(sc, MGE_REG_PHYDEV, MGE_SWITCH_PHYDEV);
-		device_add_child(dev, "mdio", -1);
-		bus_generic_attach(dev);
+		device_add_child(dev, "mdio", DEVICE_UNIT_ANY);
+		bus_attach_children(dev);
 	}
 
 	return (0);

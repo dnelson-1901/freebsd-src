@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007 Robert N. M. Watson
  * Copyright (c) 2015 Allan Jude <allanjude@freebsd.org>
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <libxo/xo.h>
@@ -67,6 +65,8 @@ void	procstat_cs(struct procstat *prstat, struct kinfo_proc *kipp);
 void	procstat_env(struct procstat *prstat, struct kinfo_proc *kipp);
 void	procstat_files(struct procstat *prstat, struct kinfo_proc *kipp);
 void	procstat_kstack(struct procstat *prstat, struct kinfo_proc *kipp);
+void	procstat_rlimitusage(struct procstat *procstat,
+	    struct kinfo_proc *kipp);
 void	procstat_pargs(struct procstat *prstat, struct kinfo_proc *kipp);
 void	procstat_penv(struct procstat *prstat, struct kinfo_proc *kipp);
 void	procstat_ptlwpinfo(struct procstat *prstat, struct kinfo_proc *kipp);

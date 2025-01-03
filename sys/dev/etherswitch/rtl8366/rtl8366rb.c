@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2015-2016 Hiroki Mori.
  * Copyright (c) 2011-2012 Stefan Bethke.
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_etherswitch.h"
@@ -136,7 +134,7 @@ rtl8366rb_identify(driver_t *driver, device_t parent)
 	struct iicbus_ivar *devi;
 
 	if (device_find_child(parent, "rtl8366rb", -1) == NULL) {
-		child = BUS_ADD_CHILD(parent, 0, "rtl8366rb", -1);
+		child = BUS_ADD_CHILD(parent, 0, "rtl8366rb", DEVICE_UNIT_ANY);
 		devi = IICBUS_IVAR(child);
 		devi->addr = RTL8366_IIC_ADDR;
 	}
@@ -240,12 +238,6 @@ rtl8366rb_attach(device_t dev)
 	/* PHYs need an interface, so we generate a dummy one */
 	for (i = 0; i < sc->numphys; i++) {
 		sc->ifp[i] = if_alloc(IFT_ETHER);
-		if (sc->ifp[i] == NULL) {
-			device_printf(dev, "couldn't allocate ifnet structure\n");
-			err = ENOMEM;
-			break;
-		}
-
 		if_setsoftc(sc->ifp[i], sc);
 		if_setflagbits(sc->ifp[i], IFF_UP | IFF_BROADCAST | IFF_DRV_RUNNING
 			| IFF_SIMPLEX, 0);
@@ -262,11 +254,9 @@ rtl8366rb_attach(device_t dev)
 		}
 	}
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
-	err = bus_generic_attach(dev);
-	if (err != 0)
-		return (err);
+	bus_attach_children(dev);
 	
 	callout_init_mtx(&sc->callout_tick, &sc->callout_mtx, 0);
 	rtl8366rb_tick(sc);
@@ -278,18 +268,19 @@ static int
 rtl8366rb_detach(device_t dev)
 {
 	struct rtl8366rb_softc *sc;
-	int i;
+	int error, i;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 
 	for (i=0; i < sc->numphys; i++) {
-		if (sc->miibus[i])
-			device_delete_child(dev, sc->miibus[i]);
 		if (sc->ifp[i] != NULL)
 			if_free(sc->ifp[i]);
 		free(sc->ifname[i], M_DEVBUF);
 	}
-	bus_generic_detach(dev);
 	callout_drain(&sc->callout_tick);
 	mtx_destroy(&sc->callout_mtx);
 	mtx_destroy(&sc->sc_mtx);

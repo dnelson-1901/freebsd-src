@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Alexander Kabaev
  * All rights reserved.
@@ -26,18 +26,15 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_cpu.h"
 
 #include <sys/param.h>
+#include <sys/systm.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
 #include <sys/ptrace.h>
 #include <sys/syscallsubr.h>
-#include <sys/systm.h>
 
 #include <machine/md_var.h>
 #include <machine/pcb.h>
@@ -216,7 +213,7 @@ linux_proc_read_fpxregs(struct thread *td, struct linux_pt_fpxreg *fpxregs)
 {
 
 	PROC_LOCK_ASSERT(td->td_proc, MA_OWNED);
-	if (cpu_fxsr == 0 || (td->td_proc->p_flag & P_INMEM) == 0)
+	if (cpu_fxsr == 0)
 		return (EIO);
 	bcopy(&get_pcb_user_save_td(td)->sv_xmm, fpxregs, sizeof(*fpxregs));
 	return (0);
@@ -227,7 +224,7 @@ linux_proc_write_fpxregs(struct thread *td, struct linux_pt_fpxreg *fpxregs)
 {
 
 	PROC_LOCK_ASSERT(td->td_proc, MA_OWNED);
-	if (cpu_fxsr == 0 || (td->td_proc->p_flag & P_INMEM) == 0)
+	if (cpu_fxsr == 0)
 		return (EIO);
 	bcopy(fpxregs, &get_pcb_user_save_td(td)->sv_xmm, sizeof(*fpxregs));
 	return (0);

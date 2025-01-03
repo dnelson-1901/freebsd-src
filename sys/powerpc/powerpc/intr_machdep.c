@@ -55,11 +55,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)isa.c	7.2 (Berkeley) 5/13/91
  *	form: src/sys/i386/isa/intr_machdep.c,v 1.57 2001/07/20
- *
- * $FreeBSD$
  */
 
 #include "opt_isa.h"
@@ -88,8 +84,6 @@
 #include <machine/trap.h>
 
 #include "pic_if.h"
-
-#define	MAX_STRAY_LOG	5
 
 static MALLOC_DEFINE(M_INTR, "intr", "interrupt handler data");
 
@@ -131,6 +125,7 @@ static u_int nirqs = 0;		/* Allocated IRQs. */
 #endif
 static u_int stray_count;
 
+#define	INTRNAME_LEN	(MAXCOMLEN + 1)
 u_long *intrcnt;
 char *intrnames;
 size_t sintrcnt = sizeof(intrcnt);
@@ -152,12 +147,16 @@ device_t root_pic;
 static void *ipi_cookie;
 #endif
 
+static int powerpc_setup_intr_int(const char *name, u_int irq, driver_filter_t
+    filter, driver_intr_t handler, void *arg, enum intr_type flags, void
+    **cookiep, int domain, bool ipi);
+
 static void
 intrcnt_setname(const char *name, int index)
 {
 
-	snprintf(intrnames + (MAXCOMLEN + 1) * index, MAXCOMLEN + 1, "%-*s",
-	    MAXCOMLEN, name);
+	snprintf(intrnames + INTRNAME_LEN * index, INTRNAME_LEN, "%-*s",
+	    INTRNAME_LEN - 1, name);
 }
 
 static void
@@ -181,10 +180,10 @@ intr_init_sources(void *arg __unused)
 #endif
 	intrcnt = mallocarray(nintrcnt, sizeof(u_long), M_INTR, M_WAITOK |
 	    M_ZERO);
-	intrnames = mallocarray(nintrcnt, MAXCOMLEN + 1, M_INTR, M_WAITOK |
+	intrnames = mallocarray(nintrcnt, INTRNAME_LEN, M_INTR, M_WAITOK |
 	    M_ZERO);
 	sintrcnt = nintrcnt * sizeof(u_long);
-	sintrnames = nintrcnt * (MAXCOMLEN + 1);
+	sintrnames = nintrcnt * INTRNAME_LEN;
 
 	intrcnt_setname("???", 0);
 	intrcnt_index = 1;
@@ -222,7 +221,6 @@ intrcnt_add(const char *name, u_long **countp)
 	intrcnt_setname(name, idx);
 }
 
-extern void kdb_backtrace(void);
 static struct powerpc_intr *
 intr_lookup(u_int irq)
 {
@@ -469,24 +467,15 @@ powerpc_enable_intr(void)
 			KASSERT(piclist[n].ipis != 0,
 			    ("%s: SMP root PIC does not supply any IPIs",
 			    __func__));
-			error = powerpc_setup_intr("IPI",
+			error = powerpc_setup_intr_int("IPI",
 			    MAP_IRQ(piclist[n].node, piclist[n].irqs),
 			    powerpc_ipi_handler, NULL, NULL,
 			    INTR_TYPE_MISC | INTR_EXCL, &ipi_cookie,
-			    0 /* domain XXX */);
+			    0 /* domain XXX */, true);
 			if (error) {
 				printf("unable to setup IPI handler\n");
 				return (error);
 			}
-
-			/*
-			 * Some subterfuge: disable late EOI and mark this
-			 * as an IPI to the dispatch layer.
-			 */
-			i = intr_lookup(MAP_IRQ(piclist[n].node,
-			    piclist[n].irqs));
-			i->event->ie_post_filter = NULL;
-			i->ipi = 1;
 		}
 	}
 #endif
@@ -519,6 +508,17 @@ powerpc_setup_intr(const char *name, u_int irq, driver_filter_t filter,
     driver_intr_t handler, void *arg, enum intr_type flags, void **cookiep,
     int domain)
 {
+
+	return (powerpc_setup_intr_int(name, irq, filter, handler, arg, flags,
+	    cookiep, domain, false));
+}
+
+
+static int
+powerpc_setup_intr_int(const char *name, u_int irq, driver_filter_t filter,
+    driver_intr_t handler, void *arg, enum intr_type flags, void **cookiep,
+    int domain, bool ipi)
+{
 	struct powerpc_intr *i;
 	int error, enable = 0;
 
@@ -529,12 +529,14 @@ powerpc_setup_intr(const char *name, u_int irq, driver_filter_t filter,
 	if (i->event == NULL) {
 		error = intr_event_create(&i->event, (void *)i, 0, irq,
 		    powerpc_intr_pre_ithread, powerpc_intr_post_ithread,
-		    powerpc_intr_eoi, powerpc_assign_intr_cpu, "irq%u:", irq);
+		    (ipi ? NULL : powerpc_intr_eoi), powerpc_assign_intr_cpu,
+		    "irq%u:", irq);
 		if (error)
 			return (error);
 
 		enable = 1;
 	}
+	i->ipi = ipi;
 
 	error = intr_event_add_handler(i->event, name, filter, handler, arg,
 	    intr_priority(flags), flags, cookiep);
@@ -662,11 +664,11 @@ powerpc_dispatch_intr(u_int vector, struct trapframe *tf)
 
 stray:
 	stray_count++;
-	if (stray_count <= MAX_STRAY_LOG) {
+	if (stray_count <= INTR_STRAY_LOG_MAX) {
 		printf("stray irq %d\n", i ? i->irq : -1);
-		if (stray_count >= MAX_STRAY_LOG) {
+		if (stray_count >= INTR_STRAY_LOG_MAX) {
 			printf("got %d stray interrupts, not logging anymore\n",
-			    MAX_STRAY_LOG);
+			    INTR_STRAY_LOG_MAX);
 		}
 	}
 	if (i != NULL)

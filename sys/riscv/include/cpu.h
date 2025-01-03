@@ -30,16 +30,16 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MACHINE_CPU_H_
 #define	_MACHINE_CPU_H_
 
+#ifndef LOCORE
 #include <machine/atomic.h>
 #include <machine/cpufunc.h>
 #include <machine/frame.h>
+#endif
 
 #define	TRAPF_PC(tfp)		((tfp)->tf_sepc)
 #define	TRAPF_USERMODE(tfp)	(((tfp)->tf_sstatus & SSTATUS_SPP) == 0)
@@ -49,30 +49,48 @@
 #define	cpu_spinwait()		/* nothing */
 #define	cpu_lock_delay()	DELAY(1)
 
-#ifdef _KERNEL
+/*
+ * Core manufacturer IDs, as reported by the mvendorid CSR.
+ */
+#define	MVENDORID_UNIMPL	0x0
+#define	MVENDORID_SIFIVE	0x489
+#define	MVENDORID_THEAD		0x5b7
 
 /*
- * 0x0000         CPU ID unimplemented
- * 0x0001         UC Berkeley Rocket repo
- * 0x0002­0x7FFE  Reserved for open-source repos
- * 0x7FFF         Reserved for extension
- * 0x8000         Reserved for anonymous source
- * 0x8001­0xFFFE  Reserved for proprietary implementations
- * 0xFFFF         Reserved for extension
+ * Micro-architecture ID register, marchid.
+ *
+ * IDs for open-source implementations are allocated globally. Commercial IDs
+ * will have the most-significant bit set.
  */
+#define	MARCHID_UNIMPL		0x0
+#define	MARCHID_MSB		(1ul << (XLEN - 1))
+#define	MARCHID_OPENSOURCE(v)	(v)
+#define	MARCHID_COMMERCIAL(v)	(MARCHID_MSB | (v))
+#define	MARCHID_IS_OPENSOURCE(m) (((m) & MARCHID_MSB) == 0)
 
-#define	CPU_IMPL_SHIFT		0
-#define	CPU_IMPL_MASK		(0xffff << CPU_IMPL_SHIFT)
-#define	CPU_IMPL(mimpid)	((mimpid & CPU_IMPL_MASK) >> CPU_IMPL_SHIFT)
-#define	CPU_IMPL_UNIMPLEMEN	0x0
-#define	CPU_IMPL_UCB_ROCKET	0x1
+/*
+ * Open-source marchid values.
+ *
+ * https://github.com/riscv/riscv-isa-manual/blob/master/marchid.md
+ */
+#define	MARCHID_UCB_ROCKET	MARCHID_OPENSOURCE(1)
+#define	MARCHID_UCB_BOOM	MARCHID_OPENSOURCE(2)
+#define	MARCHID_UCB_SPIKE	MARCHID_OPENSOURCE(5)
+#define	MARCHID_UCAM_RVBS	MARCHID_OPENSOURCE(10)
 
-#define	CPU_PART_SHIFT		62
-#define	CPU_PART_MASK		(0x3ul << CPU_PART_SHIFT)
-#define	CPU_PART(misa)		((misa & CPU_PART_MASK) >> CPU_PART_SHIFT)
-#define	CPU_PART_RV32		0x1
-#define	CPU_PART_RV64		0x2
-#define	CPU_PART_RV128		0x3
+/* SiFive marchid values */
+#define	MARCHID_SIFIVE_U7	MARCHID_COMMERCIAL(7)
+
+/*
+ * MMU virtual-addressing modes. Support for each level implies the previous,
+ * so Sv48-enabled systems MUST support Sv39, etc.
+ */
+#define	MMU_SV39	0x1	/* 3-level paging */
+#define	MMU_SV48	0x2	/* 4-level paging */
+#define	MMU_SV57	0x4	/* 5-level paging */
+
+#ifdef _KERNEL
+#ifndef LOCORE
 
 extern char btext[];
 extern char etext[];
@@ -80,7 +98,8 @@ extern char etext[];
 void	cpu_halt(void) __dead2;
 void	cpu_reset(void) __dead2;
 void	fork_trampoline(void);
-void	identify_cpu(void);
+void	identify_cpu(u_int cpu);
+void	printcpuinfo(u_int cpu);
 
 static __inline uint64_t
 get_cyclecount(void)
@@ -89,6 +108,7 @@ get_cyclecount(void)
 	return (rdcycle());
 }
 
-#endif
+#endif /* !LOCORE */
+#endif /* _KERNEL */
 
 #endif /* !_MACHINE_CPU_H_ */

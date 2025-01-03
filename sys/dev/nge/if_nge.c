@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * National Semiconductor DP83820/DP83821 gigabit ethernet driver
  * for FreeBSD. Datasheets are available from:
@@ -902,11 +900,6 @@ nge_attach(device_t dev)
 	nge_sysctl_node(sc);
 
 	ifp = sc->nge_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not allocate ifnet structure\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -1006,10 +999,6 @@ nge_detach(device_t dev)
 			ether_ifdetach(ifp);
 	}
 
-	if (sc->nge_miibus != NULL) {
-		device_delete_child(dev, sc->nge_miibus);
-		sc->nge_miibus = NULL;
-	}
 	bus_generic_detach(dev);
 	if (sc->nge_intrhand != NULL)
 		bus_teardown_intr(dev, sc->nge_irq, sc->nge_intrhand);

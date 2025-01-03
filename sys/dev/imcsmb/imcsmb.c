@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Authors: Joe Kloss; Ravi Pokala (rpokala@freebsd.org)
  *
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /* A detailed description of this device is present in imcsmb_pci.c */
@@ -55,7 +53,6 @@
 
 /* Device methods */
 static int imcsmb_attach(device_t dev);
-static int imcsmb_detach(device_t dev);
 static int imcsmb_probe(device_t dev);
 
 /* SMBus methods */
@@ -92,7 +89,7 @@ imcsmb_attach(device_t dev)
 	sc->regs = device_get_ivars(dev);
 
 	/* Create the smbus child */
-	sc->smbus = device_add_child(dev, "smbus", -1);
+	sc->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 	if (sc->smbus == NULL) {
 		/* Nothing has been allocated, so there's no cleanup. */
 		device_printf(dev, "Child smbus not added\n");
@@ -101,35 +98,10 @@ imcsmb_attach(device_t dev)
 	}
 
 	/* Attach the smbus child. */
-	if ((rc = bus_generic_attach(dev)) != 0) {
-		device_printf(dev, "Failed to attach smbus: %d\n", rc);
-	}
+	bus_attach_children(dev);
+	rc = 0;
 
 out:
-	return (rc);
-}
-
-/**
- * device_detach() method. attach() didn't do any allocations, so all that's
- * needed here is to free up any downstream drivers and children.
- *
- * @author Joe Kloss
- *
- * @param[in] dev
- *      Device being detached.
- */
-static int
-imcsmb_detach(device_t dev)
-{
-	int rc;
-
-	/* Detach any attached drivers */
-	rc = bus_generic_detach(dev);
-	if (rc == 0) {
-		/* Remove all children */
-		rc = device_delete_children(dev);
-	}
-
 	return (rc);
 }
 
@@ -525,7 +497,7 @@ out:
 static device_method_t imcsmb_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_attach,	imcsmb_attach),
-	DEVMETHOD(device_detach,	imcsmb_detach),
+	DEVMETHOD(device_detach,	bus_generic_detach),
 	DEVMETHOD(device_probe,		imcsmb_probe),
 
 	/* smbus methods */

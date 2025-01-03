@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008-2009 Ariff Abdullah <ariff@FreeBSD.org>
  * All rights reserved.
@@ -33,8 +33,6 @@
 #include <dev/sound/pcm/sound.h>
 
 #include "feeder_if.h"
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 /* chain state */
 struct feeder_chain_state {
@@ -159,7 +157,7 @@ feeder_build_format(struct pcm_channel *c, struct feeder_chain_desc *cdesc)
 	desc->in = cdesc->current.afmt;
 	desc->out = cdesc->target.afmt;
 
-	ret = chn_addfeeder(c, fc, desc);
+	ret = feeder_add(c, fc, desc);
 	if (ret != 0) {
 		device_printf(c->dev,
 		    "%s(): can't add feeder_format\n", __func__);
@@ -232,7 +230,7 @@ feeder_build_rate(struct pcm_channel *c, struct feeder_chain_desc *cdesc)
 	desc->in = cdesc->current.afmt;
 	desc->out = desc->in;
 
-	ret = chn_addfeeder(c, fc, desc);
+	ret = feeder_add(c, fc, desc);
 	if (ret != 0) {
 		device_printf(c->dev,
 		    "%s(): can't add feeder_rate\n", __func__);
@@ -311,7 +309,7 @@ feeder_build_matrix(struct pcm_channel *c, struct feeder_chain_desc *cdesc)
 	desc->out = SND_FORMAT(cdesc->current.afmt,
 	    cdesc->target.matrix->channels, cdesc->target.matrix->ext);
 
-	ret = chn_addfeeder(c, fc, desc);
+	ret = feeder_add(c, fc, desc);
 	if (ret != 0) {
 		device_printf(c->dev,
 		    "%s(): can't add feeder_matrix\n", __func__);
@@ -367,7 +365,7 @@ feeder_build_volume(struct pcm_channel *c, struct feeder_chain_desc *cdesc)
 	desc->in = cdesc->current.afmt;
 	desc->out = desc->in;
 
-	ret = chn_addfeeder(c, fc, desc);
+	ret = feeder_add(c, fc, desc);
 	if (ret != 0) {
 		device_printf(c->dev,
 		    "%s(): can't add feeder_volume\n", __func__);
@@ -435,7 +433,7 @@ feeder_build_eq(struct pcm_channel *c, struct feeder_chain_desc *cdesc)
 	desc->in = cdesc->current.afmt;
 	desc->out = desc->in;
 
-	ret = chn_addfeeder(c, fc, desc);
+	ret = feeder_add(c, fc, desc);
 	if (ret != 0) {
 		device_printf(c->dev,
 		    "%s(): can't add feeder_eq\n", __func__);
@@ -474,7 +472,7 @@ feeder_build_root(struct pcm_channel *c, struct feeder_chain_desc *cdesc)
 		return (ENOTSUP);
 	}
 
-	ret = chn_addfeeder(c, fc, NULL);
+	ret = feeder_add(c, fc, NULL);
 	if (ret != 0) {
 		device_printf(c->dev,
 		    "%s(): can't add feeder_root\n", __func__);
@@ -515,7 +513,7 @@ feeder_build_mixer(struct pcm_channel *c, struct feeder_chain_desc *cdesc)
 	desc->in = cdesc->current.afmt;
 	desc->out = desc->in;
 
-	ret = chn_addfeeder(c, fc, desc);
+	ret = feeder_add(c, fc, desc);
 	if (ret != 0) {
 		device_printf(c->dev,
 		    "%s(): can't add feeder_mixer\n", __func__);
@@ -590,8 +588,7 @@ feeder_chain(struct pcm_channel *c)
 	CHN_LOCKASSERT(c);
 
 	/* Remove everything first. */
-	while (chn_removefeeder(c) == 0)
-		;
+	feeder_remove(c);
 
 	KASSERT(c->feeder == NULL, ("feeder chain not empty"));
 

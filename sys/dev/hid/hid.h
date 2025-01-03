@@ -1,6 +1,5 @@
-/* $FreeBSD$ */
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008 Hans Petter Selasky. All rights reserved.
  * Copyright (c) 1998 The NetBSD Foundation, Inc. All rights reserved.
@@ -234,31 +233,31 @@ struct hid_location {
 
 struct hid_item {
 	/* Global */
-	int32_t	_usage_page;
+	uint32_t _usage_page;
 	int32_t	logical_minimum;
 	int32_t	logical_maximum;
 	int32_t	physical_minimum;
 	int32_t	physical_maximum;
-	int32_t	unit_exponent;
-	int32_t	unit;
-	int32_t	report_ID;
+	uint32_t unit_exponent;
+	uint32_t unit;
+	uint32_t report_ID;
 	/* Local */
 	int	nusages;
 	union {
-		int32_t	usage;
-		int32_t usages[HID_ITEM_MAXUSAGE];
+		uint32_t usage;
+		uint32_t usages[HID_ITEM_MAXUSAGE];
 	};
-	int32_t	usage_minimum;
-	int32_t	usage_maximum;
-	int32_t	designator_index;
-	int32_t	designator_minimum;
-	int32_t	designator_maximum;
-	int32_t	string_index;
-	int32_t	string_minimum;
-	int32_t	string_maximum;
-	int32_t	set_delimiter;
+	uint32_t usage_minimum;
+	uint32_t usage_maximum;
+	uint32_t designator_index;
+	uint32_t designator_minimum;
+	uint32_t designator_maximum;
+	uint32_t string_index;
+	uint32_t string_minimum;
+	uint32_t string_maximum;
+	uint32_t set_delimiter;
 	/* Misc */
-	int32_t	collection;
+	uint32_t collection;
 	int	collevel;
 	enum hid_kind kind;
 	uint32_t flags;
@@ -333,6 +332,9 @@ int	hid_add_dynamic_quirk(struct hid_device_info *dev_info,
 	    uint16_t quirk);
 void	hid_quirk_unload(void *arg);
 
+int	hid_intr_start(device_t);
+int	hid_intr_stop(device_t);
+void	hid_intr_poll(device_t);
 int	hid_get_rdesc(device_t, void *, hid_size_t);
 int	hid_read(device_t, void *, hid_size_t, hid_size_t *);
 int	hid_write(device_t, const void *, hid_size_t);

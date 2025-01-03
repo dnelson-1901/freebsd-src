@@ -74,7 +74,7 @@ parse_dataset(const char *target, char **dataset)
 
 	nvlist_t *cfg = NULL;
 	if (zpool_read_label(fd, &cfg, NULL) == 0) {
-		char *nm = NULL;
+		const char *nm = NULL;
 		if (!nvlist_lookup_string(cfg, ZPOOL_CONFIG_POOL_NAME, &nm))
 			strlcpy(*dataset, nm, PATH_MAX);
 		nvlist_free(cfg);
@@ -269,8 +269,7 @@ main(int argc, char **argv)
 		return (MOUNT_USAGE);
 	}
 
-	if (!zfsutil || sloppy ||
-	    libzfs_envvar_is_set("ZFS_MOUNT_HELPER")) {
+	if (sloppy || libzfs_envvar_is_set("ZFS_MOUNT_HELPER")) {
 		zfs_adjust_mount_options(zhp, mntpoint, mntopts, mtabopt);
 	}
 
@@ -337,7 +336,7 @@ main(int argc, char **argv)
 		    dataset, mntpoint, mntflags, zfsflags, mntopts, mtabopt);
 
 	if (!fake) {
-		if (zfsutil && !sloppy &&
+		if (!remount && !sloppy &&
 		    !libzfs_envvar_is_set("ZFS_MOUNT_HELPER")) {
 			error = zfs_mount_at(zhp, mntopts, mntflags, mntpoint);
 			if (error) {

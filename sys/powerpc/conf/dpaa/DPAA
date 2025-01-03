@@ -5,7 +5,6 @@
 # This is not standalone kernel config. Use it only for including
 # purposes.
 #
-# $FreeBSD$
 
 cpu		BOOKE
 cpu		BOOKE_E500
@@ -35,7 +34,6 @@ options		SYSVSHM			#SYSV-style shared memory
 options		SYSVMSG			#SYSV-style message queues
 options		SYSVSEM			#SYSV-style semaphores
 options		_KPOSIX_PRIORITY_SCHEDULING #Posix P1003_1B real-time extensions
-options		NO_SWAPPING
 
 options		KDB			#Enable the kernel debugger
 options		DDB			#Support DDB

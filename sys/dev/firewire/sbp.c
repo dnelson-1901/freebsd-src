@@ -33,8 +33,6 @@
  * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD$
- *
  */
 
 #include <sys/param.h>
@@ -306,7 +304,7 @@ SBP_DEBUG(0)
 END_DEBUG
 
 	if (device_find_child(parent, "sbp", -1) == NULL)
-		BUS_ADD_CHILD(parent, 0, "sbp", -1);
+		BUS_ADD_CHILD(parent, 0, "sbp", DEVICE_UNIT_ANY);
 }
 
 /*

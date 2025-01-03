@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Olivier Houchard All rights reserved.
  * Copyright (c) 2012 Thomas Skibo All rights reserved.
@@ -34,9 +34,6 @@
  * (v1.4) November 16, 2012.  Xilinx doc UG585.  UART is covered in Ch. 19
  * and register definitions are in appendix B.33.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>

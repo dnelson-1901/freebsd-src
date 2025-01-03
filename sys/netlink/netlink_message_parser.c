@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
  *
@@ -26,7 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include <sys/types.h>
@@ -50,7 +49,7 @@ __FBSDID("$FreeBSD$");
 #define	DEBUG_MOD_NAME	nl_parser
 #define	DEBUG_MAX_LEVEL	LOG_DEBUG3
 #include <netlink/netlink_debug.h>
-_DECLARE_DEBUG(LOG_DEBUG);
+_DECLARE_DEBUG(LOG_INFO);
 
 bool
 nlmsg_report_err_msg(struct nl_pstate *npt, const char *fmt, ...)
@@ -149,7 +148,7 @@ nl_parse_attrs_raw(struct nlattr *nla_head, int len, const struct nlattr_parser 
 			if (error != 0) {
 				uint32_t off = (char *)nla - (char *)npt->hdr;
 				nlmsg_report_err_offset(npt, off);
-				NL_LOG(LOG_DEBUG3, "parse failed att offset %u", off);
+				NL_LOG(LOG_DEBUG3, "parse failed at offset %u", off);
 				return (error);
 			}
 		} else {
@@ -313,12 +312,35 @@ nlattr_get_ipvia(struct nlattr *nla, struct nl_pstate *npt, const void *arg, voi
 	return (error);
 }
 
+int
+nlattr_get_bool(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
+{
+	if (__predict_false(NLA_DATA_LEN(nla) != sizeof(bool))) {
+		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not bool",
+		    nla->nla_type, NLA_DATA_LEN(nla));
+		return (EINVAL);
+	}
+	*((bool *)target) = *((const bool *)NL_RTA_DATA_CONST(nla));
+	return (0);
+}
+
+int
+nlattr_get_uint8(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
+{
+	if (__predict_false(NLA_DATA_LEN(nla) != sizeof(uint8_t))) {
+		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not uint8",
+		    nla->nla_type, NLA_DATA_LEN(nla));
+		return (EINVAL);
+	}
+	*((uint8_t *)target) = *((const uint8_t *)NL_RTA_DATA_CONST(nla));
+	return (0);
+}
 
 int
 nlattr_get_uint16(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
 {
 	if (__predict_false(NLA_DATA_LEN(nla) != sizeof(uint16_t))) {
-		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not uint32",
+		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not uint16",
 		    nla->nla_type, NLA_DATA_LEN(nla));
 		return (EINVAL);
 	}
@@ -418,6 +440,23 @@ nlattr_get_ifpz(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void
 }
 
 int
+nlattr_get_chara(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
+{
+	int maxlen = NLA_DATA_LEN(nla);
+	int target_size = (size_t)arg;
+	int len = strnlen((char *)NLA_DATA(nla), maxlen);
+
+	if (__predict_false(len >= maxlen) || __predict_false(len >= target_size)) {
+		NLMSG_REPORT_ERR_MSG(npt, "nla type %d size(%u) is not NULL-terminated or longer than %u",
+		    nla->nla_type, maxlen, target_size);
+		return (EINVAL);
+	}
+
+	strncpy((char *)target, (char *)NLA_DATA(nla), target_size);
+	return (0);
+}
+
+int
 nlattr_get_string(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
 {
 	int maxlen = NLA_DATA_LEN(nla);
@@ -446,6 +485,20 @@ nlattr_get_stringn(struct nlattr *nla, struct nl_pstate *npt, const void *arg, v
 	*((char **)target) = buf;
 	return (0);
 }
+
+int
+nlattr_get_bytes(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
+{
+	size_t size = (size_t)arg;
+
+	if (NLA_DATA_LEN(nla) != size)
+		return (EINVAL);
+
+	memcpy(target, NLA_DATA(nla), size);
+
+	return (0);
+}
+
 int
 nlattr_get_nla(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
 {
@@ -462,6 +515,17 @@ nlattr_get_nested(struct nlattr *nla, struct nl_pstate *npt, const void *arg, vo
 
 	/* Assumes target points to the beginning of the structure */
 	error = nl_parse_header(NLA_DATA(nla), NLA_DATA_LEN(nla), p, npt, target);
+	return (error);
+}
+
+int
+nlattr_get_nested_ptr(struct nlattr *nla, struct nl_pstate *npt, const void *arg, void *target)
+{
+	const struct nlhdr_parser *p = (const struct nlhdr_parser *)arg;
+	int error;
+
+	/* Assumes target points to the beginning of the structure */
+	error = nl_parse_header(NLA_DATA(nla), NLA_DATA_LEN(nla), p, npt, *(void **)target);
 	return (error);
 }
 

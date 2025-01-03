@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014, Neel Natu (neel@freebsd.org)
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bhyve_snapshot.h"
 
 #include <sys/param.h>
@@ -46,7 +44,8 @@ __FBSDID("$FreeBSD$");
 
 #include <isa/rtc.h>
 
-#include "vmm_ktr.h"
+#include <dev/vmm/vmm_ktr.h>
+
 #include "vatpic.h"
 #include "vioapic.h"
 #include "vrtc.h"
@@ -347,7 +346,7 @@ rtc_to_secs(struct vrtc *vrtc)
 
 	/*
 	 * Ignore 'rtc->dow' because some guests like Linux don't bother
-	 * setting it at all while others like OpenBSD/i386 set it incorrectly. 
+	 * setting it at all while others like OpenBSD/i386 set it incorrectly.
 	 *
 	 * clock_ct_to_ts() does not depend on 'ct.dow' anyways so ignore it.
 	 */

@@ -32,13 +32,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)kern_synch.c	8.9 (Berkeley) 5/19/95
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ktrace.h"
 #include "opt_sched.h"
 
@@ -49,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kdb.h>
 #include <sys/kernel.h>
 #include <sys/ktr.h>
+#include <sys/ktrace.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
@@ -64,7 +61,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/vmmeter.h>
 #ifdef KTRACE
 #include <sys/uio.h>
-#include <sys/ktrace.h>
 #endif
 #ifdef EPOCH_TRACE
 #include <sys/epoch.h>
@@ -135,7 +131,7 @@ int
 _sleep(const void *ident, struct lock_object *lock, int priority,
     const char *wmesg, sbintime_t sbt, sbintime_t pr, int flags)
 {
-	struct thread *td;
+	struct thread *td __ktrace_used;
 	struct lock_class *class;
 	uintptr_t lock_state;
 	int catch, pri, rval, sleepq_flags;
@@ -162,7 +158,7 @@ _sleep(const void *ident, struct lock_object *lock, int priority,
 	else
 		class = NULL;
 
-	if (SCHEDULER_STOPPED_TD(td)) {
+	if (SCHEDULER_STOPPED()) {
 		if (lock != NULL && priority & PDROP)
 			class->lc_unlock(lock);
 		return (0);
@@ -242,7 +238,7 @@ int
 msleep_spin_sbt(const void *ident, struct mtx *mtx, const char *wmesg,
     sbintime_t sbt, sbintime_t pr, int flags)
 {
-	struct thread *td;
+	struct thread *td __ktrace_used;
 	int rval;
 	WITNESS_SAVE_DECL(mtx);
 
@@ -251,7 +247,7 @@ msleep_spin_sbt(const void *ident, struct mtx *mtx, const char *wmesg,
 	KASSERT(ident != NULL, ("msleep_spin_sbt: NULL ident"));
 	KASSERT(TD_IS_RUNNING(td), ("msleep_spin_sbt: curthread not running"));
 
-	if (SCHEDULER_STOPPED_TD(td))
+	if (SCHEDULER_STOPPED())
 		return (0);
 
 	sleepq_lock(ident);
@@ -348,16 +344,9 @@ pause_sbt(const char *wmesg, sbintime_t sbt, sbintime_t pr, int flags)
 void
 wakeup(const void *ident)
 {
-	int wakeup_swapper;
-
 	sleepq_lock(ident);
-	wakeup_swapper = sleepq_broadcast(ident, SLEEPQ_SLEEP, 0, 0);
+	sleepq_broadcast(ident, SLEEPQ_SLEEP, 0, 0);
 	sleepq_release(ident);
-	if (wakeup_swapper) {
-		KASSERT(ident != &proc0,
-		    ("wakeup and wakeup_swapper and proc0"));
-		kick_proc0();
-	}
 }
 
 /*
@@ -368,24 +357,15 @@ wakeup(const void *ident)
 void
 wakeup_one(const void *ident)
 {
-	int wakeup_swapper;
-
 	sleepq_lock(ident);
-	wakeup_swapper = sleepq_signal(ident, SLEEPQ_SLEEP | SLEEPQ_DROP, 0, 0);
-	if (wakeup_swapper)
-		kick_proc0();
+	sleepq_signal(ident, SLEEPQ_SLEEP | SLEEPQ_DROP, 0, 0);
 }
 
 void
 wakeup_any(const void *ident)
 {
-	int wakeup_swapper;
-
 	sleepq_lock(ident);
-	wakeup_swapper = sleepq_signal(ident, SLEEPQ_SLEEP | SLEEPQ_UNFAIR |
-	    SLEEPQ_DROP, 0, 0);
-	if (wakeup_swapper)
-		kick_proc0();
+	sleepq_signal(ident, SLEEPQ_SLEEP | SLEEPQ_UNFAIR | SLEEPQ_DROP, 0, 0);
 }
 
 /*
@@ -515,7 +495,7 @@ mi_switch(int flags)
 	 */
 	if (kdb_active)
 		kdb_switch();
-	if (SCHEDULER_STOPPED_TD(td))
+	if (SCHEDULER_STOPPED())
 		return;
 	if (flags & SW_VOL) {
 		td->td_ru.ru_nvcsw++;
@@ -562,25 +542,23 @@ mi_switch(int flags)
 }
 
 /*
- * Change thread state to be runnable, placing it on the run queue if
- * it is in memory.  If it is swapped out, return true so our caller
- * will know to awaken the swapper.
+ * Change thread state to be runnable, placing it on the run queue.
  *
  * Requires the thread lock on entry, drops on exit.
  */
-int
+void
 setrunnable(struct thread *td, int srqflags)
 {
-	int swapin;
-
 	THREAD_LOCK_ASSERT(td, MA_OWNED);
 	KASSERT(td->td_proc->p_state != PRS_ZOMBIE,
 	    ("setrunnable: pid %d is a zombie", td->td_proc->p_pid));
 
-	swapin = 0;
 	switch (TD_GET_STATE(td)) {
 	case TDS_RUNNING:
 	case TDS_RUNQ:
+	case TDS_INHIBITED:
+		if ((srqflags & (SRQ_HOLD | SRQ_HOLDTD)) == 0)
+			thread_unlock(td);
 		break;
 	case TDS_CAN_RUN:
 		KASSERT((td->td_flags & TDF_INMEM) != 0,
@@ -588,25 +566,10 @@ setrunnable(struct thread *td, int srqflags)
 		    td, td->td_flags, td->td_inhibitors));
 		/* unlocks thread lock according to flags */
 		sched_wakeup(td, srqflags);
-		return (0);
-	case TDS_INHIBITED:
-		/*
-		 * If we are only inhibited because we are swapped out
-		 * arrange to swap in this process.
-		 */
-		if (td->td_inhibitors == TDI_SWAPPED &&
-		    (td->td_flags & TDF_SWAPINREQ) == 0) {
-			td->td_flags |= TDF_SWAPINREQ;
-			swapin = 1;
-		}
 		break;
 	default:
 		panic("setrunnable: state 0x%x", TD_GET_STATE(td));
 	}
-	if ((srqflags & (SRQ_HOLD | SRQ_HOLDTD)) == 0)
-		thread_unlock(td);
-
-	return (swapin);
 }
 
 /*

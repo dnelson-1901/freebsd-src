@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_rss.h"
@@ -1034,11 +1032,6 @@ mlx5e_ethtool_handler(SYSCTL_HANDLER_ARGS)
 		    order_base_2(priv->params_ethtool.rx_queue_size);
 		priv->params_ethtool.rx_queue_size =
 		    1 << priv->params.log_rq_size;
-
-		/* update least number of RX WQEs */
-		priv->params.min_rx_wqes = min(
-		    priv->params_ethtool.rx_queue_size - 1,
-		    MLX5E_PARAMS_DEFAULT_MIN_RX_WQES);
 
 		/* restart network interface, if any */
 		if (was_opened)

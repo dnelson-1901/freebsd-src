@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Alexander Motin <mav@FreeBSD.org>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/module.h>
@@ -123,15 +120,13 @@ static struct {
 static int
 siis_probe(device_t dev)
 {
-	char buf[64];
 	int i;
 	uint32_t devid = pci_get_devid(dev);
 
 	for (i = 0; siis_ids[i].id != 0; i++) {
 		if (siis_ids[i].id == devid) {
-			snprintf(buf, sizeof(buf), "%s SATA controller",
+			device_set_descf(dev, "%s SATA controller",
 			    siis_ids[i].name);
-			device_set_desc_copy(dev, buf);
 			return (BUS_PROBE_DEFAULT);
 		}
 	}
@@ -194,13 +189,13 @@ siis_attach(device_t dev)
 	}
 	/* Attach all channels on this controller */
 	for (unit = 0; unit < ctlr->channels; unit++) {
-		child = device_add_child(dev, "siisch", -1);
+		child = device_add_child(dev, "siisch", DEVICE_UNIT_ANY);
 		if (child == NULL)
 			device_printf(dev, "failed to add channel device\n");
 		else
 			device_set_ivars(child, (void *)(intptr_t)unit);
 	}
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 	return 0;
 }
 
@@ -208,9 +203,12 @@ static int
 siis_detach(device_t dev)
 {
 	struct siis_controller *ctlr = device_get_softc(dev);
+	int error;
 
 	/* Detach & delete all children */
-	device_delete_children(dev);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	/* Free interrupts. */
 	if (ctlr->irq.r_irq) {
@@ -349,16 +347,15 @@ siis_alloc_resource(device_t dev, device_t child, int type, int *rid,
 }
 
 static int
-siis_release_resource(device_t dev, device_t child, int type, int rid,
-			 struct resource *r)
+siis_release_resource(device_t dev, device_t child, struct resource *r)
 {
 
-	switch (type) {
+	switch (rman_get_type(r)) {
 	case SYS_RES_MEMORY:
 		rman_release_resource(r);
 		return (0);
 	case SYS_RES_IRQ:
-		if (rid != ATA_IRQ_RID)
+		if (rman_get_rid(r) != ATA_IRQ_RID)
 			return ENOENT;
 		return (0);
 	}
@@ -453,7 +450,7 @@ static int
 siis_ch_probe(device_t dev)
 {
 
-	device_set_desc_copy(dev, "SIIS channel");
+	device_set_desc(dev, "SIIS channel");
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -1400,7 +1397,7 @@ completeall:
 	}
 	xpt_setup_ccb(&ccb->ccb_h, ch->hold[i]->ccb_h.path,
 	    ch->hold[i]->ccb_h.pinfo.priority);
-	if (ccb->ccb_h.func_code == XPT_ATA_IO) {
+	if (ch->hold[i]->ccb_h.func_code == XPT_ATA_IO) {
 		/* READ LOG */
 		ccb->ccb_h.recovery_type = RECOVERY_READ_LOG;
 		ccb->ccb_h.func_code = XPT_ATA_IO;

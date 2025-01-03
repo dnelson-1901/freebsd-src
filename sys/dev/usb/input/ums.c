@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1998 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * HID spec: http://www.usb.org/developers/devclass_docs/HID1_11.pdf
  */
@@ -322,11 +320,12 @@ ums_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (++info != &sc->sc_info[UMS_INFO_MAX])
 			goto repeat;
 
+		/* keep old button value(s) for non-detected buttons */
+		buttons |= sc->sc_status.button & ~buttons_found;
+
 #ifdef EVDEV_SUPPORT
 		buttons_reported = buttons;
 #endif
-		/* keep old button value(s) for non-detected buttons */
-		buttons |= sc->sc_status.button & ~buttons_found;
 
 		if (dx || dy || dz || dt || dw ||
 		    (buttons != sc->sc_status.button)) {

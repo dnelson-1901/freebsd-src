@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012, 2013 Konstantin Belousov <kib@FreeBSD.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef __MACHINE_COUNTER_H__
@@ -101,6 +99,8 @@ counter_u64_add(counter_u64_t c, int64_t inc)
 }
 
 #else	/* !64bit */
+
+#include <sys/systm.h>
 
 #define	counter_enter()	critical_enter()
 #define	counter_exit()	critical_exit()

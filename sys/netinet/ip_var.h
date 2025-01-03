@@ -27,9 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ip_var.h	8.2 (Berkeley) 1/9/95
- * $FreeBSD$
  */
 
 #ifndef _NETINET_IP_VAR_H_
@@ -139,15 +136,19 @@ struct	ipstat {
 
 #include <sys/counter.h>
 #include <net/vnet.h>
+#include <netinet/in_kdtrace.h>
 
 VNET_PCPUSTAT_DECLARE(struct ipstat, ipstat);
 /*
  * In-kernel consumers can use these accessor macros directly to update
  * stats.
  */
-#define	IPSTAT_ADD(name, val)	\
-    VNET_PCPUSTAT_ADD(struct ipstat, ipstat, name, (val))
-#define	IPSTAT_SUB(name, val)	IPSTAT_ADD(name, -(val))
+#define IPSTAT_ADD(name, val)                                          \
+	do {                                                           \
+		MIB_SDT_PROBE1(ip, count, name, (val));                \
+		VNET_PCPUSTAT_ADD(struct ipstat, ipstat, name, (val)); \
+	} while (0)
+#define IPSTAT_SUB(name, val) IPSTAT_ADD(name, -(val))
 #define	IPSTAT_INC(name)	IPSTAT_ADD(name, 1)
 #define	IPSTAT_DEC(name)	IPSTAT_SUB(name, 1)
 
@@ -155,11 +156,19 @@ VNET_PCPUSTAT_DECLARE(struct ipstat, ipstat);
  * Kernel module consumers must use this accessor macro.
  */
 void	kmod_ipstat_inc(int statnum);
-#define	KMOD_IPSTAT_INC(name)	\
-    kmod_ipstat_inc(offsetof(struct ipstat, name) / sizeof(uint64_t))
-void	kmod_ipstat_dec(int statnum);
-#define	KMOD_IPSTAT_DEC(name)	\
-    kmod_ipstat_dec(offsetof(struct ipstat, name) / sizeof(uint64_t))
+#define KMOD_IPSTAT_INC(name)                                          \
+	do {                                                           \
+		MIB_SDT_PROBE1(ip, count, name, 1);                    \
+		kmod_ipstat_inc(                                       \
+		    offsetof(struct ipstat, name) / sizeof(uint64_t)); \
+	} while (0)
+void kmod_ipstat_dec(int statnum);
+#define KMOD_IPSTAT_DEC(name)                                          \
+	do {                                                           \
+		MIB_SDT_PROBE1(ip, count, name, -1);                   \
+		kmod_ipstat_dec(                                       \
+		    offsetof(struct ipstat, name) / sizeof(uint64_t)); \
+	} while (0)
 
 /* flags passed to ip_output as last parameter */
 #define	IP_FORWARDING		0x1		/* most of ip header exists */
@@ -255,6 +264,10 @@ VNET_DECLARE(struct pfil_head *, inet_pfil_head);
 #define	V_inet_pfil_head	VNET(inet_pfil_head)
 #define	PFIL_INET_NAME		"inet"
 
+VNET_DECLARE(struct pfil_head *, inet_local_pfil_head);
+#define	V_inet_local_pfil_head	VNET(inet_local_pfil_head)
+#define	PFIL_INET_LOCAL_NAME	"inet-local"
+
 void	in_delayed_cksum(struct mbuf *m);
 
 /* Hooks for ipfw, dummynet, divert etc. Most are declared in raw_ip.c */
@@ -272,13 +285,30 @@ void	in_delayed_cksum(struct mbuf *m);
  * On entry, the structure is valid if slot>0, and refers to the starting
  * rules. 'info' contains the reason for reinject, e.g. divert port,
  * divert direction, and so on.
+ *
+ * Packet Mark is an analogue to ipfw tags with O(1) lookup from mbuf while
+ * regular tags require a single-linked list traversal. Mark is a 32-bit
+ * number that can be looked up in a table [with 'number' table-type], matched
+ * or compared with a number with optional mask applied before comparison.
+ * Having generic nature, Mark can be used in a variety of needs.
+ * For example, it could be used as a security group: mark will hold a
+ * security group id and represent a group of packet flows that shares same
+ * access control policy.
+ * O_MASK opcode can match mark value bitwise so one can build a hierarchical
+ * model designating different meanings for a bit range(s).
  */
 struct ipfw_rule_ref {
+/* struct m_tag spans 24 bytes above this point, see mbuf_tags(9) */
+	/* spare space just to be save in case struct m_tag grows */
+/* -- 32 bytes -- */
 	uint32_t	slot;		/* slot for matching rule	*/
 	uint32_t	rulenum;	/* matching rule number		*/
 	uint32_t	rule_id;	/* matching rule id		*/
 	uint32_t	chain_id;	/* ruleset id			*/
 	uint32_t	info;		/* see below			*/
+	uint32_t	pkt_mark;	/* packet mark			*/
+	uint32_t	spare[2];
+/* -- 64 bytes -- */
 };
 
 enum {
@@ -306,6 +336,21 @@ extern void	(*ip_divert_ptr)(struct mbuf *m, bool incoming);
 extern int	(*ng_ipfw_input_p)(struct mbuf **, struct ip_fw_args *, bool);
 extern int	(*ip_dn_ctl_ptr)(struct sockopt *);
 extern int	(*ip_dn_io_ptr)(struct mbuf **, struct ip_fw_args *);
+
+/* pf specific mtag for divert(4) support */
+__enum_uint8_decl(pf_mtag_dir) {
+	PF_DIVERT_MTAG_DIR_IN = 1,
+	PF_DIVERT_MTAG_DIR_OUT = 2
+};
+struct pf_divert_mtag {
+	__enum_uint8(pf_mtag_dir) idir;		/* initial pkt direction */
+	union {
+		__enum_uint8(pf_mtag_dir) ndir;	/* new dir after re-enter */
+		uint16_t port;			/* initial divert(4) port */
+	};
+};
+#define MTAG_PF_DIVERT	1262273569
+
 #endif /* _KERNEL */
 
 #endif /* !_NETINET_IP_VAR_H_ */

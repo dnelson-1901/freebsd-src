@@ -26,7 +26,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 # THE POSSIBILITY OF SUCH DAMAGES.
 #
-# $FreeBSD$
 #
 
 .PATH:	${SRCTOP}/sys/dev/gpio/
@@ -38,6 +37,9 @@ SRCS+=	device_if.h bus_if.h opt_platform.h
 
 .if !empty(OPT_FDT)
 SRCS+=	ofw_gpiobus.c
+.endif
+.if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "aarch64"
+SRCS+=	acpi_gpiobus.c opt_acpi.h acpi_if.h
 .endif
 
 CFLAGS+=  -I. -I${SRCTOP}/sys/dev/gpio/

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2009-2011 Semihalf.
  * All rights reserved.
@@ -39,9 +39,6 @@
  * |  struct cesa_sa_hdesc  |
  * +------------------------+ <= sc->sc_sram_base_va
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>

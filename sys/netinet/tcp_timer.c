@@ -27,13 +27,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)tcp_timer.c	8.2 (Berkeley) 5/24/95
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_rss.h"
@@ -201,6 +197,28 @@ static int	per_cpu_timers = 0;
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, per_cpu_timers, CTLFLAG_RW,
     &per_cpu_timers , 0, "run tcp timers on all cpus");
 
+static int
+sysctl_net_inet_tcp_retries(SYSCTL_HANDLER_ARGS)
+{
+	int error, new;
+
+	new = V_tcp_retries;
+	error = sysctl_handle_int(oidp, &new, 0, req);
+	if (error == 0 && req->newptr) {
+		if ((new < 1) || (new > TCP_MAXRXTSHIFT))
+			error = EINVAL;
+		else
+			V_tcp_retries = new;
+	}
+	return (error);
+}
+
+VNET_DEFINE(int, tcp_retries) = TCP_MAXRXTSHIFT;
+SYSCTL_PROC(_net_inet_tcp, OID_AUTO, retries,
+    CTLTYPE_INT | CTLFLAG_VNET | CTLFLAG_RW,
+    &VNET_NAME(tcp_retries), 0, sysctl_net_inet_tcp_retries, "I",
+    "maximum number of consecutive timer based retransmissions");
+
 /*
  * Map the given inp to a CPU id.
  *
@@ -281,7 +299,7 @@ tcp_output_locked(struct tcpcb *tp)
 		KASSERT(tp->t_fb->tfb_flags & TCP_FUNC_OUTPUT_CANDROP,
 		    ("TCP stack %s requested tcp_drop(%p)",
 		    tp->t_fb->tfb_tcp_block_name, tp));
-		tp = tcp_drop(tp, rv);
+		tp = tcp_drop(tp, -rv);
 	}
 
 	return (tp != NULL);
@@ -492,7 +510,7 @@ tcp_timer_persist(struct tcpcb *tp)
 	 * progress.
 	 */
 	progdrop = tcp_maxunacktime_check(tp);
-	if (progdrop || (tp->t_rxtshift == TCP_MAXRXTSHIFT &&
+	if (progdrop || (tp->t_rxtshift >= V_tcp_retries &&
 	    (ticks - tp->t_rcvtime >= tcp_maxpersistidle ||
 	     ticks - tp->t_rcvtime >= TCP_REXMTVAL(tp) * tcp_totbackoff))) {
 		if (!progdrop)
@@ -541,7 +559,6 @@ tcp_timer_rexmt(struct tcpcb *tp)
 
 	TCP_PROBE2(debug__user, tp, PRU_SLOWTIMO);
 	CURVNET_SET(inp->inp_vnet);
-	tcp_free_sackholes(tp);
 	if (tp->t_fb->tfb_tcp_rexmit_tmr) {
 		/* The stack has a timer action too. */
 		(*tp->t_fb->tfb_tcp_rexmit_tmr)(tp);
@@ -555,10 +572,10 @@ tcp_timer_rexmt(struct tcpcb *tp)
 	 * or we've gone long enough without making progress, then drop
 	 * the session.
 	 */
-	if (++tp->t_rxtshift > TCP_MAXRXTSHIFT || tcp_maxunacktime_check(tp)) {
-		if (tp->t_rxtshift > TCP_MAXRXTSHIFT)
+	if (++tp->t_rxtshift > V_tcp_retries || tcp_maxunacktime_check(tp)) {
+		if (tp->t_rxtshift > V_tcp_retries)
 			TCPSTAT_INC(tcps_timeoutdrop);
-		tp->t_rxtshift = TCP_MAXRXTSHIFT;
+		tp->t_rxtshift = V_tcp_retries;
 		tcp_log_end_status(tp, TCP_EI_STATUS_RETRAN);
 		NET_EPOCH_ENTER(et);
 		tp = tcp_drop(tp, ETIMEDOUT);
@@ -601,8 +618,11 @@ tcp_timer_rexmt(struct tcpcb *tp)
 		 * the retransmitted packet's to_tsval to by tcp_output
 		 */
 		tp->t_flags |= TF_PREVVALID;
-	} else
+		tcp_resend_sackholes(tp);
+	} else {
 		tp->t_flags &= ~TF_PREVVALID;
+		tcp_free_sackholes(tp);
+	}
 	TCPSTAT_INC(tcps_rexmttimeo);
 	if ((tp->t_state == TCPS_SYN_SENT) ||
 	    (tp->t_state == TCPS_SYN_RECEIVED))
@@ -736,6 +756,16 @@ tcp_timer_rexmt(struct tcpcb *tp)
 				tp->t_flags2 |= TF2_PLPMTU_PMTUD;
 				tp->t_flags2 &= ~TF2_PLPMTU_BLACKHOLE;
 				tp->t_maxseg = tp->t_pmtud_saved_maxseg;
+				if (tp->t_maxseg < V_tcp_mssdflt) {
+					/*
+					 * The MSS is so small we should not 
+					 * process incoming SACK's since we are 
+					 * subject to attack in such a case.
+					 */
+					tp->t_flags2 |= TF2_PROC_SACK_PROHIBIT;
+				} else {
+					tp->t_flags2 &= ~TF2_PROC_SACK_PROHIBIT;
+				}
 				TCPSTAT_INC(tcps_pmtud_blackhole_failed);
 				/*
 				 * Reset the slow-start flight size as it
@@ -780,7 +810,9 @@ tcp_timer_rexmt(struct tcpcb *tp)
 	 */
 	tp->t_rtttime = 0;
 
-	cc_cong_signal(tp, NULL, CC_RTO);
+	/* Do not overwrite the snd_cwnd on SYN retransmissions. */
+	if (tp->t_state != TCPS_SYN_SENT)
+		cc_cong_signal(tp, NULL, CC_RTO);
 	NET_EPOCH_ENTER(et);
 	rv = tcp_output_locked(tp);
 	NET_EPOCH_EXIT(et);
@@ -844,12 +876,8 @@ tcp_timer_enter(void *xtp)
 	struct inpcb *inp = tptoinpcb(tp);
 	sbintime_t precision;
 	tt_which which;
-	bool tp_valid;
 
 	INP_WLOCK_ASSERT(inp);
-	MPASS((curthread->td_pflags & TDP_INTCPCALLOUT) == 0);
-
-	curthread->td_pflags |= TDP_INTCPCALLOUT;
 
 	which = tcp_timer_next(tp, NULL);
 	MPASS(which < TT_N);
@@ -857,18 +885,16 @@ tcp_timer_enter(void *xtp)
 	tp->t_precisions[which] = 0;
 
 	tcp_bblog_timer(tp, which, TT_PROCESSING, 0);
-	tp_valid = tcp_timersw[which](tp);
-	if (tp_valid) {
+	if (tcp_timersw[which](tp)) {
 		tcp_bblog_timer(tp, which, TT_PROCESSED, 0);
 		if ((which = tcp_timer_next(tp, &precision)) != TT_N) {
+			MPASS(tp->t_state > TCPS_CLOSED);
 			callout_reset_sbt_on(&tp->t_callout,
 			    tp->t_timers[which], precision, tcp_timer_enter,
 			    tp, inp_to_cpuid(inp), C_ABSOLUTE);
 		}
 		INP_WUNLOCK(inp);
 	}
-
-	curthread->td_pflags &= ~TDP_INTCPCALLOUT;
 }
 
 /*
@@ -887,6 +913,7 @@ tcp_timer_activate(struct tcpcb *tp, tt_which which, u_int delta)
 #endif
 
 	INP_WLOCK_ASSERT(inp);
+	MPASS(tp->t_state > TCPS_CLOSED);
 
 	if (delta > 0) {
 		what = TT_STARTING;
@@ -917,34 +944,26 @@ tcp_timer_active(struct tcpcb *tp, tt_which which)
 
 /*
  * Stop all timers associated with tcpcb.
- *
- * Called only on tcpcb destruction.  The tcpcb shall already be dropped from
- * the pcb lookup database and socket is not losing the last reference.
- *
- * XXXGL: unfortunately our callout(9) is not able to fully stop a locked
- * callout even when only two threads are involved: the callout itself and the
- * thread that does callout_stop().  See where softclock_call_cc() swaps the
- * callwheel lock to callout lock and then checks cc_exec_cancel().  This is
- * the race window.  If it happens, the tcp_timer_enter() won't be executed,
- * however pcb lock will be locked and released, hence we can't free memory.
- * Until callout(9) is improved, just keep retrying.  In my profiling I've seen
- * such event happening less than 1 time per hour with 20-30 Gbit/s of traffic.
+ * Called when tcpcb moves to TCPS_CLOSED.
  */
 void
 tcp_timer_stop(struct tcpcb *tp)
 {
-	struct inpcb *inp = tptoinpcb(tp);
 
-	INP_WLOCK_ASSERT(inp);
+	INP_WLOCK_ASSERT(tptoinpcb(tp));
 
-	if (curthread->td_pflags & TDP_INTCPCALLOUT) {
-		int stopped __diagused;
-
-		stopped = callout_stop(&tp->t_callout);
-		MPASS(stopped == 0);
-	} else while(__predict_false(callout_stop(&tp->t_callout) == 0)) {
-		INP_WUNLOCK(inp);
-		kern_yield(PRI_UNCHANGED);
-		INP_WLOCK(inp);
-	}
+	/*
+	 * We don't check return value from callout_stop().  There are two
+	 * reasons why it can return 0.  First, a legitimate one: we could have
+	 * been called from the callout itself.  Second, callout(9) has a bug.
+	 * It can race internally in softclock_call_cc(), when callout has
+	 * already completed, but cc_exec_curr still points at the callout.
+	 */
+	(void )callout_stop(&tp->t_callout);
+	/*
+	 * In case of being called from callout itself, we must make sure that
+	 * we don't reschedule.
+	 */
+	for (tt_which i = 0; i < TT_N; i++)
+		tp->t_timers[i] = SBT_MAX;
 }

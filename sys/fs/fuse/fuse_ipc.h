@@ -58,8 +58,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _FUSE_IPC_H_
@@ -229,8 +227,6 @@ struct fuse_data {
                                          /* (and being observed by the daemon) */
 #define FSESS_PUSH_SYMLINKS_IN    0x0020 /* prefix absolute symlinks with mp */
 #define FSESS_DEFAULT_PERMISSIONS 0x0040 /* kernel does permission checking */
-#define FSESS_NO_OPEN_SUPPORT     0x0080 /* can elide FUSE_OPEN ops */
-#define FSESS_NO_OPENDIR_SUPPORT  0x0100 /* can elide FUSE_OPENDIR ops */
 #define FSESS_ASYNC_READ          0x1000 /* allow multiple reads of some file */
 #define FSESS_POSIX_LOCKS         0x2000 /* daemon supports POSIX locks */
 #define FSESS_EXPORT_SUPPORT      0x10000 /* daemon supports NFS-style lookups */
@@ -241,6 +237,7 @@ struct fuse_data {
 #define FSESS_WARN_CACHE_INCOHERENT 0x200000	/* Read cache incoherent */
 #define FSESS_WARN_WB_CACHE_INCOHERENT 0x400000	/* WB cache incoherent */
 #define	FSESS_WARN_ILLEGAL_INODE  0x800000 /* Illegal inode for new file */
+#define FSESS_WARN_READLINK_EMBEDDED_NUL 0x1000000 /* corrupt READLINK output */
 #define FSESS_MNTOPTS_MASK	( \
 	FSESS_DAEMON_CAN_SPY | FSESS_PUSH_SYMLINKS_IN | \
 	FSESS_DEFAULT_PERMISSIONS | FSESS_INTR)

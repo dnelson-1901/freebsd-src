@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "lldb/Expression/IRInterpreter.h"
+#include "lldb/Core/Debugger.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Core/ValueObject.h"
@@ -167,6 +168,18 @@ public:
     const Constant *constant = dyn_cast<Constant>(value);
 
     if (constant) {
+      if (constant->getValueID() == Value::ConstantFPVal) {
+        if (auto *cfp = dyn_cast<ConstantFP>(constant)) {
+          if (cfp->getType()->isDoubleTy())
+            scalar = cfp->getValueAPF().convertToDouble();
+          else if (cfp->getType()->isFloatTy())
+            scalar = cfp->getValueAPF().convertToFloat();
+          else
+            return false;
+          return true;
+        }
+        return false;
+      }
       APInt value_apint;
 
       if (!ResolveConstantValue(value_apint, constant))
@@ -189,9 +202,18 @@ public:
 
     lldb::offset_t offset = 0;
     if (value_size <= 8) {
-      uint64_t u64value = value_extractor.GetMaxU64(&offset, value_size);
-      return AssignToMatchType(scalar, llvm::APInt(64, u64value),
-                               value->getType());
+      Type *ty = value->getType();
+      if (ty->isDoubleTy()) {
+        scalar = value_extractor.GetDouble(&offset);
+        return true;
+      } else if (ty->isFloatTy()) {
+        scalar = value_extractor.GetFloat(&offset);
+        return true;
+      } else {
+        uint64_t u64value = value_extractor.GetMaxU64(&offset, value_size);
+        return AssignToMatchType(scalar, llvm::APInt(64, u64value),
+                                 value->getType());
+      }
     }
 
     return false;
@@ -205,11 +227,15 @@ public:
       return false;
 
     lldb_private::Scalar cast_scalar;
-
-    scalar.MakeUnsigned();
-    if (!AssignToMatchType(cast_scalar, scalar.UInt128(llvm::APInt()),
-                           value->getType()))
-      return false;
+    Type *vty = value->getType();
+    if (vty->isFloatTy() || vty->isDoubleTy()) {
+      cast_scalar = scalar;
+    } else {
+      scalar.MakeUnsigned();
+      if (!AssignToMatchType(cast_scalar, scalar.UInt128(llvm::APInt()),
+                             value->getType()))
+        return false;
+    }
 
     size_t value_byte_size = m_target_data.getTypeStoreSize(value->getType());
 
@@ -238,7 +264,7 @@ public:
         lldb_private::ConstString name(constant_func->getName());
         bool missing_weak = false;
         lldb::addr_t addr = m_execution_unit.FindSymbol(name, missing_weak);
-        if (addr == LLDB_INVALID_ADDRESS || missing_weak)
+        if (addr == LLDB_INVALID_ADDRESS)
           return false;
         value = APInt(m_target_data.getPointerSizeInBits(), addr);
         return true;
@@ -383,7 +409,7 @@ public:
     lldb_private::Status alloc_error;
 
     return Malloc(m_target_data.getTypeAllocSize(type),
-                  m_target_data.getPrefTypeAlignment(type));
+                  m_target_data.getPrefTypeAlign(type).value());
   }
 
   std::string PrintData(lldb::addr_t addr, llvm::Type *type) {
@@ -439,13 +465,16 @@ static const char *unsupported_operand_error =
     "Interpreter doesn't handle one of the expression's operands";
 static const char *interpreter_internal_error =
     "Interpreter encountered an internal error";
+static const char *interrupt_error =
+    "Interrupted while interpreting expression";
 static const char *bad_value_error =
     "Interpreter couldn't resolve a value during execution";
 static const char *memory_allocation_error =
     "Interpreter couldn't allocate memory";
 static const char *memory_write_error = "Interpreter couldn't write to memory";
 static const char *memory_read_error = "Interpreter couldn't read from memory";
-static const char *infinite_loop_error = "Interpreter ran for too many cycles";
+static const char *timeout_error =
+    "Reached timeout while interpreting expression";
 static const char *too_many_functions_error =
     "Interpreter doesn't handle modules with multiple function bodies.";
 
@@ -506,6 +535,7 @@ bool IRInterpreter::CanInterpret(llvm::Module &module, llvm::Function &function,
         return false;
       }
       saw_function_with_body = true;
+      LLDB_LOGF(log, "Saw function with body: %s", f.getName().str().c_str());
     }
   }
 
@@ -543,16 +573,17 @@ bool IRInterpreter::CanInterpret(llvm::Module &module, llvm::Function &function,
       } break;
       case Instruction::GetElementPtr:
         break;
+      case Instruction::FCmp:
       case Instruction::ICmp: {
-        ICmpInst *icmp_inst = dyn_cast<ICmpInst>(&ii);
+        CmpInst *cmp_inst = dyn_cast<CmpInst>(&ii);
 
-        if (!icmp_inst) {
+        if (!cmp_inst) {
           error.SetErrorToGenericError();
           error.SetErrorString(interpreter_internal_error);
           return false;
         }
 
-        switch (icmp_inst->getPredicate()) {
+        switch (cmp_inst->getPredicate()) {
         default: {
           LLDB_LOGF(log, "Unsupported ICmp predicate: %s",
                     PrintValue(&ii).c_str());
@@ -561,11 +592,17 @@ bool IRInterpreter::CanInterpret(llvm::Module &module, llvm::Function &function,
           error.SetErrorString(unsupported_opcode_error);
           return false;
         }
+        case CmpInst::FCMP_OEQ:
         case CmpInst::ICMP_EQ:
+        case CmpInst::FCMP_UNE:
         case CmpInst::ICMP_NE:
+        case CmpInst::FCMP_OGT:
         case CmpInst::ICMP_UGT:
+        case CmpInst::FCMP_OGE:
         case CmpInst::ICMP_UGE:
+        case CmpInst::FCMP_OLT:
         case CmpInst::ICMP_ULT:
+        case CmpInst::FCMP_OLE:
         case CmpInst::ICMP_ULE:
         case CmpInst::ICMP_SGT:
         case CmpInst::ICMP_SGE:
@@ -594,6 +631,11 @@ bool IRInterpreter::CanInterpret(llvm::Module &module, llvm::Function &function,
       case Instruction::URem:
       case Instruction::Xor:
       case Instruction::ZExt:
+        break;
+      case Instruction::FAdd:
+      case Instruction::FSub:
+      case Instruction::FMul:
+      case Instruction::FDiv:
         break;
       }
 
@@ -645,7 +687,8 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
                               lldb_private::Status &error,
                               lldb::addr_t stack_frame_bottom,
                               lldb::addr_t stack_frame_top,
-                              lldb_private::ExecutionContext &exe_ctx) {
+                              lldb_private::ExecutionContext &exe_ctx,
+                              lldb_private::Timeout<std::micro> timeout) {
   lldb_private::Log *log(GetLog(LLDBLog::Expressions));
 
   if (log) {
@@ -684,11 +727,36 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
     frame.MakeArgument(&*ai, ptr);
   }
 
-  uint32_t num_insts = 0;
-
   frame.Jump(&function.front());
 
-  while (frame.m_ii != frame.m_ie && (++num_insts < 4096)) {
+  lldb_private::Process *process = exe_ctx.GetProcessPtr();
+  lldb_private::Target *target = exe_ctx.GetTargetPtr();
+
+  using clock = std::chrono::steady_clock;
+
+  // Compute the time at which the timeout has been exceeded.
+  std::optional<clock::time_point> end_time;
+  if (timeout && timeout->count() > 0)
+    end_time = clock::now() + *timeout;
+
+  while (frame.m_ii != frame.m_ie) {
+    // Timeout reached: stop interpreting.
+    if (end_time && clock::now() >= *end_time) {
+      error.SetErrorToGenericError();
+      error.SetErrorString(timeout_error);
+      return false;
+    }
+
+    // If we have access to the debugger we can honor an interrupt request.
+    if (target) {
+      if (INTERRUPT_REQUESTED(target->GetDebugger(),
+                              "Interrupted in IR interpreting.")) {
+        error.SetErrorToGenericError();
+        error.SetErrorString(interrupt_error);
+        return false;
+      }
+    }
+
     const Instruction *inst = &*frame.m_ii;
 
     LLDB_LOGF(log, "Interpreting %s", PrintValue(inst).c_str());
@@ -709,7 +777,11 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
     case Instruction::AShr:
     case Instruction::And:
     case Instruction::Or:
-    case Instruction::Xor: {
+    case Instruction::Xor:
+    case Instruction::FAdd:
+    case Instruction::FSub:
+    case Instruction::FMul:
+    case Instruction::FDiv: {
       const BinaryOperator *bin_op = dyn_cast<BinaryOperator>(inst);
 
       if (!bin_op) {
@@ -748,12 +820,15 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
       default:
         break;
       case Instruction::Add:
+      case Instruction::FAdd:
         result = L + R;
         break;
       case Instruction::Mul:
+      case Instruction::FMul:
         result = L * R;
         break;
       case Instruction::Sub:
+      case Instruction::FSub:
         result = L - R;
         break;
       case Instruction::SDiv:
@@ -764,6 +839,9 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
       case Instruction::UDiv:
         L.MakeUnsigned();
         R.MakeUnsigned();
+        result = L / R;
+        break;
+      case Instruction::FDiv:
         result = L / R;
         break;
       case Instruction::SRem:
@@ -1028,8 +1106,9 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
         LLDB_LOGF(log, "  Poffset : %s", frame.SummarizeValue(inst).c_str());
       }
     } break;
+    case Instruction::FCmp:
     case Instruction::ICmp: {
-      const ICmpInst *icmp_inst = cast<ICmpInst>(inst);
+      const CmpInst *icmp_inst = cast<CmpInst>(inst);
 
       CmpInst::Predicate predicate = icmp_inst->getPredicate();
 
@@ -1059,9 +1138,11 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
       default:
         return false;
       case CmpInst::ICMP_EQ:
+      case CmpInst::FCMP_OEQ:
         result = (L == R);
         break;
       case CmpInst::ICMP_NE:
+      case CmpInst::FCMP_UNE:
         result = (L != R);
         break;
       case CmpInst::ICMP_UGT:
@@ -1074,14 +1155,26 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
         R.MakeUnsigned();
         result = (L >= R);
         break;
+      case CmpInst::FCMP_OGE:
+        result = (L >= R);
+        break;
+      case CmpInst::FCMP_OGT:
+        result = (L > R);
+        break;
       case CmpInst::ICMP_ULT:
         L.MakeUnsigned();
         R.MakeUnsigned();
         result = (L < R);
         break;
+      case CmpInst::FCMP_OLT:
+        result = (L < R);
+        break;
       case CmpInst::ICMP_ULE:
         L.MakeUnsigned();
         R.MakeUnsigned();
+        result = (L <= R);
+        break;
+      case CmpInst::FCMP_OLE:
         result = (L <= R);
         break;
       case CmpInst::ICMP_SGT:
@@ -1355,7 +1448,7 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
       }
 
       // Make sure we have a valid process
-      if (!exe_ctx.GetProcessPtr()) {
+      if (!process) {
         error.SetErrorToGenericError();
         error.SetErrorString("unable to get the process");
         return false;
@@ -1416,7 +1509,7 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
           size_t dataSize = 0;
 
           bool Success = execution_unit.GetAllocSize(addr, dataSize);
-          (void)Success;
+          UNUSED_IF_ASSERT_DISABLED(Success);
           assert(Success &&
                  "unable to locate host data for transfer to device");
           // Create the required buffer
@@ -1461,11 +1554,11 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
         return false;
       }
 
-      exe_ctx.GetProcessPtr()->SetRunningUserExpression(true);
+      process->SetRunningUserExpression(true);
 
       // Execute the actual function call thread plan
-      lldb::ExpressionResults res = exe_ctx.GetProcessRef().RunThreadPlan(
-          exe_ctx, call_plan_sp, options, diagnostics);
+      lldb::ExpressionResults res =
+          process->RunThreadPlan(exe_ctx, call_plan_sp, options, diagnostics);
 
       // Check that the thread plan completed successfully
       if (res != lldb::ExpressionResults::eExpressionCompleted) {
@@ -1474,7 +1567,7 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
         return false;
       }
 
-      exe_ctx.GetProcessPtr()->SetRunningUserExpression(false);
+      process->SetRunningUserExpression(false);
 
       // Void return type
       if (returnType->isVoidTy()) {
@@ -1506,12 +1599,6 @@ bool IRInterpreter::Interpret(llvm::Module &module, llvm::Function &function,
     }
 
     ++frame.m_ii;
-  }
-
-  if (num_insts >= 4096) {
-    error.SetErrorToGenericError();
-    error.SetErrorString(infinite_loop_error);
-    return false;
   }
 
   return false;

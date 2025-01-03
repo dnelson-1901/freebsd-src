@@ -30,9 +30,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
@@ -58,7 +55,6 @@ static void	fixc1_nforce2(device_t dev);
 static device_method_t fixup_pci_methods[] = {
     /* Device interface */
     DEVMETHOD(device_probe,		fixup_pci_probe),
-    DEVMETHOD(device_attach,		bus_generic_attach),
     { 0, 0 }
 };
 

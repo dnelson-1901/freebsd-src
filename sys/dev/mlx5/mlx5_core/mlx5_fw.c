@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_rss.h"
@@ -238,6 +236,12 @@ int mlx5_query_hca_caps(struct mlx5_core_dev *dev)
 
 	if (MLX5_CAP_GEN(dev, event_cap)) {
 		err = mlx5_core_get_caps(dev, MLX5_CAP_DEV_EVENT);
+		if (err)
+			return err;
+	}
+
+	if (MLX5_CAP_GEN(dev, ipsec_offload)) {
+		err = mlx5_core_get_caps(dev, MLX5_CAP_IPSEC);
 		if (err)
 			return err;
 	}

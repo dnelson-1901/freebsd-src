@@ -23,9 +23,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -217,10 +214,11 @@ a37x0_spi_attach(device_t dev)
 		maxfreq = 0;
 	sc->sc_maxfreq = maxfreq;
 
-	device_add_child(dev, "spibus", -1);
+	device_add_child(dev, "spibus", DEVICE_UNIT_ANY);
 
 	/* Probe and attach the spibus when interrupts are available. */
-	return (bus_delayed_attach_children(dev));
+	bus_delayed_attach_children(dev);
+	return (0);
 }
 
 static int
@@ -229,7 +227,7 @@ a37x0_spi_detach(device_t dev)
 	int err;
 	struct a37x0_spi_softc *sc;
 
-	if ((err = device_delete_children(dev)) != 0)
+	if ((err = bus_generic_detach(dev)) != 0)
 		return (err);
 	sc = device_get_softc(dev);
 	mtx_destroy(&sc->sc_mtx);

@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -84,7 +81,7 @@ __FBSDID("$FreeBSD$");
 #define	 SMI_CLK_MODE			(1UL << 24)
 
 #define	SMI_EN				0x20
-#define	 SMI_EN_EN			(1UL << 0)	/* Enabele interface */
+#define	 SMI_EN_EN			(1UL << 0)	/* Enable interface */
 
 #define	SMI_DRV_CTL			0x28
 
@@ -456,10 +453,6 @@ thunder_mdio_phy_connect(device_t dev, int lmacid, int phy)
 		if (pd == NULL)
 			return (ENOMEM);
 		pd->ifp = if_alloc(IFT_ETHER);
-		if (pd->ifp == NULL) {
-			free(pd, M_THUNDER_MDIO);
-			return (ENOMEM);
-		}
 		pd->lmacid = lmacid;
 	}
 
@@ -501,7 +494,6 @@ thunder_mdio_phy_disconnect(device_t dev, int lmacid, int phy)
 
 	/* Detach miibus */
 	bus_generic_detach(dev);
-	device_delete_child(dev, pd->miibus);
 	/* Free fake ifnet */
 	if_free(pd->ifp);
 	/* Free memory under phy descriptor */

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 Semihalf
  * Copyright (c) 2009 Jakub Klama <jakub.klama@uj.edu.pl>
@@ -26,9 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -225,4 +222,4 @@ static struct g_class g_flashmap_class = {
 };
 
 DECLARE_GEOM_CLASS(g_flashmap_class, g_flashmap);
-MODULE_VERSION(g_flashmap, 0);
+MODULE_VERSION(geom_flashmap, 0);

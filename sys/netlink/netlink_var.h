@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Ng Peng Nam Sean
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
@@ -36,33 +36,37 @@
 #include <sys/taskqueue.h>
 #include <net/vnet.h>
 
-#define	NLSNDQ  65536 /* Default socket sendspace */
-#define	NLRCVQ	65536 /* Default socket recvspace */
+#define	NLSNDQ  	65536 /* Default socket sendspace */
+#define	NLRCVQ		65536 /* Default socket recvspace */
+
+#define	NLMBUFSIZE	2048	/* External storage size for Netlink mbufs */
 
 struct ucred;
 
-struct nl_io_queue {
-	STAILQ_HEAD(, mbuf)	head;
-	int			length;
-	int			hiwat;
+struct nl_buf {
+	TAILQ_ENTRY(nl_buf)	tailq;
+	u_int			buflen;
+	u_int			datalen;
+	u_int			offset;
+	char			data[];
 };
 
 #define	NLP_MAX_GROUPS		128
 
+BITSET_DEFINE(nl_groups, NLP_MAX_GROUPS);
 struct nlpcb {
         struct socket           *nl_socket;
-	uint64_t	        nl_groups[NLP_MAX_GROUPS / 64];
+	struct nl_groups	nl_groups;
 	uint32_t                nl_port;
 	uint32_t	        nl_flags;
 	uint32_t	        nl_process_id;
         int                     nl_proto;
-        bool			nl_active;
 	bool			nl_bound;
         bool			nl_task_pending;
 	bool			nl_tx_blocked; /* No new requests accepted */
 	bool			nl_linux; /* true if running under compat */
-	struct nl_io_queue	rx_queue;
-	struct nl_io_queue	tx_queue;
+	bool			nl_unconstrained_vnet; /* true if running under VNET jail (or without jail) */
+	bool			nl_need_thread_setup;
 	struct taskqueue	*nl_taskqueue;
 	struct task		nl_task;
 	struct ucred		*nl_cred; /* Copy of nl_socket->so_cred */
@@ -87,21 +91,15 @@ struct nlpcb {
 #define NLF_CAP_ACK             0x01 /* Do not send message body with errmsg */
 #define NLF_EXT_ACK             0x02 /* Allow including extended TLVs in ack */
 #define	NLF_STRICT		0x04 /* Perform strict header checks */
+#define	NLF_MSG_INFO		0x08 /* Send caller info along with the notifications */
 
 SYSCTL_DECL(_net_netlink);
-
-struct nl_io {
-	struct callout				callout;
-	struct mbuf				*head;
-	struct mbuf 				*last;
-	int64_t					length;
-};
+SYSCTL_DECL(_net_netlink_debug);
 
 struct nl_control {
 	CK_LIST_HEAD(nl_pid_head, nlpcb)	ctl_port_head;
 	CK_LIST_HEAD(nlpcb_head, nlpcb)		ctl_pcb_head;
 	CK_LIST_ENTRY(nl_control)		ctl_next;
-	struct nl_io				ctl_io;
 	struct rmlock				ctl_lock;
 };
 VNET_DECLARE(struct nl_control *, nl_ctl);
@@ -127,21 +125,78 @@ struct nl_proto_handler {
 extern struct nl_proto_handler *nl_handlers;
 
 /* netlink_domain.c */
-void nl_send_group(struct mbuf *m, int cnt, int proto, int group_id);
+bool nl_send_group(struct nl_writer *);
+void nl_osd_register(void);
+void nl_osd_unregister(void);
+void nl_set_thread_nlp(struct thread *td, struct nlpcb *nlp);
 
 /* netlink_io.c */
-#define	NL_IOF_UNTRANSLATED	0x01
-#define	NL_IOF_IGNORE_LIMIT	0x02
-bool nl_send_one(struct mbuf *m, struct nlpcb *nlp, int cnt, int io_flags);
+bool nl_send(struct nl_writer *, struct nlpcb *);
 void nlmsg_ack(struct nlpcb *nlp, int error, struct nlmsghdr *nlmsg,
     struct nl_pstate *npt);
 void nl_on_transmit(struct nlpcb *nlp);
-void nl_init_io(struct nlpcb *nlp);
-void nl_free_io(struct nlpcb *nlp);
 
 void nl_taskqueue_handler(void *_arg, int pending);
-int nl_receive_async(struct mbuf *m, struct socket *so);
+void nl_schedule_taskqueue(struct nlpcb *nlp);
 void nl_process_receive_locked(struct nlpcb *nlp);
+void nl_set_source_metadata(struct mbuf *m, int num_messages);
+struct nl_buf *nl_buf_alloc(size_t len, int mflag);
+void nl_buf_free(struct nl_buf *nb);
+
+/* netlink_generic.c */
+struct genl_family {
+	const char	*family_name;
+	uint16_t	family_hdrsize;
+	uint16_t	family_id;
+	uint16_t	family_version;
+	uint16_t	family_attr_max;
+	uint16_t	family_cmd_size;
+	uint16_t	family_num_groups;
+	struct genl_cmd	*family_cmds;
+};
+
+struct genl_group {
+	struct genl_family	*group_family;
+	const char		*group_name;
+};
+
+struct genl_family *genl_get_family(uint16_t family_id);
+struct genl_group *genl_get_group(uint32_t group_id);
+
+#define	MAX_FAMILIES	20
+#define	MAX_GROUPS	64
+
+#define	MIN_GROUP_NUM	48
+
+#define	CTRL_FAMILY_NAME	"nlctrl"
+
+struct ifnet;
+struct nl_parsed_link;
+struct nlattr_bmask;
+struct nl_pstate;
+
+/* Function map */
+struct nl_function_wrapper {
+	bool (*nlmsg_add)(struct nl_writer *nw, uint32_t portid, uint32_t seq, uint16_t type,
+	    uint16_t flags, uint32_t len);
+	bool (*nlmsg_refill_buffer)(struct nl_writer *nw, size_t required_len);
+	bool (*nlmsg_flush)(struct nl_writer *nw);
+	bool (*nlmsg_end)(struct nl_writer *nw);
+	void (*nlmsg_abort)(struct nl_writer *nw);
+	void (*nlmsg_ignore_limit)(struct nl_writer *nw);
+	bool (*nl_writer_unicast)(struct nl_writer *nw, size_t size,
+	    struct nlpcb *nlp, bool waitok);
+	bool (*nl_writer_group)(struct nl_writer *nw, size_t size,
+	    uint16_t protocol, uint16_t group_id, bool waitok);
+	bool (*nlmsg_end_dump)(struct nl_writer *nw, int error, struct nlmsghdr *hdr);
+	int (*nl_modify_ifp_generic)(struct ifnet *ifp, struct nl_parsed_link *lattrs,
+	    const struct nlattr_bmask *bm, struct nl_pstate *npt);
+	void (*nl_store_ifp_cookie)(struct nl_pstate *npt, struct ifnet *ifp);
+	struct nlpcb * (*nl_get_thread_nlp)(struct  thread *td);
+};
+void nl_set_functions(const struct nl_function_wrapper *nl);
+
+
 
 #endif
 #endif

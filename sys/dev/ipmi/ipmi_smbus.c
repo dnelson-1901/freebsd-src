@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 IronPort Systems Inc. <ambrisko@ironport.com>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -63,7 +60,7 @@ ipmi_smbus_identify(driver_t *driver, device_t parent)
 
 	if (ipmi_smbios_identify(&info) && info.iface_type == SSIF_MODE &&
 	    device_find_child(parent, "ipmi", -1) == NULL)
-		BUS_ADD_CHILD(parent, 0, "ipmi", -1);
+		BUS_ADD_CHILD(parent, 0, "ipmi", DEVICE_UNIT_ANY);
 }
 
 static int

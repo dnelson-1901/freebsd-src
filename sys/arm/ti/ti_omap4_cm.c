@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Emmanuel Vadot <manu@FreeBSD.org>
  * Copyright (c) 2020 Oskar Holmlund <oskar.holmlund@ohdata.se>
@@ -26,12 +26,7 @@
  * SUCH DAMAGE.
  *
  * Based on sys/arm/ti/ti_sysc.c
- *
- * $FreeBSD$
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -112,7 +107,7 @@ ti_omap4_cm_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	bus_generic_probe(sc->dev);
+	bus_identify_children(sc->dev);
 
 	for (child = OF_child(node); child > 0; child = OF_peer(child)) {
 		cdev = simplebus_add_device(dev, child, 0, NULL, -1, NULL);
@@ -120,7 +115,8 @@ ti_omap4_cm_attach(device_t dev)
 			device_probe_and_attach(cdev);
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Ganbold Tsagaankhuu <ganbold@freebsd.org>
  * All rights reserved.
@@ -24,14 +24,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /* A10/A20 EMAC driver */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -80,7 +75,7 @@ __FBSDID("$FreeBSD$");
 #include <arm/allwinner/if_emacreg.h>
 #include <arm/allwinner/aw_sid.h>
 
-#include <dev/extres/clk/clk.h>
+#include <dev/clk/clk.h>
 
 #include "miibus_if.h"
 
@@ -816,10 +811,7 @@ emac_detach(device_t dev)
 		bus_teardown_intr(sc->emac_dev, sc->emac_irq,
 		    sc->emac_intrhand);
 
-	if (sc->emac_miibus != NULL) {
-		device_delete_child(sc->emac_dev, sc->emac_miibus);
-		bus_generic_detach(sc->emac_dev);
-	}
+	bus_generic_detach(sc->emac_dev);
 
 	if (sc->emac_clk != NULL)
 		clk_disable(sc->emac_clk);
@@ -945,11 +937,6 @@ emac_attach(device_t dev)
 	emac_reset(sc);
 
 	ifp = sc->emac_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "unable to allocate ifp\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 
 	/* Setup MII */
@@ -991,7 +978,7 @@ fail:
 	return (error);
 }
 
-static boolean_t
+static bool
 emac_miibus_iowait(struct emac_softc *sc)
 {
 	uint32_t timeout;

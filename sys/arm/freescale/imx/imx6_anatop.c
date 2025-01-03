@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Ian Lepore <ian@freebsd.org>
  * Copyright (c) 2014 Steven Lawrance <stl@koffein.net>
@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Analog PLL and power regulator driver for Freescale i.MX6 family of SoCs.
  * Also, temperature montoring and cpu frequency control.  It was Freescale who
@@ -672,7 +670,7 @@ imx6_anatop_new_pass(device_t dev)
 	 * that attach on the CPU pass).
 	 */
 	sc = device_get_softc(dev);
-	if (!sc->cpu_init_done && bus_current_pass >= cpu_init_pass) {
+	if (!sc->cpu_init_done && bus_get_pass() >= cpu_init_pass) {
 		sc->cpu_init_done = true;
 		cpufreq_initialize(sc);
 		initialize_tempmon(sc);

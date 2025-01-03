@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013  Chris Torek <torek @ torek net>
  * All rights reserved.
@@ -27,14 +27,10 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/uio.h>
 
 #include <machine/atomic.h>
-#include <machine/vmm_snapshot.h>
 
 #include <dev/virtio/pci/virtio_pci_legacy_var.h>
 
@@ -47,6 +43,9 @@ __FBSDID("$FreeBSD$");
 #include "bhyverun.h"
 #include "debug.h"
 #include "pci_emul.h"
+#ifdef BHYVE_SNAPSHOT
+#include "snapshot.h"
+#endif
 #include "virtio.h"
 
 /*
@@ -217,10 +216,15 @@ static inline void
 _vq_record(int i, struct vring_desc *vd, struct vmctx *ctx, struct iovec *iov,
     int n_iov, struct vi_req *reqp)
 {
+	uint32_t len;
+	uint64_t addr;
+
 	if (i >= n_iov)
 		return;
-	iov[i].iov_base = paddr_guest2host(ctx, vd->addr, vd->len);
-	iov[i].iov_len = vd->len;
+	len = atomic_load_32(&vd->len);
+	addr = atomic_load_64(&vd->addr);
+	iov[i].iov_len = len;
+	iov[i].iov_base = paddr_guest2host(ctx, addr, len);
 	if ((vd->flags & VRING_DESC_F_WRITE) == 0)
 		reqp->readable++;
 	else
@@ -880,8 +884,10 @@ vi_pci_snapshot_queues(struct virtio_softc *vs, struct vm_snapshot_meta *meta)
 	int ret;
 	struct virtio_consts *vc;
 	struct vqueue_info *vq;
+	struct vmctx *ctx;
 	uint64_t addr_size;
 
+	ctx = vs->vs_pi->pi_vmctx;
 	vc = vs->vs_vc;
 
 	/* Save virtio queue info */
@@ -903,15 +909,15 @@ vi_pci_snapshot_queues(struct virtio_softc *vs, struct vm_snapshot_meta *meta)
 			continue;
 
 		addr_size = vq->vq_qsize * sizeof(struct vring_desc);
-		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(vq->vq_desc, addr_size,
+		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_desc, addr_size,
 			false, meta, ret, done);
 
 		addr_size = (2 + vq->vq_qsize + 1) * sizeof(uint16_t);
-		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(vq->vq_avail, addr_size,
+		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_avail, addr_size,
 			false, meta, ret, done);
 
 		addr_size  = (2 + 2 * vq->vq_qsize + 1) * sizeof(uint16_t);
-		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(vq->vq_used, addr_size,
+		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_used, addr_size,
 			false, meta, ret, done);
 
 		SNAPSHOT_BUF_OR_LEAVE(vq->vq_desc,

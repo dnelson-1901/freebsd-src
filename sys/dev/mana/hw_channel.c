@@ -27,8 +27,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -418,8 +416,6 @@ mana_hwc_create_cq(struct hw_channel_context *hwc,
 		cq_size = MINIMUM_SUPPORTED_PAGE_SIZE;
 
 	hwc_cq = malloc(sizeof(*hwc_cq), M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!hwc_cq)
-		return ENOMEM;
 
 	err = mana_hwc_create_gdma_eq(hwc, eq_size, ctx, callback, &eq);
 	if (err) {
@@ -440,10 +436,6 @@ mana_hwc_create_cq(struct hw_channel_context *hwc,
 
 	comp_buf = mallocarray(q_depth, sizeof(struct gdma_comp),
 	    M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!comp_buf) {
-		err = ENOMEM;
-		goto out;
-	}
 
 	hwc_cq->hwc = hwc;
 	hwc_cq->comp_buf = comp_buf;
@@ -478,8 +470,6 @@ mana_hwc_alloc_dma_buf(struct hw_channel_context *hwc, uint16_t q_depth,
 	dma_buf = malloc(sizeof(*dma_buf) +
 	    q_depth * sizeof(struct hwc_work_request),
 	    M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!dma_buf)
-		return ENOMEM;
 
 	dma_buf->num_reqs = q_depth;
 
@@ -562,8 +552,6 @@ mana_hwc_create_wq(struct hw_channel_context *hwc,
 		queue_size = MINIMUM_SUPPORTED_PAGE_SIZE;
 
 	hwc_wq = malloc(sizeof(*hwc_wq), M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!hwc_wq)
-		return ENOMEM;
 
 	err = mana_hwc_create_gdma_wq(hwc, q_type, queue_size, &queue);
 	if (err)
@@ -671,8 +659,6 @@ mana_hwc_test_channel(struct hw_channel_context *hwc, uint16_t q_depth,
 
 	ctx = malloc(q_depth * sizeof(struct hwc_caller_ctx),
 	    M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!ctx)
-		return ENOMEM;
 
 	for (i = 0; i < q_depth; ++i)
 		init_completion(&ctx[i].comp_event);
@@ -721,9 +707,6 @@ mana_hwc_establish_channel(struct gdma_context *gc, uint16_t *q_depth,
 
 	gc->cq_table = malloc(gc->max_num_cqs * sizeof(struct gdma_queue *),
 	    M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!gc->cq_table)
-		return ENOMEM;
-
 	gc->cq_table[cq->id] = cq;
 
 	return 0;
@@ -784,8 +767,6 @@ mana_hwc_create_channel(struct gdma_context *gc)
 	int err;
 
 	hwc = malloc(sizeof(*hwc), M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!hwc)
-		return ENOMEM;
 
 	gd->gdma_context = gc;
 	gd->driver_data = hwc;

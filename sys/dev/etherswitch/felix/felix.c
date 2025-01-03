@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Alstom Group.
  * Copyright (c) 2021 Semihalf.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -243,9 +240,6 @@ felix_init_interface(felix_softc_t sc, int port)
 	snprintf(name, IFNAMSIZ, "%sport", device_get_nameunit(sc->dev));
 
 	sc->ports[port].ifp = if_alloc(IFT_ETHER);
-	if (sc->ports[port].ifp == NULL)
-		return (ENOMEM);
-
 	if_setsoftc(sc->ports[port].ifp, sc);
 	if_setflags(sc->ports[port].ifp, IFF_UP | IFF_BROADCAST | IFF_MULTICAST |
 	    IFF_DRV_RUNNING | IFF_SIMPLEX);
@@ -469,8 +463,8 @@ felix_attach(device_t dev)
 	FELIX_UNLOCK(sc);
 
 	/* Allow etherswitch to attach as our child. */
-	bus_generic_probe(dev);
-	bus_generic_attach(dev);
+	bus_identify_children(dev);
+	bus_attach_children(dev);
 
 	return (0);
 
@@ -486,9 +480,10 @@ felix_detach(device_t dev)
 	int error;
 	int i;
 
-	error = 0;
 	sc = device_get_softc(dev);
-	bus_generic_detach(dev);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	mtx_lock(&sc->mtx);
 	callout_stop(&sc->tick_callout);
@@ -503,8 +498,6 @@ felix_detach(device_t dev)
 		felix_setup(sc);
 
 	for (i = 0; i < sc->info.es_nports; i++) {
-		if (sc->ports[i].miibus != NULL)
-			device_delete_child(dev, sc->ports[i].miibus);
 		if (sc->ports[i].ifp != NULL)
 			if_free(sc->ports[i].ifp);
 		if (sc->ports[i].ifname != NULL)

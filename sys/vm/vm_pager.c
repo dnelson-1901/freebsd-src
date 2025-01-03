@@ -31,8 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)vm_pager.c	8.6 (Berkeley) 1/12/94
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -66,8 +64,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_param.h"
 
 #include <sys/param.h>
@@ -129,7 +125,7 @@ dead_pager_putpages(vm_object_t object, vm_page_t *m, int count,
 		rtvals[i] = VM_PAGER_AGAIN;
 }
 
-static int
+static boolean_t
 dead_pager_haspage(vm_object_t object, vm_pindex_t pindex, int *prev, int *next)
 {
 
@@ -474,7 +470,7 @@ pbuf_ctor(void *mem, int size, void *arg, int flags)
 	bp->b_ioflags = 0;
 	bp->b_iodone = NULL;
 	bp->b_error = 0;
-	BUF_LOCK(bp, LK_EXCLUSIVE | LK_NOWAIT, NULL);
+	BUF_LOCK(bp, LK_EXCLUSIVE | LK_NOWITNESS, NULL);
 
 	return (0);
 }

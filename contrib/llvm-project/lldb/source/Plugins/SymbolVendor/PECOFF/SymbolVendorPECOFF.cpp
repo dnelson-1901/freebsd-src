@@ -16,7 +16,6 @@
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/Section.h"
 #include "lldb/Host/Host.h"
-#include "lldb/Symbol/LocateSymbolFile.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Utility/StreamString.h"
@@ -87,7 +86,7 @@ SymbolVendorPECOFF::CreateInstance(const lldb::ModuleSP &module_sp,
   module_spec.GetUUID() = uuid;
   FileSpecList search_paths = Target::GetDefaultDebugFileSearchPaths();
   FileSpec dsym_fspec =
-      Symbols::LocateExecutableSymbolFile(module_spec, search_paths);
+      PluginManager::LocateExecutableSymbolFile(module_spec, search_paths);
   if (!dsym_fspec)
     return nullptr;
 
@@ -101,8 +100,6 @@ SymbolVendorPECOFF::CreateInstance(const lldb::ModuleSP &module_sp,
 
   // This objfile is for debugging purposes.
   dsym_objfile_sp->SetType(ObjectFile::eTypeDebugInfo);
-
-  SymbolVendorPECOFF *symbol_vendor = new SymbolVendorPECOFF(module_sp);
 
   // Get the module unified section list and add our debug sections to
   // that.
@@ -132,6 +129,7 @@ SymbolVendorPECOFF::CreateInstance(const lldb::ModuleSP &module_sp,
     }
   }
 
+  SymbolVendorPECOFF *symbol_vendor = new SymbolVendorPECOFF(module_sp);
   symbol_vendor->AddSymbolFileRepresentation(dsym_objfile_sp);
   return symbol_vendor;
 }

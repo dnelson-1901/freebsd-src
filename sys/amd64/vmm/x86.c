@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 NetApp, Inc.
  * All rights reserved.
@@ -24,12 +24,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/pcpu.h>
@@ -41,11 +36,11 @@ __FBSDID("$FreeBSD$");
 #include <machine/md_var.h>
 #include <machine/segments.h>
 #include <machine/specialreg.h>
-
 #include <machine/vmm.h>
 
+#include <dev/vmm/vmm_ktr.h>
+
 #include "vmm_host.h"
-#include "vmm_ktr.h"
 #include "vmm_util.h"
 #include "x86.h"
 
@@ -66,14 +61,13 @@ SYSCTL_INT(_hw_vmm_topology, OID_AUTO, cpuid_leaf_b, CTLFLAG_RDTUN,
     &cpuid_leaf_b, 0, NULL);
 
 /*
- * Round up to the next power of two, if necessary, and then take log2.
- * Returns -1 if argument is zero.
+ * Compute ceil(log2(x)).  Returns -1 if x is zero.
  */
 static __inline int
 log2(u_int x)
 {
 
-	return (fls(x << (1 - powerof2(x))) - 1);
+	return (x == 0 ? -1 : order_base_2(x));
 }
 
 int
@@ -239,7 +233,7 @@ x86_emulate_cpuid(struct vcpu *vcpu, uint64_t *rax, uint64_t *rbx,
 				goto default_leaf;
 
 			/*
-			 * Similar to Intel, generate a ficticious cache
+			 * Similar to Intel, generate a fictitious cache
 			 * topology for the guest with L3 shared by the
 			 * package, and L1 and L2 local to a core.
 			 */
@@ -431,18 +425,22 @@ x86_emulate_cpuid(struct vcpu *vcpu, uint64_t *rax, uint64_t *rbx,
 				/*
 				 * Expose known-safe features.
 				 */
-				regs[1] &= (CPUID_STDEXT_FSGSBASE |
+				regs[1] &= CPUID_STDEXT_FSGSBASE |
 				    CPUID_STDEXT_BMI1 | CPUID_STDEXT_HLE |
 				    CPUID_STDEXT_AVX2 | CPUID_STDEXT_SMEP |
 				    CPUID_STDEXT_BMI2 |
 				    CPUID_STDEXT_ERMS | CPUID_STDEXT_RTM |
 				    CPUID_STDEXT_AVX512F |
+				    CPUID_STDEXT_AVX512DQ |
 				    CPUID_STDEXT_RDSEED |
 				    CPUID_STDEXT_SMAP |
 				    CPUID_STDEXT_AVX512PF |
 				    CPUID_STDEXT_AVX512ER |
-				    CPUID_STDEXT_AVX512CD | CPUID_STDEXT_SHA);
-				regs[2] = 0;
+				    CPUID_STDEXT_AVX512CD | CPUID_STDEXT_SHA |
+				    CPUID_STDEXT_AVX512BW |
+				    CPUID_STDEXT_AVX512VL;
+				regs[2] &= CPUID_STDEXT2_VAES |
+				    CPUID_STDEXT2_VPCLMULQDQ;
 				regs[3] &= CPUID_STDEXT3_MD_CLEAR;
 
 				/* Advertise RDPID if it is enabled. */

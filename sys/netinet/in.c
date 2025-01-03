@@ -28,13 +28,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)in.c	8.4 (Berkeley) 1/9/95
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 
 #define IN_HISTORICAL_NETS		/* include class masks */
@@ -77,6 +73,10 @@ __FBSDID("$FreeBSD$");
 #include <netinet/udp.h>
 #include <netinet/udp_var.h>
 
+#ifdef MAC
+#include <security/mac/mac_framework.h>
+#endif
+
 static int in_aifaddr_ioctl(u_long, caddr_t, struct ifnet *, struct ucred *);
 static int in_difaddr_ioctl(u_long, caddr_t, struct ifnet *, struct ucred *);
 static int in_gifaddr_ioctl(u_long, caddr_t, struct ifnet *, struct ucred *);
@@ -102,13 +102,13 @@ VNET_DEFINE(bool, ip_allow_net240) = false;
 #define	V_ip_allow_net240		VNET(ip_allow_net240)
 SYSCTL_BOOL(_net_inet_ip, OID_AUTO, allow_net240,
 	CTLFLAG_VNET | CTLFLAG_RW, &VNET_NAME(ip_allow_net240), 0,
-	"Allow use of Experimental addresses, aka Class E (240/4)");
+	"Allow forwarding of and ICMP response to Experimental addresses, aka Class E (240/4)");
 /* see https://datatracker.ietf.org/doc/draft-schoen-intarea-unicast-240 */
 
 VNET_DEFINE(bool, ip_allow_net0) = false;
 SYSCTL_BOOL(_net_inet_ip, OID_AUTO, allow_net0,
 	CTLFLAG_VNET | CTLFLAG_RW, &VNET_NAME(ip_allow_net0), 0,
-	"Allow use of addresses in network 0/8");
+	"Allow forwarding of and ICMP response to addresses in network 0/8");
 /* see https://datatracker.ietf.org/doc/draft-schoen-intarea-unicast-0 */
 
 VNET_DEFINE(uint32_t, in_loopback_mask) = IN_LOOPBACK_MASK_DFLT;
@@ -165,7 +165,7 @@ in_localip(struct in_addr in)
 }
 
 /*
- * Like in_localip(), but FIB-aware.
+ * Like in_localip(), but FIB-aware and carp(4)-aware.
  */
 bool
 in_localip_fib(struct in_addr in, uint16_t fib)
@@ -176,6 +176,8 @@ in_localip_fib(struct in_addr in, uint16_t fib)
 
 	CK_LIST_FOREACH(ia, INADDR_HASH(in.s_addr), ia_hash)
 		if (IA_SIN(ia)->sin_addr.s_addr == in.s_addr &&
+		    (ia->ia_ifa.ifa_carp == NULL ||
+		    carp_master_p(&ia->ia_ifa)) &&
 		    ia->ia_ifa.ifa_ifp->if_fib == fib)
 			return (true);
 
@@ -325,8 +327,8 @@ in_socktrim(struct sockaddr_in *ap)
  * Generic internet control operations (ioctl's).
  */
 int
-in_control(struct socket *so, u_long cmd, void *data, struct ifnet *ifp,
-    struct thread *td)
+in_control_ioctl(u_long cmd, void *data, struct ifnet *ifp,
+    struct ucred *cred)
 {
 	struct ifreq *ifr = (struct ifreq *)data;
 	struct sockaddr_in *addr = (struct sockaddr_in *)&ifr->ifr_addr;
@@ -337,8 +339,6 @@ in_control(struct socket *so, u_long cmd, void *data, struct ifnet *ifp,
 
 	if (ifp == NULL)
 		return (EADDRNOTAVAIL);
-
-	struct ucred *cred = (td != NULL) ? td->td_ucred : NULL;
 
 	/*
 	 * Filter out 4 ioctls we implement directly.  Forward the rest
@@ -441,6 +441,34 @@ in_control(struct socket *so, u_long cmd, void *data, struct ifnet *ifp,
 	return (error);
 }
 
+int
+in_mask2len(struct in_addr *mask)
+{
+	int x, y;
+	u_char *p;
+
+	p = (u_char *)mask;
+	for (x = 0; x < sizeof(*mask); x++) {
+		if (p[x] != 0xff)
+			break;
+	}
+	y = 0;
+	if (x < sizeof(*mask)) {
+		for (y = 0; y < 8; y++) {
+			if ((p[x] & (0x80 >> y)) == 0)
+				break;
+		}
+	}
+	return (x * 8 + y);
+}
+
+int
+in_control(struct socket *so, u_long cmd, void *data, struct ifnet *ifp,
+    struct thread *td)
+{
+	return (in_control_ioctl(cmd, data, ifp, td ? td->td_ucred : NULL));
+}
+
 static int
 in_aifaddr_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp, struct ucred *cred)
 {
@@ -481,6 +509,13 @@ in_aifaddr_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp, struct ucred *cred
 		return (EDESTADDRREQ);
 	if (vhid != 0 && carp_attach_p == NULL)
 		return (EPROTONOSUPPORT);
+
+#ifdef MAC
+	/* Check if a MAC policy disallows setting the IPv4 address. */
+	error = mac_inet_check_add_addr(cred, &addr->sin_addr, ifp);
+	if (error != 0)
+		return (error);
+#endif
 
 	/*
 	 * See whether address already exist.
@@ -1208,7 +1243,7 @@ in_ifscrub_all(void)
 {
 	struct ifnet *ifp;
 	struct ifaddr *ifa, *nifa;
-	struct ifaliasreq ifr;
+	struct ifreq ifr;
 
 	IFNET_RLOCK();
 	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
@@ -1223,9 +1258,7 @@ in_ifscrub_all(void)
 			 * cleanly remove addresses and everything attached.
 			 */
 			bzero(&ifr, sizeof(ifr));
-			ifr.ifra_addr = *ifa->ifa_addr;
-			if (ifa->ifa_dstaddr)
-			ifr.ifra_broadaddr = *ifa->ifa_dstaddr;
+			ifr.ifr_addr = *ifa->ifa_addr;
 			(void)in_control(NULL, SIOCDIFADDR, (caddr_t)&ifr,
 			    ifp, NULL);
 		}
@@ -1459,9 +1492,6 @@ in_lltable_new(struct in_addr addr4, u_int flags)
 	return (&lle->base);
 }
 
-#define IN_ARE_MASKED_ADDR_EQUAL(d, a, m)	(		\
-	((((d).s_addr ^ (a).s_addr) & (m).s_addr)) == 0 )
-
 static int
 in_lltable_match_prefix(const struct sockaddr *saddr,
     const struct sockaddr *smask, u_int flags, struct llentry *lle)
@@ -1671,6 +1701,7 @@ in_lltable_alloc(struct lltable *llt, u_int flags, const struct sockaddr *l3addr
 		    lladdr_off);
 		lle->la_flags |= LLE_STATIC;
 		lle->r_flags |= (RLLE_VALID | RLLE_IFADDR);
+		lle->la_expire = 0;
 	}
 
 	return (lle);

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 TESTSDIR=		${TESTSBASE}/sys
@@ -8,8 +6,11 @@ TESTS_SUBDIRS+=		acl
 TESTS_SUBDIRS+=		aio
 TESTS_SUBDIRS+=		${_audit}
 TESTS_SUBDIRS+=		auditpipe
+TESTS_SUBDIRS+=		cam
 TESTS_SUBDIRS+=		capsicum
 TESTS_SUBDIRS+=		${_cddl}
+# XXX: Currently broken in CI
+#TESTS_SUBDIRS+=		compat32
 TESTS_SUBDIRS+=		devrandom
 TESTS_SUBDIRS+=		fifo
 TESTS_SUBDIRS+=		file
@@ -30,6 +31,7 @@ TESTS_SUBDIRS+=		netpfil
 TESTS_SUBDIRS+=		opencrypto
 TESTS_SUBDIRS+=		posixshm
 TESTS_SUBDIRS+=		ses
+TESTS_SUBDIRS+=		sound
 TESTS_SUBDIRS+=		sys
 TESTS_SUBDIRS+=		vfs
 TESTS_SUBDIRS+=		vm

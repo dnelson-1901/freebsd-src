@@ -1,5 +1,5 @@
 /*
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Rob Wing
  *
@@ -59,7 +59,6 @@ knlist_sx_assert_lock(void *arg, int what)
 void
 knlist_init_sx(struct knlist *knl, struct sx *lock)
 {
-
 	knlist_init(knl, lock, knlist_sx_xlock, knlist_sx_xunlock,
 	    knlist_sx_assert_lock);
 }

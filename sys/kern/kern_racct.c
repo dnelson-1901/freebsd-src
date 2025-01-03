@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010 The FreeBSD Foundation
  *
@@ -26,13 +26,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_sched.h"
 
 #include <sys/param.h>
@@ -62,8 +58,6 @@ __FBSDID("$FreeBSD$");
 #ifdef RCTL
 #include <sys/rctl.h>
 #endif
-
-#ifdef RACCT
 
 FEATURE(racct, "Resource Accounting");
 
@@ -338,12 +332,6 @@ racct_getpcpu(struct proc *p, u_int pcpu)
 
 	ASSERT_RACCT_ENABLED();
 
-	/*
-	 * If the process is swapped out, we count its %cpu usage as zero.
-	 * This behaviour is consistent with the userland ps(1) tool.
-	 */
-	if ((p->p_flag & P_INMEM) == 0)
-		return (0);
 	swtime = (ticks - p->p_swtick) / hz;
 
 	/*
@@ -1368,5 +1356,3 @@ racct_init(void)
 	prison0.pr_prison_racct = prison_racct_find("0");
 }
 SYSINIT(racct, SI_SUB_RACCT, SI_ORDER_FIRST, racct_init, NULL);
-
-#endif /* !RACCT */

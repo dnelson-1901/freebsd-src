@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	From: @(#)if.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef	_NET_IF_PRIVATE_H_
@@ -141,6 +139,8 @@ struct ifnet {
 	int	(*if_requestencap)	/* make link header from request */
 		(struct ifnet *, struct if_encap_req *);
 
+	const struct if_ipsec_accel_methods *if_ipsec_accel_m;
+
 	/* Statistics. */
 	counter_u64_t	if_counters[IFCOUNTERS];
 
@@ -192,6 +192,23 @@ struct ifnet {
 	 */
 	int	if_ispare[4];		/* general use */
 };
+
+#define	IF_AFDATA_LOCK_INIT(ifp)	\
+	mtx_init(&(ifp)->if_afdata_lock, "if_afdata", NULL, MTX_DEF)
+
+#define	IF_AFDATA_WLOCK(ifp)	mtx_lock(&(ifp)->if_afdata_lock)
+#define	IF_AFDATA_WUNLOCK(ifp)	mtx_unlock(&(ifp)->if_afdata_lock)
+#define	IF_AFDATA_LOCK(ifp)	IF_AFDATA_WLOCK(ifp)
+#define	IF_AFDATA_UNLOCK(ifp)	IF_AFDATA_WUNLOCK(ifp)
+#define	IF_AFDATA_TRYLOCK(ifp)	mtx_trylock(&(ifp)->if_afdata_lock)
+#define	IF_AFDATA_DESTROY(ifp)	mtx_destroy(&(ifp)->if_afdata_lock)
+
+#define	IF_AFDATA_LOCK_ASSERT(ifp)	MPASS(in_epoch(net_epoch_preempt) || mtx_owned(&(ifp)->if_afdata_lock))
+#define	IF_AFDATA_WLOCK_ASSERT(ifp)	mtx_assert(&(ifp)->if_afdata_lock, MA_OWNED)
+#define	IF_AFDATA_UNLOCK_ASSERT(ifp)	mtx_assert(&(ifp)->if_afdata_lock, MA_NOTOWNED)
+
+#define IF_LLADDR(ifp)							\
+    LLADDR((struct sockaddr_dl *)((ifp)->if_addr->ifa_addr))
 
 #endif	/* _KERNEL */
 

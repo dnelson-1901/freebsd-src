@@ -18,8 +18,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*-
  * Ralink Technology RT2700U/RT2800U/RT3000U/RT3900E chipset driver.
  * http://www.ralinktech.com/
@@ -2872,7 +2870,6 @@ run_rx_frame(struct run_softc *sc, struct mbuf *m, uint32_t dmalen)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_frame *wh;
 	struct ieee80211_node *ni;
-	struct epoch_tracker et;
 	struct rt2870_rxd *rxd;
 	struct rt2860_rxwi *rxwi;
 	uint32_t flags;
@@ -2995,14 +2992,12 @@ run_rx_frame(struct run_softc *sc, struct mbuf *m, uint32_t dmalen)
 		}
 	}
 
-	NET_EPOCH_ENTER(et);
 	if (ni != NULL) {
 		(void)ieee80211_input(ni, m, rssi, nf);
 		ieee80211_free_node(ni);
 	} else {
 		(void)ieee80211_input_all(ic, m, rssi, nf);
 	}
-	NET_EPOCH_EXIT(et);
 
 	return;
 
@@ -3600,9 +3595,7 @@ run_tx_mgt(struct run_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	wh = mtod(m, struct ieee80211_frame *);
 
 	/* tell hardware to add timestamp for probe responses */
-	if ((wh->i_fc[0] &
-	    (IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_MASK)) ==
-	    (IEEE80211_FC0_TYPE_MGT | IEEE80211_FC0_SUBTYPE_PROBE_RESP))
+	if (IEEE80211_IS_MGMT_PROBE_RESP(wh))
 		wflags |= RT2860_TX_TS;
 	else if (!IEEE80211_IS_MULTICAST(wh->i_addr1)) {
 		xflags |= RT2860_TX_ACK;

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009-2013, 2016 Chelsio, Inc. All rights reserved.
  *
@@ -32,8 +32,6 @@
  * SOFTWARE.
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 
 #ifdef TCP_OFFLOAD
@@ -147,30 +145,24 @@ static void process_newconn(struct c4iw_listen_ep *master_lep,
 
 #define GET_LOCAL_ADDR(pladdr, so) \
 	do { \
-		struct sockaddr_storage *__a = NULL; \
 		struct  inpcb *__inp = sotoinpcb(so); \
 		KASSERT(__inp != NULL, \
 		   ("GET_LOCAL_ADDR(%s):so:%p, inp = NULL", __func__, so)); \
 		if (__inp->inp_vflag & INP_IPV4) \
-			in_getsockaddr(so, (struct sockaddr **)&__a); \
+			in_getsockaddr(so, (struct sockaddr *)pladdr); \
 		else \
-			in6_getsockaddr(so, (struct sockaddr **)&__a); \
-		*(pladdr) = *__a; \
-		free(__a, M_SONAME); \
+			in6_getsockaddr(so, (struct sockaddr *)pladdr); \
 	} while (0)
 
 #define GET_REMOTE_ADDR(praddr, so) \
 	do { \
-		struct sockaddr_storage *__a = NULL; \
 		struct  inpcb *__inp = sotoinpcb(so); \
 		KASSERT(__inp != NULL, \
 		   ("GET_REMOTE_ADDR(%s):so:%p, inp = NULL", __func__, so)); \
 		if (__inp->inp_vflag & INP_IPV4) \
-			in_getpeeraddr(so, (struct sockaddr **)&__a); \
+			in_getpeeraddr(so, (struct sockaddr *)praddr); \
 		else \
-			in6_getpeeraddr(so, (struct sockaddr **)&__a); \
-		*(praddr) = *__a; \
-		free(__a, M_SONAME); \
+			in6_getpeeraddr(so, (struct sockaddr *)praddr); \
 	} while (0)
 
 static char *states[] = {
@@ -933,7 +925,7 @@ err:
 	return;
 }
 
-static inline int c4iw_zero_addr(struct sockaddr *addr)
+static inline bool c4iw_zero_addr(struct sockaddr *addr)
 {
 	struct in6_addr *ip6;
 
@@ -946,19 +938,29 @@ static inline int c4iw_zero_addr(struct sockaddr *addr)
 	}
 }
 
-static inline int c4iw_loopback_addr(struct sockaddr *addr)
+#define _IN_LOOPBACK(i)	(((in_addr_t)(i) & 0xff000000) == 0x7f000000)
+static inline bool c4iw_loopback_addr(struct sockaddr *addr, struct vnet *vnet)
 {
-	if (addr->sa_family == AF_INET)
-		return IN_LOOPBACK(
-			ntohl(((struct sockaddr_in *) addr)->sin_addr.s_addr));
-	else
-		return IN6_IS_ADDR_LOOPBACK(
-				&((struct sockaddr_in6 *) addr)->sin6_addr);
-}
+	bool ret;
 
-static inline int c4iw_any_addr(struct sockaddr *addr)
+	if (addr->sa_family == AF_INET) {
+		if (vnet == NULL)
+			ret = _IN_LOOPBACK(ntohl(((struct sockaddr_in *) addr)->sin_addr.s_addr));
+		else {
+			CURVNET_SET_QUIET(vnet);
+			ret = IN_LOOPBACK(ntohl(((struct sockaddr_in *) addr)->sin_addr.s_addr));
+			CURVNET_RESTORE();
+		}
+	} else {
+		ret = IN6_IS_ADDR_LOOPBACK(&((struct sockaddr_in6 *) addr)->sin6_addr);
+	}
+	return (ret);
+}
+#undef _IN_LOOPBACK
+
+static inline bool c4iw_any_addr(struct sockaddr *addr, struct vnet *vnet)
 {
-	return c4iw_zero_addr(addr) || c4iw_loopback_addr(addr);
+	return c4iw_zero_addr(addr) || c4iw_loopback_addr(addr, vnet);
 }
 
 static void
@@ -966,12 +968,13 @@ process_newconn(struct c4iw_listen_ep *master_lep, struct socket *new_so)
 {
 	struct c4iw_listen_ep *real_lep = NULL;
 	struct c4iw_ep *new_ep = NULL;
-	struct sockaddr_in *remote = NULL;
+	struct sockaddr_storage remote = { .ss_len = sizeof(remote) };
 	int ret = 0;
 
 	MPASS(new_so != NULL);
 
-	if (c4iw_any_addr((struct sockaddr *)&master_lep->com.local_addr)) {
+	if (c4iw_any_addr((struct sockaddr *)&master_lep->com.local_addr,
+	    new_so->so_vnet)) {
 		/* Here we need to find the 'real_lep' that belongs to the
 		 * incomming socket's network interface, such that the newly
 		 * created 'ep' can be attached to the real 'lep'.
@@ -1010,19 +1013,16 @@ process_newconn(struct c4iw_listen_ep *master_lep, struct socket *new_so)
 	new_ep->com.state = MPA_REQ_WAIT;
 
 	setiwsockopt(new_so);
-	ret = soaccept(new_so, (struct sockaddr **)&remote);
+	ret = soaccept(new_so, (struct sockaddr *)&remote);
 	if (ret != 0) {
 		CTR4(KTR_IW_CXGBE,
 				"%s:listen sock:%p, new sock:%p, ret:%d",
 				__func__, master_lep->com.so, new_so, ret);
-		if (remote != NULL)
-			free(remote, M_SONAME);
 		soclose(new_so);
 		c4iw_put_ep(&new_ep->com);
 		c4iw_put_ep(&real_lep->com);
 		return;
 	}
-	free(remote, M_SONAME);
 
 	START_EP_TIMER(new_ep);
 
@@ -1080,7 +1080,7 @@ c4iw_so_upcall(struct socket *so, void *arg, int waitflag)
 	 * Wake up any threads waiting in rdma_init()/rdma_fini(),
 	 * with locks held.
 	 */
-	if (so->so_error || (ep->com.dev->rdev.flags & T4_FATAL_ERROR))
+	if (so->so_error || c4iw_stopped(&ep->com.dev->rdev))
 		c4iw_wake_up(&ep->com.wr_wait, -ECONNRESET);
 	add_ep_to_req_list(ep, C4IW_EVENT_SOCKET);
 
@@ -2602,6 +2602,8 @@ int c4iw_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 
 	CTR2(KTR_IW_CXGBE, "%s:ccB %p", __func__, cm_id);
 
+	if (__predict_false(c4iw_stopped(&dev->rdev)))
+		return -EIO;
 
 	if ((conn_param->ord > c4iw_max_read_depth) ||
 		(conn_param->ird > c4iw_max_read_depth)) {
@@ -2655,8 +2657,7 @@ int c4iw_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 
 		CTR2(KTR_IW_CXGBE, "%s:cc7 %p", __func__, ep);
 		printk(KERN_ERR MOD "%s - cannot find route.\n", __func__);
-		err = EHOSTUNREACH;
-		return err;
+		return -EHOSTUNREACH;
 	}
 
 	if (!(if_getcapenable(nh_ifp) & IFCAP_TOE) ||
@@ -2706,11 +2707,10 @@ c4iw_create_listen(struct iw_cm_id *cm_id, int backlog)
 	struct listen_port_info *port_info = NULL;
 	int rc = 0;
 
-	CTR3(KTR_IW_CXGBE, "%s: cm_id %p, backlog %s", __func__, cm_id,
+	CTR3(KTR_IW_CXGBE, "%s: cm_id %p, backlog %d", __func__, cm_id,
 			backlog);
-	if (c4iw_fatal_error(&dev->rdev)) {
-		CTR2(KTR_IW_CXGBE, "%s: cm_id %p, fatal error", __func__,
-			       cm_id);
+	if (c4iw_stopped(&dev->rdev)) {
+		CTR2(KTR_IW_CXGBE, "%s: cm_id %p, stopped", __func__, cm_id);
 		return -EIO;
 	}
 	lep = alloc_ep(sizeof(*lep), GFP_KERNEL);
@@ -2734,7 +2734,7 @@ c4iw_create_listen(struct iw_cm_id *cm_id, int backlog)
 	 * invoke solisten() as first listener callback has already created
 	 * listeners for all other devices(via solisten).
 	 */
-	if (c4iw_any_addr((struct sockaddr *)&lep->com.local_addr)) {
+	if (c4iw_any_addr((struct sockaddr *)&lep->com.local_addr, NULL)) {
 		port_info = add_ep_to_listenlist(lep);
 		/* skip solisten() if refcnt > 1, as the listeners were
 		 * already created by 'Master lep'
@@ -2788,7 +2788,8 @@ c4iw_destroy_listen(struct iw_cm_id *cm_id)
 	    states[lep->com.state]);
 
 	lep->com.state = DEAD;
-	if (c4iw_any_addr((struct sockaddr *)&lep->com.local_addr)) {
+	if (c4iw_any_addr((struct sockaddr *)&lep->com.local_addr,
+	    lep->com.so->so_vnet)) {
 		/* if no refcount then close listen socket */
 		if (!rem_ep_from_listenlist(lep))
 			close_socket(lep->com.so);
@@ -2820,8 +2821,8 @@ int c4iw_ep_disconnect(struct c4iw_ep *ep, int abrupt, gfp_t gfp)
 
 	rdev = &ep->com.dev->rdev;
 
-	if (c4iw_fatal_error(rdev)) {
-		CTR3(KTR_IW_CXGBE, "%s:ced1 fatal error %p %s", __func__, ep,
+	if (c4iw_stopped(rdev)) {
+		CTR3(KTR_IW_CXGBE, "%s:ced1 stopped %p %s", __func__, ep,
 					states[ep->com.state]);
 		if (ep->com.state != DEAD) {
 			send_abort(ep);

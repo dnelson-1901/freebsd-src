@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /* udf_vnops.c */
@@ -289,9 +287,6 @@ udf_getattr(struct vop_getattr_args *a)
 	struct udf_node *node;
 	struct vattr *vap;
 	struct file_entry *fentry;
-	struct timespec ts;
-
-	ts.tv_sec = 0;
 
 	vp = a->a_vp;
 	vap = a->a_vap;
@@ -805,8 +800,6 @@ udf_readdir(struct vop_readdir_args *a)
 		 */
 		ncookies = uio->uio_resid / 8;
 		cookies = malloc(sizeof(*cookies) * ncookies, M_TEMP, M_WAITOK);
-		if (cookies == NULL)
-			return (ENOMEM);
 		uiodir.ncookies = ncookies;
 		uiodir.cookies = cookies;
 		uiodir.acookies = 0;
@@ -1281,6 +1274,8 @@ udf_vptofh(struct vop_vptofh_args *a)
 {
 	struct udf_node *node;
 	struct ifid *ifhp;
+	_Static_assert(sizeof(struct ifid) <= sizeof(struct fid),
+	    "struct ifid cannot be larger than struct fid");
 
 	node = VTON(a->a_vp);
 	ifhp = (struct ifid *)a->a_fhp;

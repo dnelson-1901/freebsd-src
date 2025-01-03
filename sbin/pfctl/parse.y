@@ -30,8 +30,6 @@
  */
 %{
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #define PFIOC_USE_LATEST
 
 #include <sys/types.h>
@@ -174,7 +172,8 @@ enum	{ PF_STATE_OPT_MAX, PF_STATE_OPT_NOSYNC, PF_STATE_OPT_SRCTRACK,
 	    PF_STATE_OPT_MAX_SRC_STATES, PF_STATE_OPT_MAX_SRC_CONN,
 	    PF_STATE_OPT_MAX_SRC_CONN_RATE, PF_STATE_OPT_MAX_SRC_NODES,
 	    PF_STATE_OPT_OVERLOAD, PF_STATE_OPT_STATELOCK,
-	    PF_STATE_OPT_TIMEOUT, PF_STATE_OPT_SLOPPY, };
+	    PF_STATE_OPT_TIMEOUT, PF_STATE_OPT_SLOPPY,
+	    PF_STATE_OPT_PFLOW };
 
 enum	{ PF_SRCTRACK_NONE, PF_SRCTRACK, PF_SRCTRACK_GLOBAL, PF_SRCTRACK_RULE };
 
@@ -223,17 +222,54 @@ struct node_qassign {
 	char		*pqname;
 };
 
+struct range {
+	int		 a;
+	int		 b;
+	int		 t;
+};
+struct redirection {
+	struct node_host	*host;
+	struct range		 rport;
+};
+
+static struct pool_opts {
+	int			 marker;
+#define POM_TYPE		0x01
+#define POM_STICKYADDRESS	0x02
+#define POM_ENDPI		0x04
+	u_int8_t		 opts;
+	int			 type;
+	int			 staticport;
+	struct pf_poolhashkey	*key;
+	struct pf_mape_portset	 mape;
+} pool_opts;
+
+struct redirspec {
+	struct redirection	 *rdr;
+	struct pool_opts	 pool_opts;
+	int		 af;
+};
+
 static struct filter_opts {
 	int			 marker;
-#define FOM_FLAGS	0x01
-#define FOM_ICMP	0x02
-#define FOM_TOS		0x04
-#define FOM_KEEP	0x08
-#define FOM_SRCTRACK	0x10
+#define FOM_FLAGS	0x0001
+#define FOM_ICMP	0x0002
+#define FOM_TOS		0x0004
+#define FOM_KEEP	0x0008
+#define FOM_SRCTRACK	0x0010
+#define FOM_MINTTL	0x0020
+#define FOM_MAXMSS	0x0040
+#define FOM_AFTO	0x0080
+#define FOM_SETTOS	0x0100
+#define FOM_SCRUB_TCP	0x0200
 #define FOM_SETPRIO	0x0400
+#define FOM_ONCE	0x1000 /* not yet implemmented */
 #define FOM_PRIO	0x2000
+#define FOM_SETDELAY	0x4000
+#define FOM_FRAGCACHE	0x8000 /* does not exist in OpenBSD */
 	struct node_uid		*uid;
 	struct node_gid		*gid;
+	struct node_if		*rcv;
 	struct {
 		u_int8_t	 b1;
 		u_int8_t	 b2;
@@ -266,6 +302,14 @@ static struct filter_opts {
 		struct node_host	*addr;
 		u_int16_t		port;
 	}			 divert;
+	struct redirspec	 nat;
+	struct redirspec	 rdr;
+	/* new-style scrub opts */
+	int			 nodf;
+	int			 minttl;
+	int			 settos;
+	int			 randomid;
+	int			 max_mss;
 } filter_opts;
 
 static struct antispoof_opts {
@@ -277,10 +321,6 @@ static struct antispoof_opts {
 
 static struct scrub_opts {
 	int			 marker;
-#define SOM_MINTTL	0x01
-#define SOM_MAXMSS	0x02
-#define SOM_FRAGCACHE	0x04
-#define SOM_SETTOS	0x08
 	int			 nodf;
 	int			 minttl;
 	int			 maxmss;
@@ -313,18 +353,6 @@ static struct table_opts {
 	struct node_tinithead	init_nodes;
 } table_opts;
 
-static struct pool_opts {
-	int			 marker;
-#define POM_TYPE		0x01
-#define POM_STICKYADDRESS	0x02
-	u_int8_t		 opts;
-	int			 type;
-	int			 staticport;
-	struct pf_poolhashkey	*key;
-	struct pf_mape_portset	 mape;
-
-} pool_opts;
-
 static struct codel_opts	 codel_opts;
 static struct node_hfsc_opts	 hfsc_opts;
 static struct node_fairq_opts	 fairq_opts;
@@ -341,7 +369,7 @@ int		 rdr_consistent(struct pfctl_rule *);
 int		 process_tabledef(char *, struct table_opts *);
 void		 expand_label_str(char *, size_t, const char *, const char *);
 void		 expand_label_if(const char *, char *, size_t, const char *);
-void		 expand_label_addr(const char *, char *, size_t, u_int8_t,
+void		 expand_label_addr(const char *, char *, size_t, sa_family_t,
 		    struct pf_rule_addr *);
 void		 expand_label_port(const char *, char *, size_t,
 		    struct pf_rule_addr *);
@@ -354,10 +382,11 @@ void		 expand_eth_rule(struct pfctl_eth_rule *,
 		    struct node_host *, struct node_host *, const char *,
 		    const char *);
 void		 expand_rule(struct pfctl_rule *, struct node_if *,
+		    struct node_host *,
 		    struct node_host *, struct node_proto *, struct node_os *,
 		    struct node_host *, struct node_port *, struct node_host *,
 		    struct node_port *, struct node_uid *, struct node_gid *,
-		    struct node_icmp *, const char *);
+		    struct node_if *, struct node_icmp *, const char *);
 int		 expand_altq(struct pf_altq *, struct node_if *,
 		    struct node_queue *, struct node_queue_bw bwspec,
 		    struct node_queue_opt *);
@@ -369,6 +398,7 @@ int		 expand_skip_interface(struct node_if *);
 int	 check_rulestate(int);
 int	 getservice(char *);
 int	 rule_label(struct pfctl_rule *, char *s[PF_RULE_MAX_LABEL_COUNT]);
+int	 eth_rule_label(struct pfctl_eth_rule *, char *s[PF_RULE_MAX_LABEL_COUNT]);
 int	 rt_tableid_max(void);
 
 void	 mv_rules(struct pfctl_ruleset *, struct pfctl_ruleset *);
@@ -405,11 +435,7 @@ typedef struct {
 			u_int16_t	 w;
 			u_int16_t	 w2;
 		}			 b;
-		struct range {
-			int		 a;
-			int		 b;
-			int		 t;
-		}			 range;
+		struct range		 range;
 		struct node_if		*interface;
 		struct node_proto	*proto;
 		struct node_etherproto	*etherproto;
@@ -441,10 +467,7 @@ typedef struct {
 			sa_family_t		 af;
 			struct pf_poolhashkey	*key;
 		}			 route;
-		struct redirection {
-			struct node_host	*host;
-			struct range		 rport;
-		}			*redirection;
+		struct redirection	*redirection;
 		struct {
 			int			 action;
 			struct node_state_opt	*options;
@@ -495,23 +518,23 @@ int	parseport(char *, struct range *r, int);
 %token	REASSEMBLE ANCHOR NATANCHOR RDRANCHOR BINATANCHOR
 %token	SET OPTIMIZATION TIMEOUT LIMIT LOGINTERFACE BLOCKPOLICY FAILPOLICY
 %token	RANDOMID REQUIREORDER SYNPROXY FINGERPRINTS NOSYNC DEBUG SKIP HOSTID
-%token	ANTISPOOF FOR INCLUDE KEEPCOUNTERS SYNCOOKIES L3
+%token	ANTISPOOF FOR INCLUDE KEEPCOUNTERS SYNCOOKIES L3 MATCHES
 %token	ETHER
 %token	BITMASK RANDOM SOURCEHASH ROUNDROBIN STATICPORT PROBABILITY MAPEPORTSET
 %token	ALTQ CBQ CODEL PRIQ HFSC FAIRQ BANDWIDTH TBRSIZE LINKSHARE REALTIME
 %token	UPPERLIMIT QUEUE PRIORITY QLIMIT HOGS BUCKETS RTABLE TARGET INTERVAL
 %token	DNPIPE DNQUEUE RIDENTIFIER
 %token	LOAD RULESET_OPTIMIZATION PRIO
-%token	STICKYADDRESS MAXSRCSTATES MAXSRCNODES SOURCETRACK GLOBAL RULE
-%token	MAXSRCCONN MAXSRCCONNRATE OVERLOAD FLUSH SLOPPY
+%token	STICKYADDRESS ENDPI MAXSRCSTATES MAXSRCNODES SOURCETRACK GLOBAL RULE
+%token	MAXSRCCONN MAXSRCCONNRATE OVERLOAD FLUSH SLOPPY PFLOW
 %token	TAGGED TAG IFBOUND FLOATING STATEPOLICY STATEDEFAULTS ROUTE SETTOS
-%token	DIVERTTO DIVERTREPLY BRIDGE_TO
+%token	DIVERTTO DIVERTREPLY BRIDGE_TO RECEIVEDON NE LE GE AFTO
 %token	<v.string>		STRING
 %token	<v.number>		NUMBER
 %token	<v.i>			PORTBINARY
 %type	<v.interface>		interface if_list if_item_not if_item
 %type	<v.number>		number icmptype icmp6type uid gid
-%type	<v.number>		tos not yesno
+%type	<v.number>		tos not yesno optnodf
 %type	<v.probability>		probability
 %type	<v.i>			no dir af fragcache optimizer syncookie_val
 %type	<v.i>			sourcetrack flush unaryop statelock
@@ -631,7 +654,16 @@ optimizer	: string	{
 		}
 		;
 
-option		: SET OPTIMIZATION STRING		{
+optnodf		: /* empty */	{ $$ = 0; }
+		| NODF		{ $$ = 1; }
+		;
+
+option		: SET REASSEMBLE yesno optnodf		{
+			if (check_rulestate(PFCTL_STATE_OPTION))
+				YYERROR;
+			pfctl_set_reassembly(pf, $3, $4);
+		}
+		| SET OPTIMIZATION STRING		{
 			if (check_rulestate(PFCTL_STATE_OPTION)) {
 				free($3);
 				YYERROR;
@@ -744,7 +776,7 @@ option		: SET OPTIMIZATION STRING		{
 				free($3);
 				YYERROR;
 			}
-			if (pfctl_set_debug(pf, $3) != 0) {
+			if (pfctl_do_set_debug(pf, $3) != 0) {
 				yyerror("error setting debuglevel %s", $3);
 				free($3);
 				YYERROR;
@@ -1050,10 +1082,11 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 
 			decide_address_family($8.src.host, &r.af);
 			decide_address_family($8.dst.host, &r.af);
+			r.naf = r.af;
 
-			expand_rule(&r, $5, NULL, $7, $8.src_os,
+			expand_rule(&r, $5, NULL, NULL, $7, $8.src_os,
 			    $8.src.host, $8.src.port, $8.dst.host, $8.dst.port,
-			    $9.uid, $9.gid, $9.icmpspec,
+			    $9.uid, $9.gid, $9.rcv, $9.icmpspec,
 			    pf->astack[pf->asd + 1] ? pf->alast->name : $2);
 			free($2);
 			pf->astack[pf->asd + 1] = NULL;
@@ -1074,9 +1107,9 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 			decide_address_family($6.src.host, &r.af);
 			decide_address_family($6.dst.host, &r.af);
 
-			expand_rule(&r, $3, NULL, $5, $6.src_os,
+			expand_rule(&r, $3, NULL, NULL, $5, $6.src_os,
 			    $6.src.host, $6.src.port, $6.dst.host, $6.dst.port,
-			    0, 0, 0, $2);
+			    0, 0, 0, 0, $2);
 			free($2);
 		}
 		| RDRANCHOR string interface af proto fromto rtable {
@@ -1116,9 +1149,9 @@ anchorrule	: ANCHOR anchorname dir quick interface af proto fromto
 				r.dst.port_op = $6.dst.port->op;
 			}
 
-			expand_rule(&r, $3, NULL, $5, $6.src_os,
+			expand_rule(&r, $3, NULL, NULL, $5, $6.src_os,
 			    $6.src.host, $6.src.port, $6.dst.host, $6.dst.port,
-			    0, 0, 0, $2);
+			    0, 0, 0, 0, $2);
 			free($2);
 		}
 		| BINATANCHOR string interface af proto fromto rtable {
@@ -1211,7 +1244,7 @@ etherrule	: ETHER action dir quick interface bridge etherproto etherfromto l3fro
 			r.direction = $3;
 			r.quick = $4.quick;
 			if ($10.tag != NULL)
-				memcpy(&r.tagname, $10.tag, sizeof(r.tagname));
+				strlcpy(r.tagname, $10.tag, sizeof(r.tagname));
 			if ($10.match_tag)
 				if (strlcpy(r.match_tagname, $10.match_tag,
 				    PF_TAG_NAME_SIZE) >= PF_TAG_NAME_SIZE) {
@@ -1221,9 +1254,14 @@ etherrule	: ETHER action dir quick interface bridge etherproto etherfromto l3fro
 				}
 			r.match_tag_not = $10.match_tag_not;
 			if ($10.queues.qname != NULL)
-				memcpy(&r.qname, $10.queues.qname, sizeof(r.qname));
+				strlcpy(r.qname, $10.queues.qname, sizeof(r.qname));
 			r.dnpipe = $10.dnpipe;
 			r.dnflags = $10.free_flags;
+			if (eth_rule_label(&r, $10.label))
+				YYERROR;
+			for (int i = 0; i < PF_RULE_MAX_LABEL_COUNT; i++)
+				free($10.label[i]);
+			r.ridentifier = $10.ridentifier;
 
 			expand_eth_rule(&r, $5, $7, $8.src, $8.dst,
 			    $9.src.host, $9.dst.host, $6, "");
@@ -1347,6 +1385,16 @@ etherfilter_opt	: etherqname	{
 			}
 			filter_opts.queues = $1;
 		}
+		| RIDENTIFIER number {
+			filter_opts.ridentifier = $2;
+		}
+		| label	{
+			if (filter_opts.labelcount >= PF_RULE_MAX_LABEL_COUNT) {
+				yyerror("label can only be used %d times", PF_RULE_MAX_LABEL_COUNT);
+				YYERROR;
+			}
+			filter_opts.label[filter_opts.labelcount++] = $1;
+		}
 		| TAG string				{
 			filter_opts.tag = $2;
 		}
@@ -1408,7 +1456,7 @@ scrubrule	: scrubaction dir logquick interface af proto fromto scrub_opts
 				r.min_ttl = $8.minttl;
 			if ($8.maxmss)
 				r.max_mss = $8.maxmss;
-			if ($8.marker & SOM_SETTOS) {
+			if ($8.marker & FOM_SETTOS) {
 				r.rule_flag |= PFRULE_SET_TOS;
 				r.set_tos = $8.settos;
 			}
@@ -1424,9 +1472,9 @@ scrubrule	: scrubaction dir logquick interface af proto fromto scrub_opts
 			r.match_tag_not = $8.match_tag_not;
 			r.rtableid = $8.rtableid;
 
-			expand_rule(&r, $4, NULL, $6, $7.src_os,
+			expand_rule(&r, $4, NULL, NULL, $6, $7.src_os,
 			    $7.src.host, $7.src.port, $7.dst.host, $7.dst.port,
-			    NULL, NULL, NULL, "");
+			    NULL, NULL, NULL, NULL, "");
 		}
 		;
 
@@ -1443,7 +1491,7 @@ scrub_opts	:	{
 		}
 		;
 
-scrub_opts_l	: scrub_opts_l scrub_opt
+scrub_opts_l	: scrub_opts_l comma scrub_opt
 		| scrub_opt
 		;
 
@@ -1455,7 +1503,7 @@ scrub_opt	: NODF	{
 			scrub_opts.nodf = 1;
 		}
 		| MINTTL NUMBER {
-			if (scrub_opts.marker & SOM_MINTTL) {
+			if (scrub_opts.marker & FOM_MINTTL) {
 				yyerror("min-ttl cannot be respecified");
 				YYERROR;
 			}
@@ -1463,11 +1511,11 @@ scrub_opt	: NODF	{
 				yyerror("illegal min-ttl value %d", $2);
 				YYERROR;
 			}
-			scrub_opts.marker |= SOM_MINTTL;
+			scrub_opts.marker |= FOM_MINTTL;
 			scrub_opts.minttl = $2;
 		}
 		| MAXMSS NUMBER {
-			if (scrub_opts.marker & SOM_MAXMSS) {
+			if (scrub_opts.marker & FOM_MAXMSS) {
 				yyerror("max-mss cannot be respecified");
 				YYERROR;
 			}
@@ -1475,23 +1523,23 @@ scrub_opt	: NODF	{
 				yyerror("illegal max-mss value %d", $2);
 				YYERROR;
 			}
-			scrub_opts.marker |= SOM_MAXMSS;
+			scrub_opts.marker |= FOM_MAXMSS;
 			scrub_opts.maxmss = $2;
 		}
 		| SETTOS tos {
-			if (scrub_opts.marker & SOM_SETTOS) {
+			if (scrub_opts.marker & FOM_SETTOS) {
 				yyerror("set-tos cannot be respecified");
 				YYERROR;
 			}
-			scrub_opts.marker |= SOM_SETTOS;
+			scrub_opts.marker |= FOM_SETTOS;
 			scrub_opts.settos = $2;
 		}
 		| fragcache {
-			if (scrub_opts.marker & SOM_FRAGCACHE) {
+			if (scrub_opts.marker & FOM_FRAGCACHE) {
 				yyerror("fragcache cannot be respecified");
 				YYERROR;
 			}
-			scrub_opts.marker |= SOM_FRAGCACHE;
+			scrub_opts.marker |= FOM_FRAGCACHE;
 			scrub_opts.fragcache = $1;
 		}
 		| REASSEMBLE STRING {
@@ -1589,9 +1637,9 @@ antispoof	: ANTISPOOF logquick antispoof_ifspc af antispoof_opts {
 				}
 
 				if (h != NULL)
-					expand_rule(&r, j, NULL, NULL, NULL, h,
+					expand_rule(&r, j, NULL, NULL, NULL, NULL, h,
 					    NULL, NULL, NULL, NULL, NULL,
-					    NULL, "");
+					    NULL, NULL, "");
 
 				if ((i->ifa_flags & IFF_LOOPBACK) == 0) {
 					bzero(&r, sizeof(r));
@@ -1611,9 +1659,9 @@ antispoof	: ANTISPOOF logquick antispoof_ifspc af antispoof_opts {
 					else
 						h = ifa_lookup(i->ifname, 0);
 					if (h != NULL)
-						expand_rule(&r, NULL, NULL,
+						expand_rule(&r, NULL, NULL, NULL,
 						    NULL, NULL, h, NULL, NULL,
-						    NULL, NULL, NULL, NULL, "");
+						    NULL, NULL, NULL, NULL, NULL, "");
 				} else
 					free(hh);
 			}
@@ -2351,6 +2399,21 @@ pfrule		: action dir logquick interface route af proto fromto
 			r.prob = $9.prob;
 			r.rtableid = $9.rtableid;
 
+			if ($9.nodf)
+				r.scrub_flags |= PFSTATE_NODF;
+			if ($9.randomid)
+				r.scrub_flags |= PFSTATE_RANDOMID;
+			if ($9.minttl)
+				r.min_ttl = $9.minttl;
+			if ($9.max_mss)
+				r.max_mss = $9.max_mss;
+			if ($9.marker & FOM_SETTOS) {
+				r.scrub_flags |= PFSTATE_SETTOS;
+				r.set_tos = $9.settos;
+			}
+			if ($9.marker & FOM_SCRUB_TCP)
+				r.scrub_flags |= PFSTATE_SCRUB_TCP;
+
 			if ($9.marker & FOM_PRIO) {
 				if ($9.prio == 0)
 					r.prio = PF_PRIO_ZERO;
@@ -2361,6 +2424,19 @@ pfrule		: action dir logquick interface route af proto fromto
 				r.set_prio[0] = $9.set_prio[0];
 				r.set_prio[1] = $9.set_prio[1];
 				r.scrub_flags |= PFSTATE_SETPRIO;
+			}
+
+			if ($9.marker & FOM_AFTO) {
+				if (!$6) {
+					yyerror("must indicate source address "
+					    "family with af-to");
+					YYERROR;
+				}
+				if ($6 == $9.nat.af) {
+					yyerror("incorrect address family "
+					    "translation");
+					YYERROR;
+				}
 			}
 
 			r.af = $6;
@@ -2567,6 +2643,14 @@ pfrule		: action dir logquick interface route af proto fromto
 					}
 					r.rule_flag |= PFRULE_STATESLOPPY;
 					break;
+				case PF_STATE_OPT_PFLOW:
+					if (r.rule_flag & PFRULE_PFLOW) {
+						yyerror("state pflow option: "
+						    "multiple definitions");
+						YYERROR;
+					}
+					r.rule_flag |= PFRULE_PFLOW;
+					break;
 				case PF_STATE_OPT_TIMEOUT:
 					if (o->data.timeout.number ==
 					    PFTM_ADAPTIVE_START ||
@@ -2640,6 +2724,7 @@ pfrule		: action dir logquick interface route af proto fromto
 
 			decide_address_family($8.src.host, &r.af);
 			decide_address_family($8.dst.host, &r.af);
+			r.naf = r.af;
 
 			if ($5.rt) {
 				if (!r.direction) {
@@ -2742,9 +2827,22 @@ pfrule		: action dir logquick interface route af proto fromto
 					r.free_flags |= PFRULE_DN_IS_QUEUE;
 			}
 
-			expand_rule(&r, $4, $5.host, $7, $8.src_os,
-			    $8.src.host, $8.src.port, $8.dst.host, $8.dst.port,
-			    $9.uid, $9.gid, $9.icmpspec, "");
+			if ($9.marker & FOM_AFTO) {
+				r.naf = $9.nat.af;
+
+				r.nat.opts = $9.nat.pool_opts.type;
+				r.nat.opts |= $9.nat.pool_opts.opts;
+
+				if ((r.nat.opts & PF_POOL_TYPEMASK) !=
+				    PF_POOL_ROUNDROBIN &&
+				    disallow_table($9.nat.rdr->host, "tables are only "
+				    "supported in round-robin pools"))
+					YYERROR;
+			}
+
+			expand_rule(&r, $4, $5.host, $9.nat.rdr ? $9.nat.rdr->host : NULL,
+			    $7, $8.src_os, $8.src.host, $8.src.port, $8.dst.host,
+			    $8.dst.port, $9.uid, $9.gid, $9.rcv, $9.icmpspec, "");
 		}
 		;
 
@@ -2879,6 +2977,13 @@ filter_opt	: USER uids {
 			filter_opts.match_tag = $3;
 			filter_opts.match_tag_not = $1;
 		}
+		| RECEIVEDON if_item {
+			if (filter_opts.rcv) {
+				yyerror("cannot respecify received-on");
+				YYERROR;
+			}
+			filter_opts.rcv = $2;
+		}
 		| PROBABILITY probability		{
 			double	p;
 
@@ -2933,6 +3038,82 @@ filter_opt	: USER uids {
 			filter_opts.divert.port = 1;	/* some random value */
 #endif
 		}
+		| SCRUB '(' scrub_opts ')' {
+			filter_opts.nodf = $3.nodf;
+			filter_opts.minttl = $3.minttl;
+			if ($3.marker & FOM_SETTOS) {
+				/* Old style rules are "scrub set-tos 0x42"
+				 * New style are "set tos 0x42 scrub (...)"
+				 * What is in "scrub(...)"" is unfortunately the
+				 * original scrub syntax so it would overwrite
+				 * "set tos" of a pass/match rule.
+				 */
+				filter_opts.settos = $3.settos;
+			}
+			filter_opts.randomid = $3.randomid;
+			filter_opts.max_mss = $3.maxmss;
+			if ($3.reassemble_tcp)
+				filter_opts.marker |= FOM_SCRUB_TCP;
+			filter_opts.marker |= $3.marker;
+		}
+		| AFTO af FROM redirspec pool_opts {
+			if (filter_opts.nat.rdr) {
+				yyerror("cannot respecify af-to");
+				YYERROR;
+			}
+			if ($2 == 0) {
+				yyerror("no address family specified");
+				YYERROR;
+			}
+			if ($4->af && $4->af != $2) {
+				yyerror("af-to addresses must be in the "
+				   "target address family");
+				YYERROR;
+			}
+			filter_opts.nat.af = $2;
+			filter_opts.nat.rdr = calloc(1, sizeof(struct redirection));
+			if (filter_opts.nat.rdr == NULL)
+				err(1, "af-to: calloc");
+			filter_opts.nat.rdr->host = $4;
+			memcpy(&filter_opts.nat.pool_opts, &$5,
+			    sizeof(filter_opts.nat.pool_opts));
+			filter_opts.rdr.rdr =
+			    calloc(1, sizeof(struct redirection));
+			bzero(&filter_opts.rdr.pool_opts,
+			    sizeof(filter_opts.rdr.pool_opts));
+			filter_opts.marker |= FOM_AFTO;
+		}
+		| AFTO af FROM redirspec pool_opts TO redirspec pool_opts {
+			if (filter_opts.nat.rdr) {
+				yyerror("cannot respecify af-to");
+				YYERROR;
+			}
+			if ($2 == 0) {
+				yyerror("no address family specified");
+				YYERROR;
+			}
+				if (($4->af && $4->af != $2) ||
+				($7->af && $7->af != $2)) {
+				yyerror("af-to addresses must be in the "
+				   "target address family");
+				YYERROR;
+			}
+			filter_opts.nat.af = $2;
+			filter_opts.nat.rdr = calloc(1, sizeof(struct redirection));
+			if (filter_opts.nat.rdr == NULL)
+				err(1, "af-to: calloc");
+			filter_opts.nat.rdr->host = $4;
+			memcpy(&filter_opts.nat.pool_opts, &$5,
+			    sizeof(filter_opts.nat.pool_opts));
+			filter_opts.rdr.af = $2;
+			filter_opts.rdr.rdr = calloc(1, sizeof(struct redirection));
+			if (filter_opts.rdr.rdr == NULL)
+				err(1, "af-to: calloc");
+			filter_opts.rdr.rdr->host = $7;
+			memcpy(&filter_opts.nat.pool_opts, &$8,
+			    sizeof(filter_opts.nat.pool_opts));
+			filter_opts.marker |= FOM_AFTO;
+		}
 		| filter_sets
 		;
 
@@ -2952,6 +3133,14 @@ filter_set	: prio {
 			filter_opts.marker |= FOM_SETPRIO;
 			filter_opts.set_prio[0] = $1.b1;
 			filter_opts.set_prio[1] = $1.b2;
+		}
+		| TOS tos {
+			if (filter_opts.marker & FOM_SETTOS) {
+				yyerror("tos cannot be respecified");
+				YYERROR;
+			}
+			filter_opts.marker |= FOM_SETTOS;
+			filter_opts.settos = $2;
 		}
 prio		: PRIO NUMBER {
 			if ($2 < 0 || $2 > PF_PRIO_MAX) {
@@ -3130,6 +3319,7 @@ logopts		: logopt			{ $$ = $1; }
 		;
 
 logopt		: ALL		{ $$.log = PF_LOG_ALL; $$.logif = 0; }
+		| MATCHES		{ $$.log = PF_LOG_MATCHES; $$.logif = 0; }
 		| USER		{ $$.log = PF_LOG_SOCKET_LOOKUP; $$.logif = 0; }
 		| GROUP		{ $$.log = PF_LOG_SOCKET_LOOKUP; $$.logif = 0; }
 		| TO string	{
@@ -3480,11 +3670,13 @@ toipspec	: TO ipspec			{ $$ = $2; }
 
 host_list	: ipspec optnl			{ $$ = $1; }
 		| host_list comma ipspec optnl	{
-			if ($3 == NULL)
+			if ($1 == NULL) {
+				freehostlist($3);
 				$$ = $1;
-			else if ($1 == NULL)
+			} else if ($3 == NULL) {
+				freehostlist($1);
 				$$ = $3;
-			else {
+			} else {
 				$1->tail->next = $3;
 				$1->tail = $3->tail;
 				$$ = $1;
@@ -4119,7 +4311,7 @@ tos	: STRING			{
 		| NUMBER			{
 			$$ = $1;
 			if ($$ < 0 || $$ > 255) {
-				yyerror("illegal tos value %s", $1);
+				yyerror("illegal tos value %lu", $1);
 				YYERROR;
 			}
 		}
@@ -4291,6 +4483,14 @@ state_opt_item	: MAXIMUM NUMBER		{
 			if ($$ == NULL)
 				err(1, "state_opt_item: calloc");
 			$$->type = PF_STATE_OPT_SLOPPY;
+			$$->next = NULL;
+			$$->tail = $$;
+		}
+		| PFLOW {
+			$$ = calloc(1, sizeof(struct node_state_opt));
+			if ($$ == NULL)
+				err(1, "state_opt_item: calloc");
+			$$->type = PF_STATE_OPT_PFLOW;
 			$$->next = NULL;
 			$$->tail = $$;
 		}
@@ -4502,6 +4702,14 @@ pool_opt	: BITMASK	{
 			pool_opts.marker |= POM_STICKYADDRESS;
 			pool_opts.opts |= PF_POOL_STICKYADDR;
 		}
+		| ENDPI {
+			if (pool_opts.marker & POM_ENDPI) {
+				yyerror("endpoint-independent cannot be redefined");
+				YYERROR;
+			}
+			pool_opts.marker |= POM_ENDPI;
+			pool_opts.opts |= PF_POOL_ENDPI;
+		}
 		| MAPEPORTSET number '/' number '/' number {
 			if (pool_opts.mape.offset) {
 				yyerror("map-e-portset cannot be redefined");
@@ -4589,6 +4797,7 @@ natrule		: nataction interface af proto fromto tag tagged rtable
 		    redirpool pool_opts
 		{
 			struct pfctl_rule	r;
+			struct node_state_opt	*o;
 
 			if (check_rulestate(PFCTL_STATE_NAT))
 				YYERROR;
@@ -4646,6 +4855,10 @@ natrule		: nataction interface af proto fromto tag tagged rtable
 				remove_invalid_hosts(&$9->host, &r.af);
 				if (invalid_redirect($9->host, r.af))
 					YYERROR;
+				if ($9->host->addr.type == PF_ADDR_DYNIFTL) {
+					if (($9->host = gen_dynnode($9->host, r.af)) == NULL)
+						err(1, "calloc");
+				}
 				if (check_netmask($9->host, r.af))
 					YYERROR;
 
@@ -4760,9 +4973,24 @@ natrule		: nataction interface af proto fromto tag tagged rtable
 				r.rpool.mape = $10.mape;
 			}
 
-			expand_rule(&r, $2, $9 == NULL ? NULL : $9->host, $4,
+			o = keep_state_defaults;
+			while (o) {
+				switch (o->type) {
+				case PF_STATE_OPT_PFLOW:
+					if (r.rule_flag & PFRULE_PFLOW) {
+						yyerror("state pflow option: "
+						    "multiple definitions");
+						YYERROR;
+					}
+					r.rule_flag |= PFRULE_PFLOW;
+					break;
+				}
+				o = o->next;
+			}
+
+			expand_rule(&r, $2, $9 == NULL ? NULL : $9->host, NULL, $4,
 			    $5.src_os, $5.src.host, $5.src.port, $5.dst.host,
-			    $5.dst.port, 0, 0, 0, "");
+			    $5.dst.port, 0, 0, 0, 0, "");
 			free($9);
 		}
 		;
@@ -4862,6 +5090,10 @@ binatrule	: no BINAT natpasslog interface af proto FROM ipspec toipspec tag
 					yyerror("binat ip versions must match");
 					YYERROR;
 				}
+				if ($8->addr.type == PF_ADDR_DYNIFTL) {
+					if (($8 = gen_dynnode($8, binat.af)) == NULL)
+						err(1, "calloc");
+				}
 				if (check_netmask($8, binat.af))
 					YYERROR;
 				memcpy(&binat.src.addr, &$8->addr,
@@ -4876,6 +5108,10 @@ binatrule	: no BINAT natpasslog interface af proto FROM ipspec toipspec tag
 				if ($9->af != binat.af && $9->af) {
 					yyerror("binat ip versions must match");
 					YYERROR;
+				}
+				if ($9->addr.type == PF_ADDR_DYNIFTL) {
+					if (($9 = gen_dynnode($9, binat.af)) == NULL)
+						err(1, "calloc");
 				}
 				if (check_netmask($9, binat.af))
 					YYERROR;
@@ -4905,6 +5141,10 @@ binatrule	: no BINAT natpasslog interface af proto FROM ipspec toipspec tag
 					yyerror("binat rule must redirect to "
 					    "a single address");
 					YYERROR;
+				}
+				if ($13->host->addr.type == PF_ADDR_DYNIFTL) {
+					if (($13->host = gen_dynnode($13->host, binat.af)) == NULL)
+						err(1, "calloc");
 				}
 				if (check_netmask($13->host, binat.af))
 					YYERROR;
@@ -5042,7 +5282,7 @@ timeout_spec	: STRING NUMBER
 				yyerror("only positive values permitted");
 				YYERROR;
 			}
-			if (pfctl_set_timeout(pf, $1, $2, 0) != 0) {
+			if (pfctl_apply_timeout(pf, $1, $2, 0) != 0) {
 				yyerror("unknown timeout %s", $1);
 				free($1);
 				YYERROR;
@@ -5056,7 +5296,7 @@ timeout_spec	: STRING NUMBER
 				yyerror("only positive values permitted");
 				YYERROR;
 			}
-			if (pfctl_set_timeout(pf, "interval", $2, 0) != 0)
+			if (pfctl_apply_timeout(pf, "interval", $2, 0) != 0)
 				YYERROR;
 		}
 		;
@@ -5075,7 +5315,7 @@ limit_spec	: STRING NUMBER
 				yyerror("only positive values permitted");
 				YYERROR;
 			}
-			if (pfctl_set_limit(pf, $1, $2) != 0) {
+			if (pfctl_apply_limit(pf, $1, $2) != 0) {
 				yyerror("unable to set limit %s %u", $1, $2);
 				free($1);
 				YYERROR;
@@ -5107,10 +5347,10 @@ yesno		: NO			{ $$ = 0; }
 		;
 
 unaryop		: '='		{ $$ = PF_OP_EQ; }
-		| '!' '='	{ $$ = PF_OP_NE; }
-		| '<' '='	{ $$ = PF_OP_LE; }
+		| NE			{ $$ = PF_OP_NE; }
+		| LE			{ $$ = PF_OP_LE; }
 		| '<'		{ $$ = PF_OP_LT; }
-		| '>' '='	{ $$ = PF_OP_GE; }
+		| GE		{ $$ = PF_OP_GE; }
 		| '>'		{ $$ = PF_OP_GT; }
 		;
 
@@ -5170,6 +5410,7 @@ rule_consistent(struct pfctl_rule *r, int anchor_call)
 
 	switch (r->action) {
 	case PF_PASS:
+	case PF_MATCH:
 	case PF_DROP:
 	case PF_SCRUB:
 	case PF_NOSCRUB:
@@ -5197,8 +5438,9 @@ filter_consistent(struct pfctl_rule *r, int anchor_call)
 	int	problems = 0;
 
 	if (r->proto != IPPROTO_TCP && r->proto != IPPROTO_UDP &&
+	    r->proto != IPPROTO_SCTP &&
 	    (r->src.port_op || r->dst.port_op)) {
-		yyerror("port only applies to tcp/udp");
+		yyerror("port only applies to tcp/udp/sctp");
 		problems++;
 	}
 	if (r->proto != IPPROTO_ICMP && r->proto != IPPROTO_ICMPV6 &&
@@ -5240,8 +5482,8 @@ filter_consistent(struct pfctl_rule *r, int anchor_call)
 		yyerror("max-src-nodes requires 'source-track rule'");
 		problems++;
 	}
-	if (r->action == PF_DROP && r->keep_state) {
-		yyerror("keep state on block rules doesn't make sense");
+	if (r->action != PF_PASS && r->keep_state) {
+		yyerror("keep state is great, but only for pass rules");
 		problems++;
 	}
 	if (r->rule_flag & PFRULE_STATESLOPPY &&
@@ -5249,6 +5491,26 @@ filter_consistent(struct pfctl_rule *r, int anchor_call)
 	    r->keep_state == PF_STATE_SYNPROXY)) {
 		yyerror("sloppy state matching cannot be used with "
 		    "synproxy state or modulate state");
+		problems++;
+	}
+	/* match rules rules */
+	if (r->action == PF_MATCH) {
+		if (r->divert.port) {
+			yyerror("divert is not supported on match rules");
+			problems++;
+		}
+		if (r->rt) {
+			yyerror("route-to, reply-to, dup-to and fastroute "
+			   "must not be used on match rules");
+			problems++;
+		}
+		if (r->naf != r->af) {
+			yyerror("af-to is not supported on match rules");
+			problems++;
+		}
+	}
+	if (r->rpool.opts & PF_POOL_STICKYADDR && !r->keep_state) {
+		yyerror("'sticky-address' requires 'keep state'");
 		problems++;
 	}
 	return (-problems);
@@ -5265,17 +5527,18 @@ rdr_consistent(struct pfctl_rule *r)
 {
 	int			 problems = 0;
 
-	if (r->proto != IPPROTO_TCP && r->proto != IPPROTO_UDP) {
+	if (r->proto != IPPROTO_TCP && r->proto != IPPROTO_UDP &&
+	    r->proto != IPPROTO_SCTP) {
 		if (r->src.port_op) {
-			yyerror("src port only applies to tcp/udp");
+			yyerror("src port only applies to tcp/udp/sctp");
 			problems++;
 		}
 		if (r->dst.port_op) {
-			yyerror("dst port only applies to tcp/udp");
+			yyerror("dst port only applies to tcp/udp/sctp");
 			problems++;
 		}
 		if (r->rpool.proxy_port[0]) {
-			yyerror("rpool port only applies to tcp/udp");
+			yyerror("rpool port only applies to tcp/udp/sctp");
 			problems++;
 		}
 	}
@@ -5879,12 +6142,13 @@ expand_eth_rule(struct pfctl_eth_rule *r,
 
 void
 expand_rule(struct pfctl_rule *r,
-    struct node_if *interfaces, struct node_host *rpool_hosts,
+    struct node_if *interfaces, struct node_host *rdr_hosts,
+    struct node_host *nat_hosts,
     struct node_proto *protos, struct node_os *src_oses,
     struct node_host *src_hosts, struct node_port *src_ports,
     struct node_host *dst_hosts, struct node_port *dst_ports,
-    struct node_uid *uids, struct node_gid *gids, struct node_icmp *icmp_types,
-    const char *anchor_call)
+    struct node_uid *uids, struct node_gid *gids, struct node_if *rcv,
+    struct node_icmp *icmp_types, const char *anchor_call)
 {
 	sa_family_t		 af = r->af;
 	int			 added = 0, error = 0;
@@ -5893,7 +6157,7 @@ expand_rule(struct pfctl_rule *r,
 	char			 tagname[PF_TAG_NAME_SIZE];
 	char			 match_tagname[PF_TAG_NAME_SIZE];
 	struct pf_pooladdr	*pa;
-	struct node_host	*h;
+	struct node_host	*h, *osrch, *odsth;
 	u_int8_t		 flags, flagset, keep_state;
 
 	memcpy(label, r->label, sizeof(r->label));
@@ -5911,10 +6175,10 @@ expand_rule(struct pfctl_rule *r,
 	LOOP_THROUGH(struct node_proto, proto, protos,
 	LOOP_THROUGH(struct node_icmp, icmp_type, icmp_types,
 	LOOP_THROUGH(struct node_host, src_host, src_hosts,
-	LOOP_THROUGH(struct node_port, src_port, src_ports,
-	LOOP_THROUGH(struct node_os, src_os, src_oses,
 	LOOP_THROUGH(struct node_host, dst_host, dst_hosts,
+	LOOP_THROUGH(struct node_port, src_port, src_ports,
 	LOOP_THROUGH(struct node_port, dst_port, dst_ports,
+	LOOP_THROUGH(struct node_os, src_os, src_oses,
 	LOOP_THROUGH(struct node_uid, uid, uids,
 	LOOP_THROUGH(struct node_gid, gid, gids,
 
@@ -5954,6 +6218,18 @@ expand_rule(struct pfctl_rule *r,
 		    sizeof(r->match_tagname)) >= sizeof(r->match_tagname))
 			errx(1, "expand_rule: strlcpy");
 
+		osrch = odsth = NULL;
+		if (src_host->addr.type == PF_ADDR_DYNIFTL) {
+			osrch = src_host;
+			if ((src_host = gen_dynnode(src_host, r->af)) == NULL)
+				err(1, "expand_rule: calloc");
+		}
+		if (dst_host->addr.type == PF_ADDR_DYNIFTL) {
+			odsth = dst_host;
+			if ((dst_host = gen_dynnode(dst_host, r->af)) == NULL)
+				err(1, "expand_rule: calloc");
+		}
+
 		error += check_netmask(src_host, r->af);
 		error += check_netmask(dst_host, r->af);
 
@@ -5975,6 +6251,10 @@ expand_rule(struct pfctl_rule *r,
 		r->gid.op = gid->op;
 		r->gid.gid[0] = gid->gid[0];
 		r->gid.gid[1] = gid->gid[1];
+		if (rcv) {
+			strlcpy(r->rcv_ifname, rcv->ifname,
+			    sizeof(r->rcv_ifname));
+		}
 		r->type = icmp_type->type;
 		r->code = icmp_type->code;
 
@@ -6008,8 +6288,8 @@ expand_rule(struct pfctl_rule *r,
 			r->os_fingerprint = PF_OSFP_ANY;
 		}
 
-		TAILQ_INIT(&r->rpool.list);
-		for (h = rpool_hosts; h != NULL; h = h->next) {
+		TAILQ_INIT(&r->rdr.list);
+		for (h = rdr_hosts; h != NULL; h = h->next) {
 			pa = calloc(1, sizeof(struct pf_pooladdr));
 			if (pa == NULL)
 				err(1, "expand_rule: calloc");
@@ -6023,6 +6303,24 @@ expand_rule(struct pfctl_rule *r,
 				pa->ifname[0] = 0;
 			TAILQ_INSERT_TAIL(&r->rpool.list, pa, entries);
 		}
+		TAILQ_INIT(&r->nat.list);
+		for (h = nat_hosts; h != NULL; h = h->next) {
+			pa = calloc(1, sizeof(struct pf_pooladdr));
+			if (pa == NULL)
+				err(1, "expand_rule: calloc");
+			pa->addr = h->addr;
+			if (h->ifname != NULL) {
+				if (strlcpy(pa->ifname, h->ifname,
+				    sizeof(pa->ifname)) >=
+				    sizeof(pa->ifname))
+					errx(1, "expand_rule: strlcpy");
+			} else
+				pa->ifname[0] = 0;
+			TAILQ_INSERT_TAIL(&r->nat.list, pa, entries);
+		}
+
+		r->nat.proxy_port[0] = PF_NAT_PROXY_PORT_LOW;
+		r->nat.proxy_port[1] = PF_NAT_PROXY_PORT_HIGH;
 
 		if (rule_consistent(r, anchor_call[0]) < 0 || error)
 			yyerror("skipping rule due to errors");
@@ -6030,6 +6328,15 @@ expand_rule(struct pfctl_rule *r,
 			r->nr = pf->astack[pf->asd]->match++;
 			pfctl_append_rule(pf, r, anchor_call);
 			added++;
+		}
+
+		if (osrch && src_host->addr.type == PF_ADDR_DYNIFTL) {
+			free(src_host);
+			src_host = osrch;
+		}
+		if (odsth && dst_host->addr.type == PF_ADDR_DYNIFTL) {
+			free(dst_host);
+			dst_host = odsth;
 		}
 
 	))))))))));
@@ -6044,7 +6351,8 @@ expand_rule(struct pfctl_rule *r,
 	FREE_LIST(struct node_uid, uids);
 	FREE_LIST(struct node_gid, gids);
 	FREE_LIST(struct node_icmp, icmp_types);
-	FREE_LIST(struct node_host, rpool_hosts);
+	FREE_LIST(struct node_host, rdr_hosts);
+	FREE_LIST(struct node_host, nat_hosts);
 
 	if (!added)
 		yyerror("rule expands to no valid combination");
@@ -6086,6 +6394,12 @@ expand_skip_interface(struct node_if *interfaces)
 		return (0);
 }
 
+void
+freehostlist(struct node_host *h)
+{
+	FREE_LIST(struct node_host, h);
+}
+
 #undef FREE_LIST
 #undef LOOP_THROUGH
 
@@ -6112,6 +6426,7 @@ lookup(char *s)
 {
 	/* this has to be sorted always */
 	static const struct keywords keywords[] = {
+		{ "af-to",		AFTO},
 		{ "all",		ALL},
 		{ "allow-opts",		ALLOWOPTS},
 		{ "altq",		ALTQ},
@@ -6136,6 +6451,7 @@ lookup(char *s)
 		{ "dnqueue",		DNQUEUE},
 		{ "drop",		DROP},
 		{ "dup-to",		DUPTO},
+		{ "endpoint-independent", ENDPI},
 		{ "ether",		ETHER},
 		{ "fail-policy",	FAILPOLICY},
 		{ "fairq",		FAIRQ},
@@ -6172,6 +6488,7 @@ lookup(char *s)
 		{ "loginterface",	LOGINTERFACE},
 		{ "map-e-portset",	MAPEPORTSET},
 		{ "match",		MATCH},
+		{ "matches",	MATCHES},
 		{ "max",		MAXIMUM},
 		{ "max-mss",		MAXMSS},
 		{ "max-src-conn",	MAXSRCCONN},
@@ -6192,6 +6509,7 @@ lookup(char *s)
 		{ "out",		OUT},
 		{ "overload",		OVERLOAD},
 		{ "pass",		PASS},
+		{ "pflow",		PFLOW},
 		{ "port",		PORT},
 		{ "prio",		PRIO},
 		{ "priority",		PRIORITY},
@@ -6207,6 +6525,7 @@ lookup(char *s)
 		{ "rdr-anchor",		RDRANCHOR},
 		{ "realtime",		REALTIME},
 		{ "reassemble",		REASSEMBLE},
+		{ "received-on",	RECEIVEDON},
 		{ "reply-to",		REPLYTO},
 		{ "require-order",	REQUIREORDER},
 		{ "return",		RETURN},
@@ -6435,12 +6754,19 @@ top:
 		if (yylval.v.string == NULL)
 			err(1, "yylex: strdup");
 		return (STRING);
+		case '!':
+			next = lgetc(0);
+			if (next == '=')
+				return (NE);
+			lungetc(next);
+		break;
 	case '<':
 		next = lgetc(0);
 		if (next == '>') {
 			yylval.v.i = PF_OP_XRG;
 			return (PORTBINARY);
-		}
+		} else if (next == '=')
+			return (LE);
 		lungetc(next);
 		break;
 	case '>':
@@ -6448,7 +6774,8 @@ top:
 		if (next == '<') {
 			yylval.v.i = PF_OP_IRG;
 			return (PORTBINARY);
-		}
+		} else if (next == '=')
+			return (GE);
 		lungetc(next);
 		break;
 	case '-':
@@ -6847,6 +7174,8 @@ getservice(char *n)
 		s = getservbyname(n, "tcp");
 		if (s == NULL)
 			s = getservbyname(n, "udp");
+		if (s == NULL)
+			s = getservbyname(n, "sctp");
 		if (s == NULL) {
 			yyerror("unknown port %s", n);
 			return (-1);
@@ -6857,6 +7186,23 @@ getservice(char *n)
 
 int
 rule_label(struct pfctl_rule *r, char *s[PF_RULE_MAX_LABEL_COUNT])
+{
+	for (int i = 0; i < PF_RULE_MAX_LABEL_COUNT; i++) {
+		if (s[i] == NULL)
+			return (0);
+
+		if (strlcpy(r->label[i], s[i], sizeof(r->label[0])) >=
+		    sizeof(r->label[0])) {
+			yyerror("rule label too long (max %d chars)",
+			    sizeof(r->label[0])-1);
+			return (-1);
+		}
+	}
+	return (0);
+}
+
+int
+eth_rule_label(struct pfctl_eth_rule *r, char *s[PF_RULE_MAX_LABEL_COUNT])
 {
 	for (int i = 0; i < PF_RULE_MAX_LABEL_COUNT; i++) {
 		if (s[i] == NULL)

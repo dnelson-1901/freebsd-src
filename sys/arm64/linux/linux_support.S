@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2018 Turing Robotic Industries Inc.
  * Copyright (C) 2022 Dmitry Chagin <dchagin@FreeBSD.org>
@@ -24,13 +24,11 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
-#include <machine/asm.h>
-__FBSDID("$FreeBSD$");
+#include <sys/elf_common.h>
 
+#include <machine/asm.h>
 #include <machine/param.h>
 #include <machine/vmparam.h>
 
@@ -176,3 +174,5 @@ ENTRY(futex_xorl)
 	str w4, [x2]
 	ret
 END(futex_xorl)
+
+GNU_PROPERTY_AARCH64_FEATURE_1_NOTE(GNU_PROPERTY_AARCH64_FEATURE_1_VAL)

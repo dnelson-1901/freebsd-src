@@ -24,8 +24,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/stdint.h>
 #include <sys/stddef.h>
 #include <sys/param.h>
@@ -68,8 +66,8 @@ __FBSDID("$FreeBSD$");
 
 #include <arm/ti/am335x/am335x_scm.h>
 #include <arm/ti/ti_sysc.h>
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/syscon/syscon.h>
+#include <dev/clk/clk.h>
+#include <dev/syscon/syscon.h>
 #include "syscon_if.h"
 
 #define USBCTRL_REV		0x00
@@ -329,7 +327,7 @@ musbotg_attach(device_t dev)
 	sc->sc_otg.sc_io_size =
 	    rman_get_size(sc->sc_otg.sc_io_res);
 
-	sc->sc_otg.sc_bus.bdev = device_add_child(dev, "usbus", -1);
+	sc->sc_otg.sc_bus.bdev = device_add_child(dev, "usbus", DEVICE_UNIT_ANY);
 	if (!(sc->sc_otg.sc_bus.bdev)) {
 		device_printf(dev, "No busdev for musb\n");
 		goto error;
@@ -406,9 +404,12 @@ static int
 musbotg_detach(device_t dev)
 {
 	struct musbotg_super_softc *sc = device_get_softc(dev);
+	int error;
 
 	/* during module unload there are lots of children leftover */
-	device_delete_children(dev);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	if (sc->sc_otg.sc_irq_res && sc->sc_otg.sc_intr_hdl) {
 		/*

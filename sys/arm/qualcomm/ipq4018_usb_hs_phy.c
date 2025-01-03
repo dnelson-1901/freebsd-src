@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Michal Meloun <mmel@FreeBSD.org>
  *
@@ -25,9 +25,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -39,9 +36,9 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/phy/phy_usb.h>
-#include <dev/extres/regulator/regulator.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/phy/phy_usb.h>
+#include <dev/regulator/regulator.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
@@ -203,7 +200,8 @@ ipq4018_usb_hs_usbphy_attach(device_t dev)
 	rv = ipq4018_usb_hs_usbphy_init_phy(sc, node);
 	if (rv != 0)
 		goto fail;
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail:
 	return (ENXIO);

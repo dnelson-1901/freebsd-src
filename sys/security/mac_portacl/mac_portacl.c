@@ -31,8 +31,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -80,8 +78,6 @@
 #include <netinet/in_pcb.h>
 
 #include <security/mac/mac_policy.h>
-
-SYSCTL_DECL(_security_mac);
 
 static SYSCTL_NODE(_security_mac, OID_AUTO, portacl,
     CTLFLAG_RW | CTLFLAG_MPSAFE, 0,

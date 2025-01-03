@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011-2013 Qlogic Corporation
  * All rights reserved.
@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "qla_os.h"
 #include "qla_reg.h"
 #include "qla_hw.h"
@@ -659,9 +657,6 @@ qla_init_ifnet(device_t dev, qla_host_t *ha)
 	QL_DPRINT2((dev, "%s: enter\n", __func__));
 
 	ifp = ha->ifp = if_alloc(IFT_ETHER);
-
-	if (ifp == NULL)
-		panic("%s: cannot if_alloc()\n", device_get_nameunit(dev));
 
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 

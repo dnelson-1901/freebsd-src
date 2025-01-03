@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "qlnx_os.h"
 #include "bcm_osal.h"
 #include "reg_addr.h"
@@ -55,7 +53,6 @@ __FBSDID("$FreeBSD$");
 #include "mcp_public.h"
 #include "ecore_iro.h"
 #include "nvm_cfg.h"
-#include "ecore_dev_api.h"
 #include "ecore_dbg_fw_funcs.h"
 #include "ecore_iov_api.h"
 #include "ecore_vf_api.h"
@@ -67,6 +64,12 @@ __FBSDID("$FreeBSD$");
 #ifdef QLNX_ENABLE_IWARP
 #include "qlnx_rdma.h"
 #endif /* #ifdef QLNX_ENABLE_IWARP */
+
+#ifdef CONFIG_ECORE_SRIOV
+#include <sys/nv.h>
+#include <sys/iov_schema.h>
+#include <dev/pci/pci_iov.h>
+#endif /* #ifdef CONFIG_ECORE_SRIOV */
 
 #include <sys/smp.h>
 
@@ -87,8 +90,8 @@ static void qlnx_init_ifnet(device_t dev, qlnx_host_t *ha);
 static void qlnx_init(void *arg);
 static void qlnx_init_locked(qlnx_host_t *ha);
 static int qlnx_set_multi(qlnx_host_t *ha, uint32_t add_multi);
-static int qlnx_set_promisc(qlnx_host_t *ha);
-static int qlnx_set_allmulti(qlnx_host_t *ha);
+static int qlnx_set_promisc(qlnx_host_t *ha, int enabled);
+static int qlnx_set_allmulti(qlnx_host_t *ha, int enabled);
 static int qlnx_ioctl(if_t ifp, u_long cmd, caddr_t data);
 static int qlnx_media_change(if_t ifp);
 static void qlnx_media_status(if_t ifp, struct ifmediareq *ifmr);
@@ -224,7 +227,6 @@ MODULE_DEPEND(if_qlnxev, ether, 1, 1, 1);
 
 MALLOC_DEFINE(M_QLNXBUF, "qlnxbuf", "Buffers for qlnx driver");
 
-char qlnx_dev_str[128];
 char qlnx_ver_str[VER_SIZE];
 char qlnx_name_str[NAME_SIZE];
 
@@ -371,60 +373,48 @@ qlnx_pci_probe(device_t dev)
 #ifndef QLNX_VF
 
         case QLOGIC_PCI_DEVICE_ID_1644:
-		snprintf(qlnx_dev_str, sizeof(qlnx_dev_str), "%s v%d.%d.%d",
+		device_set_descf(dev, "%s v%d.%d.%d",
 			"Qlogic 100GbE PCI CNA Adapter-Ethernet Function",
 			QLNX_VERSION_MAJOR, QLNX_VERSION_MINOR,
 			QLNX_VERSION_BUILD);
-                device_set_desc_copy(dev, qlnx_dev_str);
-
                 break;
 
         case QLOGIC_PCI_DEVICE_ID_1634:
-		snprintf(qlnx_dev_str, sizeof(qlnx_dev_str), "%s v%d.%d.%d",
+		device_set_descf(dev, "%s v%d.%d.%d",
 			"Qlogic 40GbE PCI CNA Adapter-Ethernet Function",
 			QLNX_VERSION_MAJOR, QLNX_VERSION_MINOR,
 			QLNX_VERSION_BUILD);
-                device_set_desc_copy(dev, qlnx_dev_str);
-
                 break;
 
         case QLOGIC_PCI_DEVICE_ID_1656:
-		snprintf(qlnx_dev_str, sizeof(qlnx_dev_str), "%s v%d.%d.%d",
+		device_set_descf(dev, "%s v%d.%d.%d",
 			"Qlogic 25GbE PCI CNA Adapter-Ethernet Function",
 			QLNX_VERSION_MAJOR, QLNX_VERSION_MINOR,
 			QLNX_VERSION_BUILD);
-                device_set_desc_copy(dev, qlnx_dev_str);
-
                 break;
 
         case QLOGIC_PCI_DEVICE_ID_1654:
-		snprintf(qlnx_dev_str, sizeof(qlnx_dev_str), "%s v%d.%d.%d",
+		device_set_descf(dev, "%s v%d.%d.%d",
 			"Qlogic 50GbE PCI CNA Adapter-Ethernet Function",
 			QLNX_VERSION_MAJOR, QLNX_VERSION_MINOR,
 			QLNX_VERSION_BUILD);
-                device_set_desc_copy(dev, qlnx_dev_str);
-
                 break;
 
 	case QLOGIC_PCI_DEVICE_ID_8070:
-		snprintf(qlnx_dev_str, sizeof(qlnx_dev_str), "%s v%d.%d.%d",
+		device_set_descf(dev, "%s v%d.%d.%d",
 			"Qlogic 10GbE/25GbE/40GbE PCI CNA (AH)"
 			" Adapter-Ethernet Function",
 			QLNX_VERSION_MAJOR, QLNX_VERSION_MINOR,
 			QLNX_VERSION_BUILD);
-		device_set_desc_copy(dev, qlnx_dev_str);
-
 		break;
 
 #else
 	case QLOGIC_PCI_DEVICE_ID_8090:
-		snprintf(qlnx_dev_str, sizeof(qlnx_dev_str), "%s v%d.%d.%d",
+		device_set_descf(dev, "%s v%d.%d.%d",
 			"Qlogic SRIOV PCI CNA (AH) "
 			"Adapter-Ethernet Function",
 			QLNX_VERSION_MAJOR, QLNX_VERSION_MINOR,
 			QLNX_VERSION_BUILD);
-		device_set_desc_copy(dev, qlnx_dev_str);
-
 		break;
 
 #endif /* #ifndef QLNX_VF */
@@ -446,17 +436,12 @@ qlnx_num_tx_compl(qlnx_host_t *ha, struct qlnx_fastpath *fp,
 {
 	u16 hw_bd_cons;
 	u16 ecore_cons_idx;
-	uint16_t diff;
 
 	hw_bd_cons = le16toh(*txq->hw_cons_ptr);
 
 	ecore_cons_idx = ecore_chain_get_cons_idx(&txq->tx_pbl);
-	if (hw_bd_cons < ecore_cons_idx) {
-		diff = (1 << 16) - (ecore_cons_idx - hw_bd_cons);
-	} else {
-		diff = hw_bd_cons - ecore_cons_idx;
-	}
-	return diff;
+
+	return (hw_bd_cons - ecore_cons_idx);
 }
 
 static void
@@ -765,7 +750,7 @@ qlnx_pci_attach(device_t dev)
 
         ha->pci_dev = dev;
 
-	mtx_init(&ha->hw_lock, "qlnx_hw_lock", MTX_NETWORK_LOCK, MTX_DEF);
+	sx_init(&ha->hw_lock, "qlnx_hw_lock");
 
         ha->flags.lock_init = 1;
 
@@ -1209,6 +1194,7 @@ qlnx_init_hw(qlnx_host_t *ha)
 	int				rval = 0;
 	struct ecore_hw_prepare_params	params;
 
+        ha->cdev.ha = ha;
 	ecore_init_struct(&ha->cdev);
 
 	/* ha->dp_module = ECORE_MSG_PROBE |
@@ -1353,7 +1339,7 @@ qlnx_release(qlnx_host_t *ha)
                 pci_release_msi(dev);
 
         if (ha->flags.lock_init) {
-                mtx_destroy(&ha->hw_lock);
+                sx_destroy(&ha->hw_lock);
         }
 
         if (ha->pci_reg)
@@ -2306,10 +2292,6 @@ qlnx_init_ifnet(device_t dev, qlnx_host_t *ha)
         if_t		ifp;
 
         ifp = ha->ifp = if_alloc(IFT_ETHER);
-
-        if (ifp == NULL)
-                panic("%s: cannot if_alloc()\n", device_get_nameunit(dev));
-
         if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 
 	device_id = pci_get_device(ha->pci_dev);
@@ -2597,7 +2579,7 @@ qlnx_set_multi(qlnx_host_t *ha, uint32_t add_multi)
 }
 
 static int
-qlnx_set_promisc(qlnx_host_t *ha)
+qlnx_set_promisc(qlnx_host_t *ha, int enabled)
 {
 	int	rc = 0;
 	uint8_t	filter;
@@ -2606,15 +2588,20 @@ qlnx_set_promisc(qlnx_host_t *ha)
 		return (0);
 
 	filter = ha->filter;
-	filter |= ECORE_ACCEPT_MCAST_UNMATCHED;
-	filter |= ECORE_ACCEPT_UCAST_UNMATCHED;
+	if (enabled) {
+		filter |= ECORE_ACCEPT_MCAST_UNMATCHED;
+		filter |= ECORE_ACCEPT_UCAST_UNMATCHED;
+	} else {
+		filter &= ~ECORE_ACCEPT_MCAST_UNMATCHED;
+		filter &= ~ECORE_ACCEPT_UCAST_UNMATCHED;
+	}
 
 	rc = qlnx_set_rx_accept_filter(ha, filter);
 	return (rc);
 }
 
 static int
-qlnx_set_allmulti(qlnx_host_t *ha)
+qlnx_set_allmulti(qlnx_host_t *ha, int enabled)
 {
 	int	rc = 0;
 	uint8_t	filter;
@@ -2623,7 +2610,11 @@ qlnx_set_allmulti(qlnx_host_t *ha)
 		return (0);
 
 	filter = ha->filter;
-	filter |= ECORE_ACCEPT_MCAST_UNMATCHED;
+	if (enabled) {
+		filter |= ECORE_ACCEPT_MCAST_UNMATCHED;
+	} else {
+		filter &= ~ECORE_ACCEPT_MCAST_UNMATCHED;
+	}
 	rc = qlnx_set_rx_accept_filter(ha, filter);
 
 	return (rc);
@@ -2633,8 +2624,11 @@ static int
 qlnx_ioctl(if_t ifp, u_long cmd, caddr_t data)
 {
 	int		ret = 0, mask;
+	int		flags;
 	struct ifreq	*ifr = (struct ifreq *)data;
+#ifdef INET
 	struct ifaddr	*ifa = (struct ifaddr *)data;
+#endif
 	qlnx_host_t	*ha;
 
 	ha = (qlnx_host_t *)if_getsoftc(ifp);
@@ -2643,6 +2637,7 @@ qlnx_ioctl(if_t ifp, u_long cmd, caddr_t data)
 	case SIOCSIFADDR:
 		QL_DPRINT4(ha, "SIOCSIFADDR (0x%lx)\n", cmd);
 
+#ifdef INET
 		if (ifa->ifa_addr->sa_family == AF_INET) {
 			if_setflagbits(ifp, IFF_UP, 0);
 			if (!(if_getdrvflags(ifp) & IFF_DRV_RUNNING)) {
@@ -2654,9 +2649,10 @@ qlnx_ioctl(if_t ifp, u_long cmd, caddr_t data)
 				   cmd, ntohl(IA_SIN(ifa)->sin_addr.s_addr));
 
 			arp_ifinit(ifp, ifa);
-		} else {
-			ether_ioctl(ifp, cmd, data);
+			break;
 		}
+#endif
+		ether_ioctl(ifp, cmd, data);
 		break;
 
 	case SIOCSIFMTU:
@@ -2682,15 +2678,16 @@ qlnx_ioctl(if_t ifp, u_long cmd, caddr_t data)
 		QL_DPRINT4(ha, "SIOCSIFFLAGS (0x%lx)\n", cmd);
 
 		QLNX_LOCK(ha);
+		flags = if_getflags(ifp);
 
-		if (if_getflags(ifp) & IFF_UP) {
+		if (flags & IFF_UP) {
 			if (if_getdrvflags(ifp) & IFF_DRV_RUNNING) {
-				if ((if_getflags(ifp) ^ ha->if_flags) &
+				if ((flags ^ ha->if_flags) &
 					IFF_PROMISC) {
-					ret = qlnx_set_promisc(ha);
+					ret = qlnx_set_promisc(ha, flags & IFF_PROMISC);
 				} else if ((if_getflags(ifp) ^ ha->if_flags) &
 					IFF_ALLMULTI) {
-					ret = qlnx_set_allmulti(ha);
+					ret = qlnx_set_allmulti(ha, flags & IFF_ALLMULTI);
 				}
 			} else {
 				ha->max_frame_size = if_getmtu(ifp) +
@@ -2700,9 +2697,9 @@ qlnx_ioctl(if_t ifp, u_long cmd, caddr_t data)
 		} else {
 			if (if_getdrvflags(ifp) & IFF_DRV_RUNNING)
 				qlnx_stop(ha);
-			ha->if_flags = if_getflags(ifp);
 		}
 
+		ha->if_flags = if_getflags(ifp);
 		QLNX_UNLOCK(ha);
 		break;
 
@@ -2947,11 +2944,7 @@ qlnx_tx_int(qlnx_host_t *ha, struct qlnx_fastpath *fp,
 
 	while (hw_bd_cons !=
 		(ecore_cons_idx = ecore_chain_get_cons_idx(&txq->tx_pbl))) {
-		if (hw_bd_cons < ecore_cons_idx) {
-			diff = (1 << 16) - (ecore_cons_idx - hw_bd_cons);
-		} else {
-			diff = hw_bd_cons - ecore_cons_idx;
-		}
+		diff = hw_bd_cons - ecore_cons_idx;
 		if ((diff > TX_RING_SIZE) ||
 			QL_ERR_INJECT(ha, QL_ERR_INJCT_TX_INT_DIFF)){
 			QL_RESET_ERR_INJECT(ha, QL_ERR_INJCT_TX_INT_DIFF);
@@ -5389,11 +5382,11 @@ qlnx_zalloc(uint32_t size)
 }
 
 void
-qlnx_barrier(void *p_hwfn)
+qlnx_barrier(void *p_dev)
 {
 	qlnx_host_t	*ha;
 
-	ha = (qlnx_host_t *)((struct ecore_hwfn *)p_hwfn)->p_dev;
+	ha = ((struct ecore_dev *) p_dev)->ha;
 	bus_barrier(ha->pci_reg,  0, 0, BUS_SPACE_BARRIER_WRITE);
 }
 
@@ -6596,8 +6589,13 @@ qlnx_update_rx_prod(struct ecore_hwfn *p_hwfn, struct qlnx_rx_queue *rxq)
          */
 	wmb();
 
-        internal_ram_wr(p_hwfn, rxq->hw_rxq_prod_addr,
+#ifdef ECORE_CONFIG_DIRECT_HWFN
+	internal_ram_wr(p_hwfn, rxq->hw_rxq_prod_addr,
 		sizeof(rx_prods), &rx_prods.data32);
+#else
+	internal_ram_wr(rxq->hw_rxq_prod_addr,
+		sizeof(rx_prods), &rx_prods.data32);
+#endif
 
         /* mmiowb is needed to synchronize doorbell writes from more than one
          * processor. It guarantees that the write arrives to the device before
@@ -7059,8 +7057,19 @@ qlnx_set_rx_mode(qlnx_host_t *ha)
 {
 	int	rc = 0;
 	uint8_t	filter;
+	const if_t ifp = ha->ifp;
+	const struct ifaddr *ifa;
+	struct sockaddr_dl *sdl;
 
-	rc = qlnx_set_ucast_rx_mac(ha, ECORE_FILTER_REPLACE, ha->primary_mac);
+	ifa = if_getifaddr(ifp);
+	if (if_gettype(ifp) == IFT_ETHER && ifa != NULL &&
+			ifa->ifa_addr != NULL) {
+		sdl = (struct sockaddr_dl *) ifa->ifa_addr;
+
+		rc = qlnx_set_ucast_rx_mac(ha, ECORE_FILTER_REPLACE, LLADDR(sdl));
+	} else {
+		rc = qlnx_set_ucast_rx_mac(ha, ECORE_FILTER_REPLACE, ha->primary_mac);
+	}
         if (rc)
                 return rc;
 
@@ -7072,8 +7081,10 @@ qlnx_set_rx_mode(qlnx_host_t *ha)
 			ECORE_ACCEPT_MCAST_MATCHED |
 			ECORE_ACCEPT_BCAST;
 
-	if (qlnx_vf_device(ha) == 0) {
+	if (qlnx_vf_device(ha) == 0 || (if_getflags(ha->ifp) & IFF_PROMISC)) {
 		filter |= ECORE_ACCEPT_UCAST_UNMATCHED;
+		filter |= ECORE_ACCEPT_MCAST_UNMATCHED;
+	} else if (if_getflags(ha->ifp) & IFF_ALLMULTI) {
 		filter |= ECORE_ACCEPT_MCAST_UNMATCHED;
 	}
 	ha->filter = filter;

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2022, Intel Corporation
+/*  Copyright (c) 2024, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-/*$FreeBSD$*/
 
 /**
  * @file ice_rss.h
@@ -69,14 +68,6 @@ CTASSERT(ICE_AQC_GET_SET_RSS_KEY_DATA_RSS_KEY_SIZE >= RSS_KEYSIZE);
 #define	RSS_HASHTYPE_RSS_UDP_IPV6	(1 << 9)	/* IPv6 UDP 4-tuple */
 #define	RSS_HASHTYPE_RSS_UDP_IPV6_EX	(1 << 10)	/* IPv6 UDP 4-tuple + ext hdrs */
 
-#define ICE_DEFAULT_RSS_HASH_CONFIG \
-	((u_int)(RSS_HASHTYPE_RSS_IPV4 | \
-		 RSS_HASHTYPE_RSS_TCP_IPV4 | \
-		 RSS_HASHTYPE_RSS_UDP_IPV4 | \
-		 RSS_HASHTYPE_RSS_IPV6 | \
-		 RSS_HASHTYPE_RSS_TCP_IPV6 | \
-		 RSS_HASHTYPE_RSS_UDP_IPV6))
-
 #define rss_getkey(key) ice_get_default_rss_key(key)
 #define rss_getnumbuckets() (mp_ncpus)
 #define rss_get_indirection_to_bucket(index) (index)
@@ -113,5 +104,13 @@ rss_hash2bucket(uint32_t hash_val, uint32_t hash_type, uint32_t *bucket_id)
 }
 
 #endif /* !RSS */
+
+#define ICE_DEFAULT_RSS_HASH_CONFIG \
+	((u_int)(RSS_HASHTYPE_RSS_IPV4 | \
+		 RSS_HASHTYPE_RSS_TCP_IPV4 | \
+		 RSS_HASHTYPE_RSS_UDP_IPV4 | \
+		 RSS_HASHTYPE_RSS_IPV6 | \
+		 RSS_HASHTYPE_RSS_TCP_IPV6 | \
+		 RSS_HASHTYPE_RSS_UDP_IPV6))
 
 #endif /* _ICE_COMMON_COMPAT_H_ */

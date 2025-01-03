@@ -25,9 +25,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/bus.h>
@@ -265,8 +262,8 @@ memac_mdio_acpi_attach(device_t dev)
 	ACPI_SCAN_CHILDREN(device_get_parent(dev), dev, 1,
 	    memac_mdio_acpi_probe_child, &ctx);
 	if (ctx.countok > 0) {
-		bus_generic_probe(dev);
-		bus_generic_attach(dev);
+		bus_identify_children(dev);
+		bus_attach_children(dev);
 	}
 
 	return (0);

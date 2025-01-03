@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Tegra GPIO driver.
  */
@@ -826,7 +824,8 @@ tegra_gpio_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int

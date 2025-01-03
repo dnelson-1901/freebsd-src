@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -622,7 +620,7 @@ cqspi_delayed_attach(void *arg)
 	sc = arg;
 
 	cqspi_add_devices(sc->dev);
-	bus_generic_attach(sc->dev);
+	bus_attach_children(sc->dev);
 
 	config_intrhook_disestablish(&sc->config_intrhook);
 }

@@ -1,7 +1,9 @@
-#	@(#)Makefile	8.1 (Berkeley) 6/18/93
-# $FreeBSD$
-
 .include <src.opts.mk>
+
+# If you add a new file here, please consider adding an entry to the
+# hardware notes template (website/archetypes/release/hardware.adoc in
+# the doc repository); otherwise the automatically generated hardware
+# notes will not include your driver.
 
 MAN=	aac.4 \
 	aacraid.4 \
@@ -36,10 +38,6 @@ MAN=	aac.4 \
 	alc.4 \
 	ale.4 \
 	alpm.4 \
-	altera_atse.4 \
-	altera_avgen.4 \
-	altera_jtag_uart.4 \
-	altera_sdcard.4 \
 	altq.4 \
 	amdpm.4 \
 	${_amdsbwd.4} \
@@ -55,11 +53,10 @@ MAN=	aac.4 \
 	at45d.4 \
 	ata.4 \
 	ath.4 \
-	ath_ahb.4 \
 	ath_hal.4 \
-	ath_pci.4 \
 	atkbd.4 \
 	atkbdc.4 \
+	${_atopcase.4} \
 	atp.4 \
 	${_atf_test_case.4} \
 	${_atrtc.4} \
@@ -103,6 +100,7 @@ MAN=	aac.4 \
 	cc_vegas.4 \
 	${_ccd.4} \
 	ccr.4 \
+	cd9660.4 \
 	cd.4 \
 	cdce.4 \
 	cdceem.4 \
@@ -130,6 +128,7 @@ MAN=	aac.4 \
 	dcons_crom.4 \
 	ddb.4 \
 	devctl.4 \
+	devfs.4 \
 	disc.4 \
 	disk.4 \
 	divert.4 \
@@ -137,6 +136,7 @@ MAN=	aac.4 \
 	ds1307.4 \
 	ds3231.4 \
 	${_dtrace_provs} \
+	dummymbuf.4 \
 	dummynet.4 \
 	edsc.4 \
 	ehci.4 \
@@ -150,32 +150,35 @@ MAN=	aac.4 \
 	etherswitch.4 \
 	eventtimers.4 \
 	exca.4 \
+	ext2fs.4 \
 	e6060sw.4 \
 	fd.4 \
 	fdc.4 \
+	fdescfs.4 \
 	fdt.4 \
 	fdt_pinctrl.4 \
 	fdtbus.4 \
 	ffclock.4 \
+	ffs.4 \
 	filemon.4 \
 	firewire.4 \
 	${_ftgpio.4} \
 	${_ftwd.4} \
 	full.4 \
+	fusefs.4 \
 	fwe.4 \
 	fwip.4 \
 	fwohci.4 \
 	fxp.4 \
-	gbde.4 \
 	gdb.4 \
 	gem.4 \
 	genet.4 \
 	genetlink.4 \
 	geom.4 \
 	geom_linux_lvm.4 \
-	geom_map.4 \
 	geom_uzip.4 \
 	gif.4 \
+	${_gve.4} \
 	gpio.4 \
 	gpioiic.4 \
 	gpiokeys.4 \
@@ -210,7 +213,9 @@ MAN=	aac.4 \
 	${_hv_vss.4} \
 	hwpmc.4 \
 	${_hwpstate_intel.4} \
+	i2ctinyusb.4 \
 	iavf.4 \
+	ice.4 \
 	ichsmb.4 \
 	${_ichwd.4} \
 	icmp.4 \
@@ -260,7 +265,7 @@ MAN=	aac.4 \
 	iwnfw.4 \
 	iwlwifi.4 \
 	iwlwififw.4 \
-	ixgbe.4 \
+	ix.4 \
 	ixl.4 \
 	jedec_dimm.4 \
 	jme.4 \
@@ -278,6 +283,9 @@ MAN=	aac.4 \
 	le.4 \
 	led.4 \
 	lge.4 \
+	lindebugfs.4 \
+	linprocfs.4 \
+	linsysfs.4 \
 	${_linux.4} \
 	liquidio.4 \
 	lm75.4 \
@@ -290,7 +298,9 @@ MAN=	aac.4 \
 	mac_biba.4 \
 	mac_bsdextended.4 \
 	mac_ddb.4 \
+	mac_do.4 \
 	mac_ifoff.4 \
+	mac_ipacl.4 \
 	mac_lomac.4 \
 	mac_mls.4 \
 	mac_none.4 \
@@ -319,10 +329,13 @@ MAN=	aac.4 \
 	mod_cc.4 \
 	mos.4 \
 	mouse.4 \
+	mpi3mr.4 \
 	mpr.4 \
 	mps.4 \
 	mpt.4 \
+	mqueuefs.4 \
 	mrsas.4 \
+	msdosfs.4 \
 	msk.4 \
 	mtio.4 \
 	multicast.4 \
@@ -342,6 +355,7 @@ MAN=	aac.4 \
 	netlink.4 \
 	netmap.4 \
 	${_nfe.4} \
+	nfslockd.4 \
 	${_nfsmb.4} \
 	ng_async.4 \
 	ng_bpf.4 \
@@ -404,10 +418,14 @@ MAN=	aac.4 \
 	${_nda.4} \
 	${_if_ntb.4} \
 	null.4 \
+	nullfs.4 \
 	numa.4 \
-	${_nvd.4} \
+	nvd.4 \
 	${_nvdimm.4} \
-	${_nvme.4} \
+	nvme.4 \
+	nvmf.4 \
+	nvmf_tcp.4 \
+	nvmft.4 \
 	${_nvram.4} \
 	oce.4 \
 	ocs_fc.4\
@@ -420,6 +438,7 @@ MAN=	aac.4 \
 	owc.4 \
 	ovpn.4 \
 	${_padlock.4} \
+	p9fs.4 \
 	pass.4 \
 	pca954x.4 \
 	pccard.4 \
@@ -434,6 +453,7 @@ MAN=	aac.4 \
 	pcm.4 \
 	${_pf.4} \
 	${_pflog.4} \
+	${_pflow.4} \
 	${_pfsync.4} \
 	pim.4 \
 	pms.4 \
@@ -442,6 +462,7 @@ MAN=	aac.4 \
 	ppc.4 \
 	ppi.4 \
 	procdesc.4 \
+	procfs.4 \
 	proto.4 \
 	ps4dshock.4 \
 	psm.4 \
@@ -452,6 +473,7 @@ MAN=	aac.4 \
 	pty.4 \
 	puc.4 \
 	pwmc.4 \
+	${_pvscsi.4} \
 	${_qat.4} \
 	${_qat_c2xxx.4} \
 	${_qlxge.4} \
@@ -470,7 +492,7 @@ MAN=	aac.4 \
 	rtnetlink.4 \
 	rtsx.4 \
 	rtw88.4 \
-	rtw88fw.4 \
+	rtw89.4 \
 	rtwn.4 \
 	rtwnfw.4 \
 	rtwn_pci.4 \
@@ -491,6 +513,7 @@ MAN=	aac.4 \
 	send.4 \
 	ses.4 \
 	${_sfxge.4} \
+	sg.4 \
 	sge.4 \
 	siba.4 \
 	siftr.4 \
@@ -500,6 +523,7 @@ MAN=	aac.4 \
 	sk.4 \
 	${_smartpqi.4} \
 	smb.4 \
+	smbfs.4 \
 	smbios.4 \
 	smbus.4 \
 	smp.4 \
@@ -509,6 +533,7 @@ MAN=	aac.4 \
 	snd_cmi.4 \
 	snd_cs4281.4 \
 	snd_csa.4 \
+	snd_dummy.4 \
 	snd_emu10k1.4 \
 	snd_emu10kx.4 \
 	snd_envy24.4 \
@@ -516,6 +541,7 @@ MAN=	aac.4 \
 	snd_es137x.4 \
 	snd_fm801.4 \
 	snd_hda.4 \
+	snd_hdsp.4 \
 	snd_hdspe.4 \
 	snd_ich.4 \
 	snd_maestro3.4 \
@@ -543,6 +569,7 @@ MAN=	aac.4 \
 	syscons.4 \
 	sysmouse.4 \
 	tap.4 \
+	tarfs.4 \
 	targ.4 \
 	tcp.4 \
 	tcp_bbr.4 \
@@ -552,6 +579,7 @@ MAN=	aac.4 \
 	textdump.4 \
 	ti.4 \
 	timecounters.4 \
+	tmpfs.4 \
 	${_tpm.4} \
 	tslog.4 \
 	tty.4 \
@@ -560,6 +588,7 @@ MAN=	aac.4 \
 	tws.4 \
 	udp.4 \
 	udplite.4 \
+	unionfs.4 \
 	ure.4 \
 	vale.4 \
 	vga.4 \
@@ -570,6 +599,7 @@ MAN=	aac.4 \
 	virtio_balloon.4 \
 	virtio_blk.4 \
 	virtio_console.4 \
+	virtio_gpu.4 \
 	virtio_random.4 \
 	virtio_scsi.4 \
 	${_vmci.4} \
@@ -617,11 +647,8 @@ MLINKS+=age.4 if_age.4
 MLINKS+=agp.4 agpgart.4
 MLINKS+=alc.4 if_alc.4
 MLINKS+=ale.4 if_ale.4
-MLINKS+=altera_atse.4 atse.4
-MLINKS+=altera_sdcard.4 altera_sdcardc.4
 MLINKS+=altq.4 ALTQ.4
 MLINKS+=ath.4 if_ath.4
-MLINKS+=ath_pci.4 if_ath_pci.4
 MLINKS+=aue.4 if_aue.4
 MLINKS+=axe.4 if_axe.4
 MLINKS+=bce.4 if_bce.4
@@ -659,10 +686,13 @@ MLINKS+=disc.4 if_disc.4
 MLINKS+=edsc.4 if_edsc.4
 MLINKS+=em.4 if_em.4 \
 	em.4 igb.4 \
-	em.4 if_igb.4
+	em.4 if_igb.4 \
+	em.4 lem.4 \
+	em.4 if_lem.4
 MLINKS+=enc.4 if_enc.4
 MLINKS+=epair.4 if_epair.4
 MLINKS+=et.4 if_et.4
+MLINKS+=ext2fs.4 ext4fs.4
 MLINKS+=fd.4 stderr.4 \
 	fd.4 stdin.4 \
 	fd.4 stdout.4
@@ -680,20 +710,24 @@ MLINKS+=gpioths.4 dht11.4
 MLINKS+=gpioths.4 dht22.4
 MLINKS+=gre.4 if_gre.4
 MLINKS+=hpet.4 acpi_hpet.4
+MLINKS+=${_hv_netvsc.4} ${_hn.4} \
+	${_hv_netvsc.4} ${_if_hn.4}
 MLINKS+=${_hptrr.4} ${_rr232x.4}
 MLINKS+=${_attimer.4} ${_i8254.4}
 MLINKS+=ip.4 rawip.4
 MLINKS+=ipfirewall.4 ipaccounting.4 \
 	ipfirewall.4 ipacct.4 \
 	ipfirewall.4 ipfw.4
+MLINKS+=ice.4 if_ice.4
 MLINKS+=ipheth.4 if_ipheth.4
 MLINKS+=ipw.4 if_ipw.4
 MLINKS+=iwi.4 if_iwi.4
+MLINKS+=iwlwifi.4 if_iwlwifi.4
 MLINKS+=iwm.4 if_iwm.4
 MLINKS+=iwn.4 if_iwn.4
-MLINKS+=ixgbe.4 ix.4
-MLINKS+=ixgbe.4 if_ix.4
-MLINKS+=ixgbe.4 if_ixgbe.4
+MLINKS+=ix.4 if_ix.4
+MLINKS+=ix.4 if_ixgbe.4
+MLINKS+=ix.4 ixgbe.4
 MLINKS+=ixl.4 if_ixl.4
 MLINKS+=iavf.4 if_iavf.4
 MLINKS+=jme.4 if_jme.4
@@ -711,6 +745,7 @@ MLINKS+=mfi.4 mfi_linux.4 \
 	mfi.4 mfip.4
 MLINKS+=mlx5en.4 mce.4
 MLINKS+=mos.4 if_mos.4
+MLINKS+=msdosfs.4 msdos.4
 MLINKS+=msk.4 if_msk.4
 MLINKS+=mwl.4 if_mwl.4
 MLINKS+=mxge.4 if_mxge.4
@@ -732,10 +767,9 @@ MLINKS+=re.4 if_re.4
 MLINKS+=rl.4 if_rl.4
 MLINKS+=rtwn_pci.4 if_rtwn_pci.4
 MLINKS+=rue.4 if_rue.4
-MLINKS+=scsi.4 CAM.4 \
-	scsi.4 cam.4 \
-	scsi.4 scbus.4 \
-	scsi.4 SCSI.4
+MLINKS+=scsi.4 cam.4
+MLINKS+=scsi.4 scbus.4
+MLINKS+=scsi.4 SCSI.4
 MLINKS+=sge.4 if_sge.4
 MLINKS+=sis.4 if_sis.4
 MLINKS+=sk.4 if_sk.4
@@ -765,6 +799,7 @@ MLINKS+=vte.4 if_vte.4
 MLINKS+=vtnet.4 if_vtnet.4
 MLINKS+=watchdog.4 SW_WATCHDOG.4
 MLINKS+=wg.4 if_wg.4
+MLINKS+=wlan.4 wifi.4
 MLINKS+=${_wpi.4} ${_if_wpi.4}
 MLINKS+=xl.4 if_xl.4
 
@@ -791,6 +826,7 @@ _amdsmb.4=	amdsmb.4
 _amdsmn.4=	amdsmn.4
 _amdtemp.4=	amdtemp.4
 _asmc.4=	asmc.4
+_atopcase.4=	atopcase.4
 _bxe.4=		bxe.4
 _bytgpio.4=	bytgpio.4
 _chvgpio.4=	chvgpio.4
@@ -799,6 +835,7 @@ _cpuctl.4=	cpuctl.4
 _dpms.4=	dpms.4
 _ftgpio.4=	ftgpio.4
 _ftwd.4=	ftwd.4
+_hn.4=		_hn.4
 _hpt27xx.4=	hpt27xx.4
 _hptiop.4=	hptiop.4
 _hptmv.4=	hptmv.4
@@ -814,9 +851,9 @@ _hwpstate_intel.4=	hwpstate_intel.4
 _i8254.4=	i8254.4
 _ichwd.4=	ichwd.4
 _if_bxe.4=	if_bxe.4
+_if_hn.4=	if_hn.4
 _if_nfe.4=	if_nfe.4
 _if_urtw.4=	if_urtw.4
-_if_vmx.4=	if_vmx.4
 _if_wpi.4=	if_wpi.4
 _igc.4=		igc.4
 _imcsmb.4=	imcsmb.4
@@ -833,8 +870,6 @@ _ntb_hw_amd.4=	ntb_hw_amd.4
 _ntb_hw_intel.4=	ntb_hw_intel.4
 _ntb_hw_plx.4=	ntb_hw_plx.4
 _ntb_transport.4=ntb_transport.4
-_nvd.4=		nvd.4
-_nvme.4=	nvme.4
 _nvram.4=	nvram.4
 _padlock.4=	padlock.4
 _pchtherm.4=	pchtherm.4
@@ -849,7 +884,6 @@ _urtw.4=	urtw.4
 _viawd.4=	viawd.4
 _vmci.4=	vmci.4
 _vmd.4=		vmd.4
-_vmx.4=		vmx.4
 _wbwd.4=	wbwd.4
 _wdatwd.4=	wdatwd.4
 _wpi.4=		wpi.4
@@ -882,16 +916,15 @@ _vmm.4=		vmm.4
 .endif
 .endif
 
-.if ${MACHINE_CPUARCH} == "powerpc"
-_nvd.4= 	nvd.4
-_nvme.4=	nvme.4
-.endif
-
 .if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386" || \
 	 ${MACHINE_CPUARCH} == "aarch64"
+_gve.4=		gve.4
+_if_vmx.4=	if_vmx.4
 _ipmi.4=	ipmi.4
 _linux.4=	linux.4
 _ossl.4=	ossl.4
+_pvscsi.4=	pvscsi.4
+_vmx.4=		vmx.4
 .endif
 
 .if ${MACHINE_CPUARCH} == "arm" || ${MACHINE_CPUARCH} == "aarch64" || \
@@ -910,6 +943,10 @@ __arches=	${MAN_ARCH}
 SUBDIR+=	man4.${__arch}
 .endif
 .endfor
+
+.if ${MK_AUTOFS} != "no"
+MAN+=		autofs.4
+.endif
 
 .if ${MK_BLUETOOTH} != "no"
 MAN+=		ng_bluetooth.4
@@ -965,6 +1002,7 @@ _atf_test_case.4=	atf-test-case.4
 .if ${MK_PF} != "no"
 _pf.4=		pf.4
 _pflog.4=	pflog.4
+_pflow.4=	pflow.4
 _pfsync.4=	pfsync.4
 .endif
 
@@ -1024,6 +1062,7 @@ MAN+=	\
 	uslcom.4 \
 	uvisor.4 \
 	uvscom.4 \
+	veriexec.4 \
 	zyd.4
 
 MLINKS+=otus.4 if_otus.4

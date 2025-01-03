@@ -1,6 +1,3 @@
-#	From: @(#)Makefile	8.3 (Berkeley) 1/7/94
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 SUBDIR=	alias \
@@ -28,7 +25,6 @@ SUBDIR=	alias \
 	column \
 	comm \
 	compress \
-	cpuset \
 	csplit \
 	ctlstat \
 	cut \
@@ -86,12 +82,13 @@ SUBDIR=	alias \
 	logins \
 	logname \
 	look \
-	lorder \
 	lsvfs \
 	lzmainfo \
 	m4 \
 	mandoc \
+	mdo \
 	mesg \
+	mididump \
 	ministat \
 	mkdep \
 	mkfifo \
@@ -113,6 +110,7 @@ SUBDIR=	alias \
 	patch \
 	pathchk \
 	perror \
+	posixmqcontrol \
 	posixshmcontrol \
 	pr \
 	printenv \
@@ -144,7 +142,6 @@ SUBDIR=	alias \
 	split \
 	stat \
 	stdbuf \
-	strings \
 	su \
 	systat \
 	tail \
@@ -210,11 +207,9 @@ SUBDIR.${MK_GAMES}+=	number
 SUBDIR.${MK_GAMES}+=	pom
 SUBDIR.${MK_GAMES}+=	primes
 SUBDIR.${MK_GAMES}+=	random
-.if ${MK_GH_BC} == "yes"
 SUBDIR+=		gh-bc
-.else
-SUBDIR.${MK_OPENSSL}+=	bc
-SUBDIR.${MK_OPENSSL}+=	dc
+.if ${MK_GNU_DIFF} == "no"
+SUBDIR+=		diff3
 .endif
 SUBDIR.${MK_HESIOD}+=	hesinfo
 SUBDIR.${MK_ICONV}+=	iconv
@@ -236,6 +231,7 @@ SUBDIR.${MK_MAIL}+=	msgs
 SUBDIR.${MK_MAKE}+=	bmake
 SUBDIR.${MK_MAN_UTILS}+=	man
 SUBDIR.${MK_NETCAT}+=	nc
+SUBDIR.${MK_NETLINK}+=	genl
 SUBDIR.${MK_NIS}+=	ypcat
 SUBDIR.${MK_NIS}+=	ypmatch
 SUBDIR.${MK_NIS}+=	ypwhich
@@ -258,6 +254,7 @@ SUBDIR.${MK_TOOLCHAIN}+=	nm
 SUBDIR.${MK_TOOLCHAIN}+=	objcopy
 SUBDIR.${MK_TOOLCHAIN}+=	readelf
 SUBDIR.${MK_TOOLCHAIN}+=	size
+SUBDIR+=			strings
 .endif
 SUBDIR.${MK_TOOLCHAIN}+=	c89
 SUBDIR.${MK_TOOLCHAIN}+=	c99
@@ -269,6 +266,7 @@ SUBDIR.${MK_TOOLCHAIN}+=	file2c
 SUBDIR.${MK_TOOLCHAIN}+=	gprof
 SUBDIR.${MK_TOOLCHAIN}+=	indent
 SUBDIR.${MK_TOOLCHAIN}+=	lex
+SUBDIR.${MK_TOOLCHAIN}+=	lorder
 SUBDIR.${MK_TOOLCHAIN}+=	mkstr
 SUBDIR.${MK_TOOLCHAIN}+=	rpcgen
 SUBDIR.${MK_TOOLCHAIN}+=	unifdef

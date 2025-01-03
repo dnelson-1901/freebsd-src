@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef MLX5_DOORBELL_H
@@ -63,10 +61,12 @@ static inline void mlx5_write64(__be32 val[2], void __iomem *dest,
 {
 	unsigned long flags;
 
-	spin_lock_irqsave(doorbell_lock, flags);
+	if (doorbell_lock)
+		spin_lock_irqsave(doorbell_lock, flags);
 	__raw_writel((__force u32) val[0], dest);
 	__raw_writel((__force u32) val[1], dest + 4);
-	spin_unlock_irqrestore(doorbell_lock, flags);
+	if (doorbell_lock)
+		spin_unlock_irqrestore(doorbell_lock, flags);
 }
 
 #endif

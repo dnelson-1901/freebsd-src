@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PROG=	bhyveload
 SRCS=	bhyveload.c
 MAN=	bhyveload.8

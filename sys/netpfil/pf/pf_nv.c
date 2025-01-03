@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Rubicon Communications, LLC (Netgate)
  *
@@ -26,8 +26,6 @@
  *
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 
@@ -77,7 +75,7 @@ __FBSDID("$FreeBSD$");
 		if (! nvlist_exists_number_array(nvl, name))			\
 			return (EINVAL);					\
 		n = nvlist_get_number_array(nvl, name, &nitems);		\
-		if (nitems != maxelems)						\
+		if (nitems > maxelems)						\
 			return (E2BIG);						\
 		if (nelems != NULL)						\
 			*nelems = nitems;					\
@@ -565,7 +563,7 @@ pf_nvrule_to_krule(const nvlist_t *nvl, struct pf_krule *rule)
 	if (! nvlist_exists_nvlist(nvl, "rpool"))
 		ERROUT(EINVAL);
 	PFNV_CHK(pf_nvpool_to_pool(nvlist_get_nvlist(nvl, "rpool"),
-	    &rule->rpool));
+	    &rule->rdr));
 
 	PFNV_CHK(pf_nvuint32(nvl, "os_fingerprint", &rule->os_fingerprint));
 
@@ -705,7 +703,7 @@ pf_krule_to_nvrule(struct pf_krule *rule)
 
 	for (int i = 0; i < PF_SKIP_COUNT; i++) {
 		nvlist_append_number_array(nvl, "skip",
-		    rule->skip[i].ptr ? rule->skip[i].ptr->nr : -1);
+		    rule->skip[i] ? rule->skip[i]->nr : -1);
 	}
 
 	for (int i = 0; i < PF_RULE_MAX_LABEL_COUNT; i++) {
@@ -723,7 +721,7 @@ pf_krule_to_nvrule(struct pf_krule *rule)
 	nvlist_add_string(nvl, "match_tagname", rule->match_tagname);
 	nvlist_add_string(nvl, "overload_tblname", rule->overload_tblname);
 
-	tmp = pf_pool_to_nvpool(&rule->rpool);
+	tmp = pf_pool_to_nvpool(&rule->rdr);
 	if (tmp == NULL)
 		goto error;
 	nvlist_add_nvlist(nvl, "rpool", tmp);
@@ -875,6 +873,9 @@ pf_nvstate_kill_to_kstate_kill(const nvlist_t *nvl,
 	    sizeof(kill->psk_label)));
 	PFNV_CHK(pf_nvbool(nvl, "kill_match", &kill->psk_kill_match));
 
+	if (nvlist_exists_bool(nvl, "nat"))
+		PFNV_CHK(pf_nvbool(nvl, "nat", &kill->psk_nat));
+
 errout:
 	return (error);
 }
@@ -962,18 +963,18 @@ pf_state_to_nvstate(const struct pf_kstate *s)
 	nvlist_add_nvlist(nvl, "dst", tmp);
 	nvlist_destroy(tmp);
 
-	tmp = pf_addr_to_nvaddr(&s->rt_addr);
+	tmp = pf_addr_to_nvaddr(&s->act.rt_addr);
 	if (tmp == NULL)
 		goto errout;
 	nvlist_add_nvlist(nvl, "rt_addr", tmp);
 	nvlist_destroy(tmp);
 
-	nvlist_add_number(nvl, "rule", s->rule.ptr ? s->rule.ptr->nr : -1);
+	nvlist_add_number(nvl, "rule", s->rule ? s->rule->nr : -1);
 	nvlist_add_number(nvl, "anchor",
-	    s->anchor.ptr ? s->anchor.ptr->nr : -1);
+	    s->anchor ? s->anchor->nr : -1);
 	nvlist_add_number(nvl, "nat_rule",
-	    s->nat_rule.ptr ? s->nat_rule.ptr->nr : -1);
-	nvlist_add_number(nvl, "creation", s->creation);
+	    s->nat_rule ? s->nat_rule->nr : -1);
+	nvlist_add_number(nvl, "creation", s->creation / 1000);
 
 	expire = pf_state_expires(s);
 	if (expire <= time_uptime)
@@ -1051,6 +1052,11 @@ pf_keth_rule_to_nveth_rule(const struct pf_keth_rule *krule)
 	if (nvl == NULL)
 		return (NULL);
 
+	for (int i = 0; i < PF_RULE_MAX_LABEL_COUNT; i++) {
+		nvlist_append_string_array(nvl, "labels", krule->label[i]);
+	}
+	nvlist_add_number(nvl, "ridentifier", krule->ridentifier);
+
 	nvlist_add_number(nvl, "nr", krule->nr);
 	nvlist_add_bool(nvl, "quick", krule->quick);
 	nvlist_add_string(nvl, "ifname", krule->ifname);
@@ -1126,7 +1132,28 @@ pf_nveth_rule_to_keth_rule(const nvlist_t *nvl,
 {
 	int error = 0;
 
+#define ERROUT(x)	ERROUT_FUNCTION(errout, x)
+
 	bzero(krule, sizeof(*krule));
+
+	if (nvlist_exists_string_array(nvl, "labels")) {
+		const char *const *strs;
+		size_t items;
+		int ret;
+
+		strs = nvlist_get_string_array(nvl, "labels", &items);
+		if (items > PF_RULE_MAX_LABEL_COUNT)
+			ERROUT(E2BIG);
+
+		for (size_t i = 0; i < items; i++) {
+			ret = strlcpy(krule->label[i], strs[i],
+			    sizeof(krule->label[0]));
+			if (ret >= sizeof(krule->label[0]))
+				ERROUT(E2BIG);
+		}
+	}
+
+	PFNV_CHK(pf_nvuint32_opt(nvl, "ridentifier", &krule->ridentifier, 0));
 
 	PFNV_CHK(pf_nvuint32(nvl, "nr", &krule->nr));
 	PFNV_CHK(pf_nvbool(nvl, "quick", &krule->quick));
@@ -1192,6 +1219,7 @@ pf_nveth_rule_to_keth_rule(const nvlist_t *nvl,
 	    krule->action != PF_MATCH)
 		return (EBADMSG);
 
+#undef ERROUT
 errout:
 	return (error);
 }

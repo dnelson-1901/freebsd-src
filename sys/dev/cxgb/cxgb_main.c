@@ -1,5 +1,5 @@
 /**************************************************************************
-SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+SPDX-License-Identifier: BSD-2-Clause
 
 Copyright (c) 2007-2009, Chelsio Inc.
 All rights reserved.
@@ -29,8 +29,6 @@ POSSIBILITY OF SUCH DAMAGE.
 ***************************************************************************/
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 
 #include <sys/param.h>
@@ -362,7 +360,7 @@ static int
 cxgb_controller_probe(device_t dev)
 {
 	const struct adapter_info *ai;
-	char *ports, buf[80];
+	const char *ports;
 	int nports;
 
 	ai = cxgb_get_adapter_info(dev);
@@ -375,8 +373,7 @@ cxgb_controller_probe(device_t dev)
 	else
 		ports = "ports";
 
-	snprintf(buf, sizeof(buf), "%s, %d %s", ai->desc, nports, ports);
-	device_set_desc_copy(dev, buf);
+	device_set_descf(dev, "%s, %d %s", ai->desc, nports, ports);
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -449,7 +446,6 @@ cxgb_controller_attach(device_t dev)
 	uint32_t vers;
 	int port_qsets = 1;
 	int msi_needed, reg;
-	char buf[80];
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
@@ -645,8 +641,7 @@ cxgb_controller_attach(device_t dev)
 		sc->portdev[i] = child;
 		device_set_softc(child, pi);
 	}
-	if ((error = bus_generic_attach(dev)) != 0)
-		goto out;
+	bus_attach_children(dev);
 
 	/* initialize sge private state */
 	t3_sge_init_adapter(sc);
@@ -661,10 +656,9 @@ cxgb_controller_attach(device_t dev)
 	    G_FW_VERSION_MAJOR(vers), G_FW_VERSION_MINOR(vers),
 	    G_FW_VERSION_MICRO(vers));
 
-	snprintf(buf, sizeof(buf), "%s %sNIC\t E/C: %s S/N: %s",
-		 ai->desc, is_offload(sc) ? "R" : "",
-		 sc->params.vpd.ec, sc->params.vpd.sn);
-	device_set_desc_copy(dev, buf);
+	device_set_descf(dev, "%s %sNIC\t E/C: %s S/N: %s",
+	    ai->desc, is_offload(sc) ? "R" : "",
+	    sc->params.vpd.ec, sc->params.vpd.sn);
 
 	snprintf(&sc->port_types[0], sizeof(sc->port_types), "%x%x%x%x",
 		 sc->params.vpd.port_type[0], sc->params.vpd.port_type[1],
@@ -735,7 +729,7 @@ cxgb_free(struct adapter *sc)
 	/*
 	 * Make sure all child devices are gone.
 	 */
-	bus_generic_detach(sc->dev);
+	bus_detach_children(sc->dev);
 	for (i = 0; i < (sc)->params.nports; i++) {
 		if (sc->portdev[i] &&
 		    device_delete_child(sc->dev, sc->portdev[i]) != 0)
@@ -968,13 +962,11 @@ static int
 cxgb_port_probe(device_t dev)
 {
 	struct port_info *p;
-	char buf[80];
 	const char *desc;
 	
 	p = device_get_softc(dev);
 	desc = p->phy.desc;
-	snprintf(buf, sizeof(buf), "Port %d %s", p->port_id, desc);
-	device_set_desc_copy(dev, buf);
+	device_set_descf(dev, "Port %d %s", p->port_id, desc);
 	return (0);
 }
 
@@ -1018,11 +1010,6 @@ cxgb_port_attach(device_t dev)
 
 	/* Allocate an ifnet object and set it up */
 	ifp = p->ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "Cannot allocate ifnet\n");
-		return (ENOMEM);
-	}
-	
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setinitfn(ifp, cxgb_init);
 	if_setsoftc(ifp, p);
@@ -1053,6 +1040,11 @@ cxgb_port_attach(device_t dev)
 		if_sethwassistbits(ifp, 0, CSUM_TSO);
 	}
 
+	/* Create a list of media supported by this port */
+	ifmedia_init(&p->media, IFM_IMASK, cxgb_media_change,
+	    cxgb_media_status);
+	cxgb_build_medialist(p);
+
 	ether_ifattach(ifp, p->hw_addr);
 
 	/* Attach driver debugnet methods. */
@@ -1067,11 +1059,6 @@ cxgb_port_attach(device_t dev)
 		return (err);
 	}
 
-	/* Create a list of media supported by this port */
-	ifmedia_init(&p->media, IFM_IMASK, cxgb_media_change,
-	    cxgb_media_status);
-	cxgb_build_medialist(p);
-      
 	t3_sge_init_port(p);
 
 	return (err);
@@ -1079,7 +1066,7 @@ cxgb_port_attach(device_t dev)
 
 /*
  * cxgb_port_detach() is called via the device_detach methods when
- * cxgb_free() calls the bus_generic_detach.  It is responsible for 
+ * cxgb_free() calls the bus_detach_children.  It is responsible for 
  * removing the device from the view of the kernel, i.e. from all 
  * interfaces lists etc.  This routine is only called when the driver is 
  * being unloaded, not when the link goes down.
@@ -2484,9 +2471,7 @@ set_eeprom(struct port_info *pi, const uint8_t *data, int len, int offset)
 	aligned_len = (len + (offset & 3) + 3) & ~3;
 
 	if (aligned_offset != offset || aligned_len != len) {
-		buf = malloc(aligned_len, M_DEVBUF, M_WAITOK|M_ZERO);		   
-		if (!buf)
-			return (ENOMEM);
+		buf = malloc(aligned_len, M_DEVBUF, M_WAITOK | M_ZERO);
 		err = t3_seeprom_read(adapter, aligned_offset, (u32 *)buf);
 		if (!err && aligned_len > 4)
 			err = t3_seeprom_read(adapter,

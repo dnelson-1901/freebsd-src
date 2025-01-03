@@ -1,4 +1,3 @@
-# $FreeBSD$
 #
 # You must include bsd.test.mk instead of this file from your Makefile.
 #
@@ -41,6 +40,17 @@ BINDIR.${_T}= ${TESTSDIR}
 MAN.${_T}?= # empty
 SRCS.${_T}?= ${_T}.cc
 TEST_INTERFACE.${_T}= plain
+.endfor
+.endif
+
+.if !empty(PLAIN_TESTS_PORCH)
+SCRIPTS+= ${PLAIN_TESTS_PORCH:S/$/.orch/}
+_TESTS+= ${PLAIN_TESTS_PORCH}
+.for _T in ${PLAIN_TESTS_PORCH}
+SCRIPTSDIR_${_T}.orch= ${TESTSDIR}
+
+TEST_INTERFACE.${_T}= plain
+TEST_METADATA.${_T}+=	required_programs="porch"
 .endfor
 .endif
 

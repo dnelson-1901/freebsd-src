@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Takanori Watanabe <takawata@jp.freebsd.org>
  * Copyright (c) 2001-2012 Mitsuru IWASAKI <iwasaki@jp.freebsd.org>
@@ -30,8 +30,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_apic.h"
 
 #include <sys/param.h>
@@ -86,7 +84,6 @@ static cpuset_t		suspcpus;
 static struct susppcb	**susppcbs;
 #endif
 
-static void		*acpi_alloc_wakeup_handler(void **);
 static void		acpi_stop_beep(void *);
 
 #ifdef SMP
@@ -352,8 +349,7 @@ acpi_alloc_wakeup_handler(void *wakepages[ACPI_WAKEPAGES])
 
 freepages:
 	for (i = 0; i < ACPI_WAKEPAGES; i++)
-		if (wakepages[i] != NULL)
-			contigfree(wakepages[i], PAGE_SIZE, M_DEVBUF);
+		free(wakepages[i], M_DEVBUF);
 	return (NULL);
 }
 

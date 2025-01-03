@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet6.h"
 #include "opt_kgssapi.h"
 #include "opt_kern_tls.h"
@@ -84,7 +82,7 @@ int newnfs_nfsv3_procid[NFS_V3NPROCS] = {
 
 SYSCTL_DECL(_vfs_nfsd);
 
-NFSD_VNET_DEFINE_STATIC(int, nfs_privport) = 0;
+NFSD_VNET_DEFINE_STATIC(int, nfs_privport) = 1;
 SYSCTL_INT(_vfs_nfsd, OID_AUTO, nfs_privport, CTLFLAG_NFSD_VNET | CTLFLAG_RWTUN,
     &NFSD_VNET_NAME(nfs_privport), 0,
     "Only allow clients using a privileged port for NFSv2, 3 and 4");
@@ -108,6 +106,7 @@ extern time_t nfsdev_time;
 extern int nfsrv_writerpc[NFS_NPROCS];
 extern volatile int nfsrv_devidcnt;
 extern struct nfsv4_opflag nfsv4_opflag[NFSV42_NOPS];
+extern int nfsd_debuglevel;
 
 NFSD_VNET_DECLARE(struct proc *, nfsd_master_proc);
 
@@ -126,7 +125,9 @@ nfssvc_program(struct svc_req *rqst, SVCXPRT *xprt)
 {
 	struct nfsrv_descript nd;
 	struct nfsrvcache *rp = NULL;
-	int cacherep, credflavor;
+	rpc_gss_rawcred_t *rcredp;
+	int cacherep, credflavor, i, j;
+	u_char *p;
 #ifdef KERN_TLS
 	u_int maxlen;
 #endif
@@ -190,6 +191,12 @@ nfssvc_program(struct svc_req *rqst, SVCXPRT *xprt)
 		port = ntohs(sin->sin_port);
 		if (port >= IPPORT_RESERVED &&
 		    nd.nd_procnum != NFSPROC_NULL) {
+			static struct timeval privport_ratecheck = {
+				.tv_sec = 0, .tv_usec = 0
+			};
+			static const struct timeval privport_ratecheck_int = {
+				.tv_sec = 1, .tv_usec = 0
+			};
 #ifdef INET6
 			char buf[INET6_ADDRSTRLEN];
 #else
@@ -207,15 +214,19 @@ nfssvc_program(struct svc_req *rqst, SVCXPRT *xprt)
 			    (buf))
 #endif
 #endif
-			printf("NFS request from unprivileged port (%s:%d)\n",
+			if (ratecheck(&privport_ratecheck,
+			    &privport_ratecheck_int)) {
+				printf(
+			    "NFS request from unprivileged port (%s:%d)\n",
 #ifdef INET6
-			    sin->sin_family == AF_INET6 ?
-			    ip6_sprintf(buf, &satosin6(sin)->sin6_addr) :
+				    sin->sin_family == AF_INET6 ?
+				    ip6_sprintf(buf, &satosin6(sin)->sin6_addr) :
 #if defined(KLD_MODULE)
 #undef ip6_sprintf
 #endif
 #endif
-			    inet_ntoa_r(sin->sin_addr, buf), port);
+				    inet_ntoa_r(sin->sin_addr, buf), port);
+			}
 			svcerr_weakauth(rqst);
 			svc_freereq(rqst);
 			m_freem(nd.nd_mrep);
@@ -243,6 +254,58 @@ nfssvc_program(struct svc_req *rqst, SVCXPRT *xprt)
 			svc_freereq(rqst);
 			m_freem(nd.nd_mrep);
 			goto out;
+		}
+
+		/* Acquire the principal name for the RPCSEC_GSS cases. */
+		if ((nd.nd_flag & (ND_NFSV4 | ND_GSS)) == (ND_NFSV4 | ND_GSS)) {
+			rcredp = NULL;
+			rpc_gss_getcred_call(rqst, &rcredp, NULL, NULL);
+			/*
+			 * The exported principal name consists of:
+			 * - TOK_ID bytes with value of 4 and 1.
+			 * - 2 byte mech length
+			 * - mech
+			 * - 4 byte principal name length
+			 * - principal name
+			 * A call to gss_import_name() would be an
+			 * upcall to the gssd, so parse it here.
+			 * See lib/libgssapi/gss_import_name.c for the
+			 * above format.
+			 */
+			if (rcredp != NULL &&
+			    rcredp->client_principal->len > 4 &&
+			    rcredp->client_principal->name[0] == 4 &&
+			    rcredp->client_principal->name[1] == 1) {
+				/* Skip over the mech. */
+				p = &rcredp->client_principal->name[2];
+				i = (p[0] << 8) | p[1];
+				p += i + 2;
+				i += 4;
+				/*
+				 * Set "j" to a bogus length so that the
+				 * "i + j" check will fail unless the below
+				 * code sets "j" correctly.
+				 */
+				j = rcredp->client_principal->len;
+				if (rcredp->client_principal->len > i + 4) {
+					j = (p[0] << 24) | (p[1] << 16) |
+					    (p[2] << 8) | p[3];
+					i += 4;
+					p += 4;
+				}
+				if (i + j == rcredp->client_principal->len) {
+					nd.nd_principal = malloc(j + 1, M_TEMP,
+					    M_WAITOK);
+					nd.nd_princlen = j;
+					memcpy(nd.nd_principal, p, j);
+					nd.nd_principal[j] = '\0';
+					NFSD_DEBUG(1, "nfssvc_program: "
+					    "principal=%s\n", nd.nd_principal);
+				}
+			}
+			if (nd.nd_princlen == 0)
+				printf("nfssvc_program: cannot get RPCSEC_GSS "
+				    "principal name\n");
 		}
 
 		if ((xprt->xp_tls & RPCTLS_FLAGS_HANDSHAKE) != 0) {
@@ -334,6 +397,7 @@ nfssvc_program(struct svc_req *rqst, SVCXPRT *xprt)
 	svc_freereq(rqst);
 
 out:
+	free(nd.nd_principal, M_TEMP);
 	NFSD_CURVNET_RESTORE();
 	ast_kclear(curthread);
 	NFSEXITCODE(0);

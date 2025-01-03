@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 Marcel Moolenaar All rights reserved.
  * Copyright (c) 2001 M. Warner Losh <imp@FreeBSD.org>
@@ -24,9 +24,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -109,6 +106,20 @@ static const struct pci_id pci_ns8250_ids[] = {
 { 0x131f, 0x2000, 0xffff, 0, "Siig CyberSerial (1-port) 16550", 0x10 },
 { 0x131f, 0x2001, 0xffff, 0, "Siig CyberSerial (1-port) 16650", 0x10 },
 { 0x131f, 0x2002, 0xffff, 0, "Siig CyberSerial (1-port) 16850", 0x10 },
+{ 0x135a, 0x0a61, 0xffff, 0, "Brainboxes UC-324", 0x18 },
+{ 0x135a, 0x0aa1, 0xffff, 0, "Brainboxes UC-246", 0x18 },
+{ 0x135a, 0x0aa2, 0xffff, 0, "Brainboxes UC-246", 0x18 },
+{ 0x135a, 0x0d60, 0xffff, 0, "Intashield IS-100", 0x18 },
+{ 0x135a, 0x0da0, 0xffff, 0, "Intashield IS-300", 0x18 },
+{ 0x135a, 0x4000, 0xffff, 0, "Brainboxes PX-420", 0x10 },
+{ 0x135a, 0x4001, 0xffff, 0, "Brainboxes PX-431", 0x10 },
+{ 0x135a, 0x4002, 0xffff, 0, "Brainboxes PX-820", 0x10 },
+{ 0x135a, 0x4003, 0xffff, 0, "Brainboxes PX-831", 0x10 },
+{ 0x135a, 0x4004, 0xffff, 0, "Brainboxes PX-246", 0x10 },
+{ 0x135a, 0x4005, 0xffff, 0, "Brainboxes PX-101", 0x10 },
+{ 0x135a, 0x4006, 0xffff, 0, "Brainboxes PX-257", 0x10 },
+{ 0x135a, 0x4008, 0xffff, 0, "Brainboxes PX-846", 0x10 },
+{ 0x135a, 0x4009, 0xffff, 0, "Brainboxes PX-857", 0x10 },
 { 0x135c, 0x0190, 0xffff, 0, "Quatech SSCLP-100", 0x18 },
 { 0x135c, 0x01c0, 0xffff, 0, "Quatech SSCLP-200/300", 0x18 },
 { 0x135e, 0x7101, 0xffff, 0, "Sealevel Systems Single Port RS-232/422/485/530",
@@ -138,6 +149,8 @@ static const struct pci_id pci_ns8250_ids[] = {
 { 0x1d0f, 0x8250, 0x1d0f, 0, "Amazon PCI serial device", 0x10 },
 { 0x1fd4, 0x1999, 0x1fd4, 0x0001, "Sunix SER5xxxx Serial Port", 0x10,
 	8 * DEFAULT_RCLK },
+{ 0x8086, 0x0c5f, 0xffff, 0, "Atom Processor S1200 UART",
+	0x10 | PCI_NO_MSI },
 { 0x8086, 0x0f0a, 0xffff, 0, "Intel ValleyView LPIO1 HSUART#1", 0x10,
 	24 * DEFAULT_RCLK, 2 },
 { 0x8086, 0x0f0c, 0xffff, 0, "Intel ValleyView LPIO1 HSUART#2", 0x10,

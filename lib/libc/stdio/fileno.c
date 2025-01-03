@@ -32,13 +32,8 @@
  * SUCH DAMAGE.
  */
 
-#if defined(LIBC_SCCS) && !defined(lint)
-static char sccsid[] = "@(#)fileno.c	8.1 (Berkeley) 6/4/93";
-#endif /* LIBC_SCCS and not lint */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "namespace.h"
+#include <errno.h>
 #include <stdio.h>
 #include "un-namespace.h"
 #include "libc_private.h"
@@ -46,14 +41,29 @@ __FBSDID("$FreeBSD$");
 #undef fileno
 #undef fileno_unlocked
 
+static int
+__fileno_impl(FILE *fp)
+{
+	int fd;
+
+	fd = fp->_file;
+	if (fd == -1)
+		errno = EBADF;
+	return (fd);
+}
+
 int
 fileno(FILE *fp)
 {
 	int fd;
 
-	FLOCKFILE(fp);
-	fd = __sfileno(fp);
-	FUNLOCKFILE(fp);
+	if (__isthreaded) {
+		FLOCKFILE(fp);
+		fd = __fileno_impl(fp);
+		FUNLOCKFILE(fp);
+	} else {
+		fd = __fileno_impl(fp);
+	}
 
 	return (fd);
 }
@@ -61,6 +71,5 @@ fileno(FILE *fp)
 int
 fileno_unlocked(FILE *fp)
 {
-
-	return (__sfileno(fp));
+	return (__fileno_impl(fp));
 }

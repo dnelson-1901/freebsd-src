@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Ian Lepore <ian@FreeBSD.org>
  *
@@ -24,9 +24,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -187,9 +184,10 @@ ofw_pwmbus_attach(device_t dev)
 		}
 	}
 	bus_enumerate_hinted_children(dev);
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
+	bus_attach_children(dev);
 
-	return (bus_generic_attach(dev));
+	return (0);
 }
 
 static device_method_t ofw_pwmbus_methods[] = {

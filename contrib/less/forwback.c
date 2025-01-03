@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 1984-2022  Mark Nudelman
+ * Copyright (C) 1984-2024  Mark Nudelman
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
@@ -18,11 +18,11 @@
 
 extern int less_is_more;
 
-public int screen_trashed;
-public int squished;
+public lbool squished;
 public int no_back_scroll = 0;
 public int forw_prompt;
 public int first_time = 1;
+public lbool no_eof_bell = FALSE;
 
 extern int sigs;
 extern int top_scroll;
@@ -30,16 +30,16 @@ extern int quiet;
 extern int sc_width, sc_height;
 extern int hshift;
 extern int auto_wrap;
-extern int plusoption;
+extern lbool plusoption;
 extern int forw_scroll;
 extern int back_scroll;
 extern int ignore_eoi;
-extern int clear_bg;
-extern int final_attr;
 extern int header_lines;
 extern int header_cols;
+extern int full_screen;
+extern POSITION header_start_pos;
 #if HILITE_SEARCH
-extern int size_linebuf;
+extern size_t size_linebuf;
 extern int hilite_search;
 extern int status_col;
 #endif
@@ -50,9 +50,10 @@ extern char *tagoption;
 /*
  * Sound the bell to indicate user is trying to move past end of file.
  */
-	static void
-eof_bell(VOID_PARAM)
+public void eof_bell(void)
 {
+	if (no_eof_bell)
+		return;
 #if HAVE_TIME
 	static time_type last_eof_bell = 0;
 	time_type now = get_time();
@@ -69,20 +70,19 @@ eof_bell(VOID_PARAM)
 /*
  * Check to see if the end of file is currently displayed.
  */
-	public int
-eof_displayed(VOID_PARAM)
+public lbool eof_displayed(void)
 {
 	POSITION pos;
 
 	if (ignore_eoi)
-		return (0);
+		return (FALSE);
 
 	if (ch_length() == NULL_POSITION)
 		/*
 		 * If the file length is not known,
 		 * we can't possibly be displaying EOF.
 		 */
-		return (0);
+		return (FALSE);
 
 	/*
 	 * If the bottom line is empty, we are at EOF.
@@ -96,14 +96,13 @@ eof_displayed(VOID_PARAM)
 /*
  * Check to see if the entire file is currently displayed.
  */
-	public int
-entire_file_displayed(VOID_PARAM)
+public lbool entire_file_displayed(void)
 {
 	POSITION pos;
 
 	/* Make sure last line of file is displayed. */
 	if (!eof_displayed())
-		return (0);
+		return (FALSE);
 
 	/* Make sure first line of file is displayed. */
 	pos = position(0);
@@ -116,12 +115,11 @@ entire_file_displayed(VOID_PARAM)
  * of the screen; this can happen when we display a short file
  * for the first time.
  */
-	public void
-squish_check(VOID_PARAM)
+public void squish_check(void)
 {
 	if (!squished)
 		return;
-	squished = 0;
+	squished = FALSE;
 	repaint();
 }
 
@@ -129,11 +127,7 @@ squish_check(VOID_PARAM)
  * Read the first pfx columns of the next line.
  * If skipeol==0 stop there, otherwise read and discard chars to end of line.
  */
-	static POSITION
-forw_line_pfx(pos, pfx, skipeol)
-	POSITION pos;
-	int pfx;
-	int skipeol;
+static POSITION forw_line_pfx(POSITION pos, int pfx, int skipeol)
 {
 	int save_sc_width = sc_width;
 	int save_auto_wrap = auto_wrap;
@@ -151,15 +145,13 @@ forw_line_pfx(pos, pfx, skipeol)
 
 /*
  * Set header text color.
- * Underline last line of headers, but not at beginning of file
+ * Underline last line of headers, but not at header_start_pos
  * (where there is no gap between the last header line and the next line).
  */
-	static void
-set_attr_header(ln)
-	int ln;
+static void set_attr_header(int ln)
 {
 	set_attr_line(AT_COLOR_HEADER);
-	if (ln+1 == header_lines && position(0) != ch_zero())
+	if (ln+1 == header_lines && position(0) != header_start_pos)
 		set_attr_line(AT_UNDERLINE);
 }
 
@@ -167,16 +159,15 @@ set_attr_header(ln)
  * Display file headers, overlaying text already drawn
  * at top and left of screen.
  */
-	public int
-overlay_header(VOID_PARAM)
+public int overlay_header(void)
 {
-	POSITION pos = ch_zero(); /* header lines are at beginning of file */
 	int ln;
-	int moved = FALSE;
+	lbool moved = FALSE;
 
 	if (header_lines > 0)
 	{
 		/* Draw header_lines lines from start of file at top of screen. */
+		POSITION pos = header_start_pos;
 		home();
 		for (ln = 0; ln < header_lines; ++ln)
 		{
@@ -190,8 +181,8 @@ overlay_header(VOID_PARAM)
 	if (header_cols > 0)
 	{
 		/* Draw header_cols columns at left of each line. */
+		POSITION pos = header_start_pos;
 		home();
-		pos = ch_zero();
 		for (ln = 0; ln < sc_height-1; ++ln)
 		{
 			if (ln >= header_lines) /* switch from header lines to normal lines */
@@ -222,17 +213,13 @@ overlay_header(VOID_PARAM)
  *   real line.  If nblank > 0, the pos must be NULL_POSITION.
  *   The first real line after the blanks will start at ch_zero().
  */
-	public void
-forw(n, pos, force, only_last, nblank)
-	int n;
-	POSITION pos;
-	int force;
-	int only_last;
-	int nblank;
+public void forw(int n, POSITION pos, lbool force, lbool only_last, int nblank)
 {
 	int nlines = 0;
-	int do_repaint;
+	lbool do_repaint;
 
+	if (pos != NULL_POSITION)
+		pos = after_header_pos(pos);
 	squish_check();
 
 	/*
@@ -248,8 +235,8 @@ forw(n, pos, force, only_last, nblank)
 		(forw_scroll >= 0 && n > forw_scroll && n != sc_height-1);
 
 #if HILITE_SEARCH
-	if (hilite_search == OPT_ONPLUS || is_filtering() || status_col) {
-		prep_hilite(pos, pos + 4*size_linebuf, ignore_eoi ? 1 : -1);
+	if (pos != NULL_POSITION && (hilite_search == OPT_ONPLUS || is_filtering() || status_col)) {
+		prep_hilite(pos, pos + (POSITION) (4*size_linebuf), ignore_eoi ? 1 : -1);
 		pos = next_unfiltered(pos);
 	}
 #endif
@@ -266,7 +253,7 @@ forw(n, pos, force, only_last, nblank)
 			 */
 			pos_clear();
 			add_forw_pos(pos);
-			force = 1;
+			force = TRUE;
 			if (less_is_more == 0) {
 				clear();
 				home();
@@ -282,12 +269,12 @@ forw(n, pos, force, only_last, nblank)
 			 */
 			pos_clear();
 			add_forw_pos(pos);
-			force = 1;
+			force = TRUE;
 			if (top_scroll)
 			{
 				clear();
 				home();
-			} else if (!first_time && !is_filtering())
+			} else if (!first_time && !is_filtering() && full_screen)
 			{
 				putstr("...skipping...\n");
 			}
@@ -354,12 +341,13 @@ forw(n, pos, force, only_last, nblank)
 		 */
 		if ((first_time || less_is_more) &&
 		    pos == NULL_POSITION && !top_scroll && 
+		    header_lines == 0 && header_cols == 0 &&
 #if TAGS
 		    tagoption == NULL &&
 #endif
 		    !plusoption)
 		{
-			squished = 1;
+			squished = TRUE;
 			continue;
 		}
 		put_line();
@@ -386,19 +374,6 @@ forw(n, pos, force, only_last, nblank)
 #endif
 		forw_prompt = 1;
 	}
-
-	if (header_lines > 0)
-	{
-		/*
-		 * Don't allow ch_zero to appear on screen except at top of screen.
-		 * Otherwise duplicate header lines may be displayed.
-		 */
-		if (onscreen(ch_zero()) > 0)
-		{
-			jump_loc(ch_zero(), 0); /* {{ yuck }} */
-			return;
-		}
-	}
 	if (nlines == 0 && !ignore_eoi)
 		eof_bell();
 	else if (do_repaint)
@@ -415,21 +390,16 @@ forw(n, pos, force, only_last, nblank)
 /*
  * Display n lines, scrolling backward.
  */
-	public void
-back(n, pos, force, only_last)
-	int n;
-	POSITION pos;
-	int force;
-	int only_last;
+public void back(int n, POSITION pos, lbool force, lbool only_last)
 {
 	int nlines = 0;
-	int do_repaint;
+	lbool do_repaint;
 
 	squish_check();
 	do_repaint = (n > get_back_scroll() || (only_last && n > sc_height-1) || header_lines > 0);
 #if HILITE_SEARCH
-	if (hilite_search == OPT_ONPLUS || is_filtering() || status_col) {
-		prep_hilite((pos < 3*size_linebuf) ?  0 : pos - 3*size_linebuf, pos, -1);
+	if (pos != NULL_POSITION && (hilite_search == OPT_ONPLUS || is_filtering() || status_col)) {
+		prep_hilite((pos < (POSITION) (3*size_linebuf)) ? 0 : pos - (POSITION) (3*size_linebuf), pos, -1);
 	}
 #endif
 	while (--n >= 0)
@@ -440,7 +410,6 @@ back(n, pos, force, only_last)
 #if HILITE_SEARCH
 		pos = prev_unfiltered(pos);
 #endif
-
 		pos = back_line(pos);
 		if (pos == NULL_POSITION)
 		{
@@ -449,6 +418,13 @@ back(n, pos, force, only_last)
 			 */
 			if (!force)
 				break;
+		}
+		if (pos != after_header_pos(pos))
+		{
+			/* 
+			 * Don't allow scrolling back to before the current header line.
+			 */
+			break;
 		}
 		/*
 		 * Add the position of the previous line to the position table.
@@ -479,11 +455,7 @@ back(n, pos, force, only_last)
  * Display n more lines, forward.
  * Start just after the line currently displayed at the bottom of the screen.
  */
-	public void
-forward(n, force, only_last)
-	int n;
-	int force;
-	int only_last;
+public void forward(int n, lbool force, lbool only_last)
 {
 	POSITION pos;
 
@@ -516,7 +488,7 @@ forward(n, force, only_last)
 				{
 					back(1, position(TOP), 1, 0);
 					pos = position(BOTTOM_PLUS_ONE);
-				} while (pos == NULL_POSITION);
+				} while (pos == NULL_POSITION && !ABORT_SIGS());
 			}
 		} else
 		{
@@ -531,11 +503,7 @@ forward(n, force, only_last)
  * Display n more lines, backward.
  * Start just before the line currently displayed at the top of the screen.
  */
-	public void
-backward(n, force, only_last)
-	int n;
-	int force;
-	int only_last;
+public void backward(int n, lbool force, lbool only_last)
 {
 	POSITION pos;
 
@@ -543,7 +511,7 @@ backward(n, force, only_last)
 	if (pos == NULL_POSITION && (!force || position(BOTTOM) == 0))
 	{
 		eof_bell();
-		return;   
+		return;
 	}
 	back(n, pos, force, only_last);
 }
@@ -554,8 +522,7 @@ backward(n, force, only_last)
  * back_scroll, because the default case depends on sc_height and
  * top_scroll, as well as back_scroll.
  */
-	public int
-get_back_scroll(VOID_PARAM)
+public int get_back_scroll(void)
 {
 	if (no_back_scroll)
 		return (0);
@@ -569,8 +536,7 @@ get_back_scroll(VOID_PARAM)
 /*
  * Will the entire file fit on one screen?
  */
-	public int
-get_one_screen(VOID_PARAM)
+public int get_one_screen(void)
 {
 	int nlines;
 	POSITION pos = ch_zero();

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000-2001 Boris Popov
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -67,8 +64,6 @@ smb_rq_alloc(struct smb_connobj *layer, u_char cmd, struct smb_cred *scred,
 	int error;
 
 	rqp = malloc(sizeof(*rqp), M_SMBRQ, M_WAITOK);
-	if (rqp == NULL)
-		return ENOMEM;
 	error = smb_rq_init(rqp, layer, cmd, scred);
 	rqp->sr_flags |= SMBR_ALLOCED;
 	if (error) {
@@ -379,8 +374,6 @@ smb_t2_alloc(struct smb_connobj *layer, u_short setup, struct smb_cred *scred,
 	int error;
 
 	t2p = malloc(sizeof(*t2p), M_SMBRQ, M_WAITOK);
-	if (t2p == NULL)
-		return ENOMEM;
 	error = smb_t2_init(t2p, layer, setup, scred);
 	t2p->t2_flags |= SMBT2_ALLOCED;
 	if (error) {
@@ -425,12 +418,18 @@ static int
 smb_t2_placedata(struct mbuf *mtop, u_int16_t offset, u_int16_t count,
 	struct mdchain *mdp)
 {
-	struct mbuf *m, *m0;
+	struct mbuf *m0;
 	int len;
 
+	len = m_length(mtop, NULL);
+	if (offset + count > len)
+		return (EPROTO);
+
 	m0 = m_split(mtop, offset, M_WAITOK);
-	len = m_length(m0, &m);
-	m->m_len -= len - count;
+	if (len != offset + count) {
+		len -= offset + count;
+		m_adj(m0, -len);
+	}
 	if (mdp->md_top == NULL) {
 		md_initm(mdp, m0);
 	} else

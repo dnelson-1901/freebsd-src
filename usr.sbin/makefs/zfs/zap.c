@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 The FreeBSD Foundation
  *
@@ -163,6 +163,15 @@ zap_add(zfs_zap_t *zap, const char *name, size_t intsz, size_t intcnt,
 void
 zap_add_uint64(zfs_zap_t *zap, const char *name, uint64_t val)
 {
+	zap_add(zap, name, sizeof(uint64_t), 1, (uint8_t *)&val);
+}
+
+void
+zap_add_uint64_self(zfs_zap_t *zap, uint64_t val)
+{
+	char name[32];
+
+	snprintf(name, sizeof(name), "%jx", (uintmax_t)val);
 	zap_add(zap, name, sizeof(uint64_t), 1, (uint8_t *)&val);
 }
 

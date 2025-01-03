@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: (BSD-2-Clause-NetBSD AND BSD-3-Clause)
+ * SPDX-License-Identifier: (BSD-2-Clause AND BSD-3-Clause)
  *
  * Copyright (c) 2003 Poul-Henning Kamp.
  * Copyright (c) 1996, 1997 The NetBSD Foundation, Inc.
@@ -66,8 +66,6 @@
  * SUCH DAMAGE.
  *
  * from: Utah $Hdr: cd.c 1.6 90/11/28$
- *
- *	@(#)cd.c	8.2 (Berkeley) 11/16/93
  */
 
 /*
@@ -78,9 +76,6 @@
  *	NASA Ames Research Center
  *	Moffett Field, CA 94035
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>

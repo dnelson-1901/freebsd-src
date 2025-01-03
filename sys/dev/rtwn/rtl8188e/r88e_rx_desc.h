@@ -15,7 +15,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
  * $OpenBSD: if_urtwnreg.h,v 1.3 2010/11/16 18:02:59 damien Exp $
- * $FreeBSD$
  */
 
 #ifndef R88E_RX_DESC_H
@@ -80,6 +79,20 @@ struct r88e_tx_rpt_ccx {
 #define R88E_RPTB6_QSEL_S	4
 
 	uint8_t		rptb7;
+} __packed;
+
+/*
+ * The 8188E periodic TX report entries
+ * (type 2 report.)
+ */
+struct r88e_fw_c2h_txreport2_entry {
+	uint16_t retry0;
+	uint8_t retry1;
+	uint8_t retry2;
+	uint8_t retry3;
+	uint8_t retry4;
+	uint8_t drop;
+	uint8_t reserved;
 } __packed;
 
 /* Interrupt message format. */

@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -164,7 +162,6 @@ e6060sw_probe(device_t dev)
 	struct e6060sw_softc *sc;
 	int devid, i;
 	char *devname;
-	char desc[80];
 
 	sc = device_get_softc(dev);
 	bzero(sc, sizeof(*sc));
@@ -195,9 +192,8 @@ e6060sw_probe(device_t dev)
 	else
 		return (ENXIO);
 
-	sprintf(desc, "Marvell %s MDIO switch driver at 0x%02x",
+	device_set_descf(dev, "Marvell %s MDIO switch driver at 0x%02x",
 	    devname, sc->smi_offset);
-	device_set_desc_copy(dev, desc);
 
 	return (BUS_PROBE_DEFAULT);
 }
@@ -218,12 +214,6 @@ e6060sw_attach_phys(struct e6060sw_softc *sc)
 		sc->ifpport[phy] = port;
 		sc->portphy[port] = phy;
 		sc->ifp[port] = if_alloc(IFT_ETHER);
-		if (sc->ifp[port] == NULL) {
-			device_printf(sc->sc_dev, "couldn't allocate ifnet structure\n");
-			err = ENOMEM;
-			break;
-		}
-
 		sc->ifp[port]->if_softc = sc;
 		sc->ifp[port]->if_flags |= IFF_UP | IFF_BROADCAST |
 		    IFF_DRV_RUNNING | IFF_SIMPLEX;
@@ -316,11 +306,9 @@ e6060sw_attach(device_t dev)
 	if (err != 0)
 		return (err);
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
-	err = bus_generic_attach(dev);
-	if (err != 0)
-		return (err);
+	bus_attach_children(dev);
 	
 	callout_init(&sc->callout_tick, 0);
 
@@ -333,9 +321,13 @@ static int
 e6060sw_detach(device_t dev)
 {
 	struct e6060sw_softc *sc;
-	int i, port;
+	int error, i, port;
 
 	sc = device_get_softc(dev);
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	callout_drain(&sc->callout_tick);
 
@@ -343,8 +335,6 @@ e6060sw_detach(device_t dev)
 		if (((1 << i) & sc->phymask) == 0)
 			continue;
 		port = e6060sw_portforphy(sc, i);
-		if (sc->miibus[port] != NULL)
-			device_delete_child(dev, (*sc->miibus[port]));
 		if (sc->ifp[port] != NULL)
 			if_free(sc->ifp[port]);
 		free(sc->ifname[port], M_E6060SW);
@@ -356,7 +346,6 @@ e6060sw_detach(device_t dev)
 	free(sc->ifname, M_E6060SW);
 	free(sc->ifp, M_E6060SW);
 
-	bus_generic_detach(dev);
 	mtx_destroy(&sc->sc_mtx);
 
 	return (0);

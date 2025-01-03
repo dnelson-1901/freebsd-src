@@ -30,9 +30,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/module.h>
@@ -249,7 +246,7 @@ cuda_attach(device_t dev)
 			device_printf(dev, "CUDA child <%s>\n",name);
 
 		if (strncmp(name, "adb", 4) == 0) {
-			sc->adb_bus = device_add_child(dev,"adb",-1);
+			sc->adb_bus = device_add_child(dev,"adb",DEVICE_UNIT_ANY);
 		}
 	}
 
@@ -257,11 +254,17 @@ cuda_attach(device_t dev)
 	EVENTHANDLER_REGISTER(shutdown_final, cuda_shutdown, sc,
 	    SHUTDOWN_PRI_LAST);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int cuda_detach(device_t dev) {
 	struct cuda_softc *sc;
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 
@@ -270,7 +273,7 @@ static int cuda_detach(device_t dev) {
 	bus_release_resource(dev, SYS_RES_MEMORY, sc->sc_memrid, sc->sc_memr);
 	mtx_destroy(&sc->sc_mutex);
 
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 static uint8_t
@@ -750,7 +753,13 @@ cuda_shutdown(void *xsc, int howto)
 	struct cuda_softc *sc = xsc;
 	uint8_t cmd[] = {CUDA_PSEUDO, 0};
 
-	cmd[1] = (howto & RB_HALT) ? CMD_POWEROFF : CMD_RESET;
+	if ((howto & RB_POWEROFF) != 0)
+		cmd[1] = CMD_POWEROFF;
+	else if ((howto & RB_HALT) == 0)
+		cmd[1] = CMD_RESET;
+	else
+		return;
+
 	cuda_poll(sc->sc_dev);
 	cuda_send(sc, 1, 2, cmd);
 

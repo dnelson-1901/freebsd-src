@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Ng Peng Nam Sean
  * Copyright (c) 2022 Alexander V. Chernikov <melifaro@FreeBSD.org>
@@ -26,8 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
@@ -41,19 +39,17 @@ __FBSDID("$FreeBSD$");
 #include <netlink/netlink.h>
 #include <netlink/netlink_ctl.h>
 #include <netlink/netlink_var.h>
+#include <netlink/route/route_var.h>
 
 #include <machine/atomic.h>
 
-MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 FEATURE(netlink, "Netlink support");
 
 #define	DEBUG_MOD_NAME	nl_mod
 #define	DEBUG_MAX_LEVEL	LOG_DEBUG3
 #include <netlink/netlink_debug.h>
-_DECLARE_DEBUG(LOG_DEBUG);
+_DECLARE_DEBUG(LOG_INFO);
 
-SYSCTL_NODE(_net, OID_AUTO, netlink, CTLFLAG_RD, 0, "");
-SYSCTL_NODE(_net_netlink, OID_AUTO, debug, CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "");
 
 #define NL_MAX_HANDLERS	20
 struct nl_proto_handler _nl_handlers[NL_MAX_HANDLERS];
@@ -175,6 +171,23 @@ netlink_unregister_proto(int proto)
 	return (true);
 }
 
+#if !defined(NETLINK) && defined(NETLINK_MODULE)
+/* Non-stub function provider */
+const static struct nl_function_wrapper nl_module = {
+	.nlmsg_add = _nlmsg_add,
+	.nlmsg_refill_buffer = _nlmsg_refill_buffer,
+	.nlmsg_flush = _nlmsg_flush,
+	.nlmsg_end = _nlmsg_end,
+	.nlmsg_abort = _nlmsg_abort,
+	.nl_writer_unicast = _nl_writer_unicast,
+	.nl_writer_group = _nl_writer_group,
+	.nlmsg_end_dump = _nlmsg_end_dump,
+	.nl_modify_ifp_generic = _nl_modify_ifp_generic,
+	.nl_store_ifp_cookie = _nl_store_ifp_cookie,
+	.nl_get_thread_nlp = _nl_get_thread_nlp,
+};
+#endif
+
 static bool
 can_unload(void)
 {
@@ -205,6 +218,10 @@ netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 	switch (what) {
 	case MOD_LOAD:
 		NL_LOG(LOG_DEBUG2, "Loading");
+		nl_osd_register();
+#if !defined(NETLINK) && defined(NETLINK_MODULE)
+		nl_set_functions(&nl_module);
+#endif
 		break;
 
 	case MOD_UNLOAD:
@@ -212,6 +229,10 @@ netlink_modevent(module_t mod __unused, int what, void *priv __unused)
 		if (can_unload()) {
 			NL_LOG(LOG_WARNING, "unloading");
 			netlink_unloading = 1;
+#if !defined(NETLINK) && defined(NETLINK_MODULE)
+			nl_set_functions(NULL);
+#endif
+			nl_osd_unregister();
 		} else
 			ret = EBUSY;
 		break;

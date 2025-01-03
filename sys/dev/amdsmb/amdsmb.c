@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -162,13 +159,13 @@ amdsmb_attach(device_t dev)
 	mtx_init(&amdsmb_sc->lock, device_get_nameunit(dev), "amdsmb", MTX_DEF);
 
 	/* Allocate a new smbus device */
-	amdsmb_sc->smbus = device_add_child(dev, "smbus", -1);
+	amdsmb_sc->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 	if (!amdsmb_sc->smbus) {
 		amdsmb_detach(dev);
 		return (EINVAL);
 	}
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -177,11 +174,11 @@ static int
 amdsmb_detach(device_t dev)
 {
 	struct amdsmb_softc *amdsmb_sc = device_get_softc(dev);
+	int error;
 
-	if (amdsmb_sc->smbus) {
-		device_delete_child(dev, amdsmb_sc->smbus);
-		amdsmb_sc->smbus = NULL;
-	}
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	mtx_destroy(&amdsmb_sc->lock);
 	if (amdsmb_sc->res)

@@ -68,12 +68,10 @@
 
 #include "opt_mac.h"
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/condvar.h>
+#include <sys/jail.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/mac.h>
@@ -108,7 +106,12 @@ SYSCTL_NODE(_security, OID_AUTO, mac, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "TrustedBSD MAC policy controls");
 
 /*
- * Declare that the kernel provides MAC support, version 3 (FreeBSD 7.x).
+ * Root sysctl node for MAC modules' jail parameters.
+ */
+SYSCTL_JAIL_PARAM_NODE(mac, "Jail parameters for MAC policy controls");
+
+/*
+ * Declare that the kernel provides a specific version of MAC support.
  * This permits modules to refuse to be loaded if the necessary support isn't
  * present, even if it's pre-boot.
  */
@@ -519,7 +522,8 @@ mac_policy_fastpath_unregister(struct mac_policy_conf *mpc)
 static int
 mac_policy_register(struct mac_policy_conf *mpc)
 {
-	struct mac_policy_conf *tmpc;
+	struct mac_policy_list_head *mpc_list;
+	struct mac_policy_conf *last_mpc, *tmpc;
 	int error, slot, static_entry;
 
 	error = 0;
@@ -539,19 +543,14 @@ mac_policy_register(struct mac_policy_conf *mpc)
 	static_entry = (!mac_late &&
 	    !(mpc->mpc_loadtime_flags & MPC_LOADTIME_FLAG_UNLOADOK));
 
-	if (static_entry) {
-		LIST_FOREACH(tmpc, &mac_static_policy_list, mpc_list) {
-			if (strcmp(tmpc->mpc_name, mpc->mpc_name) == 0) {
-				error = EEXIST;
-				goto out;
-			}
-		}
-	} else {
-		LIST_FOREACH(tmpc, &mac_policy_list, mpc_list) {
-			if (strcmp(tmpc->mpc_name, mpc->mpc_name) == 0) {
-				error = EEXIST;
-				goto out;
-			}
+	mpc_list = (static_entry) ? &mac_static_policy_list :
+	    &mac_policy_list;
+	last_mpc = NULL;
+	LIST_FOREACH(tmpc, mpc_list, mpc_list) {
+		last_mpc = tmpc;
+		if (strcmp(tmpc->mpc_name, mpc->mpc_name) == 0) {
+			error = EEXIST;
+			goto out;
 		}
 	}
 	if (mpc->mpc_field_off != NULL) {
@@ -567,16 +566,14 @@ mac_policy_register(struct mac_policy_conf *mpc)
 	mpc->mpc_runtime_flags |= MPC_RUNTIME_FLAG_REGISTERED;
 
 	/*
-	 * If we're loading a MAC module after the framework has initialized,
-	 * it has to go into the dynamic list.  If we're loading it before
-	 * we've finished initializing, it can go into the static list with
-	 * weaker locker requirements.
+	 * Some modules may depend on the operations of its dependencies.
+	 * Inserting modules in order of registration ensures operations
+	 * that work on the module list retain dependency order.
 	 */
-	if (static_entry)
-		LIST_INSERT_HEAD(&mac_static_policy_list, mpc, mpc_list);
+	if (last_mpc == NULL)
+		LIST_INSERT_HEAD(mpc_list, mpc, mpc_list);
 	else
-		LIST_INSERT_HEAD(&mac_policy_list, mpc, mpc_list);
-
+		LIST_INSERT_AFTER(last_mpc, mpc, mpc_list);
 	/*
 	 * Per-policy initialization.  Currently, this takes place under the
 	 * exclusive lock, so policies must not sleep in their init method.
@@ -733,9 +730,8 @@ mac_error_select(int error1, int error2)
 }
 
 int
-mac_check_structmac_consistent(struct mac *mac)
+mac_check_structmac_consistent(const struct mac *mac)
 {
-
 	/* Require that labels have a non-zero length. */
 	if (mac->m_buflen > MAC_MAX_LABEL_BUF_LEN ||
 	    mac->m_buflen <= sizeof(""))

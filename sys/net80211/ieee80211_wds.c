@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007-2008 Sam Leffler, Errno Consulting
  * All rights reserved.
@@ -24,11 +24,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-#ifdef __FreeBSD__
-__FBSDID("$FreeBSD$");
-#endif
 
 /*
  * IEEE 802.11 WDS mode support.
@@ -470,8 +465,7 @@ wds_input(struct ieee80211_node *ni, struct mbuf *m,
 	if (!IEEE80211_IS_MULTICAST(wh->i_addr1))
 		ni->ni_inact = ni->ni_inact_reload;
 
-	if ((wh->i_fc[0] & IEEE80211_FC0_VERSION_MASK) !=
-	    IEEE80211_FC0_VERSION_0) {
+	if (!IEEE80211_IS_FC0_CHECK_VER(wh, IEEE80211_FC0_VERSION_0)) {
 		IEEE80211_DISCARD_MAC(vap, IEEE80211_MSG_ANY,
 		    ni->ni_macaddr, NULL, "wrong version, fc %02x:%02x",
 		    wh->i_fc[0], wh->i_fc[1]);

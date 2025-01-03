@@ -27,15 +27,16 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_SCATTERLIST_H_
 #define	_LINUXKPI_LINUX_SCATTERLIST_H_
 
 #include <sys/types.h>
+#include <sys/proc.h>
+#include <sys/sched.h>
 #include <sys/sf_buf.h>
 
+#include <linux/err.h>
 #include <linux/page.h>
 #include <linux/slab.h>
 #include <linux/mm.h>
@@ -158,7 +159,7 @@ sg_next(struct scatterlist *sg)
 static inline vm_paddr_t
 sg_phys(struct scatterlist *sg)
 {
-	return (VM_PAGE_TO_PHYS(sg_page(sg)) + sg->offset);
+	return (page_to_phys(sg_page(sg)) + sg->offset);
 }
 
 static inline void *
@@ -345,7 +346,7 @@ __sg_alloc_table_from_pages(struct sg_table *sgt,
 {
 	unsigned int i, segs, cur, len;
 	int rc;
-	struct scatterlist *s;
+	struct scatterlist *s, *sg_iter;
 
 #if defined(LINUXKPI_VERSION) && LINUXKPI_VERSION >= 51300
 	if (prv != NULL) {
@@ -379,11 +380,17 @@ __sg_alloc_table_from_pages(struct sg_table *sgt,
 #endif
 
 	cur = 0;
-	for (i = 0, s = sgt->sgl; i < sgt->orig_nents; i++) {
+	for_each_sg(sgt->sgl, sg_iter, sgt->orig_nents, i) {
 		unsigned long seg_size;
 		unsigned int j;
 
-		s = sg_next(s);
+		/*
+		 * We need to make sure that when we exit this loop "s" has the
+		 * last sg in the chain so we can call sg_mark_end() on it.
+		 * Only set this inside the loop since sg_iter will be iterated
+		 * until it is NULL.
+		 */
+		s = sg_iter;
 
 		len = 0;
 		for (j = cur + 1; j < count; ++j) {
@@ -649,7 +656,7 @@ sg_pcopy_to_buffer(struct scatterlist *sgl, unsigned int nents,
 				break;
 			vaddr = (char *)sf_buf_kva(sf);
 		} else
-			vaddr = (char *)PHYS_TO_DMAP(VM_PAGE_TO_PHYS(page));
+			vaddr = (char *)PHYS_TO_DMAP(page_to_phys(page));
 		memcpy(buf, vaddr + sg->offset + offset, len);
 		if (!PMAP_HAS_DMAP)
 			sf_buf_free(sf);

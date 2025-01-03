@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 SYSDIR?=	${SRCTOP}/sys
 
 ARCHDIR=	${MACHINE_CPUARCH}
@@ -14,6 +12,7 @@ KMOD=		dtrace
 SRCS=		dtrace.c \
 		dtrace_xoroshiro128_plus.c \
 		dtrace_asm.S \
+		dtrace_isa.c \
 		dtrace_subr.c
 
 .if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386"
@@ -22,8 +21,12 @@ SRCS+=		dis_tables.c \
 		instr_size.c
 CFLAGS+=       -I${SYSDIR}/cddl/contrib/opensolaris/uts/intel \
                -I${SYSDIR}/cddl/dev/dtrace/x86
-
 .endif
+
+.if ${MACHINE_CPUARCH} == "riscv" || ${MACHINE_CPUARCH} == "aarch64"
+SRCS+=		instr_size.c
+.endif
+
 CFLAGS+= ${OPENZFS_CFLAGS}
 
 SRCS+=		bus_if.h device_if.h vnode_if.h

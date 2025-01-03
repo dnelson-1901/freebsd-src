@@ -58,9 +58,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)in_var.h	8.1 (Berkeley) 6/10/93
- * $FreeBSD$
  */
 
 #ifndef _NETINET6_IN6_VAR_H_
@@ -118,7 +115,7 @@ struct in6_ifextra {
 SLIST_HEAD(in6_multi_head, in6_multi);
 MALLOC_DECLARE(M_IP6MADDR);
 
-struct	in6_ifaddr {
+struct in6_ifaddr {
 	struct	ifaddr ia_ifa;		/* protocol-independent info */
 #define	ia_ifp		ia_ifa.ifa_ifp
 #define ia_flags	ia_ifa.ifa_flags
@@ -838,6 +835,7 @@ struct ip6_moptions;
 struct sockopt;
 struct inpcbinfo;
 struct rib_head;
+struct ucred;
 
 /* Multicast KPIs. */
 int	im6o_mc_filter(const struct ip6_moptions *, const struct ifnet *,
@@ -862,6 +860,7 @@ int	ip6_setmoptions(struct inpcb *, struct sockopt *);
 int	in6_mask2len(struct in6_addr *, u_char *);
 int	in6_control(struct socket *, u_long, void *, struct ifnet *,
 	struct thread *);
+int	in6_control_ioctl(u_long, void *, struct ifnet *, struct ucred *);
 int	in6_update_ifa(struct ifnet *, struct in6_aliasreq *,
 	struct in6_ifaddr *, int);
 void	in6_prepare_ifra(struct in6_aliasreq *, const struct in6_addr *,

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 Semihalf.
  * All rights reserved.
@@ -27,11 +27,10 @@
  */
 #include "opt_ddb.h"
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
+#include <sys/intr.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
@@ -53,7 +52,6 @@ __FBSDID("$FreeBSD$");
 #include <machine/debug_monitor.h>
 #include <machine/smp.h>
 #include <machine/pcb.h>
-#include <machine/intr.h>
 #include <machine/vmparam.h>
 #ifdef VFP
 #include <machine/vfp.h>
@@ -64,7 +62,6 @@ __FBSDID("$FreeBSD$");
 
 /* used to hold the AP's until we are ready to release them */
 struct mtx ap_boot_mtx;
-struct pcb stoppcbs[MAXCPU];
 
 /* # of Applications processors */
 volatile int mp_naps;
@@ -172,9 +169,7 @@ init_secondary(int cpu)
 
 	/* Spin until the BSP releases the APs */
 	while (!atomic_load_acq_int(&aps_ready)) {
-#if __ARM_ARCH >= 7
 		__asm __volatile("wfe");
-#endif
 	}
 
 	/* Initialize curthread */
@@ -282,41 +277,17 @@ ipi_stop(void *dummy __unused)
 static void
 ipi_preempt(void *arg)
 {
-	struct trapframe *oldframe;
-	struct thread *td;
-
-	critical_enter();
-	td = curthread;
-	td->td_intr_nesting_level++;
-	oldframe = td->td_intr_frame;
-	td->td_intr_frame = (struct trapframe *)arg;
 
 	CTR1(KTR_SMP, "%s: IPI_PREEMPT", __func__);
-	sched_preempt(td);
-
-	td->td_intr_frame = oldframe;
-	td->td_intr_nesting_level--;
-	critical_exit();
+	sched_preempt(curthread);
 }
 
 static void
 ipi_hardclock(void *arg)
 {
-	struct trapframe *oldframe;
-	struct thread *td;
-
-	critical_enter();
-	td = curthread;
-	td->td_intr_nesting_level++;
-	oldframe = td->td_intr_frame;
-	td->td_intr_frame = (struct trapframe *)arg;
 
 	CTR1(KTR_SMP, "%s: IPI_HARDCLOCK", __func__);
 	hardclockintr();
-
-	td->td_intr_frame = oldframe;
-	td->td_intr_nesting_level--;
-	critical_exit();
 }
 
 static void
@@ -327,11 +298,11 @@ release_aps(void *dummy __unused)
 	if (mp_ncpus == 1)
 		return;
 
-	intr_pic_ipi_setup(IPI_RENDEZVOUS, "rendezvous", ipi_rendezvous, NULL);
-	intr_pic_ipi_setup(IPI_AST, "ast", ipi_ast, NULL);
-	intr_pic_ipi_setup(IPI_STOP, "stop", ipi_stop, NULL);
-	intr_pic_ipi_setup(IPI_PREEMPT, "preempt", ipi_preempt, NULL);
-	intr_pic_ipi_setup(IPI_HARDCLOCK, "hardclock", ipi_hardclock, NULL);
+	intr_ipi_setup(IPI_RENDEZVOUS, "rendezvous", ipi_rendezvous, NULL);
+	intr_ipi_setup(IPI_AST, "ast", ipi_ast, NULL);
+	intr_ipi_setup(IPI_STOP, "stop", ipi_stop, NULL);
+	intr_ipi_setup(IPI_PREEMPT, "preempt", ipi_preempt, NULL);
+	intr_ipi_setup(IPI_HARDCLOCK, "hardclock", ipi_hardclock, NULL);
 
 	atomic_store_rel_int(&aps_ready, 1);
 	/* Wake the other threads up */

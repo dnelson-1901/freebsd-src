@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000,2001 Jonathan Chen.  All rights reserved.
  * Copyright (c) 2003-2008 M. Warner Losh <imp@FreeBSD.org>
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/eventhandler.h>
@@ -96,13 +93,10 @@ static int
 cardbus_attach(device_t cbdev)
 {
 	struct cardbus_softc *sc;
-#ifdef PCI_RES_BUS
 	int rid;
-#endif
 
 	sc = device_get_softc(cbdev);
 	sc->sc_dev = cbdev;
-#ifdef PCI_RES_BUS
 	rid = 0;
 	sc->sc_bus = bus_alloc_resource(cbdev, PCI_RES_BUS, &rid,
 	    pcib_get_bus(cbdev), pcib_get_bus(cbdev), 1, 0);
@@ -110,25 +104,18 @@ cardbus_attach(device_t cbdev)
 		device_printf(cbdev, "failed to allocate bus number\n");
 		return (ENXIO);
 	}
-#else
-	device_printf(cbdev, "Your bus numbers may be AFU\n");
-#endif
 	return (0);
 }
 
 static int
 cardbus_detach(device_t cbdev)
 {
-#ifdef PCI_RES_BUS
 	struct cardbus_softc *sc;
-#endif
 
 	cardbus_detach_card(cbdev);
-#ifdef PCI_RES_BUS
 	sc = device_get_softc(cbdev);
 	device_printf(cbdev, "Freeing up the allocatd bus\n");
 	(void)bus_release_resource(cbdev, PCI_RES_BUS, 0, sc->sc_bus);
-#endif
 	return (0);
 }
 
@@ -211,7 +198,7 @@ cardbus_attach_card(device_t cbdev)
 		if (dinfo->pci.cfg.mfdev)
 			cardbusfunchigh = PCI_FUNCMAX;
 
-		child = device_add_child(cbdev, NULL, -1);
+		child = device_add_child(cbdev, NULL, DEVICE_UNIT_ANY);
 		if (child == NULL) {
 			DEVPRINTF((cbdev, "Cannot add child!\n"));
 			pci_freecfg((struct pci_devinfo *)dinfo);
@@ -258,8 +245,6 @@ cardbus_detach_card(device_t cbdev)
 
 	bus_topo_lock();
 	err = bus_generic_detach(cbdev);
-	if (err == 0)
-		err = device_delete_children(cbdev);
 	bus_topo_unlock();
 	if (err)
 		return (err);

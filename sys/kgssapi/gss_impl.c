@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008 Isilon Inc http://www.isilon.com/
  * Authors: Doug Rabson <dfr@rabson.org>
@@ -26,9 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/jail.h>
@@ -340,6 +337,8 @@ kgssapi_modevent(module_t mod, int type, void *data)
 		    rpc_gss_get_principal_name;
 		rpc_gss_entries.rpc_gss_svc_max_data_length =
 		    rpc_gss_svc_max_data_length;
+		rpc_gss_entries.rpc_gss_ip_to_srv_principal =
+		    rpc_gss_ip_to_srv_principal;
 		mtx_init(&kgss_gssd_lock, "kgss_gssd_lock", NULL, MTX_DEF);
 		error = kgss_load();
 		break;

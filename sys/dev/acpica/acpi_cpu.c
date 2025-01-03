@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_acpi.h"
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -133,6 +131,7 @@ struct acpi_cpu_device {
 #define PIIX4_PCNTRL_BST_EN	(1<<10)
 
 #define	CST_FFH_VENDOR_INTEL	1
+#define	CST_FFH_VENDOR_AMD	2
 #define	CST_FFH_INTEL_CL_C1IO	1
 #define	CST_FFH_INTEL_CL_MWAIT	2
 #define	CST_FFH_MWAIT_HW_COORD	0x0001
@@ -468,11 +467,11 @@ acpi_cpu_postattach(void *unused __unused)
     bus_topo_lock();
     CPU_FOREACH(i) {
 	if ((sc = cpu_softc[i]) != NULL)
-		bus_generic_probe(sc->cpu_dev);
+		bus_identify_children(sc->cpu_dev);
     }
     CPU_FOREACH(i) {
 	if ((sc = cpu_softc[i]) != NULL) {
-		bus_generic_attach(sc->cpu_dev);
+		bus_attach_children(sc->cpu_dev);
 		attached = 1;
 	}
     }
@@ -514,6 +513,9 @@ static void
 enable_idle(struct acpi_cpu_softc *sc)
 {
 
+    if (sc->cpu_cx_count > sc->cpu_non_c3 + 1 &&
+	(cpu_quirks & CPU_QUIRK_NO_BM_CTRL) == 0)
+	    AcpiWriteBitRegister(ACPI_BITREG_BUS_MASTER_RLD, 1);
     sc->cpu_disable_idle = FALSE;
 }
 
@@ -854,7 +856,8 @@ acpi_cpu_cx_cst(struct acpi_cpu_softc *sc)
 	    acpi_cpu_cx_cst_free_plvlx(sc->cpu_dev, cx_ptr);
 #if defined(__i386__) || defined(__amd64__)
 	    if (acpi_PkgFFH_IntelCpu(pkg, 0, &vendor, &class, &address,
-	      &accsize) == 0 && vendor == CST_FFH_VENDOR_INTEL) {
+	      &accsize) == 0 &&
+		(vendor == CST_FFH_VENDOR_INTEL || vendor == CST_FFH_VENDOR_AMD)) {
 		if (class == CST_FFH_INTEL_CL_C1IO) {
 		    /* C1 I/O then Halt */
 		    cx_ptr->res_rid = sc->cpu_cx_count;
@@ -871,7 +874,9 @@ acpi_cpu_cx_cst(struct acpi_cpu_softc *sc)
 			  "degrading to C1 Halt", (int)address);
 		    }
 		} else if (class == CST_FFH_INTEL_CL_MWAIT) {
-		    acpi_cpu_cx_cst_mwait(cx_ptr, address, accsize);
+		    if (vendor == CST_FFH_VENDOR_INTEL ||
+			(vendor == CST_FFH_VENDOR_AMD && cpu_mon_mwait_edx != 0))
+		        acpi_cpu_cx_cst_mwait(cx_ptr, address, accsize);
 		}
 	    }
 #endif
@@ -921,6 +926,7 @@ acpi_cpu_cx_cst(struct acpi_cpu_softc *sc)
 	    acpi_PkgGas(sc->cpu_dev, pkg, 0, &cx_ptr->res_type,
 		&cx_ptr->res_rid, &cx_ptr->p_lvlx, RF_SHAREABLE);
 	    if (cx_ptr->p_lvlx) {
+		cx_ptr->do_mwait = false;
 		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
 		     "acpi_cpu%d: Got C%d - %d latency\n",
 		     device_get_unit(sc->cpu_dev), cx_ptr->type,
@@ -1166,14 +1172,13 @@ acpi_cpu_idle(sbintime_t sbt)
     }
 
     /*
-     * For C3, disable bus master arbitration and enable bus master wake
-     * if BM control is available, otherwise flush the CPU cache.
+     * For C3, disable bus master arbitration if BM control is available.
+     * CPU may have to wake up to handle it. Otherwise flush the CPU cache.
      */
     if (cx_next->type == ACPI_STATE_C3) {
-	if ((cpu_quirks & CPU_QUIRK_NO_BM_CTRL) == 0) {
+	if ((cpu_quirks & CPU_QUIRK_NO_BM_CTRL) == 0)
 	    AcpiWriteBitRegister(ACPI_BITREG_ARB_DISABLE, 1);
-	    AcpiWriteBitRegister(ACPI_BITREG_BUS_MASTER_RLD, 1);
-	} else
+	else
 	    ACPI_FLUSH_CPU_CACHE();
     }
 
@@ -1208,12 +1213,10 @@ acpi_cpu_idle(sbintime_t sbt)
     else
 	end_ticks = cpu_ticks();
 
-    /* Enable bus master arbitration and disable bus master wakeup. */
+    /* Enable bus master arbitration. */
     if (cx_next->type == ACPI_STATE_C3 &&
-      (cpu_quirks & CPU_QUIRK_NO_BM_CTRL) == 0) {
+      (cpu_quirks & CPU_QUIRK_NO_BM_CTRL) == 0)
 	AcpiWriteBitRegister(ACPI_BITREG_ARB_DISABLE, 0);
-	AcpiWriteBitRegister(ACPI_BITREG_BUS_MASTER_RLD, 0);
-    }
     ACPI_ENABLE_IRQS();
 
     if (cx_next->type == ACPI_STATE_C3)

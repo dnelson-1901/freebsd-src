@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006-2008 Marcel Moolenaar
  * All rights reserved.
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _GEOM_PART_H_
@@ -105,6 +103,7 @@ enum g_part_alias {
 	G_PART_ALIAS_SOLARIS_HOME,	/* A Solaris /home partition entry. */
 	G_PART_ALIAS_SOLARIS_ALTSEC,	/* A Solaris alternate sector partition entry. */
 	G_PART_ALIAS_SOLARIS_RESERVED,	/* A Solaris reserved partition entry. */
+	G_PART_ALIAS_U_BOOT_ENV,	/* A U-Boot environment partition entry. */
 	G_PART_ALIAS_VMFS,		/* A VMware VMFS partition entry */
 	G_PART_ALIAS_VMKDIAG,		/* A VMware vmkDiagnostic partition entry */
 	G_PART_ALIAS_VMRESERVED,	/* A VMware reserved partition entry */
@@ -119,8 +118,9 @@ const char *g_part_alias_name(enum g_part_alias);
 struct g_part_scheme {
 	KOBJ_CLASS_FIELDS;
 	size_t		gps_entrysz;
-	int		gps_minent;
-	int		gps_maxent;
+	int		gps_minent;		/* Minimum number of entries possible */
+	int		gps_defent;		/* Default number of entries to create */
+	int		gps_maxent;		/* Maximum number of entries possible */
 	int		gps_bootcodesz;
 	TAILQ_ENTRY(g_part_scheme) scheme_list;
 };
@@ -132,10 +132,10 @@ struct g_part_entry {
 	quad_t		gpe_start;	/* First LBA of partition. */
 	quad_t		gpe_end;	/* Last LBA of partition. */
 	int		gpe_index;
-	int		gpe_created:1;	/* Entry is newly created. */
-	int		gpe_deleted:1;	/* Entry has been deleted. */
-	int		gpe_modified:1;	/* Entry has been modified. */
-	int		gpe_internal:1;	/* Entry is not a used entry. */
+	bool		gpe_created:1;	/* Entry is newly created. */
+	bool		gpe_deleted:1;	/* Entry has been deleted. */
+	bool		gpe_modified:1;	/* Entry has been modified. */
+	bool		gpe_internal:1;	/* Entry is not a used entry. */
 };
 
 /* G_PART table (KOBJ instance). */
@@ -170,12 +170,12 @@ struct g_part_table {
 	uint32_t	gpt_heads;
 
 	int		gpt_depth;	/* Sub-partitioning level. */
-	int		gpt_isleaf:1;	/* Cannot be sub-partitioned. */
-	int		gpt_created:1;	/* Newly created. */
-	int		gpt_modified:1;	/* Table changes have been made. */
-	int		gpt_opened:1;	/* Permissions obtained. */
-	int		gpt_fixgeom:1;	/* Geometry is fixed. */
-	int		gpt_corrupt:1;	/* Table is corrupt. */
+	bool		gpt_isleaf:1;	/* Cannot be sub-partitioned. */
+	bool		gpt_created:1;	/* Newly created. */
+	bool		gpt_modified:1;	/* Table changes have been made. */
+	bool		gpt_opened:1;	/* Permissions obtained. */
+	bool		gpt_fixgeom:1;	/* Geometry is fixed. */
+	bool		gpt_corrupt:1;	/* Table is corrupt. */
 };
 
 struct g_part_entry *g_part_new_entry(struct g_part_table *, int, quad_t,

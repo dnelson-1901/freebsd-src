@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -28,9 +28,6 @@
  */
 
 /* Driver for Atheros AR8121/AR8113/AR8114 PCIe Ethernet. */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -612,12 +609,6 @@ ale_attach(device_t dev)
 	ale_get_macaddr(sc);
 
 	ifp = sc->ale_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "cannot allocate ifnet structure.\n");
-		error = ENXIO;
-		goto fail;
-	}
-
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -664,12 +655,6 @@ ale_attach(device_t dev)
 	/* Create local taskq. */
 	sc->ale_tq = taskqueue_create_fast("ale_taskq", M_WAITOK,
 	    taskqueue_thread_enqueue, &sc->ale_tq);
-	if (sc->ale_tq == NULL) {
-		device_printf(dev, "could not create taskqueue.\n");
-		ether_ifdetach(ifp);
-		error = ENXIO;
-		goto fail;
-	}
 	taskqueue_start_threads(&sc->ale_tq, 1, PI_NET, "%s taskq",
 	    device_get_nameunit(sc->ale_dev));
 
@@ -726,10 +711,6 @@ ale_detach(device_t dev)
 		sc->ale_tq = NULL;
 	}
 
-	if (sc->ale_miibus != NULL) {
-		device_delete_child(dev, sc->ale_miibus);
-		sc->ale_miibus = NULL;
-	}
 	bus_generic_detach(dev);
 	ale_dma_free(sc);
 

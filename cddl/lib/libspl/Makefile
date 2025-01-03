@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <bsd.init.mk>
 .include <bsd.compiler.mk>
 
@@ -12,6 +10,7 @@ PACKAGE=	zfs
 
 SRCS = \
         assert.c \
+	backtrace.c \
         list.c \
         mkdirp.c \
         os/freebsd/zone.c \

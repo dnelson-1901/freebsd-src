@@ -1,7 +1,6 @@
 .\"	$NetBSD: motd.5,v 1.2 1994/12/28 18:58:53 glass Exp $
 .\"
 .\" This file is in the public domain.
-.\" $FreeBSD$
 .\"
 .Dd October 18, 2020
 .Dt MOTD 5
@@ -26,7 +25,7 @@ and the contents are written to
 can be updated without a system reboot by manually restarting the
 motd service after updating
 .Pa /etc/motd.template :
-.Bd -literal -offset -ident -compact
+.Bd -literal -offset indent -compact
 service motd restart
 .Ed
 .Pp

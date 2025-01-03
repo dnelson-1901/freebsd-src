@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Michael Smith
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	$FreeBSD$
  */
 
 /*
@@ -186,7 +184,7 @@ struct ciss_softc
 {
     /* bus connections */
     device_t			ciss_dev;		/* bus attachment */
-    struct cdev *ciss_dev_t;		/* control device */
+    struct cdev			*ciss_dev_t;		/* control device */
 
     struct resource		*ciss_regs_resource;	/* register interface window */
     int				ciss_regs_rid;		/* resource ID */
@@ -238,6 +236,7 @@ struct ciss_softc
     int				ciss_max_bus_number;	/* maximum bus number */
     int				ciss_max_logical_bus;
     int				ciss_max_physical_bus;
+    int				ciss_max_physical_target;	/* highest physical target number */
 
     struct cam_devq		*ciss_cam_devq;
     struct cam_sim		**ciss_cam_sim;

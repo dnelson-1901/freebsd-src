@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * The DPAA2 Resource Container (DPRC) bus driver.
  *
@@ -116,7 +114,7 @@ dpaa2_rc_detach(device_t dev)
 	if (dinfo)
 		free(dinfo, M_DPAA2_RC);
 
-	return (device_delete_children(dev));
+	return (0);
 }
 
 static int
@@ -265,19 +263,18 @@ dpaa2_rc_alloc_resource(device_t rcdev, device_t child, int type, int *rid,
 }
 
 static int
-dpaa2_rc_release_resource(device_t rcdev, device_t child, int type, int rid,
-    struct resource *r)
+dpaa2_rc_release_resource(device_t rcdev, device_t child, struct resource *r)
 {
 	struct resource_list *rl;
 	struct dpaa2_devinfo *dinfo;
 
 	if (device_get_parent(child) != rcdev)
 		return (BUS_RELEASE_RESOURCE(device_get_parent(rcdev), child,
-		    type, rid, r));
+		    r));
 
 	dinfo = device_get_ivars(child);
 	rl = &dinfo->resources;
-	return (resource_list_release(rl, rcdev, child, type, rid, r));
+	return (resource_list_release(rl, rcdev, child, r));
 }
 
 static void
@@ -2746,77 +2743,68 @@ dpaa2_rc_discover(struct dpaa2_rc_softc *sc)
 	device_t rcdev = sc->dev;
 	device_t child = sc->dev;
 	struct dpaa2_devinfo *rcinfo = device_get_ivars(rcdev);
-	struct dpaa2_cmd *cmd = NULL;
+	struct dpaa2_cmd cmd;
 	struct dpaa2_rc_attr dprc_attr;
 	struct dpaa2_obj obj;
 	uint32_t major, minor, rev, obj_count;
 	uint16_t rc_token;
 	int rc;
 
-	/* Allocate a command to send to MC hardware. */
-	rc = dpaa2_mcp_init_command(&cmd, DPAA2_CMD_DEF);
-	if (rc) {
-		device_printf(rcdev, "%s: failed to allocate dpaa2_cmd: "
-		    "error=%d\n", __func__, rc);
-		return (ENXIO);
-	}
+	DPAA2_CMD_INIT(&cmd);
 
 	/* Print MC firmware version. */
-	rc = DPAA2_CMD_MNG_GET_VERSION(rcdev, child, cmd, &major, &minor, &rev);
+	rc = DPAA2_CMD_MNG_GET_VERSION(rcdev, child, &cmd, &major, &minor, &rev);
 	if (rc) {
 		device_printf(rcdev, "%s: failed to get MC firmware version: "
 		    "error=%d\n", __func__, rc);
-		dpaa2_mcp_free_command(cmd);
 		return (ENXIO);
 	}
 	device_printf(rcdev, "MC firmware version: %u.%u.%u\n", major, minor,
 	    rev);
 
 	/* Obtain container ID associated with a given MC portal. */
-	rc = DPAA2_CMD_MNG_GET_CONTAINER_ID(rcdev, child, cmd, &sc->cont_id);
+	rc = DPAA2_CMD_MNG_GET_CONTAINER_ID(rcdev, child, &cmd, &sc->cont_id);
 	if (rc) {
 		device_printf(rcdev, "%s: failed to get container id: "
 		    "error=%d\n", __func__, rc);
-		dpaa2_mcp_free_command(cmd);
 		return (ENXIO);
 	}
-	if (bootverbose)
+	if (bootverbose) {
 		device_printf(rcdev, "Resource container ID: %u\n", sc->cont_id);
+	}
 
 	/* Open the resource container. */
-	rc = DPAA2_CMD_RC_OPEN(rcdev, child, cmd, sc->cont_id, &rc_token);
+	rc = DPAA2_CMD_RC_OPEN(rcdev, child, &cmd, sc->cont_id, &rc_token);
 	if (rc) {
 		device_printf(rcdev, "%s: failed to open container: cont_id=%u, "
 		    "error=%d\n", __func__, sc->cont_id, rc);
-		dpaa2_mcp_free_command(cmd);
 		return (ENXIO);
 	}
 
 	/* Obtain a number of objects in this container. */
-	rc = DPAA2_CMD_RC_GET_OBJ_COUNT(rcdev, child, cmd, &obj_count);
+	rc = DPAA2_CMD_RC_GET_OBJ_COUNT(rcdev, child, &cmd, &obj_count);
 	if (rc) {
 		device_printf(rcdev, "%s: failed to count objects in container: "
 		    "cont_id=%u, error=%d\n", __func__, sc->cont_id, rc);
-		DPAA2_CMD_RC_CLOSE(rcdev, child, cmd);
-		dpaa2_mcp_free_command(cmd);
+		(void)DPAA2_CMD_RC_CLOSE(rcdev, child, &cmd);
 		return (ENXIO);
 	}
-	if (bootverbose)
+	if (bootverbose) {
 		device_printf(rcdev, "Objects in container: %u\n", obj_count);
+	}
 
-	/* Obtain container attributes (including ICID). */
-	rc = DPAA2_CMD_RC_GET_ATTRIBUTES(rcdev, child, cmd, &dprc_attr);
+	rc = DPAA2_CMD_RC_GET_ATTRIBUTES(rcdev, child, &cmd, &dprc_attr);
 	if (rc) {
 		device_printf(rcdev, "%s: failed to get attributes of the "
 		    "container: cont_id=%u, error=%d\n", __func__, sc->cont_id,
 		    rc);
-		DPAA2_CMD_RC_CLOSE(rcdev, child, cmd);
-		dpaa2_mcp_free_command(cmd);
+		DPAA2_CMD_RC_CLOSE(rcdev, child, &cmd);
 		return (ENXIO);
 	}
-	if (bootverbose)
+	if (bootverbose) {
 		device_printf(rcdev, "Isolation context ID: %u\n",
 		    dprc_attr.icid);
+	}
 	if (rcinfo) {
 		rcinfo->id = dprc_attr.cont_id;
 		rcinfo->portal_id = dprc_attr.portal_id;
@@ -2828,26 +2816,22 @@ dpaa2_rc_discover(struct dpaa2_rc_softc *sc)
 	 * TODO: Discover DPAA2 objects on-demand.
 	 */
 	for (uint32_t i = 0; i < obj_count; i++) {
-		rc = DPAA2_CMD_RC_GET_OBJ(rcdev, child, cmd, i, &obj);
-		if (rc)
+		rc = DPAA2_CMD_RC_GET_OBJ(rcdev, child, &cmd, i, &obj);
+		if (rc) {
 			continue; /* Skip silently for now. */
-		if (obj.type != DPAA2_DEV_MCP)
+		}
+		if (obj.type != DPAA2_DEV_MCP) {
 			continue;
-
-		dpaa2_rc_add_managed_child(sc, cmd, &obj);
+		}
+		dpaa2_rc_add_managed_child(sc, &cmd, &obj);
 	}
 	/* Probe and attach MC portals. */
-	bus_generic_probe(rcdev);
-	rc = bus_generic_attach(rcdev);
-	if (rc) {
-		DPAA2_CMD_RC_CLOSE(rcdev, child, cmd);
-		dpaa2_mcp_free_command(cmd);
-		return (rc);
-	}
+	bus_identify_children(rcdev);
+	bus_attach_children(rcdev);
 
 	/* Add managed devices (except DPMCPs) to the resource container. */
 	for (uint32_t i = 0; i < obj_count; i++) {
-		rc = DPAA2_CMD_RC_GET_OBJ(rcdev, child, cmd, i, &obj);
+		rc = DPAA2_CMD_RC_GET_OBJ(rcdev, child, &cmd, i, &obj);
 		if (rc && bootverbose) {
 			if (rc == DPAA2_CMD_STAT_UNKNOWN_OBJ) {
 				device_printf(rcdev, "%s: skip unsupported "
@@ -2860,23 +2844,18 @@ dpaa2_rc_discover(struct dpaa2_rc_softc *sc)
 				continue;
 			}
 		}
-		if (obj.type == DPAA2_DEV_MCP)
+		if (obj.type == DPAA2_DEV_MCP) {
 			continue; /* Already added. */
-
-		dpaa2_rc_add_managed_child(sc, cmd, &obj);
+		}
+		dpaa2_rc_add_managed_child(sc, &cmd, &obj);
 	}
 	/* Probe and attach managed devices properly. */
-	bus_generic_probe(rcdev);
-	rc = bus_generic_attach(rcdev);
-	if (rc) {
-		DPAA2_CMD_RC_CLOSE(rcdev, child, cmd);
-		dpaa2_mcp_free_command(cmd);
-		return (rc);
-	}
+	bus_identify_children(rcdev);
+	bus_attach_children(rcdev);
 
 	/* Add other devices to the resource container. */
 	for (uint32_t i = 0; i < obj_count; i++) {
-		rc = DPAA2_CMD_RC_GET_OBJ(rcdev, child, cmd, i, &obj);
+		rc = DPAA2_CMD_RC_GET_OBJ(rcdev, child, &cmd, i, &obj);
 		if (rc == DPAA2_CMD_STAT_UNKNOWN_OBJ && bootverbose) {
 			device_printf(rcdev, "%s: skip unsupported DPAA2 "
 			    "object: idx=%u\n", __func__, i);
@@ -2886,15 +2865,15 @@ dpaa2_rc_discover(struct dpaa2_rc_softc *sc)
 			    "idx=%u, error=%d\n", __func__, i, rc);
 			continue;
 		}
-		dpaa2_rc_add_child(sc, cmd, &obj);
+		dpaa2_rc_add_child(sc, &cmd, &obj);
 	}
 
-	DPAA2_CMD_RC_CLOSE(rcdev, child, cmd);
-	dpaa2_mcp_free_command(cmd);
+	DPAA2_CMD_RC_CLOSE(rcdev, child, &cmd);
 
 	/* Probe and attach the rest of devices. */
-	bus_generic_probe(rcdev);
-	return (bus_generic_attach(rcdev));
+	bus_identify_children(rcdev);
+	bus_attach_children(rcdev);
+	return (0);
 }
 
 /**
@@ -3000,8 +2979,8 @@ dpaa2_rc_add_child(struct dpaa2_rc_softc *sc, struct dpaa2_cmd *cmd,
  * function is supposed to discover such managed objects in the resource
  * container and add them as children to perform a proper initialization.
  *
- * NOTE: It must be called together with bus_generic_probe() and
- *       bus_generic_attach() before dpaa2_rc_add_child().
+ * NOTE: It must be called together with bus_identify_children() and
+ *       bus_attach_children() before dpaa2_rc_add_child().
  */
 static int
 dpaa2_rc_add_managed_child(struct dpaa2_rc_softc *sc, struct dpaa2_cmd *cmd,
@@ -3139,50 +3118,38 @@ dpaa2_rc_configure_irq(device_t rcdev, device_t child, int rid, uint64_t addr,
 {
 	struct dpaa2_devinfo *rcinfo;
 	struct dpaa2_devinfo *dinfo;
-	struct dpaa2_cmd *cmd;
+	struct dpaa2_cmd cmd;
 	uint16_t rc_token;
 	int rc = EINVAL;
+
+	DPAA2_CMD_INIT(&cmd);
 
 	if (device_get_parent(child) == rcdev && rid >= 1) {
 		rcinfo = device_get_ivars(rcdev);
 		dinfo = device_get_ivars(child);
 
-		/* Allocate a command to send to MC hardware. */
-		rc = dpaa2_mcp_init_command(&cmd, DPAA2_CMD_DEF);
+		rc = DPAA2_CMD_RC_OPEN(rcdev, child, &cmd, rcinfo->id,
+		    &rc_token);
 		if (rc) {
-			device_printf(rcdev, "%s: failed to allocate dpaa2_cmd: "
-			    "error=%d\n", __func__, rc);
-			return (ENODEV);
-		}
-
-		/* Open resource container. */
-		rc = DPAA2_CMD_RC_OPEN(rcdev, child, cmd, rcinfo->id, &rc_token);
-		if (rc) {
-			dpaa2_mcp_free_command(cmd);
 			device_printf(rcdev, "%s: failed to open DPRC: "
 			    "error=%d\n", __func__, rc);
 			return (ENODEV);
 		}
 		/* Set MSI address and value. */
-		rc = DPAA2_CMD_RC_SET_OBJ_IRQ(rcdev, child, cmd, rid - 1, addr,
+		rc = DPAA2_CMD_RC_SET_OBJ_IRQ(rcdev, child, &cmd, rid - 1, addr,
 		    data, rid, dinfo->id, dinfo->dtype);
 		if (rc) {
-			dpaa2_mcp_free_command(cmd);
 			device_printf(rcdev, "%s: failed to setup IRQ: "
 			    "rid=%d, addr=%jx, data=%x, error=%d\n", __func__,
 			    rid, addr, data, rc);
 			return (ENODEV);
 		}
-		/* Close resource container. */
-		rc = DPAA2_CMD_RC_CLOSE(rcdev, child, cmd);
+		rc = DPAA2_CMD_RC_CLOSE(rcdev, child, &cmd);
 		if (rc) {
-			dpaa2_mcp_free_command(cmd);
 			device_printf(rcdev, "%s: failed to close DPRC: "
 			    "error=%d\n", __func__, rc);
 			return (ENODEV);
 		}
-
-		dpaa2_mcp_free_command(cmd);
 		rc = 0;
 	}
 

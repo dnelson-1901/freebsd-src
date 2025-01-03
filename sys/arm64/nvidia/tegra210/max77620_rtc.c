@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright 2020 Michal Meloun <mmel@FreeBSD.org>
  *
@@ -24,9 +24,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -358,7 +355,8 @@ max77620_rtc_attach(device_t dev)
 
 	clock_register(sc->dev, 1000000);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail:
 	LOCK_DESTROY(sc);
@@ -369,11 +367,16 @@ static int
 max77620_rtc_detach(device_t dev)
 {
 	struct max77620_softc *sc;
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 	LOCK_DESTROY(sc);
 
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 /*
@@ -388,7 +391,7 @@ max77620_rtc_create(struct max77620_softc *sc, phandle_t node)
 
 	parent = device_get_parent(sc->dev);
 
-	child = BUS_ADD_CHILD(parent, 0, NULL, -1);
+	child = BUS_ADD_CHILD(parent, 0, NULL, DEVICE_UNIT_ANY);
 	if (child == NULL)	{
 		device_printf(sc->dev, "Cannot create MAX77620 RTC device.\n");
 		return (ENXIO);

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 LIBBEGEMOT_DIR=${SRCTOP}/contrib/libbegemot
 
 PACKAGE=lib${LIB}

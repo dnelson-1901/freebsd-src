@@ -18,8 +18,6 @@
  * information: Portions Copyright [yyyy] [name of copyright owner]
  *
  * CDDL HEADER END
- *
- * $FreeBSD$
  */
 /*
  * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
@@ -29,6 +27,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/dtrace_impl.h>
 #include <sys/kernel.h>
 #include <sys/stack.h>
 #include <sys/pcpu.h>
@@ -157,7 +156,7 @@ dtrace_getstackdepth(int aframes)
 }
 
 ulong_t
-dtrace_getreg(struct trapframe *rp, uint_t reg)
+dtrace_getreg(struct trapframe *frame, uint_t reg)
 {
 	printf("IMPLEMENT ME: %s\n", __func__);
 

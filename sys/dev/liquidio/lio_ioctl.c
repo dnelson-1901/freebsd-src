@@ -30,7 +30,6 @@
  *   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/*$FreeBSD$*/
 
 #include "lio_bsd.h"
 #include "lio_common.h"
@@ -482,7 +481,7 @@ lio_get_new_flags(if_t ifp)
 		 * Accept all multicast addresses if there are more than we
 		 * can handle
 		 */
-		if (if_getamcount(ifp) > LIO_MAX_MULTICAST_ADDR)
+		if (if_llmaddr_count(ifp) > LIO_MAX_MULTICAST_ADDR)
 			f |= LIO_IFFLAG_ALLMULTI;
 	}
 	if (if_getflags(ifp) & IFF_BROADCAST)

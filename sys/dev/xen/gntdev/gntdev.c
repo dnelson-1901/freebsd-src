@@ -29,9 +29,6 @@
  * 
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/uio.h>
@@ -386,6 +383,13 @@ gntdev_alloc_gref(struct ioctl_gntdev_alloc_gref *arg)
 		}
 	}
 
+	/* Copy the output values. */
+	arg->index = file_offset;
+	for (i = 0; error == 0 && i < arg->count; i++) {
+		if (suword32(&arg->gref_ids[i], grefs[i].gref_id) != 0)
+			error = EFAULT;
+	}
+
 	if (error != 0) {
 		/*
 		 * If target domain maps the gref (by guessing the gref-id),
@@ -403,11 +407,6 @@ gntdev_alloc_gref(struct ioctl_gntdev_alloc_gref *arg)
 
 		return (error);
 	}
-
-	/* Copy the output values. */
-	arg->index = file_offset;
-	for (i = 0; i < arg->count; i++)
-		suword32(&arg->gref_ids[i], grefs[i].gref_id);
 
 	/* Modify the per user private data. */
 	mtx_lock(&priv_user->user_data_lock);
@@ -564,7 +563,6 @@ notify_unmap_cleanup(struct gntdev_gmap *gmap)
 {
 	uint32_t i;
 	int error, count;
-	vm_page_t m;
 	struct gnttab_unmap_grant_ref *unmap_ops;
 
 	unmap_ops = malloc(sizeof(struct gnttab_unmap_grant_ref) * gmap->count,
@@ -593,17 +591,7 @@ notify_unmap_cleanup(struct gntdev_gmap *gmap)
 	}
 
 	/* Free the pages. */
-	VM_OBJECT_WLOCK(gmap->map->mem);
-retry:
-	for (i = 0; i < gmap->count; i++) {
-		m = vm_page_lookup(gmap->map->mem, i);
-		if (m == NULL)
-			continue;
-		if (vm_page_busy_acquire(m, VM_ALLOC_WAITFAIL) == 0)
-			goto retry;
-		cdev_pager_free_page(gmap->map->mem, m);
-	}
-	VM_OBJECT_WUNLOCK(gmap->map->mem);
+	cdev_mgtdev_pager_free_pages(gmap->map->mem);
 
 	/* Perform unmap hypercall. */
 	error = HYPERVISOR_grant_table_op(GNTTABOP_unmap_grant_ref,

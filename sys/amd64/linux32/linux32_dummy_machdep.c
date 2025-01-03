@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1994-1995 Søren Schmidt
  * All rights reserved.
@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/proc.h>
@@ -44,6 +41,7 @@ LIN_SDT_PROVIDER_DECLARE(LINUX_DTRACE);
 
 UNIMPLEMENTED(break);
 UNIMPLEMENTED(ftime);
+UNIMPLEMENTED(fstat);
 UNIMPLEMENTED(gtty);
 UNIMPLEMENTED(stty);
 UNIMPLEMENTED(lock);
@@ -57,12 +55,6 @@ DUMMY(olduname);
 DUMMY(uname);
 DUMMY(bdflush);
 DUMMY(ptrace);
-DUMMY(mq_open);
-DUMMY(mq_unlink);
-DUMMY(mq_timedsend);
-DUMMY(mq_timedreceive);
-DUMMY(mq_notify);
-DUMMY(mq_getsetattr);
 /* Linux 4.11: */
 DUMMY(arch_prctl);
 /* Linux 5.0: */

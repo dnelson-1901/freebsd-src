@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010 Weongyo Jeong <weongyo@freebsd.org>
  * All rights reserved.
@@ -27,8 +27,6 @@
  * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -831,7 +829,7 @@ main(int argc, char *argv[])
 	const char *optstring;
 	char *pp;
 
-	optstring = "b:d:hi:r:s:vw:f:";
+	optstring = "b:d:hi:r:s:uvw:f:";
 	while ((o = getopt(argc, argv, optstring)) != -1) {
 		switch (o) {
 		case 'b':
@@ -900,6 +898,10 @@ main(int argc, char *argv[])
 			/* snapeshot == 0 is special */
 			if (snapshot == 0)
 				snapshot = -1;
+			break;
+		case 'u':
+			setbuf(stdout, NULL);
+			setbuf(stderr, NULL);
 			break;
 		case 'v':
 			verbose++;

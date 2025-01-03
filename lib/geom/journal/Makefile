@@ -1,7 +1,4 @@
-# $FreeBSD$
-
 PACKAGE=geom
-.PATH: ${.CURDIR:H:H}/misc
 
 GEOM_CLASS=	journal
 SRCS+=	geom_journal_ufs.c

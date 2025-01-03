@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016-2018, Matthew Macy <mmacy@freebsd.org>
  *
@@ -23,8 +23,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _LINUXKPI_LINUX_DEBUGFS_H_
@@ -90,6 +88,8 @@ void debugfs_remove_recursive(struct dentry *dentry);
 
 #define DEFINE_DEBUGFS_ATTRIBUTE(__fops, __get, __set, __fmt) \
 	DEFINE_SIMPLE_ATTRIBUTE(__fops, __get, __set, __fmt)
+#define DEFINE_DEBUGFS_ATTRIBUTE_SIGNED(__fops, __get, __set, __fmt) \
+	DEFINE_SIMPLE_ATTRIBUTE_SIGNED(__fops, __get, __set, __fmt)
 
 void debugfs_create_bool(const char *name, umode_t mode, struct dentry *parent,
     bool *value);

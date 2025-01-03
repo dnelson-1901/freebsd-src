@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 John Baldwin <jhb@FreeBSD.org>
  *
@@ -23,8 +23,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _X86_APICVAR_H_
@@ -80,7 +78,12 @@
 #define	MAX_APIC_ID		0x800
 #define	APIC_ID_ALL		0xffffffff
 
-#define	IOAPIC_MAX_ID		xAPIC_MAX_APIC_ID
+/*
+ * The 0xff ID is used for broadcast IPIs for local APICs when not using
+ * x2APIC.  IPIs are not sent to I/O APICs so it's acceptable for an I/O APIC
+ * to use that ID.
+ */
+#define	IOAPIC_MAX_ID		0xff
 
 /* I/O Interrupts are used for external devices such as ISA, PCI, etc. */
 #define	APIC_IO_INTS	(IDT_IO_INTS + 16)
@@ -193,19 +196,21 @@ extern int *apic_cpuids;
 /* Allow to replace the lapic_ipi_vectored implementation. */
 extern void (*ipi_vectored)(u_int, int);
 
+typedef struct ioapic *ioapic_drv_t;
+
 void	apic_register_enumerator(struct apic_enumerator *enumerator);
-void	*ioapic_create(vm_paddr_t addr, int32_t apic_id, int intbase);
-int	ioapic_disable_pin(void *cookie, u_int pin);
-int	ioapic_get_vector(void *cookie, u_int pin);
-void	ioapic_register(void *cookie);
-int	ioapic_remap_vector(void *cookie, u_int pin, int vector);
-int	ioapic_set_bus(void *cookie, u_int pin, int bus_type);
-int	ioapic_set_extint(void *cookie, u_int pin);
-int	ioapic_set_nmi(void *cookie, u_int pin);
-int	ioapic_set_polarity(void *cookie, u_int pin, enum intr_polarity pol);
-int	ioapic_set_triggermode(void *cookie, u_int pin,
+ioapic_drv_t	ioapic_create(vm_paddr_t addr, int32_t apic_id, int intbase);
+int	ioapic_disable_pin(ioapic_drv_t cookie, u_int pin);
+int	ioapic_get_vector(ioapic_drv_t cookie, u_int pin);
+void	ioapic_register(ioapic_drv_t cookie);
+int	ioapic_remap_vector(ioapic_drv_t cookie, u_int pin, int vector);
+int	ioapic_set_bus(ioapic_drv_t cookie, u_int pin, int bus_type);
+int	ioapic_set_extint(ioapic_drv_t cookie, u_int pin);
+int	ioapic_set_nmi(ioapic_drv_t cookie, u_int pin);
+int	ioapic_set_polarity(ioapic_drv_t cookie, u_int pin, enum intr_polarity pol);
+int	ioapic_set_triggermode(ioapic_drv_t cookie, u_int pin,
 	    enum intr_trigger trigger);
-int	ioapic_set_smi(void *cookie, u_int pin);
+int	ioapic_set_smi(ioapic_drv_t cookie, u_int pin);
 
 void	lapic_create(u_int apic_id, int boot_cpu);
 void	lapic_init(vm_paddr_t addr);
@@ -226,9 +231,9 @@ void	apic_enable_vector(u_int apic_id, u_int vector);
 void	apic_disable_vector(u_int apic_id, u_int vector);
 void	apic_free_vector(u_int apic_id, u_int vector, u_int irq);
 void	lapic_calibrate_timer(void);
-int	lapic_enable_pmc(void);
-void	lapic_disable_pmc(void);
-void	lapic_reenable_pmc(void);
+int	lapic_enable_pcint(void);
+void	lapic_disable_pcint(void);
+void	lapic_reenable_pcint(void);
 void	lapic_enable_cmc(void);
 int	lapic_enable_mca_elvt(void);
 void	lapic_ipi_raw(register_t icrlo, u_int dest);
@@ -255,6 +260,7 @@ void	lapic_handle_intr(int vector, struct trapframe *frame);
 void	lapic_handle_timer(struct trapframe *frame);
 
 int	ioapic_get_rid(u_int apic_id, uint16_t *ridp);
+device_t ioapic_get_dev(u_int apic_id);
 
 extern int x2apic_mode;
 extern int lapic_eoi_suppression;

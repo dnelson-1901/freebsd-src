@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2003 Matthew N. Dodd <winter@jurai.net>
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * VPD decoder for IBM systems (Thinkpads)
  * http://www-1.ibm.com/support/docview.wss?uid=psg1MIGR-45120
@@ -143,7 +141,7 @@ vpd_identify (driver_t *driver, device_t parent)
 		rid = 0;
 		length = ADDR2VPD(addr)->Length;
 
-		child = BUS_ADD_CHILD(parent, 5, "vpd", -1);
+		child = BUS_ADD_CHILD(parent, 5, "vpd", DEVICE_UNIT_ANY);
 		device_set_driver(child, driver);
 		bus_set_resource(child, SYS_RES_MEMORY, rid, addr, length);
 		device_set_desc(child, "Vital Product Data Area");

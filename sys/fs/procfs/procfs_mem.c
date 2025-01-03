@@ -32,10 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)procfs_mem.c	8.5 (Berkeley) 6/15/94
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -45,6 +41,7 @@
 #include <sys/ptrace.h>
 #include <sys/systm.h>
 #include <sys/uio.h>
+#include <sys/priv.h>
 
 #include <fs/pseudofs/pseudofs.h>
 #include <fs/procfs/procfs.h>

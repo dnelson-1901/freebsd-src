@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PACKAGE=	clibs
 SHLIBDIR?=	/lib
 
@@ -147,6 +145,8 @@ DBGSRCS= \
 
 CLEANFILES=	${GENSRCS}
 
+CWARNFLAGS.lib_set_term.c= ${NO_WUNUSED_BUT_SET_VARIABLE}
+
 .if ${MK_INSTALLLIB} != "no"
 SYMLINKS+=	libncursesw.a ${LIBDIR}/libcursesw.a
 # backward compat
@@ -159,12 +159,6 @@ SYMLINKS+=	libncursesw.so ${LIBDIR}/libcursesw.so
 # backward compat
 SYMLINKS+=	libncursesw.so ${LIBDIR}/libncurses.so
 SYMLINKS+=	libncursesw.so ${LIBDIR}/libcurses.so
-.endif
-.if ${MK_PROFILE} != "no"
-SYMLINKS+=	libncursesw_p.a ${LIBDIR}/libcursesw_p.a
-# backward compat
-SYMLINKS+=	libncursesw_p.a ${LIBDIR}/libncurses_p.a
-SYMLINKS+=	libncursesw_p.a ${LIBDIR}/libcurses_p.a
 .endif
 
 LIBADD+=	tinfow
@@ -179,9 +173,9 @@ libncursesw.ald: ${.CURDIR}/${STATIC_LDSCRIPT}
 	    -e 's,@@STATICLIB_SUFFIX@@,${_STATICLIB_SUFFIX},g' \
 	    ${.ALLSRC} > ${.TARGET}
 
-lib_gen.c: MKlib_gen.sh ${.OBJDIR:H}/tinfo/curses.h ncurses_dll.h
+lib_gen.c: MKlib_gen.sh ${TINFO_OBJDIR}/curses.h ncurses_dll.h
 	LC_ALL=C sh ${NCURSES_DIR}/ncurses/base/MKlib_gen.sh "${CPP:N${CCACHE_BIN}} ${CFLAGS}" \
-	       "${AWK}" generated < ${.OBJDIR:H}/tinfo/curses.h >$@
+	       "${AWK}" generated < ${TINFO_OBJDIR}/curses.h >$@
 
 expanded.c: MKexpanded.sh
 	sh ${NCURSES_DIR}/ncurses/tty/MKexpanded.sh "${CC:N${CCACHE_BIN}} -E" ${CFLAGS} >expanded.c

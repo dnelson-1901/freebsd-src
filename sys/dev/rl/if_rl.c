@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * RealTek 8129/8139 PCI NIC driver
  *
@@ -782,11 +780,6 @@ rl_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->rl_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 
 #define	RL_PHYAD_INTERNAL	0
 
@@ -889,8 +882,6 @@ rl_detach(device_t dev)
 #if 0
 	sc->suspended = 1;
 #endif
-	if (sc->rl_miibus)
-		device_delete_child(dev, sc->rl_miibus);
 	bus_generic_detach(dev);
 
 	if (sc->rl_intrhand[0])

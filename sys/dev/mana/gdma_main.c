@@ -27,8 +27,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -223,7 +221,7 @@ mana_gd_alloc_memory(struct gdma_context *gc, unsigned int length,
 	if (!gc || !gmi)
 		return EINVAL;
 
-	if (length < PAGE_SIZE || (length != roundup_pow_of_two(length)))
+	if (length < PAGE_SIZE || !powerof2(length))
 		return EINVAL;
 
 	err = bus_dma_tag_create(bus_get_dma_tag(gc->dev),	/* parent */
@@ -473,7 +471,7 @@ void
 mana_gd_wq_ring_doorbell(struct gdma_context *gc, struct gdma_queue *queue)
 {
 	mana_gd_ring_doorbell(gc, queue->gdma_dev->doorbell, queue->type,
-	    queue->id, queue->head * GDMA_WQE_BU_SIZE, 1);
+	    queue->id, queue->head * GDMA_WQE_BU_SIZE, 0);
 }
 
 void
@@ -870,9 +868,6 @@ int mana_gd_create_hwc_queue(struct gdma_dev *gd,
 	int err;
 
 	queue = malloc(sizeof(*queue), M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!queue)
-		return ENOMEM;
-
 	gmi = &queue->mem_info;
 	err = mana_gd_alloc_memory(gc, spec->queue_size, gmi);
 	if (err)
@@ -944,7 +939,7 @@ mana_gd_create_dma_region(struct gdma_dev *gd,
 	int err;
 	int i;
 
-	if (length < PAGE_SIZE || !is_power_of_2(length)) {
+	if (length < PAGE_SIZE || !powerof2(length)) {
 		mana_err(NULL, "gmi size incorrect: %u\n", length);
 		return EINVAL;
 	}
@@ -964,9 +959,6 @@ mana_gd_create_dma_region(struct gdma_dev *gd,
 	}
 
 	req = malloc(req_msg_size, M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!req)
-		return ENOMEM;
-
 	mana_gd_init_req_hdr(&req->hdr, GDMA_CREATE_DMA_REGION,
 	    req_msg_size, sizeof(resp));
 	req->length = length;
@@ -1010,9 +1002,6 @@ mana_gd_create_mana_eq(struct gdma_dev *gd,
 		return EINVAL;
 
 	queue = malloc(sizeof(*queue),  M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!queue)
-		return ENOMEM;
-
 	gmi = &queue->mem_info;
 	err = mana_gd_alloc_memory(gc, spec->queue_size, gmi);
 	if (err)
@@ -1058,9 +1047,6 @@ int mana_gd_create_mana_wq_cq(struct gdma_dev *gd,
 		return EINVAL;
 
 	queue = malloc(sizeof(*queue), M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!queue)
-		return ENOMEM;
-
 	gmi = &queue->mem_info;
 	err = mana_gd_alloc_memory(gc, spec->queue_size, gmi);
 	if (err)
@@ -1482,9 +1468,6 @@ mana_gd_alloc_res_map(uint32_t res_avail,
 
 	r->map =
 	    malloc(n * sizeof(unsigned long), M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!r->map)
-		return ENOMEM;
-
 	r->size = res_avail;
 	mtx_init(&r->lock_spin, lock_name, NULL, MTX_SPIN);
 
@@ -1564,7 +1547,7 @@ alloc_bar_out:
 static void
 mana_gd_free_pci_res(struct gdma_context *gc)
 {
-	if (!gc || gc->dev)
+	if (!gc || !gc->dev)
 		return;
 
 	if (gc->bar0 != NULL) {
@@ -1618,10 +1601,6 @@ mana_gd_setup_irqs(device_t dev)
 
 	gc->irq_contexts = malloc(nvec * sizeof(struct gdma_irq_context),
 	    M_DEVBUF, M_WAITOK | M_ZERO);
-	if (!gc->irq_contexts) {
-		rc = ENOMEM;
-		goto err_setup_irq_release;
-	}
 
 	for (i = 0; i < nvec; i++) {
 		gic = &gc->irq_contexts[i];
@@ -1752,7 +1731,6 @@ static int
 mana_gd_probe(device_t dev)
 {
 	mana_vendor_id_t *ent;
-	char		adapter_name[60];
 	uint16_t	pci_vendor_id = 0;
 	uint16_t	pci_device_id = 0;
 
@@ -1766,8 +1744,7 @@ mana_gd_probe(device_t dev)
 			mana_dbg(NULL, "vendor=%x device=%x\n",
 			    pci_vendor_id, pci_device_id);
 
-			sprintf(adapter_name, DEVICE_DESC);
-			device_set_desc_copy(dev, adapter_name);
+			device_set_desc(dev, DEVICE_DESC);
 			return (BUS_PROBE_DEFAULT);
 		}
 
@@ -1902,6 +1879,11 @@ static int
 mana_gd_detach(device_t dev)
 {
 	struct gdma_context *gc = device_get_softc(dev);
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	mana_remove(&gc->mana);
 
@@ -1913,7 +1895,7 @@ mana_gd_detach(device_t dev)
 
 	pci_disable_busmaster(dev);
 
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 

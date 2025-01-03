@@ -9,9 +9,6 @@
  * ----------------------------------------------------------------------------
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -133,6 +130,10 @@ __weak_reference(_libmd_MDXEnd, MDXEnd);
 __weak_reference(_libmd_MDXFile, MDXFile);
 #undef MDXFileChunk
 __weak_reference(_libmd_MDXFileChunk, MDXFileChunk);
+#undef MDXFd
+__weak_reference(_libmd_MDXFd, MDXFd);
+#undef MDXFdChunk
+__weak_reference(_libmd_MDXFdChunk, MDXFdChunk);
 #undef MDXData
 __weak_reference(_libmd_MDXData, MDXData);
 #endif

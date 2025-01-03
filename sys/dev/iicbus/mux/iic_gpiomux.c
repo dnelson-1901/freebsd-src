@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 
 #include <sys/param.h>
@@ -214,7 +212,7 @@ gpiomux_attach(device_t dev)
 
 	/* Init the core driver, have it add our child downstream buses. */
 	if ((err = iicmux_attach(dev, busdev, numchannels)) == 0)
-		bus_generic_attach(dev);
+		bus_attach_children(dev);
 
 errexit:
 

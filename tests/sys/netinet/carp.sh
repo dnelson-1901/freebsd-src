@@ -1,6 +1,5 @@
-# $FreeBSD$
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2020 Kristof Provost <kp@FreeBSD.org>
 #
@@ -32,7 +31,7 @@ is_master()
 	jail=$1
 	itf=$2
 
-	jexec ${jail} ifconfig ${itf} | grep carp | grep MASTER
+	jexec ${jail} ifconfig ${itf} | grep -E '(carp|vrrp)' | grep MASTER
 }
 
 wait_for_carp()
@@ -72,6 +71,7 @@ basic_v4_head()
 basic_v4_body()
 {
 	carp_init
+	vnet_init_bridge
 
 	bridge=$(vnet_mkbridge)
 	epair_one=$(vnet_mkepair)
@@ -106,6 +106,52 @@ basic_v4_cleanup()
 	vnet_cleanup
 }
 
+atf_test_case "vrrp_v4" "cleanup"
+vrrp_v4_head()
+{
+	atf_set descr 'Basic VRRP test (IPv4)'
+	atf_set require.user root
+}
+
+vrrp_v4_body()
+{
+	carp_init
+	vnet_init_bridge
+
+	j=vrrp_basic_v4
+
+	bridge=$(vnet_mkbridge)
+	epair_one=$(vnet_mkepair)
+	epair_two=$(vnet_mkepair)
+
+	vnet_mkjail ${j}_one ${bridge} ${epair_one}a ${epair_two}a
+	vnet_mkjail ${j}_two ${epair_one}b
+	vnet_mkjail ${j}_three ${epair_two}b
+
+	jexec ${j}_one ifconfig ${bridge} 192.0.2.4/29 up
+	jexec ${j}_one ifconfig ${bridge} addm ${epair_one}a \
+	    addm ${epair_two}a
+	jexec ${j}_one ifconfig ${epair_one}a up
+	jexec ${j}_one ifconfig ${epair_two}a up
+
+	jexec ${j}_two ifconfig ${epair_one}b 192.0.2.202/29 up
+	jexec ${j}_two ifconfig ${epair_one}b add vhid 1 carpver 3 192.0.2.1/29
+
+	jexec ${j}_three ifconfig ${epair_two}b 192.0.2.203/29 up
+	jexec ${j}_three ifconfig ${epair_two}b add vhid 1 carpver 3 \
+	    192.0.2.1/29
+
+	wait_for_carp ${j}_two ${epair_one}b \
+	    ${j}_three ${epair_two}b
+
+	atf_check -s exit:0 -o ignore jexec ${j}_one \
+	    ping -c 3 192.0.2.1
+}
+
+vrrp_v4_cleanup()
+{
+	vnet_cleanup
+}
 
 atf_test_case "unicast_v4" "cleanup"
 unicast_v4_head()
@@ -117,6 +163,7 @@ unicast_v4_head()
 unicast_v4_body()
 {
 	carp_init
+	vnet_init_bridge
 
 	bridge=$(vnet_mkbridge)
 	epair_one=$(vnet_mkepair)
@@ -174,6 +221,7 @@ basic_v6_head()
 basic_v6_body()
 {
 	carp_init
+	vnet_init_bridge
 
 	bridge=$(vnet_mkbridge)
 	epair_one=$(vnet_mkepair)
@@ -211,6 +259,56 @@ basic_v6_cleanup()
 	vnet_cleanup
 }
 
+atf_test_case "vrrp_v6" "cleanup"
+vrrp_v6_head()
+{
+	atf_set descr 'Basic VRRP test (IPv6)'
+	atf_set require.user root
+}
+
+vrrp_v6_body()
+{
+	carp_init
+	vnet_init_bridge
+
+	j=carp_basic_v6
+
+	bridge=$(vnet_mkbridge)
+	epair_one=$(vnet_mkepair)
+	epair_two=$(vnet_mkepair)
+
+	vnet_mkjail ${j}_one ${bridge} ${epair_one}a ${epair_two}a
+	vnet_mkjail ${j}_two ${epair_one}b
+	vnet_mkjail ${j}_three ${epair_two}b
+
+	jexec ${j}_one ifconfig ${bridge} inet6 2001:db8::0:4/64 up \
+	    no_dad
+	jexec ${j}_one ifconfig ${bridge} addm ${epair_one}a \
+	    addm ${epair_two}a
+	jexec ${j}_one ifconfig ${epair_one}a up
+	jexec ${j}_one ifconfig ${epair_two}a up
+
+	jexec ${j}_two ifconfig ${epair_one}b inet6 \
+	    2001:db8::1:2/64 up no_dad
+	jexec ${j}_two ifconfig ${epair_one}b inet6 add vhid 1 carpver 3 \
+	    2001:db8::0:1/64
+
+	jexec ${j}_three ifconfig ${epair_two}b inet6 2001:db8::1:3/64 up no_dad
+	jexec ${j}_three ifconfig ${epair_two}b inet6 add vhid 1 carpver 3 \
+	    2001:db8::0:1/64
+
+	wait_for_carp ${j}_two ${epair_one}b \
+	    ${j}_three ${epair_two}b
+
+	atf_check -s exit:0 -o ignore jexec ${j}_one \
+	    ping -6 -c 3 2001:db8::0:1
+}
+
+vrrp_v6_cleanup()
+{
+	vnet_cleanup
+}
+
 atf_test_case "unicast_v6" "cleanup"
 unicast_v6_head()
 {
@@ -221,6 +319,7 @@ unicast_v6_head()
 unicast_v6_body()
 {
 	carp_init
+	vnet_init_bridge
 
 	bridge=$(vnet_mkbridge)
 	epair_one=$(vnet_mkepair)
@@ -268,6 +367,68 @@ unicast_v6_body()
 }
 
 unicast_v6_cleanup()
+{
+	vnet_cleanup
+}
+
+atf_test_case "unicast_ll_v6" "cleanup"
+unicast_ll_v6_head()
+{
+	atf_set descr 'Unicast CARP test (IPv6, link-local)'
+	atf_set require.user root
+}
+
+unicast_ll_v6_body()
+{
+	carp_init
+	vnet_init_bridge
+
+	j=carp_uni_ll_v6
+
+	bridge=$(vnet_mkbridge)
+	epair_one=$(vnet_mkepair)
+	epair_two=$(vnet_mkepair)
+
+	vnet_mkjail ${j}_one ${bridge} ${epair_one}a ${epair_two}a
+	vnet_mkjail ${j}_two ${epair_one}b
+	vnet_mkjail ${j}_three ${epair_two}b
+
+	jexec ${j}_one ifconfig ${bridge} addm ${epair_one}a \
+	    addm ${epair_two}a
+	jexec ${j}_one ifconfig ${epair_one}a up
+	jexec ${j}_one ifconfig ${epair_two}a up
+	jexec ${j}_one ifconfig ${bridge} inet6 2001:db8::0:4/64 up \
+	    no_dad
+	jexec ${j}_one ifconfig ${bridge} inet6 alias 2001:db8:1::1/64 \
+	    no_dad up
+
+	jexec ${j}_two ifconfig ${epair_one}b inet6 2001:db8:1::2/64 \
+	    no_dad up
+	jexec ${j}_three ifconfig ${epair_two}b inet6 2001:db8:1::3/64 \
+	    no_dad up
+
+	ll_one=$(jexec ${j}_two ifconfig ${epair_one}b | awk "/ .*%${epair_one}b.* / { print \$2 }" | cut -d % -f 1)
+	ll_two=$(jexec ${j}_three ifconfig ${epair_two}b | awk "/ .*%${epair_two}b.* / { print \$2 }" | cut -d % -f 1)
+
+	jexec ${j}_two ifconfig ${epair_one}b inet6 add vhid 1 \
+	    peer6 ${ll_two} \
+	    2001:db8::0:1/64
+	jexec ${j}_three ifconfig ${epair_two}b inet6 add vhid 1 \
+	    peer6 ${ll_one} \
+	    2001:db8::0:1/64
+
+	# Sanity check
+	atf_check -s exit:0 -o ignore jexec ${j}_two \
+	    ping -6 -c 1 2001:db8:1::3
+
+	wait_for_carp ${j}_two ${epair_one}b \
+	    ${j}_three ${epair_two}b
+
+	atf_check -s exit:0 -o ignore jexec ${j}_one \
+	    ping -6 -c 3 2001:db8::0:1
+}
+
+unicast_ll_v6_cleanup()
 {
 	vnet_cleanup
 }
@@ -331,6 +492,7 @@ nd6_ns_source_mac_head()
 nd6_ns_source_mac_body()
 {
         carp_init
+        vnet_init_bridge
 
         bridge=$(vnet_mkbridge)
         epair_one=$(vnet_mkepair)
@@ -409,9 +571,12 @@ switch_cleanup()
 atf_init_test_cases()
 {
 	atf_add_test_case "basic_v4"
+	atf_add_test_case "vrrp_v4"
 	atf_add_test_case "unicast_v4"
 	atf_add_test_case "basic_v6"
+	atf_add_test_case "vrrp_v6"
 	atf_add_test_case "unicast_v6"
+	atf_add_test_case "unicast_ll_v6"
 	atf_add_test_case "negative_demotion"
 	atf_add_test_case "nd6_ns_source_mac"
 	atf_add_test_case "switch"

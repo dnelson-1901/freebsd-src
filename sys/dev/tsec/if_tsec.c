@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2007-2008 Semihalf, Rafal Jaworowski
  * Copyright (C) 2006-2007 Semihalf, Piotr Kruszynski
@@ -30,8 +30,6 @@
  * Freescale integrated Three-Speed Ethernet Controller (TSEC) driver.
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #ifdef HAVE_KERNEL_OPTION_HEADERS
 #include "opt_device_polling.h"
 #endif
@@ -241,12 +239,6 @@ tsec_attach(struct tsec_softc *sc)
 
 	/* Create network interface for upper layers */
 	ifp = sc->tsec_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(sc->dev, "if_alloc() failed\n");
-		tsec_detach(sc);
-		return (ENOMEM);
-	}
-
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(sc->dev), device_get_unit(sc->dev));
 	if_setflags(ifp, IFF_SIMPLEX | IFF_MULTICAST | IFF_BROADCAST);

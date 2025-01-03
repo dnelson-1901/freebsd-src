@@ -34,8 +34,6 @@
  * https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html
  */
 
-#include <sys/cdefs.h>
-
 #include <sys/param.h>
 #include <sys/exec.h>
 #include <sys/linker.h>
@@ -59,8 +57,6 @@ extern int elf32_loadfile_raw(char *filename, uint64_t dest,
 extern int elf64_load_modmetadata(struct preloaded_file *fp, uint64_t dest);
 extern int elf64_obj_loadfile(char *filename, uint64_t dest,
     struct preloaded_file **result);
-extern int bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp,
-    bool exit_bs);
 
 extern void multiboot2_exec(void *entry, uint64_t multiboot_info,
     uint64_t stack);
@@ -334,7 +330,7 @@ exec(struct preloaded_file *fp)
 	struct mb2hdr			*hdr;
 
 
-	CTASSERT(sizeof(header) <= PAGE_SIZE);
+	_Static_assert(sizeof(header) <= PAGE_SIZE, "header too big");
 
 	if ((md = file_findmetadata(fp,
 	    MODINFOMD_NOCOPY | MODINFOMD_MB2HDR)) == NULL) {

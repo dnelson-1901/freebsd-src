@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_kern_tls.h"
@@ -31,6 +29,7 @@
 
 #include <dev/mlx5/mlx5_en/en.h>
 
+#include <dev/mlx5/crypto.h>
 #include <dev/mlx5/tls.h>
 
 #include <dev/mlx5/fs.h>
@@ -553,6 +552,7 @@ mlx5e_tls_rx_work(struct work_struct *work)
 
 		/* try to allocate a DEK context ID */
 		err = mlx5_encryption_key_create(priv->mdev, priv->pdn,
+		    MLX5_GENERAL_OBJECT_TYPE_ENCRYPTION_KEY_TYPE_TLS,
 		    MLX5_ADDR_OF(sw_tls_rx_cntx, ptag->crypto_params, key.key_data),
 		    MLX5_GET(sw_tls_rx_cntx, ptag->crypto_params, key.key_len),
 		    &ptag->dek_index);
@@ -661,7 +661,7 @@ mlx5e_tls_rx_snd_tag_alloc(if_t ifp,
 	struct mlx5e_iq *iq;
 	struct mlx5e_priv *priv;
 	struct mlx5e_tls_rx_tag *ptag;
-	struct mlx5_flow_rule *flow_rule;
+	struct mlx5_flow_handle *flow_rule;
 	const struct tls_session_params *en;
 	uint32_t value;
 	int error;

@@ -1,7 +1,5 @@
 /* 
  * FQ_PIE - The FlowQueue-PIE scheduler/AQM
- *
- * $FreeBSD$
  * 
  * Copyright (C) 2016 Centre for Advanced Internet Architectures,
  *  Swinburne University of Technology, Melbourne, Australia.
@@ -746,6 +744,9 @@ pie_enqueue(struct fq_pie_flow *q, struct mbuf* m, struct fq_pie_si *si)
 	}
 
 	if (t != DROP) {
+		if (m->m_pkthdr.rcvif != NULL)
+			m_rcvif_serialize(m);
+
 		mq_append(&q->mq, m);
 		fq_update_stats(q, si, len, 0);
 		return 0;

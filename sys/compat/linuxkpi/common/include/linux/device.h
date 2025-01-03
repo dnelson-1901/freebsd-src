@@ -29,8 +29,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_DEVICE_H_
 #define	_LINUXKPI_LINUX_DEVICE_H_
@@ -47,6 +45,7 @@
 #include <linux/backlight.h>
 #include <linux/pm.h>
 #include <linux/idr.h>
+#include <linux/overflow.h>
 #include <linux/ratelimit.h>	/* via linux/dev_printk.h */
 #include <linux/fwnode.h>
 #include <asm/atomic.h>
@@ -58,7 +57,6 @@ struct device;
 
 struct class {
 	const char	*name;
-	struct module	*owner;
 	struct kobject	kobj;
 	devclass_t	bsdclass;
 	const struct dev_pm_ops *pm;
@@ -83,6 +81,7 @@ struct dev_pm_ops {
 	int (*poweroff_late)(struct device *dev);
 	int (*restore)(struct device *dev);
 	int (*restore_early)(struct device *dev);
+	int (*suspend_noirq)(struct device *dev);
 	int (*runtime_suspend)(struct device *dev);
 	int (*runtime_resume)(struct device *dev);
 	int (*runtime_idle)(struct device *dev);
@@ -189,15 +188,17 @@ show_class_attr_string(struct class *class,
 	struct class_attribute_string class_attr_##_name = \
 		_CLASS_ATTR_STRING(_name, _mode, _str)
 
-#define	dev_err(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
-#define	dev_crit(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
-#define	dev_warn(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
-#define	dev_info(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
-#define	dev_notice(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
-#define	dev_emerg(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
-#define	dev_dbg(dev, fmt, ...)	do { } while (0)
 #define	dev_printk(lvl, dev, fmt, ...)					\
-	    device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+    device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+
+#define	dev_emerg(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+#define	dev_alert(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+#define	dev_crit(dev, fmt, ...)		device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+#define	dev_err(dev, fmt, ...)		device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+#define	dev_warn(dev, fmt, ...)		device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+#define	dev_notice(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+#define	dev_info(dev, fmt, ...)		device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+#define	dev_dbg(dev, fmt, ...)		do { } while (0)
 
 #define	dev_WARN(dev, fmt, ...)	\
     device_printf((dev)->bsddev, "%s:%d: " fmt, __func__, __LINE__, ##__VA_ARGS__)
@@ -237,6 +238,14 @@ show_class_attr_string(struct class *class,
 	}					\
 } while (0)
 
+#define	dev_dbg_once(dev, ...) do {		\
+	static bool __dev_dbg_once;		\
+	if (!__dev_dbg_once) {			\
+		__dev_dbg_once = 1;		\
+		dev_dbg(dev, __VA_ARGS__);	\
+	}					\
+} while (0)
+
 #define	dev_err_ratelimited(dev, ...) do {	\
 	static linux_ratelimit_t __ratelimited;	\
 	if (linux_ratelimited(&__ratelimited))	\
@@ -273,6 +282,7 @@ int lkpi_devres_destroy(struct device *, void(*release)(struct device *, void *)
 void lkpi_devres_release_free_list(struct device *);
 void lkpi_devres_unlink(struct device *, void *);
 void lkpi_devm_kmalloc_release(struct device *, void *);
+#define	devm_kfree(_d, _p)		lkpi_devm_kmalloc_release(_d, _p)
 
 static inline const char *
 dev_driver_string(const struct device *dev)
@@ -331,7 +341,12 @@ put_device(struct device *dev)
 		kobject_put(&dev->kobj);
 }
 
-struct class *class_create(struct module *owner, const char *name);
+struct class *lkpi_class_create(const char *name);
+#if defined(LINUXKPI_VERSION) && LINUXKPI_VERSION >= 60400
+#define	class_create(name)		lkpi_class_create(name)
+#else
+#define	class_create(owner, name)	lkpi_class_create(name)
+#endif
 
 static inline int
 class_register(struct class *class)
@@ -679,5 +694,16 @@ devm_kmemdup(struct device *dev, const void *src, size_t len, gfp_t gfp)
 
 #define	devm_kcalloc(_dev, _sizen, _size, _gfp)			\
     devm_kmalloc((_dev), ((_sizen) * (_size)), (_gfp) | __GFP_ZERO)
+
+int lkpi_devm_add_action(struct device *dev, void (*action)(void *), void *data);
+#define	devm_add_action(dev, action, data)	\
+	lkpi_devm_add_action(dev, action, data);
+int lkpi_devm_add_action_or_reset(struct device *dev, void (*action)(void *), void *data);
+#define	devm_add_action_or_reset(dev, action, data)	\
+	lkpi_devm_add_action_or_reset(dev, action, data)
+
+int lkpi_devm_device_add_group(struct device *dev, const struct attribute_group *group);
+#define	devm_device_add_group(dev, group)	\
+	lkpi_devm_device_add_group(dev, group)
 
 #endif	/* _LINUXKPI_LINUX_DEVICE_H_ */

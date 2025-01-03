@@ -36,9 +36,6 @@
  * Xilinx AXI_QUAD_SPI
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -152,7 +149,8 @@ spi_attach(device_t dev)
 	WRITE4(sc, SPI_CR, reg);
 
 	device_add_child(dev, "spibus", 0);
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int

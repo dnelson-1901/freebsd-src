@@ -25,13 +25,10 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_GFP_H_
 #define	_LINUXKPI_LINUX_GFP_H_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -88,19 +85,10 @@ struct page_frag_cache {
 };
 
 /*
- * Resolve a page into a virtual address:
- *
- * NOTE: This function only works for pages allocated by the kernel.
- */
-extern void *linux_page_address(struct page *);
-
-#define	page_address(page) linux_page_address(page)
-
-/*
  * Page management for unmapped pages:
  */
-extern vm_page_t linux_alloc_pages(gfp_t flags, unsigned int order);
-extern void linux_free_pages(vm_page_t page, unsigned int order);
+struct page *linux_alloc_pages(gfp_t flags, unsigned int order);
+void linux_free_pages(struct page *page, unsigned int order);
 void *linuxkpi_page_frag_alloc(struct page_frag_cache *, size_t, gfp_t);
 void linuxkpi_page_frag_free(void *);
 void linuxkpi__page_frag_cache_drain(struct page *, size_t);
@@ -140,11 +128,17 @@ __free_page(struct page *page)
 	linux_free_pages(page, 0);
 }
 
+static inline struct page *
+dev_alloc_pages(unsigned int order)
+{
+	return (linux_alloc_pages(GFP_ATOMIC, order));
+}
+
 /*
  * Page management for mapped pages:
  */
-extern vm_offset_t linux_alloc_kmem(gfp_t flags, unsigned int order);
-extern void linux_free_kmem(vm_offset_t, unsigned int order);
+vm_offset_t linux_alloc_kmem(gfp_t flags, unsigned int order);
+void linux_free_kmem(vm_offset_t, unsigned int order);
 
 static inline vm_offset_t
 get_zeroed_page(gfp_t flags)

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Daniel Eischen <deischen@freebsd.org>
  * Copyright (c) 2000-2001 Jason Evans <jasone@freebsd.org>
@@ -26,9 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/auxv.h>
@@ -129,10 +126,7 @@ static char *last_stack = NULL;
 static inline size_t
 round_up(size_t size)
 {
-	if (size % _thr_page_size != 0)
-		size = ((size / _thr_page_size) + 1) *
-		    _thr_page_size;
-	return size;
+	return (roundup2(size, _thr_page_size));
 }
 
 void

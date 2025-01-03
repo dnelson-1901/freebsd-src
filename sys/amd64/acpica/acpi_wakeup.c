@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Takanori Watanabe <takawata@jp.freebsd.org>
  * Copyright (c) 2001-2012 Mitsuru IWASAKI <iwasaki@jp.freebsd.org>
@@ -28,9 +28,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -205,6 +202,9 @@ acpi_sleep_machdep(struct acpi_softc *sc, int state)
 
 	intr_suspend();
 
+	if (vmm_suspend_p != NULL)
+		vmm_suspend_p();
+
 	pcb = &susppcbs[0]->sp_pcb;
 	if (savectx(pcb)) {
 		fpususpend(susppcbs[0]->sp_fpususpend);
@@ -294,18 +294,21 @@ acpi_wakeup_machdep(struct acpi_softc *sc, int state, int sleep_result,
 		 * in acpi_sleep_machdep(), after the microcode was
 		 * reloaded.  Then recalculate the active mitigation
 		 * knobs that depend on the microcode and
-		 * cpu_stdext_feature3.
+		 * cpu_stdext_feature3.  Do it after LAPICs are woken,
+		 * so that IPIs work.
 		 */
 		identify_cpu_ext_features();
-		hw_ibrs_recalculate(true);
-		hw_ssb_recalculate(true);
-		amd64_syscall_ret_flush_l1d_recalc();
-		x86_rngds_mitg_recalculate(true);
 
 		mca_resume();
 		if (vmm_resume_p != NULL)
 			vmm_resume_p();
 		intr_resume(/*suspend_cancelled*/false);
+
+		hw_ibrs_recalculate(true);
+		amd64_syscall_ret_flush_l1d_recalc();
+		hw_ssb_recalculate(true);
+		x86_rngds_mitg_recalculate(true);
+		zenbleed_check_and_apply(true);
 
 		AcpiSetFirmwareWakingVector(0, 0);
 	} else {
@@ -361,8 +364,7 @@ acpi_alloc_wakeup_handler(void **wakeaddr,
 	return;
 
 freepages:
-	if (*wakeaddr != NULL)
-		contigfree(*wakeaddr, PAGE_SIZE, M_DEVBUF);
+	free(*wakeaddr, M_DEVBUF);
 	for (i = 0; i < ACPI_WAKEPT_PAGES; i++) {
 		if (wakept_m[i] != NULL)
 			vm_page_free(wakept_m[i]);

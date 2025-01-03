@@ -22,8 +22,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef RTL8812A_H
@@ -62,6 +60,7 @@ void	r12a_detach_private(struct rtwn_softc *);
 /* r12a_beacon.c */
 void	r12a_beacon_init(struct rtwn_softc *, void *, int);
 void	r12a_beacon_set_rate(void *, int);
+void	r12a_sta_beacon_enable(struct rtwn_softc *, int, bool);
 
 /* r12a_calib.c */
 void	r12a_save_bb_afe_vals(struct rtwn_softc *, uint32_t[],

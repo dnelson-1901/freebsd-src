@@ -44,8 +44,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _SECURITY_MAC_MAC_INTERNAL_H_
@@ -57,13 +55,6 @@
 
 #include <sys/lock.h>
 #include <sys/rmlock.h>
-
-/*
- * MAC Framework sysctl namespace.
- */
-#ifdef SYSCTL_DECL
-SYSCTL_DECL(_security_mac);
-#endif /* SYSCTL_DECL */
 
 /*
  * MAC Framework SDT DTrace probe namespace, macros for declaring entry
@@ -212,7 +203,7 @@ void		 mac_labelzone_init(void);
 
 void	mac_init_label(struct label *label);
 void	mac_destroy_label(struct label *label);
-int	mac_check_structmac_consistent(struct mac *mac);
+int	mac_check_structmac_consistent(const struct mac *mac);
 int	mac_allocate_slot(void);
 
 /*
@@ -244,6 +235,7 @@ struct label	*mac_pipe_label_alloc(void);
 void		 mac_pipe_label_free(struct label *label);
 struct label	*mac_socket_label_alloc(int flag);
 void		 mac_socket_label_free(struct label *label);
+void		 mac_socketpeer_label_free(struct label *label);
 struct label	*mac_vnode_label_alloc(void);
 void		 mac_vnode_label_free(struct label *label);
 

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000-2001 Boris Popov
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -152,8 +149,6 @@ smb_memdup(const void *umem, int len)
 	if (len > 8 * 1024)
 		return NULL;
 	p = malloc(len, M_SMBSTR, M_WAITOK);
-	if (p == NULL)
-		return NULL;
 	bcopy(umem, p, len);
 	return p;
 }

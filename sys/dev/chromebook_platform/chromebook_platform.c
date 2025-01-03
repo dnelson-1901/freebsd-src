@@ -27,9 +27,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -77,7 +74,7 @@ chromebook_i2c_identify(driver_t *driver, device_t bus)
 			continue;
 		if (slaves[i].pci_id != pci_get_devid(controller))
 			continue;
-		child = BUS_ADD_CHILD(bus, 0, slaves[i].name, -1);
+		child = BUS_ADD_CHILD(bus, 0, slaves[i].name, DEVICE_UNIT_ANY);
 		if (child != NULL)
 			iicbus_set_addr(child, slaves[i].addr);
 	}

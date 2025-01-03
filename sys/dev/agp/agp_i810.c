@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2000 Doug Rabson
  * Copyright (c) 2000 Ruslan Ermilov
@@ -40,8 +40,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #if 0
 #define	KTR_AGP_I810	KTR_DEV
 #else
@@ -684,7 +682,7 @@ agp_i810_identify(driver_t *driver, device_t parent)
 
 	if (device_find_child(parent, "agp", -1) == NULL &&
 	    agp_i810_match(parent))
-		device_add_child(parent, "agp", -1);
+		device_add_child(parent, "agp", DEVICE_UNIT_ANY);
 }
 
 static int
@@ -1798,7 +1796,7 @@ agp_i810_free_memory(device_t dev, struct agp_memory *mem)
 			vm_page_unwire(m, PQ_INACTIVE);
 			VM_OBJECT_WUNLOCK(mem->am_obj);
 		} else {
-			contigfree(sc->argb_cursor, mem->am_size, M_AGP);
+			free(sc->argb_cursor, M_AGP);
 			sc->argb_cursor = NULL;
 		}
 	}
@@ -2053,10 +2051,10 @@ agp_i915_chipset_flush_free_page(device_t dev)
 	vga = device_get_parent(dev);
 	if (sc->sc_flush_page_res == NULL)
 		return;
-	BUS_DEACTIVATE_RESOURCE(device_get_parent(vga), dev, SYS_RES_MEMORY,
-	    sc->sc_flush_page_rid, sc->sc_flush_page_res);
-	BUS_RELEASE_RESOURCE(device_get_parent(vga), dev, SYS_RES_MEMORY,
-	    sc->sc_flush_page_rid, sc->sc_flush_page_res);
+	BUS_DEACTIVATE_RESOURCE(device_get_parent(vga), dev,
+	    sc->sc_flush_page_res);
+	BUS_RELEASE_RESOURCE(device_get_parent(vga), dev,
+	    sc->sc_flush_page_res);
 }
 
 static int

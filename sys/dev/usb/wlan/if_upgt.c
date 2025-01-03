@@ -1,5 +1,4 @@
 /*	$OpenBSD: if_upgt.c,v 1.35 2008/04/16 18:32:15 damien Exp $ */
-/*	$FreeBSD$ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -2140,8 +2139,7 @@ upgt_tx_start(struct upgt_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 	mem->addr = htole32(data->addr);
 	txdesc = (struct upgt_lmac_tx_desc *)(mem + 1);
 
-	if ((wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
-	    IEEE80211_FC0_TYPE_MGT) {
+	if (IEEE80211_IS_MGMT(wh)) {
 		/* mgmt frames  */
 		txdesc->header1.flags = UPGT_H1_FLAGS_TX_MGMT;
 		/* always send mgmt frames at lowest rate (DS1) */
@@ -2206,7 +2204,6 @@ upgt_bulk_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_frame *wh;
 	struct ieee80211_node *ni;
-	struct epoch_tracker et;
 	struct mbuf *m = NULL;
 	struct upgt_data *data;
 	int8_t nf;
@@ -2244,14 +2241,12 @@ setup:
 			ni = ieee80211_find_rxnode(ic,
 			    (struct ieee80211_frame_min *)wh);
 			nf = -95;	/* XXX */
-			NET_EPOCH_ENTER(et);
 			if (ni != NULL) {
 				(void) ieee80211_input(ni, m, rssi, nf);
 				/* node is no longer needed */
 				ieee80211_free_node(ni);
 			} else
 				(void) ieee80211_input_all(ic, m, rssi, nf);
-			NET_EPOCH_EXIT(et);
 			m = NULL;
 		}
 		UPGT_LOCK(sc);

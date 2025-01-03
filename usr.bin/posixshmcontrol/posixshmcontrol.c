@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/filio.h>
 #include <sys/mman.h>
@@ -308,8 +305,10 @@ list_shm(int argc, char **argv)
 			continue;
 		fd = shm_open(kif->kf_path, O_RDONLY, 0);
 		if (fd == -1) {
-			warn("open %s", kif->kf_path);
-			ret = 1;
+			if (errno != EACCES) {
+				warn("open %s", kif->kf_path);
+				ret = 1;
+			}
 			continue;
 		}
 		error = fstat(fd, &st);

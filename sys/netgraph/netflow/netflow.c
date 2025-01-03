@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010-2011 Alexander V. Chernikov <melifaro@ipfw.ru>
  * Copyright (c) 2004-2005 Gleb Smirnoff <glebius@FreeBSD.org>
@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_route.h"
@@ -109,11 +107,11 @@ static int export_send(priv_p, fib_export_p, item_p, int);
 
 #ifdef INET
 static int hash_insert(priv_p, struct flow_hash_entry *, struct flow_rec *,
-    int, uint8_t, uint8_t);
+    int, uint8_t, uint16_t);
 #endif
 #ifdef INET6
 static int hash6_insert(priv_p, struct flow_hash_entry *, struct flow6_rec *,
-    int, uint8_t, uint8_t);
+    int, uint8_t, uint16_t);
 #endif
 
 static void expire_flow(priv_p, fib_export_p, struct flow_entry *, int);
@@ -322,7 +320,7 @@ ng_netflow_copyinfo(priv_p priv, struct ng_netflow_info *i)
 #ifdef INET
 static int
 hash_insert(priv_p priv, struct flow_hash_entry *hsh, struct flow_rec *r,
-	int plen, uint8_t flags, uint8_t tcp_flags)
+	int plen, uint8_t flags, uint16_t tcp_flags)
 {
 	struct flow_entry *fle;
 
@@ -399,7 +397,7 @@ hash_insert(priv_p priv, struct flow_hash_entry *hsh, struct flow_rec *r,
 #ifdef INET6
 static int
 hash6_insert(priv_p priv, struct flow_hash_entry *hsh6, struct flow6_rec *r,
-	int plen, uint8_t flags, uint8_t tcp_flags)
+	int plen, uint8_t flags, uint16_t tcp_flags)
 {
 	struct flow6_entry *fle6;
 
@@ -661,7 +659,7 @@ ng_netflow_flow_add(priv_p priv, fib_export_p fe, struct ip *ip,
 	struct flow_rec		r;
 	int			hlen, plen;
 	int			error = 0;
-	uint8_t			tcp_flags = 0;
+	uint16_t		tcp_flags = 0;
 
 	bzero(&r, sizeof(r));
 
@@ -704,7 +702,7 @@ ng_netflow_flow_add(priv_p priv, fib_export_p fe, struct ip *ip,
 			tcp = (struct tcphdr *)((caddr_t )ip + hlen);
 			r.r_sport = tcp->th_sport;
 			r.r_dport = tcp->th_dport;
-			tcp_flags = tcp->th_flags;
+			tcp_flags = tcp_get_flags(tcp);
 			break;
 		    }
 		case IPPROTO_UDP:
@@ -789,7 +787,7 @@ ng_netflow_flow6_add(priv_p priv, fib_export_p fe, struct ip6_hdr *ip6,
 	struct flow6_rec	r;
 	int			plen;
 	int			error = 0;
-	uint8_t			tcp_flags = 0;
+	uint16_t		tcp_flags = 0;
 
 	/* check version */
 	if ((ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
@@ -818,7 +816,7 @@ ng_netflow_flow6_add(priv_p priv, fib_export_p fe, struct ip6_hdr *ip6,
 
 			tcp = (struct tcphdr *)upper_ptr;
 			r.r_ports = *(uint32_t *)upper_ptr;
-			tcp_flags = tcp->th_flags;
+			tcp_flags = tcp_get_flags(tcp);
 			break;
 		    }
  		case IPPROTO_UDP:

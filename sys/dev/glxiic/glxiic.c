@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 Henrik Brix Andersen <brix@FreeBSD.org>
  * All rights reserved.
@@ -26,7 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 /*
  * AMD Geode LX CS5536 System Management Bus controller.
  *
@@ -409,7 +408,7 @@ glxiic_attach(device_t dev)
 	glxiic_smb_enable(sc, IIC_FASTEST, 0);
 
 	/* Probe and attach the iicbus when interrupts are available. */
-	error = bus_delayed_attach_children(dev);
+	bus_delayed_attach_children(dev);
 
 out:
 	if (error != 0) {
@@ -452,11 +451,8 @@ glxiic_detach(device_t dev)
 
 	error = bus_generic_detach(dev);
 	if (error != 0)
-		goto out;
-	if (sc->iicbus != NULL)
-		error = device_delete_child(dev, sc->iicbus);
+		return (error);
 
-out:
 	callout_drain(&sc->callout);
 
 	if (sc->smb_res != NULL) {
@@ -480,7 +476,7 @@ out:
 
 	GLXIIC_LOCK_DESTROY(sc);
 
-	return (error);
+	return (0);
 }
 
 static uint8_t

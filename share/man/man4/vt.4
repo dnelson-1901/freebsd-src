@@ -1,3 +1,6 @@
+.\"-
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
 .\" Copyright (c) 2014 Warren Block
 .\" All rights reserved.
 .\"
@@ -22,14 +25,12 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\" $FreeBSD$
-.\"
-.Dd July 21, 2022
+.Dd July 7, 2024
 .Dt "VT" 4
 .Os
 .Sh NAME
 .Nm vt
-.Nd virtual terminal console driver
+.Nd virtual terminal system video console driver
 .Sh SYNOPSIS
 .Cd "options TERMINAL_KERN_ATTR=_attribute_"
 .Cd "options TERMINAL_NORM_ATTR=_attribute_"
@@ -49,15 +50,19 @@ In
 .Cd kern.vt.color.<colornum>.rgb="<colorspec>"
 .Cd kern.vt.fb.default_mode="<X>x<Y>"
 .Cd kern.vt.fb.modes.<connector>="<X>x<Y>"
+.Cd kern.vt.slow_down=<delay>"
+.Cd screen.font="<X>x<Y>"
 .Pp
 In
 .Xr loader.conf 5 or
 .Xr sysctl.conf 5 :
+.Cd kern.consmute=1
 .Cd kern.vt.kbd_halt=1
 .Cd kern.vt.kbd_poweroff=1
 .Cd kern.vt.kbd_reboot=1
 .Cd kern.vt.kbd_debug=1
 .Cd kern.vt.kbd_panic=0
+.Cd kern.vt.enable_altgr=0
 .Cd kern.vt.enable_bell=1
 .Sh DESCRIPTION
 The
@@ -220,6 +225,11 @@ The
 kernel uses
 .Nm
 when this value is not set.
+Note that
+.Ql sc
+is not compatible with
+.Xr UEFI 8
+boot.
 .It Va kern.vt.color. Ns Ar colornum Ns Va .rgb
 Set this value to override default palette entry for color
 .Pa colornum
@@ -258,6 +268,21 @@ It will contain a list of connectors and their associated tunables.
 This is currently only supported by the
 .Cm vt_fb
 backend when it is paired with a KMS video driver.
+.It Va kern.vt.slow_down
+When debugging the kernel on modern laptops, the screen is often
+the only available console, and relevant information will scroll
+out of view before it can be captured by eye or camera.
+.Pp
+Setting
+.Va kern.vt.slow_down
+to a non-zero number will make console output synchronous (ie:
+not dependent on timers and interrupts) and slow it down in proportion
+to the number.
+.It Va screen.font
+Set this value to the base name of the desired font file located in
+.Pa /boot/fonts .
+Fonts can be converted for use with
+.Xr vtfontcvt 8 .
 .El
 .Sh KEYBOARD SYSCTL TUNABLES
 These settings control whether certain special key combinations are enabled or
@@ -274,6 +299,8 @@ and can also be changed at runtime with the
 .Xr sysctl 8
 command.
 .Bl -tag -width indent
+.It Va kern.vt.enable_altgr
+Enable AltGr key (do not assume right Alt key as Alt).
 .It Va kern.vt.kbd_halt
 Enable halt keyboard combination.
 .It Va kern.vt.kbd_poweroff
@@ -293,11 +320,13 @@ prompt, set in
 or changed at runtime with
 .Xr sysctl 8 .
 .Bl -tag -width indent
+.It Va kern.consmute
+Disable printing kernel messages to the system console.
 .It Va kern.vt.enable_bell
 Enable the terminal bell.
 .El
 .Sh FILES
-.Bl -tag -width /usr/share/vt/keymaps/* -compact
+.Bl -tag -width "/usr/share/vt/keymaps/*.kbd" -compact
 .It Pa /dev/console
 .It Pa /dev/consolectl
 .It Pa /dev/ttyv*
@@ -310,13 +339,12 @@ console fonts
 keyboard layouts
 .El
 .Sh DEVCTL MESSAGES
-.Bl -column "System" "Subsystem" "1234567" -compact
+.Bl -column "System" "Subsystem" "Type" "Description"
 .Sy "System" Ta Sy "Subsystem" Ta Sy "Type" Ta Sy "Description"
 .It Li VT Ta BELL Ta RING Ta
 Notification that the console bell has rung.
 .El
-.Pp
-.Bl -column "Variable" "Meaning" -compact
+.Bl -column "duration_ms" "Meaning"
 .Sy "Variable" Ta Sy "Meaning"
 .It Li duration_ms Ta Length of time the bell was requested to ring in milliseconds.
 .It Li enabled Ta true or false indicating whether or not the bell was administratively enabled when rung.
@@ -342,7 +370,8 @@ To set a 1024x768 mode on all output connectors, put the following line in
 .Pp
 .Dl kern.vt.fb.default_mode="1024x768"
 .Pp
-To set a 800x600 only on a laptop builtin screen, use the following line instead:
+To set a 800x600 only on a laptop builtin screen,
+use the following line instead:
 .Pp
 .Dl kern.vt.fb.modes.LVDS-1="800x600"
 .Pp
@@ -357,6 +386,14 @@ To set black and white colors of console palette
 .Pp
 .Dl kern.vt.color.0.rgb="10,10,10"
 .Dl kern.vt.color.15.rgb="#f0f0f0"
+.Pp
+Load the 8x16 font in
+.Xr loader.conf 5
+from
+.Pa /boot/fonts/*.fnt[.gz]
+at boot:
+.Pp
+.Dl screen.font="8x16"
 .Sh SEE ALSO
 .Xr kbdcontrol 1 ,
 .Xr login 1 ,
@@ -370,6 +407,7 @@ To set black and white colors of console palette
 .Xr syscons 4 ,
 .Xr ukbd 4 ,
 .Xr kbdmap 5 ,
+.Xr loader.conf 5 ,
 .Xr rc.conf 5 ,
 .Xr ttys 5 ,
 .Xr config 8 ,

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2022, Intel Corporation
+/*  Copyright (c) 2024, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-/*$FreeBSD$*/
 
 /**
  * @file ice_lib.h
@@ -40,6 +39,9 @@
 
 #ifndef _ICE_LIB_H_
 #define _ICE_LIB_H_
+
+/* include kernel options first */
+#include "ice_opts.h"
 
 #include <sys/types.h>
 #include <sys/bus.h>
@@ -55,6 +57,7 @@
 #include <net/if_var.h>
 #include <net/if_media.h>
 #include <net/ethernet.h>
+#include <net/if_types.h>
 
 #include <sys/bitstring.h>
 
@@ -155,8 +158,7 @@ struct ice_bar_info {
 #define ICE_MAX_TSO_HDR_SEGS	3
 
 #define ICE_MSIX_BAR		3
-
-#define ICE_MAX_DCB_TCS		8
+#define ICE_MAX_MSIX_VECTORS	(GLINT_DYN_CTL_MAX_INDEX + 1)
 
 #define ICE_DEFAULT_DESC_COUNT	1024
 #define ICE_MAX_DESC_COUNT	8160
@@ -261,8 +263,16 @@ struct ice_bar_info {
  */
 #define ICE_MIN_MTU 112
 
+/*
+ * The default number of queues reserved for a VF is 4, according to the
+ * AVF Base Mode specification.
+ */
 #define ICE_DEFAULT_VF_QUEUES	4
 
+/*
+ * An invalid VSI number to indicate that mirroring should be disabled.
+ */
+#define ICE_INVALID_MIRROR_VSI	((u16)-1)
 /*
  * The maximum number of RX queues allowed per TC in a VSI.
  */
@@ -280,6 +290,12 @@ struct ice_bar_info {
 #define ICE_APPLY_LS_FC     (ICE_APPLY_LS | ICE_APPLY_FC)
 #define ICE_APPLY_FEC_FC    (ICE_APPLY_FEC | ICE_APPLY_FC)
 #define ICE_APPLY_LS_FEC_FC (ICE_APPLY_LS_FEC | ICE_APPLY_FC)
+
+/*
+ * Mask of valid flags that can be used as an input for the
+ * advertise_speed sysctl.
+ */
+#define ICE_SYSCTL_SPEEDS_VALID_RANGE	0xFFF
 
 /**
  * @enum ice_dyn_idx_t
@@ -306,6 +322,28 @@ enum ice_dyn_idx_t {
 /* Define the default Tx and Rx ITR as 50us (translates to ~20k int/sec max) */
 #define ICE_DFLT_TX_ITR		50
 #define ICE_DFLT_RX_ITR		50
+
+/* RS FEC register values */
+#define ICE_RS_FEC_REG_SHIFT			2
+#define ICE_RS_FEC_RECV_ID_SHIFT		4
+#define ICE_RS_FEC_CORR_LOW_REG_PORT0		(0x02 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_CORR_HIGH_REG_PORT0		(0x03 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_LOW_REG_PORT0		(0x04 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_HIGH_REG_PORT0	(0x05 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_CORR_LOW_REG_PORT1		(0x42 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_CORR_HIGH_REG_PORT1		(0x43 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_LOW_REG_PORT1		(0x44 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_HIGH_REG_PORT1	(0x45 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_CORR_LOW_REG_PORT2		(0x4A << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_CORR_HIGH_REG_PORT2		(0x4B << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_LOW_REG_PORT2		(0x4C << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_HIGH_REG_PORT2	(0x4D << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_CORR_LOW_REG_PORT3		(0x52 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_CORR_HIGH_REG_PORT3		(0x53 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_LOW_REG_PORT3		(0x54 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_UNCORR_HIGH_REG_PORT3	(0x55 << ICE_RS_FEC_REG_SHIFT)
+#define ICE_RS_FEC_RECEIVER_ID_PCS0		(0x33 << ICE_RS_FEC_RECV_ID_SHIFT)
+#define ICE_RS_FEC_RECEIVER_ID_PCS1		(0x34 << ICE_RS_FEC_RECV_ID_SHIFT)
 
 /**
  * ice_itr_to_reg - Convert an ITR setting into its register equivalent
@@ -361,6 +399,16 @@ enum ice_rx_dtype {
 #define ICE_I2C_MAX_RETRIES		10
 
 /*
+ * The Get Link Status AQ command and other link commands can return
+ * EAGAIN, indicating that the FW Link Management engine is busy.
+ * Define the number of times that the driver should retry sending these
+ * commands and the amount of time it should wait between those retries
+ * (in milliseconds) here.
+ */
+#define ICE_LINK_AQ_MAX_RETRIES		10
+#define ICE_LINK_RETRY_DELAY		17
+
+/*
  * The Start LLDP Agent AQ command will fail if it's sent too soon after
  * the LLDP agent is stopped. The period between the stop and start
  * commands must currently be at least 2 seconds.
@@ -368,21 +416,11 @@ enum ice_rx_dtype {
 #define ICE_START_LLDP_RETRY_WAIT	(2 * hz)
 
 /*
- * The ice_(set|clear)_vsi_promisc() function expects a mask of promiscuous
- * modes to operate on. This mask is the default one for the driver, where
- * promiscuous is enabled/disabled for all types of non-VLAN-tagged/VLAN 0
- * traffic.
+ * Only certain clusters are valid for certain devices for the FW debug dump
+ * functionality, so define masks of those here.
  */
-#define ICE_VSI_PROMISC_MASK		(ICE_PROMISC_UCAST_TX | \
-					 ICE_PROMISC_UCAST_RX | \
-					 ICE_PROMISC_MCAST_TX | \
-					 ICE_PROMISC_MCAST_RX)
-
-/*
- * Only certain cluster IDs are valid for the FW debug dump functionality,
- * so define a mask of those here.
- */
-#define ICE_FW_DEBUG_DUMP_VALID_CLUSTER_MASK	0x1af
+#define ICE_FW_DEBUG_DUMP_VALID_CLUSTER_MASK_E810	0x4001AF
+#define ICE_FW_DEBUG_DUMP_VALID_CLUSTER_MASK_E830	0x1AF
 
 struct ice_softc;
 
@@ -433,6 +471,7 @@ struct tx_stats {
 	u64			tx_bytes;
 	u64			tx_packets;
 	u64			mss_too_small;
+	u64			tso;
 	u64			cso[ICE_CSO_STAT_TX_COUNT];
 };
 
@@ -490,6 +529,9 @@ struct ice_pf_sw_stats {
 	/* # of detected MDD events for Tx and Rx */
 	u32 tx_mdd_count;
 	u32 rx_mdd_count;
+
+	u64 rx_roc_error;	/* port oversize packet stats, error_cnt \
+				   from GLV_REPC VSI register + RxOversize */
 };
 
 /**
@@ -522,8 +564,6 @@ struct ice_vsi {
 
 	u16 *tx_qmap; /* Tx VSI to PF queue mapping */
 	u16 *rx_qmap; /* Rx VSI to PF queue mapping */
-
-	bitstr_t *vmap; /* Vector(s) assigned to VSI */
 
 	enum ice_resmgr_alloc_type qmap_type;
 
@@ -566,6 +606,11 @@ struct ice_vsi {
 
 	/* VSI-level stats */
 	struct ice_vsi_hw_stats hw_stats;
+
+	/* VSI mirroring details */
+	u16 mirror_src_vsi;
+	u16 rule_mir_ingress;
+	u16 rule_mir_egress;
 };
 
 /**
@@ -574,12 +619,64 @@ struct ice_vsi {
  */
 struct ice_debug_dump_cmd {
 	u32 offset;		/* offset to read/write from table, in bytes */
-	u16 cluster_id;
+	u16 cluster_id;		/* also used to get next cluster id */
 	u16 table_id;
 	u16 data_size;		/* size of data field, in bytes */
 	u16 reserved1;
 	u32 reserved2;
 	u8 data[];
+};
+
+/**
+ * @struct ice_serdes_equalization
+ * @brief serdes equalization info
+ */
+struct ice_serdes_equalization {
+	int rx_equalization_pre1;
+	int rx_equalization_pre2;
+	int rx_equalization_post1;
+	int rx_equalization_bflf;
+	int rx_equalization_bfhf;
+	int rx_equalization_drate;
+	int tx_equalization_pre1;
+	int tx_equalization_pre2;
+	int tx_equalization_pre3;
+	int tx_equalization_atten;
+	int tx_equalization_post1;
+};
+
+/**
+ * @struct ice_fec_stats_to_sysctl
+ * @brief FEC stats register value of port
+ */
+struct ice_fec_stats_to_sysctl {
+	u16 fec_corr_cnt_low;
+	u16 fec_corr_cnt_high;
+	u16 fec_uncorr_cnt_low;
+	u16 fec_uncorr_cnt_high;
+};
+
+#define ICE_MAX_SERDES_LANE_COUNT	4
+
+/**
+ * @struct ice_regdump_to_sysctl
+ * @brief PHY stats of port
+ */
+struct ice_regdump_to_sysctl {
+	/* A multilane port can have max 4 serdes */
+	struct ice_serdes_equalization equalization[ICE_MAX_SERDES_LANE_COUNT];
+	struct ice_fec_stats_to_sysctl stats;
+};
+
+/**
+ * @struct ice_port_topology
+ * @brief Port topology from lport i.e. serdes mapping, pcsquad, macport, cage
+ */
+struct ice_port_topology {
+	u16 pcs_port;
+	u16 primary_serdes_lane;
+	u16 serdes_lane_count;
+	u16 pcs_quad_select;
 };
 
 /**
@@ -597,6 +694,7 @@ enum ice_state {
 	ICE_STATE_RESET_OICR_RECV,
 	ICE_STATE_RESET_PFR_REQ,
 	ICE_STATE_PREPARED_FOR_RESET,
+	ICE_STATE_SUBIF_NEEDS_REINIT,
 	ICE_STATE_RESET_FAILED,
 	ICE_STATE_DRIVER_INITIALIZED,
 	ICE_STATE_NO_MEDIA,
@@ -609,6 +707,11 @@ enum ice_state {
 	ICE_STATE_LLDP_RX_FLTR_FROM_DRIVER,
 	ICE_STATE_MULTIPLE_TCS,
 	ICE_STATE_DO_FW_DEBUG_DUMP,
+	ICE_STATE_LINK_ACTIVE_ON_DOWN,
+	ICE_STATE_FIRST_INIT_LINK,
+	ICE_STATE_DO_CREATE_MIRR_INTFC,
+	ICE_STATE_DO_DESTROY_MIRR_INTFC,
+	ICE_STATE_PHY_FW_INIT_PENDING,
 	/* This entry must be last */
 	ICE_STATE_LAST,
 };
@@ -710,7 +813,7 @@ struct ice_str_buf {
 };
 
 struct ice_str_buf _ice_aq_str(enum ice_aq_err aq_err);
-struct ice_str_buf _ice_status_str(enum ice_status status);
+struct ice_str_buf _ice_status_str(int status);
 struct ice_str_buf _ice_err_str(int err);
 struct ice_str_buf _ice_fltr_flag_str(u16 flag);
 struct ice_str_buf _ice_log_sev_str(u8 log_level);
@@ -805,6 +908,16 @@ void ice_request_stack_reinit(struct ice_softc *sc);
 /* Details of how to check if the network stack is detaching us */
 bool ice_driver_is_detaching(struct ice_softc *sc);
 
+/* Details of how to setup/teardown a mirror interface */
+/**
+ * @brief Create an interface for mirroring
+ */
+int ice_create_mirror_interface(struct ice_softc *sc);
+/**
+ * @brief Destroy created mirroring interface
+ */
+void ice_destroy_mirror_interface(struct ice_softc *sc);
+
 const char * ice_fw_module_str(enum ice_aqc_fw_logging_mod module);
 void ice_add_fw_logging_tunables(struct ice_softc *sc,
 				 struct sysctl_oid *parent);
@@ -817,7 +930,7 @@ void ice_free_bar(device_t dev, struct ice_bar_info *bar);
 void ice_set_ctrlq_len(struct ice_hw *hw);
 void ice_release_vsi(struct ice_vsi *vsi);
 struct ice_vsi *ice_alloc_vsi(struct ice_softc *sc, enum ice_vsi_type type);
-int  ice_alloc_vsi_qmap(struct ice_vsi *vsi, const int max_tx_queues,
+void ice_alloc_vsi_qmap(struct ice_vsi *vsi, const int max_tx_queues,
 		       const int max_rx_queues);
 void ice_free_vsi_qmaps(struct ice_vsi *vsi);
 int  ice_initialize_vsi(struct ice_vsi *vsi);
@@ -825,14 +938,17 @@ void ice_deinit_vsi(struct ice_vsi *vsi);
 uint64_t ice_aq_speed_to_rate(struct ice_port_info *pi);
 int  ice_get_phy_type_low(uint64_t phy_type_low);
 int  ice_get_phy_type_high(uint64_t phy_type_high);
-enum ice_status ice_add_media_types(struct ice_softc *sc, struct ifmedia *media);
-void ice_configure_rxq_interrupts(struct ice_vsi *vsi);
-void ice_configure_txq_interrupts(struct ice_vsi *vsi);
+int ice_add_media_types(struct ice_softc *sc, struct ifmedia *media);
+void ice_configure_rxq_interrupt(struct ice_hw *hw, u16 rxqid, u16 vector, u8 itr_idx);
+void ice_configure_all_rxq_interrupts(struct ice_vsi *vsi);
+void ice_configure_txq_interrupt(struct ice_hw *hw, u16 txqid, u16 vector, u8 itr_idx);
+void ice_configure_all_txq_interrupts(struct ice_vsi *vsi);
 void ice_flush_rxq_interrupts(struct ice_vsi *vsi);
 void ice_flush_txq_interrupts(struct ice_vsi *vsi);
 int  ice_cfg_vsi_for_tx(struct ice_vsi *vsi);
 int  ice_cfg_vsi_for_rx(struct ice_vsi *vsi);
-int  ice_control_rx_queues(struct ice_vsi *vsi, bool enable);
+int  ice_control_rx_queue(struct ice_vsi *vsi, u16 qidx, bool enable);
+int  ice_control_all_rx_queues(struct ice_vsi *vsi, bool enable);
 int  ice_cfg_pf_default_mac_filters(struct ice_softc *sc);
 int  ice_rm_pf_default_mac_filters(struct ice_softc *sc);
 void ice_print_nvm_version(struct ice_softc *sc);
@@ -848,11 +964,15 @@ void ice_add_sysctls_eth_stats(struct sysctl_ctx_list *ctx,
 void ice_add_vsi_sysctls(struct ice_vsi *vsi);
 void ice_add_sysctls_mac_stats(struct sysctl_ctx_list *ctx,
 			       struct sysctl_oid *parent,
-			       struct ice_hw_port_stats *stats);
+			       struct ice_softc *sc);
 void ice_configure_misc_interrupts(struct ice_softc *sc);
 int  ice_sync_multicast_filters(struct ice_softc *sc);
-enum ice_status ice_add_vlan_hw_filter(struct ice_vsi *vsi, u16 vid);
-enum ice_status ice_remove_vlan_hw_filter(struct ice_vsi *vsi, u16 vid);
+int ice_add_vlan_hw_filters(struct ice_vsi *vsi, u16 *vid,
+					u16 length);
+int ice_add_vlan_hw_filter(struct ice_vsi *vsi, u16 vid);
+int ice_remove_vlan_hw_filters(struct ice_vsi *vsi, u16 *vid,
+					   u16 length);
+int ice_remove_vlan_hw_filter(struct ice_vsi *vsi, u16 vid);
 void ice_add_vsi_tunables(struct ice_vsi *vsi, struct sysctl_oid *parent);
 void ice_del_vsi_sysctl_ctx(struct ice_vsi *vsi);
 void ice_add_device_tunables(struct ice_softc *sc);
@@ -867,7 +987,7 @@ void ice_add_txq_sysctls(struct ice_tx_queue *txq);
 void ice_add_rxq_sysctls(struct ice_rx_queue *rxq);
 int  ice_config_rss(struct ice_vsi *vsi);
 void ice_clean_all_vsi_rss_cfg(struct ice_softc *sc);
-enum ice_status ice_load_pkg_file(struct ice_softc *sc);
+int ice_load_pkg_file(struct ice_softc *sc);
 void ice_log_pkg_init(struct ice_softc *sc, enum ice_ddp_state pkg_status);
 uint64_t ice_get_ifnet_counter(struct ice_vsi *vsi, ift_counter counter);
 void ice_save_pci_info(struct ice_hw *hw, device_t dev);
@@ -898,9 +1018,13 @@ int  ice_read_sff_eeprom(struct ice_softc *sc, u16 dev_addr, u16 offset, u8* dat
 int  ice_alloc_intr_tracking(struct ice_softc *sc);
 void ice_free_intr_tracking(struct ice_softc *sc);
 void ice_set_default_local_lldp_mib(struct ice_softc *sc);
+void ice_set_link(struct ice_softc *sc, bool enabled);
+void ice_add_rx_lldp_filter(struct ice_softc *sc);
 void ice_init_health_events(struct ice_softc *sc);
 void ice_cfg_pba_num(struct ice_softc *sc);
 int ice_handle_debug_dump_ioctl(struct ice_softc *sc, struct ifdrv *ifd);
 u8 ice_dcb_get_tc_map(const struct ice_dcbx_cfg *dcbcfg);
+void ice_do_dcb_reconfig(struct ice_softc *sc, bool pending_mib);
+int ice_setup_vsi_mirroring(struct ice_vsi *vsi);
 
 #endif /* _ICE_LIB_H_ */

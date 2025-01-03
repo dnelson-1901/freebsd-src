@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .if ${MACHINE_CPUARCH} == "amd64"
 SFX= 32
 CFLAGS+=-DCOMPAT_FREEBSD32 -DCOMPAT_LINUX32
@@ -34,9 +32,12 @@ SRCS=	linux${SFX}_dummy_machdep.c \
 	linux_timer.c \
 	linux_uid16.c \
 	linux_vdso.c \
+	linux_xattr.c \
+	opt_inet.h \
 	opt_inet6.h \
 	opt_ktrace.h \
 	opt_posix.h \
+	opt_usb.h \
 	bus_if.h \
 	device_if.h \
 	vnode_if.h
@@ -46,9 +47,6 @@ VDSODEPS=linux_vdso_gettc_x86.inc
 .endif
 .if ${MACHINE_CPUARCH} == "amd64"
 SRCS+=	linux${SFX}_support.S
-.else
-SRCS+=	linux_copyout.c
-SRCS+=	linux_netlink.c
 .endif
 DPSRCS=	assym.inc linux${SFX}_genassym.c
 
@@ -71,12 +69,13 @@ SRCS+=	imgact_linux.c \
 	linux_ptrace_machdep.c \
 	linux_util.c \
 	linux_vdso_selector_x86.c \
-	linux_x86.c
+	linux_x86.c \
+	linux_copyout.c \
+	linux_netlink.c
 .endif
 
 .if ${MACHINE_CPUARCH} == "i386"
 EXPORT_SYMS=
-EXPORT_SYMS+=	linux_emul_path
 EXPORT_SYMS+=	linux_get_osname
 EXPORT_SYMS+=	linux_get_osrelease
 EXPORT_SYMS+=	linux_ioctl_register_handler
@@ -137,7 +136,8 @@ linux${SFX}_support.o: linux${SFX}_support.S linux${SFX}_assym.h assym.inc
 .endif
 
 linux${SFX}_genassym.o: offset.inc
-	${CC} -c ${CFLAGS:N-flto:N-fno-common} -fcommon ${.IMPSRC}
+	${CC} -c ${CFLAGS:N-flto*:N-fno-common:N-fsanitize*:N-fno-sanitize*} \
+	    -fcommon ${.IMPSRC}
 
 .if !defined(KERNBUILDDIR)
 .warning Building Linuxulator outside of a kernel does not make sense

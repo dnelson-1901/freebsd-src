@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 The FreeBSD Foundation
  *
@@ -27,9 +27,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -128,6 +125,12 @@ iommu_get_requester(device_t dev, uint16_t *rid)
 
 	pci_class = devclass_find("pci");
 	l = requester = dev;
+
+	pci = device_get_parent(dev);
+	if (pci == NULL || device_get_devclass(pci) != pci_class) {
+		*rid = 0;	/* XXXKIB: Could be ACPI HID */
+		return (requester);
+	}
 
 	*rid = pci_get_rid(dev);
 
@@ -281,11 +284,7 @@ iommu_get_dev_ctx(device_t dev)
 	if (!unit->dma_enabled)
 		return (NULL);
 
-#if defined(__amd64__) || defined(__i386__)
-	dmar_quirks_pre_use(unit);
-	dmar_instantiate_rmrr_ctxs(unit);
-#endif
-
+	iommu_unit_pre_instantiate_ctx(unit);
 	return (iommu_instantiate_ctx(unit, dev, false));
 }
 
@@ -359,9 +358,8 @@ static void iommu_bus_schedule_dmamap(struct iommu_unit *unit,
 static int
 iommu_bus_dma_tag_create(bus_dma_tag_t parent, bus_size_t alignment,
     bus_addr_t boundary, bus_addr_t lowaddr, bus_addr_t highaddr,
-    bus_dma_filter_t *filter, void *filterarg, bus_size_t maxsize,
-    int nsegments, bus_size_t maxsegsz, int flags, bus_dma_lock_t *lockfunc,
-    void *lockfuncarg, bus_dma_tag_t *dmat)
+    bus_size_t maxsize, int nsegments, bus_size_t maxsegsz, int flags,
+    bus_dma_lock_t *lockfunc, void *lockfuncarg, bus_dma_tag_t *dmat)
 {
 	struct bus_dma_tag_iommu *newtag, *oldtag;
 	int error;
@@ -369,9 +367,9 @@ iommu_bus_dma_tag_create(bus_dma_tag_t parent, bus_size_t alignment,
 	*dmat = NULL;
 	error = common_bus_dma_tag_create(parent != NULL ?
 	    &((struct bus_dma_tag_iommu *)parent)->common : NULL, alignment,
-	    boundary, lowaddr, highaddr, filter, filterarg, maxsize,
-	    nsegments, maxsegsz, flags, lockfunc, lockfuncarg,
-	    sizeof(struct bus_dma_tag_iommu), (void **)&newtag);
+	    boundary, lowaddr, highaddr, maxsize, nsegments, maxsegsz, flags,
+	    lockfunc, lockfuncarg, sizeof(struct bus_dma_tag_iommu),
+	    (void **)&newtag);
 	if (error != 0)
 		goto out;
 
@@ -398,33 +396,30 @@ iommu_bus_dma_tag_set_domain(bus_dma_tag_t dmat)
 static int
 iommu_bus_dma_tag_destroy(bus_dma_tag_t dmat1)
 {
-	struct bus_dma_tag_iommu *dmat, *parent;
-	struct bus_dma_tag_iommu *dmat_copy __unused;
+	struct bus_dma_tag_iommu *dmat;
+	struct iommu_unit *iommu;
+	struct iommu_ctx *ctx;
 	int error;
 
 	error = 0;
-	dmat_copy = dmat = (struct bus_dma_tag_iommu *)dmat1;
+	dmat = (struct bus_dma_tag_iommu *)dmat1;
 
 	if (dmat != NULL) {
 		if (dmat->map_count != 0) {
 			error = EBUSY;
 			goto out;
 		}
-		while (dmat != NULL) {
-			parent = (struct bus_dma_tag_iommu *)dmat->common.parent;
-			if (atomic_fetchadd_int(&dmat->common.ref_count, -1) ==
-			    1) {
-				if (dmat == dmat->ctx->tag)
-					iommu_free_ctx(dmat->ctx);
-				free(dmat->segments, M_IOMMU_DMAMAP);
-				free(dmat, M_DEVBUF);
-				dmat = parent;
-			} else
-				dmat = NULL;
+		ctx = dmat->ctx;
+		if (dmat == ctx->tag) {
+			iommu = ctx->domain->iommu;
+			IOMMU_LOCK(iommu);
+			iommu_free_ctx_locked(iommu, dmat->ctx);
 		}
+		free(dmat->segments, M_IOMMU_DMAMAP);
+		free(dmat, M_DEVBUF);
 	}
 out:
-	CTR3(KTR_BUSDMA, "%s tag %p error %d", __func__, dmat_copy, error);
+	CTR3(KTR_BUSDMA, "%s tag %p error %d", __func__, dmat, error);
 	return (error);
 }
 
@@ -976,10 +971,14 @@ iommu_init_busdma(struct iommu_unit *unit)
 {
 	int error;
 
-	unit->dma_enabled = 1;
+	unit->dma_enabled = 0;
 	error = TUNABLE_INT_FETCH("hw.iommu.dma", &unit->dma_enabled);
 	if (error == 0) /* compatibility */
 		TUNABLE_INT_FETCH("hw.dmar.dma", &unit->dma_enabled);
+	SYSCTL_ADD_INT(&unit->sysctl_ctx,
+	    SYSCTL_CHILDREN(device_get_sysctl_tree(unit->dev)),
+	    OID_AUTO, "dma", CTLFLAG_RD, &unit->dma_enabled, 0,
+	    "DMA ops enabled");
 	TAILQ_INIT(&unit->delayed_maps);
 	TASK_INIT(&unit->dmamap_load_task, 0, iommu_bus_task_dmamap, unit);
 	unit->delayed_taskqueue = taskqueue_create("iommu", M_WAITOK,

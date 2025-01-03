@@ -31,7 +31,6 @@
 #define	SAN_RUNTIME
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #if 0
 __KERNEL_RCSID(0, "$NetBSD: subr_asan.c,v 1.26 2020/09/10 14:10:46 maxv Exp $");
 #endif
@@ -40,6 +39,7 @@ __KERNEL_RCSID(0, "$NetBSD: subr_asan.c,v 1.26 2020/09/10 14:10:46 maxv Exp $");
 #include <sys/systm.h>
 #include <sys/asan.h>
 #include <sys/kernel.h>
+#include <sys/proc.h>
 #include <sys/stack.h>
 #include <sys/sysctl.h>
 
@@ -93,7 +93,10 @@ SYSCTL_INT(_debug_kasan, OID_AUTO, panic_on_violation, CTLFLAG_RDTUN,
     &panic_on_violation, 0,
     "Panic if an invalid access is detected");
 
-static bool kasan_enabled __read_mostly = false;
+#define kasan_enabled (!kasan_disabled)
+static bool kasan_disabled __read_mostly = true;
+SYSCTL_BOOL(_debug_kasan, OID_AUTO, disabled, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
+    &kasan_disabled, 0, "KASAN is disabled");
 
 /* -------------------------------------------------------------------------- */
 
@@ -137,7 +140,7 @@ kasan_init(void)
 	kasan_md_init();
 
 	/* Now officially enabled. */
-	kasan_enabled = true;
+	kasan_disabled = false;
 }
 
 void
@@ -181,7 +184,7 @@ kasan_code_name(uint8_t code)
 
 #define	REPORT(f, ...) do {				\
 	if (panic_on_violation) {			\
-		kasan_enabled = false;			\
+		kasan_disabled = true;			\
 		panic(f, __VA_ARGS__);			\
 	} else {					\
 		struct stack st;			\
@@ -292,6 +295,15 @@ kasan_mark(const void *addr, size_t size, size_t redzsize, uint8_t code)
 	}
 }
 
+void
+kasan_thread_alloc(struct thread *td)
+{
+	if (td->td_kstack != 0) {
+		kasan_mark((void *)td->td_kstack, ptoa(td->td_kstack_pages),
+		    ptoa(td->td_kstack_pages), 0);
+	}
+}
+
 /* -------------------------------------------------------------------------- */
 
 #define ADDR_CROSSES_SCALE_BOUNDARY(addr, size) 		\
@@ -392,6 +404,9 @@ kasan_shadow_check(unsigned long addr, size_t size, bool write,
 	bool valid;
 
 	if (__predict_false(!kasan_enabled))
+		return;
+	if (__predict_false(curthread != NULL &&
+	    (curthread->td_pflags2 & TDP2_SAN_QUIET) != 0))
 		return;
 	if (__predict_false(size == 0))
 		return;
@@ -745,7 +760,7 @@ kasan_casueword(volatile u_long *base, u_long oldval, u_long *oldvalp,
 	}
 
 #define	_ASAN_ATOMIC_FUNC_LOAD(name, type)				\
-	type kasan_atomic_load_##name(volatile type *ptr)		\
+	type kasan_atomic_load_##name(const volatile type *ptr)		\
 	{								\
 		kasan_shadow_check((uintptr_t)ptr, sizeof(type), true,	\
 		    __RET_ADDR);					\
@@ -815,11 +830,13 @@ ASAN_ATOMIC_FUNC_TESTANDCLEAR(32, uint32_t);
 ASAN_ATOMIC_FUNC_TESTANDCLEAR(64, uint64_t);
 ASAN_ATOMIC_FUNC_TESTANDCLEAR(int, u_int);
 ASAN_ATOMIC_FUNC_TESTANDCLEAR(long, u_long);
+ASAN_ATOMIC_FUNC_TESTANDCLEAR(ptr, uintptr_t);
 
 ASAN_ATOMIC_FUNC_TESTANDSET(32, uint32_t);
 ASAN_ATOMIC_FUNC_TESTANDSET(64, uint64_t);
 ASAN_ATOMIC_FUNC_TESTANDSET(int, u_int);
 ASAN_ATOMIC_FUNC_TESTANDSET(long, u_long);
+ASAN_ATOMIC_FUNC_TESTANDSET(ptr, uintptr_t);
 
 ASAN_ATOMIC_FUNC_SWAP(32, uint32_t);
 ASAN_ATOMIC_FUNC_SWAP(64, uint64_t);
@@ -957,6 +974,13 @@ ASAN_BUS_READ_PTR_FUNC(region, 4, uint32_t)
 ASAN_BUS_READ_PTR_FUNC(region_stream, 4, uint32_t)
 
 ASAN_BUS_READ_FUNC(, 8, uint64_t)
+#if defined(__aarch64__)
+ASAN_BUS_READ_FUNC(_stream, 8, uint64_t)
+ASAN_BUS_READ_PTR_FUNC(multi, 8, uint64_t)
+ASAN_BUS_READ_PTR_FUNC(multi_stream, 8, uint64_t)
+ASAN_BUS_READ_PTR_FUNC(region, 8, uint64_t)
+ASAN_BUS_READ_PTR_FUNC(region_stream, 8, uint64_t)
+#endif
 
 #define	ASAN_BUS_WRITE_FUNC(func, width, type)				\
 	void kasan_bus_space_write##func##_##width(bus_space_tag_t tag,	\

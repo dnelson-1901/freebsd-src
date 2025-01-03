@@ -7,8 +7,6 @@
 /* This file implements defines and helper functions. */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/malloc.h>
 #include <sys/proc.h>
 #include <sys/uio.h>
@@ -238,10 +236,10 @@ vmci_alloc_kernel_mem(size_t size, int flags)
  */
 
 void
-vmci_free_kernel_mem(void *ptr, size_t size)
+vmci_free_kernel_mem(void *ptr, size_t size __unused)
 {
 
-	contigfree(ptr, size, M_DEVBUF);
+	free(ptr, M_DEVBUF);
 }
 
 /*

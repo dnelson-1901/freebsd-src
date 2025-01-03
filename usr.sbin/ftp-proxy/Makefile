@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .PATH:	${SRCTOP}/contrib/pf/ftp-proxy
 
 PACKAGE=	pf

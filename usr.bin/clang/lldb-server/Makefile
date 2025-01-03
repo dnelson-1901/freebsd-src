@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include "${SRCTOP}/lib/clang/lldb.pre.mk"
 
 PACKAGE=	lldb
@@ -37,8 +35,6 @@ ${INCFILE}: ${TDFILE}
 	    -o ${.TARGET} ${TDFILE}
 TGHDRS+=	${INCFILE}
 
-${TGHDRS}: ${LLVM_TBLGEN_BIN}
-
 DEPENDFILES+=	${TGHDRS:C/$/.d/}
 DPSRCS+=	${TGHDRS}
 CLEANFILES+=	${TGHDRS} ${TGHDRS:C/$/.d/}
@@ -52,5 +48,6 @@ LIBADD+=	ncursesw
 LIBADD+=	panel
 LIBADD+=	pthread
 LIBADD+=	z
+LIBADD+=	zstd
 
 .include <bsd.prog.mk>

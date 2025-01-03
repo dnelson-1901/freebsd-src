@@ -1,4 +1,4 @@
-# $FreeBSD$
+.include <src.opts.mk>
 
 PROG_CXX=	llvm-strings
 
@@ -17,10 +17,13 @@ ${INCFILE}: ${TDFILE}
 	    -o ${.TARGET} ${TDFILE}
 TGHDRS+=	${INCFILE}
 
-${TGHDRS}: ${LLVM_TBLGEN_BIN}
-
 DEPENDFILES+=	${TGHDRS:C/$/.d/}
 DPSRCS+=	${TGHDRS}
 CLEANFILES+=	${TGHDRS} ${TGHDRS:C/$/.d/}
+
+.if ${MK_LLVM_BINUTILS} != "no"
+LINKS+=		${BINDIR}/llvm-strings ${BINDIR}/strings
+MLINKS+=	llvm-strings.1 strings.1
+.endif
 
 .include "../llvm.prog.mk"

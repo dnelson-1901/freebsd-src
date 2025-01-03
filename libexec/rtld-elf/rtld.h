@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright 1996, 1997, 1998, 1999, 2000 John D. Polstra.
  * All rights reserved.
@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef RTLD_H /* { */
@@ -52,6 +50,7 @@ extern size_t tls_last_size;
 extern size_t tls_static_space;
 extern Elf_Addr tls_dtv_generation;
 extern int tls_max_index;
+extern size_t ld_static_tls_extra;
 
 extern int npagesizes;
 extern size_t *pagesizes;
@@ -166,9 +165,6 @@ typedef struct Struct_Obj_Entry {
     size_t tlsalign;		/* Alignment of static TLS block */
     size_t tlspoffset;		/* p_offset of the static TLS block */
 
-    caddr_t relro_page;
-    size_t relro_size;
-
     /* Items from the dynamic section. */
     Elf_Addr *pltgot;		/* PLT or GOT, depending on architecture */
     const Elf_Rel *rel;		/* Relocation entries */
@@ -184,13 +180,6 @@ typedef struct Struct_Obj_Entry {
     const Elf_Sym *symtab;	/* Symbol table */
     const char *strtab;		/* String table */
     unsigned long strsize;	/* Size in bytes of string table */
-#ifdef __powerpc__
-#ifdef __powerpc64__
-    Elf_Addr glink;		/* GLINK PLT call stub section */
-#else
-    Elf_Addr *gotptr;		/* GOT pointer (secure-plt only) */
-#endif
-#endif
 
     const Elf_Verneed *verneed; /* Required versions. */
     Elf_Word verneednum;	/* Number of entries in verneed table */
@@ -241,11 +230,13 @@ typedef struct Struct_Obj_Entry {
     bool ver_checked : 1;	/* True if processed by rtld_verify_object_versions */
     bool textrel : 1;		/* True if there are relocations to text seg */
     bool symbolic : 1;		/* True if generated with "-Bsymbolic" */
+    bool deepbind : 1;		/* True if loaded with RTLD_DEEPBIND" */
     bool bind_now : 1;		/* True if all relocations should be made first */
     bool traced : 1;		/* Already printed in ldd trace output */
     bool jmpslots_done : 1;	/* Already have relocated the jump slots */
     bool init_done : 1;		/* Already have added object to init list */
-    bool tls_done : 1;		/* Already allocated offset for static TLS */
+    bool tls_static : 1;	/* Already allocated offset for static TLS */
+    bool tls_dynamic : 1;	/* A non-static DTV entry has been allocated */
     bool phdr_alloc : 1;	/* Phdr is allocated and needs to be freed. */
     bool z_origin : 1;		/* Process rpath and soname tokens */
     bool z_nodelete : 1;	/* Do not unload the object and dependencies */
@@ -262,6 +253,7 @@ typedef struct Struct_Obj_Entry {
     bool on_fini_list: 1;	/* Object is already on fini list. */
     bool dag_inited : 1;	/* Object has its DAG initialized. */
     bool filtees_loaded : 1;	/* Filtees loaded */
+    bool filtees_loading : 1;	/* In process of filtees loading */
     bool irelative : 1;		/* Object has R_MACHDEP_IRELATIVE relocs */
     bool irelative_nonplt : 1;	/* Object has R_MACHDEP_IRELATIVE non-plt relocs */
     bool gnu_ifunc : 1;		/* Object has references to STT_GNU_IFUNC */
@@ -274,6 +266,8 @@ typedef struct Struct_Obj_Entry {
     bool marker : 1;		/* marker on the global obj list */
     bool unholdfree : 1;	/* unmap upon last unhold */
     bool doomed : 1;		/* Object cannot be referenced */
+
+    MD_OBJ_ENTRY;
 
     struct link_map linkmap;	/* For GDB and dlinfo() */
     Objlist dldags;		/* Object belongs to these dlopened DAGs (%) */
@@ -355,6 +349,33 @@ typedef struct Struct_SymLook {
     struct Struct_RtldLockState *lockstate;
 } SymLook;
 
+enum {
+	LD_BIND_NOW = 0,
+	LD_PRELOAD,
+	LD_LIBMAP,
+	LD_LIBRARY_PATH,
+	LD_LIBRARY_PATH_FDS,
+	LD_LIBMAP_DISABLE,
+	LD_BIND_NOT,
+	LD_DEBUG,
+	LD_ELF_HINTS_PATH,
+	LD_LOADFLTR,
+	LD_LIBRARY_PATH_RPATH,
+	LD_PRELOAD_FDS,
+	LD_DYNAMIC_WEAK,
+	LD_TRACE_LOADED_OBJECTS,
+	LD_UTRACE,
+	LD_DUMP_REL_PRE,
+	LD_DUMP_REL_POST,
+	LD_TRACE_LOADED_OBJECTS_PROGNAME,
+	LD_TRACE_LOADED_OBJECTS_FMT1,
+	LD_TRACE_LOADED_OBJECTS_FMT2,
+	LD_TRACE_LOADED_OBJECTS_ALL,
+	LD_SHOW_AUXV,
+	LD_STATIC_TLS_EXTRA,
+	LD_NO_DL_ITERATE_PHDR_AFTER_FORK,
+};
+
 void _rtld_error(const char *, ...) __printflike(1, 2) __exported;
 void rtld_die(void) __dead2;
 const char *rtld_strerror(int);
@@ -362,8 +383,7 @@ Obj_Entry *map_object(int, const char *, const struct stat *);
 void *xcalloc(size_t, size_t);
 void *xmalloc(size_t);
 char *xstrdup(const char *);
-void *malloc_aligned(size_t size, size_t align, size_t offset);
-void free_aligned(void *ptr);
+void *xmalloc_aligned(size_t size, size_t align, size_t offset);
 extern Elf_Addr _GLOBAL_OFFSET_TABLE_[];
 extern Elf_Sym sym_zero;	/* For resolving undefined weak refs. */
 extern bool ld_bind_not;
@@ -377,9 +397,10 @@ void dump_Elf_Rela(Obj_Entry *, const Elf_Rela *, u_long);
 /*
  * Function declarations.
  */
+const char *ld_get_env_var(int idx);
 uintptr_t rtld_round_page(uintptr_t);
 uintptr_t rtld_trunc_page(uintptr_t);
-unsigned long elf_hash(const char *);
+Elf32_Word elf_hash(const char *);
 const Elf_Sym *find_symdef(unsigned long, const Obj_Entry *,
   const Obj_Entry **, int, SymCache *, struct Struct_RtldLockState *);
 void lockdflt_init(void);
@@ -414,13 +435,8 @@ int reloc_jmpslots(Obj_Entry *, int flags, struct Struct_RtldLockState *);
 int reloc_iresolve(Obj_Entry *, struct Struct_RtldLockState *);
 int reloc_iresolve_nonplt(Obj_Entry *, struct Struct_RtldLockState *);
 int reloc_gnu_ifunc(Obj_Entry *, int flags, struct Struct_RtldLockState *);
-void ifunc_init(Elf_Auxinfo[__min_size(AT_COUNT)]);
+void ifunc_init(Elf_Auxinfo *[__min_size(AT_COUNT)]);
 void init_pltgot(Obj_Entry *);
 void allocate_initial_tls(Obj_Entry *);
-
-void *__crt_calloc(size_t num, size_t size);
-void __crt_free(void *cp);
-void *__crt_malloc(size_t nbytes);
-void *__crt_realloc(void *cp, size_t nbytes);
 
 #endif /* } */

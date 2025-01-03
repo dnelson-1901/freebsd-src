@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _VIRTIO_NET_H
@@ -212,7 +210,7 @@ struct virtio_net_ctrl_mac {
  * Control link announce acknowledgement
  *
  * The command VIRTIO_NET_CTRL_ANNOUNCE_ACK is used to indicate that
- * driver has recevied the notification; device would clear the
+ * driver has received the notification; device would clear the
  * VIRTIO_NET_S_ANNOUNCE bit in the status field after it receives
  * this command.
  */
@@ -483,7 +481,7 @@ virtio_net_tx_offload_tso(if_t ifp, struct mbuf *m, int eth_type,
 	hdr->gso_type = eth_type == ETHERTYPE_IP ? VIRTIO_NET_HDR_GSO_TCPV4 :
 	    VIRTIO_NET_HDR_GSO_TCPV6;
 
-	if (tcp->th_flags & TH_CWR) {
+	if (tcp_get_flags(tcp) & TH_CWR) {
 		/*
 		 * Drop if VIRTIO_NET_F_HOST_ECN was not negotiated. In FreeBSD,
 		 * ECN support is not on a per-interface basis, but globally via

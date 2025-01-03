@@ -34,7 +34,6 @@
  * SUCH DAMAGE.
  * 
  * $Id: dconschat.c,v 1.76 2003/10/23 06:21:13 simokawa Exp $
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -520,8 +519,10 @@ ok:
 		rlen = len;
 
 #if 1
-	if (verbose == 1)
-		printf("[%d]", rlen); fflush(stdout);
+	if (verbose == 1) {
+		printf("[%d]", rlen);
+		fflush(stdout);
+	}
 #endif
 
 again:

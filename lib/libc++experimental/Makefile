@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 PACKAGE=	clibs
@@ -7,11 +5,10 @@ SRCDIR=		${SRCTOP}/contrib/llvm-project/libcxx
 
 LIB=		c++experimental
 NO_PIC=
-MK_PROFILE=	no
 
-.PATH:		${SRCDIR}/src/experimental
+.PATH:		${SRCDIR}/src
 
-SRCS+=		memory_resource.cpp
+SRCS+=		experimental/keep.cpp
 
 WARNS?=		0
 CXXFLAGS+=	${PICFLAG}

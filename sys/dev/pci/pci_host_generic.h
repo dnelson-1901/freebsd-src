@@ -27,8 +27,6 @@
  * SUCH DAMAGE.
  *
  *
- * $FreeBSD$
- *
  */
 
 #ifndef __PCI_HOST_GENERIC_H_
@@ -65,6 +63,8 @@ struct pcie_range {
 #define	FLAG_TYPE_IO		0x1
 #define	FLAG_TYPE_MEM		0x2
 #define	FLAG_TYPE_PMEM		0x3
+	struct resource *res;
+	int rid;
 };
 
 struct generic_pcie_core_softc {
@@ -76,12 +76,9 @@ struct generic_pcie_core_softc {
 	struct rman		mem_rman;
 	struct rman		io_rman;
 	struct resource		*res;
-	struct resource		*res1;
 	int			bus_start;
 	int			bus_end;
 	int			ecam;
-	bus_space_tag_t		bst;
-	bus_space_handle_t	bsh;
 	device_t		dev;
 	bus_space_handle_t	ioh;
 	bus_dma_tag_t		dmat;
@@ -90,6 +87,8 @@ struct generic_pcie_core_softc {
 
 /* Quirks */
 #define PCIE_ECAM_DESIGNWARE_QUIRK	(1 << 0)
+/* Child will map resources to access config registers */
+#define PCIE_CUSTOM_CONFIG_SPACE_QUIRK	(1 << 1)
 
 DECLARE_CLASS(generic_pcie_core_driver);
 
@@ -97,7 +96,8 @@ int pci_host_generic_core_attach(device_t);
 int pci_host_generic_core_detach(device_t);
 struct resource *pci_host_generic_core_alloc_resource(device_t, device_t, int,
     int *, rman_res_t, rman_res_t, rman_res_t, u_int);
-int pci_host_generic_core_release_resource(device_t, device_t, int, int,
+int pci_host_generic_core_release_resource(device_t, device_t,
     struct resource *);
+int generic_pcie_read_ivar(device_t, device_t, int, uintptr_t *);
 
 #endif /* __PCI_HOST_GENERIC_H_ */

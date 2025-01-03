@@ -49,9 +49,6 @@
  * October 1992
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/errno.h>
 #include <sys/mman.h>
@@ -500,7 +497,6 @@ msdosfs_wfile(const char *path, struct denode *dep, fsnode *node)
 		cpsize = MIN((nsize - offs), blsize - on);
 		memcpy(bp->b_data + on, dat + offs, cpsize);
 		bwrite(bp);
-		brelse(bp);
 		offs += cpsize;
 	}
 

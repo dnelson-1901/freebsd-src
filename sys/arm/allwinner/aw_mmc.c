@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2018 Emmanuel Vadot <manu@FreeBSD.org>
  * Copyright (c) 2013 Alexander Fedorov
@@ -27,9 +27,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -55,9 +52,9 @@ __FBSDID("$FreeBSD$");
 #include <dev/mmc/mmc_fdt_helpers.h>
 
 #include <arm/allwinner/aw_mmc.h>
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/regulator/regulator.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/regulator/regulator.h>
 
 #include "opt_mmccam.h"
 
@@ -331,7 +328,7 @@ aw_mmc_helper_cd_handler(device_t dev, bool present)
 			if (__predict_false(aw_mmc_debug & AW_MMC_DEBUG_CARD))
 				device_printf(sc->aw_dev, "Card inserted\n");
 
-			sc->child = device_add_child(sc->aw_dev, "mmc", -1);
+			sc->child = device_add_child(sc->aw_dev, "mmc", DEVICE_UNIT_ANY);
 			AW_MMC_UNLOCK(sc);
 			if (sc->child) {
 				device_set_ivars(sc->child, sc);
@@ -485,7 +482,6 @@ static int
 aw_mmc_detach(device_t dev)
 {
 	struct aw_mmc_softc *sc;
-	device_t d;
 
 	sc = device_get_softc(dev);
 
@@ -497,12 +493,7 @@ aw_mmc_detach(device_t dev)
 
 	callout_drain(&sc->aw_timeoutc);
 
-	AW_MMC_LOCK(sc);
-	d = sc->child;
-	sc->child = NULL;
-	AW_MMC_UNLOCK(sc);
-	if (d != NULL)
-		device_delete_child(sc->aw_dev, d);
+	device_delete_children(sc->aw_dev);
 
 	aw_mmc_teardown_dma(sc);
 

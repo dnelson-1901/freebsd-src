@@ -1,6 +1,3 @@
-#	@(#)Makefile	8.1 (Berkeley) 6/9/93
-# $FreeBSD$
-
 PACKAGE=runtime
 PROG=	md5
 
@@ -52,17 +49,26 @@ MLINKS=	md5.1 md5sum.1 \
 	md5.1 skein1024.1 \
 	md5.1 skein1024sum.1
 
+# md5 can also emulate the shasum script that comes with Perl, except
+# that, in bits input mode, it can only handle input lengths that are
+# a multiple of 8 (see manual page).
+#LINKS+= ${BINDIR}/md5 ${BINDIR}/shasum
+#MLINKS+= md5.1 shasum.1
+
 LIBADD=	md
 
-.ifndef(BOOTSTRAPPING)
+.include <src.opts.mk>
+
+.if ${MK_CASPER} != "no" && !defined(RESCUE) && !defined(BOOTSTRAPPING)
 # Avoid depending on capsicum during bootstrap. caph_limit_stdout() is not
 # available when building for Linux/MacOS or older FreeBSD hosts.
 # We need to bootstrap md5 when building on Linux since the md5sum command there
 # produces different output.
 CFLAGS+=-DHAVE_CAPSICUM
+CFLAGS+=-DWITH_CASPER
+LIBADD+=	casper
+LIBADD+=	cap_fileargs
 .endif
-
-.include <src.opts.mk>
 
 HAS_TESTS=
 SUBDIR.${MK_TESTS}+= tests

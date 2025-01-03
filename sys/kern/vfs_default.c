@@ -7,8 +7,6 @@
  * This code is derived from software contributed
  * to Berkeley by John Heidemann of the UCLA Ficus project.
  *
- * Source: * @(#)i405_init.c 2.10 92/04/27 UCLA Ficus project
- *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -33,9 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -75,14 +70,8 @@ __FBSDID("$FreeBSD$");
 static int	vop_nolookup(struct vop_lookup_args *);
 static int	vop_norename(struct vop_rename_args *);
 static int	vop_nostrategy(struct vop_strategy_args *);
-static int	get_next_dirent(struct vnode *vp, struct dirent **dpp,
-				char *dirbuf, int dirbuflen, off_t *off,
-				char **cpos, int *len, int *eofflag,
-				struct thread *td);
 static int	dirent_exists(struct vnode *vp, const char *dirname,
 			      struct thread *td);
-
-#define DIRENT_MINSIZE (sizeof(struct dirent) - (MAXNAMLEN+1) + 4)
 
 static int vop_stdis_text(struct vop_is_text_args *ap);
 static int vop_stdunset_text(struct vop_unset_text_args *ap);
@@ -93,6 +82,7 @@ static int vop_stdgetpages_async(struct vop_getpages_async_args *ap);
 static int vop_stdread_pgcache(struct vop_read_pgcache_args *ap);
 static int vop_stdstat(struct vop_stat_args *ap);
 static int vop_stdvput_pair(struct vop_vput_pair_args *ap);
+static int vop_stdgetlowvnode(struct vop_getlowvnode_args *ap);
 
 /*
  * This vnode table stores what we want to do if the filesystem doesn't
@@ -123,9 +113,10 @@ struct vop_vector default_vnodeops = {
 	.vop_fsync =		VOP_NULL,
 	.vop_stat =		vop_stdstat,
 	.vop_fdatasync =	vop_stdfdatasync,
+	.vop_getlowvnode =	vop_stdgetlowvnode,
 	.vop_getpages =		vop_stdgetpages,
 	.vop_getpages_async =	vop_stdgetpages_async,
-	.vop_getwritemount = 	vop_stdgetwritemount,
+	.vop_getwritemount =	vop_stdgetwritemount,
 	.vop_inactive =		VOP_NULL,
 	.vop_need_inactive =	vop_stdneed_inactive,
 	.vop_ioctl =		vop_stdioctl,
@@ -281,109 +272,57 @@ vop_nostrategy (struct vop_strategy_args *ap)
 	return (EOPNOTSUPP);
 }
 
-static int
-get_next_dirent(struct vnode *vp, struct dirent **dpp, char *dirbuf,
-		int dirbuflen, off_t *off, char **cpos, int *len,
-		int *eofflag, struct thread *td)
-{
-	int error, reclen;
-	struct uio uio;
-	struct iovec iov;
-	struct dirent *dp;
-
-	KASSERT(VOP_ISLOCKED(vp), ("vp %p is not locked", vp));
-	KASSERT(vp->v_type == VDIR, ("vp %p is not a directory", vp));
-
-	if (*len == 0) {
-		iov.iov_base = dirbuf;
-		iov.iov_len = dirbuflen;
-
-		uio.uio_iov = &iov;
-		uio.uio_iovcnt = 1;
-		uio.uio_offset = *off;
-		uio.uio_resid = dirbuflen;
-		uio.uio_segflg = UIO_SYSSPACE;
-		uio.uio_rw = UIO_READ;
-		uio.uio_td = td;
-
-		*eofflag = 0;
-
-#ifdef MAC
-		error = mac_vnode_check_readdir(td->td_ucred, vp);
-		if (error == 0)
-#endif
-			error = VOP_READDIR(vp, &uio, td->td_ucred, eofflag,
-		    		NULL, NULL);
-		if (error)
-			return (error);
-
-		*off = uio.uio_offset;
-
-		*cpos = dirbuf;
-		*len = (dirbuflen - uio.uio_resid);
-
-		if (*len == 0)
-			return (ENOENT);
-	}
-
-	dp = (struct dirent *)(*cpos);
-	reclen = dp->d_reclen;
-	*dpp = dp;
-
-	/* check for malformed directory.. */
-	if (reclen < DIRENT_MINSIZE)
-		return (EINVAL);
-
-	*cpos += reclen;
-	*len -= reclen;
-
-	return (0);
-}
-
 /*
- * Check if a named file exists in a given directory vnode.
+ * Check if a named file exists in a given directory vnode
+ *
+ * Returns 0 if the file exists, ENOENT if it doesn't, or errors returned by
+ * vn_dir_next_dirent().
  */
 static int
 dirent_exists(struct vnode *vp, const char *dirname, struct thread *td)
 {
-	char *dirbuf, *cpos;
-	int error, eofflag, dirbuflen, len, found;
+	char *dirbuf;
+	int error, eofflag;
+	size_t dirbuflen, len;
 	off_t off;
 	struct dirent *dp;
 	struct vattr va;
 
-	KASSERT(VOP_ISLOCKED(vp), ("vp %p is not locked", vp));
+	ASSERT_VOP_LOCKED(vp, "vnode not locked");
 	KASSERT(vp->v_type == VDIR, ("vp %p is not a directory", vp));
 
-	found = 0;
-
 	error = VOP_GETATTR(vp, &va, td->td_ucred);
-	if (error)
-		return (found);
+	if (error != 0)
+		return (error);
 
-	dirbuflen = DEV_BSIZE;
+	dirbuflen = MAX(DEV_BSIZE, GENERIC_MAXDIRSIZ);
 	if (dirbuflen < va.va_blocksize)
 		dirbuflen = va.va_blocksize;
-	dirbuf = (char *)malloc(dirbuflen, M_TEMP, M_WAITOK);
+	dirbuf = malloc(dirbuflen, M_TEMP, M_WAITOK);
 
-	off = 0;
 	len = 0;
-	do {
-		error = get_next_dirent(vp, &dp, dirbuf, dirbuflen, &off,
-					&cpos, &len, &eofflag, td);
-		if (error)
+	off = 0;
+	eofflag = 0;
+
+	for (;;) {
+		error = vn_dir_next_dirent(vp, td, dirbuf, dirbuflen,
+		    &dp, &len, &off, &eofflag);
+		if (error != 0)
 			goto out;
+
+		if (len == 0)
+			break;
 
 		if (dp->d_type != DT_WHT && dp->d_fileno != 0 &&
-		    strcmp(dp->d_name, dirname) == 0) {
-			found = 1;
+		    strcmp(dp->d_name, dirname) == 0)
 			goto out;
-		}
-	} while (len > 0 || !eofflag);
+	}
+
+	error = ENOENT;
 
 out:
 	free(dirbuf, M_TEMP);
-	return (found);
+	return (error);
 }
 
 int
@@ -737,26 +676,23 @@ vop_stdvptofh(struct vop_vptofh_args *ap)
 int
 vop_stdvptocnp(struct vop_vptocnp_args *ap)
 {
-	struct vnode *vp = ap->a_vp;
-	struct vnode **dvp = ap->a_vpp;
-	struct ucred *cred;
+	struct vnode *const vp = ap->a_vp;
+	struct vnode **const dvp = ap->a_vpp;
 	char *buf = ap->a_buf;
 	size_t *buflen = ap->a_buflen;
-	char *dirbuf, *cpos;
-	int i, error, eofflag, dirbuflen, flags, locked, len, covered;
+	char *dirbuf;
+	int i = *buflen;
+	int error = 0, covered = 0;
+	int eofflag, flags, locked;
+	size_t dirbuflen, len;
 	off_t off;
 	ino_t fileno;
 	struct vattr va;
 	struct nameidata nd;
-	struct thread *td;
+	struct thread *const td = curthread;
+	struct ucred *const cred = td->td_ucred;
 	struct dirent *dp;
 	struct vnode *mvp;
-
-	i = *buflen;
-	error = 0;
-	covered = 0;
-	td = curthread;
-	cred = td->td_ucred;
 
 	if (vp->v_type != VDIR)
 		return (ENOENT);
@@ -794,31 +730,38 @@ vop_stdvptocnp(struct vop_vptocnp_args *ap)
 
 	fileno = va.va_fileid;
 
-	dirbuflen = DEV_BSIZE;
+	dirbuflen = MAX(DEV_BSIZE, GENERIC_MAXDIRSIZ);
 	if (dirbuflen < va.va_blocksize)
 		dirbuflen = va.va_blocksize;
-	dirbuf = (char *)malloc(dirbuflen, M_TEMP, M_WAITOK);
+	dirbuf = malloc(dirbuflen, M_TEMP, M_WAITOK);
 
 	if ((*dvp)->v_type != VDIR) {
 		error = ENOENT;
 		goto out;
 	}
 
-	off = 0;
 	len = 0;
-	do {
+	off = 0;
+	eofflag = 0;
+
+	for (;;) {
 		/* call VOP_READDIR of parent */
-		error = get_next_dirent(*dvp, &dp, dirbuf, dirbuflen, &off,
-					&cpos, &len, &eofflag, td);
-		if (error)
+		error = vn_dir_next_dirent(*dvp, td,
+		    dirbuf, dirbuflen, &dp, &len, &off, &eofflag);
+		if (error != 0)
 			goto out;
+
+		if (len == 0) {
+			error = ENOENT;
+			goto out;
+		}
 
 		if ((dp->d_type != DT_WHT) &&
 		    (dp->d_fileno == fileno)) {
 			if (covered) {
 				VOP_UNLOCK(*dvp);
 				vn_lock(mvp, LK_SHARED | LK_RETRY);
-				if (dirent_exists(mvp, dp->d_name, td)) {
+				if (dirent_exists(mvp, dp->d_name, td) == 0) {
 					error = ENOENT;
 					VOP_UNLOCK(mvp);
 					vn_lock(*dvp, LK_SHARED | LK_RETRY);
@@ -841,8 +784,7 @@ vop_stdvptocnp(struct vop_vptocnp_args *ap)
 			}
 			goto out;
 		}
-	} while (len > 0 || !eofflag);
-	error = ENOENT;
+	}
 
 out:
 	free(dirbuf, M_TEMP);
@@ -1121,8 +1063,8 @@ vop_stdadvise(struct vop_advise_args *ap)
 {
 	struct vnode *vp;
 	struct bufobj *bo;
+	uintmax_t bstart, bend;
 	daddr_t startn, endn;
-	off_t bstart, bend, start, end;
 	int bsize, error;
 
 	vp = ap->a_vp;
@@ -1145,7 +1087,7 @@ vop_stdadvise(struct vop_advise_args *ap)
 
 		/*
 		 * Round to block boundaries (and later possibly further to
-		 * page boundaries).  Applications cannot reasonably be aware  
+		 * page boundaries).  Applications cannot reasonably be aware
 		 * of the boundaries, and the rounding must be to expand at
 		 * both extremities to cover enough.  It still doesn't cover
 		 * read-ahead.  For partial blocks, this gives unnecessary
@@ -1154,7 +1096,8 @@ vop_stdadvise(struct vop_advise_args *ap)
 		 */
 		bsize = vp->v_bufobj.bo_bsize;
 		bstart = rounddown(ap->a_start, bsize);
-		bend = roundup(ap->a_end, bsize);
+		bend = ap->a_end;
+		bend = roundup(bend, bsize);
 
 		/*
 		 * Deactivate pages in the specified range from the backing VM
@@ -1163,18 +1106,17 @@ vop_stdadvise(struct vop_advise_args *ap)
 		 * below.
 		 */
 		if (vp->v_object != NULL) {
-			start = trunc_page(bstart);
-			end = round_page(bend);
 			VM_OBJECT_RLOCK(vp->v_object);
-			vm_object_page_noreuse(vp->v_object, OFF_TO_IDX(start),
-			    OFF_TO_IDX(end));
+			vm_object_page_noreuse(vp->v_object,
+			    OFF_TO_IDX(trunc_page(bstart)),
+			    OFF_TO_IDX(round_page(bend)));
 			VM_OBJECT_RUNLOCK(vp->v_object);
 		}
 
 		bo = &vp->v_bufobj;
-		BO_RLOCK(bo);
 		startn = bstart / bsize;
 		endn = bend / bsize;
+		BO_RLOCK(bo);
 		error = bnoreuselist(&bo->bo_clean, bo, startn, endn);
 		if (error == 0)
 			error = bnoreuselist(&bo->bo_dirty, bo, startn, endn);
@@ -1216,7 +1158,7 @@ static int
 vop_stdis_text(struct vop_is_text_args *ap)
 {
 
-	return (atomic_load_int(&ap->a_vp->v_writecount) < 0);
+	return ((int)atomic_load_int(&ap->a_vp->v_writecount) < 0);
 }
 
 int
@@ -1298,7 +1240,7 @@ vop_stdunset_text(struct vop_unset_text_args *ap)
 	__assert_unreachable();
 }
 
-static int __always_inline
+static __always_inline int
 vop_stdadd_writecount_impl(struct vop_add_writecount_args *ap, bool handle_msync)
 {
 	struct vnode *vp;
@@ -1665,5 +1607,13 @@ vop_stdvput_pair(struct vop_vput_pair_args *ap)
 	vput(dvp);
 	if (vpp != NULL && ap->a_unlock_vp && (vp = *vpp) != NULL)
 		vput(vp);
+	return (0);
+}
+
+static int
+vop_stdgetlowvnode(struct vop_getlowvnode_args *ap)
+{
+	vref(ap->a_vp);
+	*ap->a_vplp = ap->a_vp;
 	return (0);
 }

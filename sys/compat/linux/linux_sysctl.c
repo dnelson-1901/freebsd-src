@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Marcel Moolenaar
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/lock.h>
@@ -77,7 +74,7 @@ LIN_SDT_PROBE_DEFINE1(sysctl, linux_sysctl, unsupported_sysctl, "char *");
 
 #ifdef LINUX_LEGACY_SYSCALLS
 static int
-handle_string(struct l___sysctl_args *la, char *value)
+handle_string(struct l___sysctl_args *la, const char *value)
 {
 	int error;
 

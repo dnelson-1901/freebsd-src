@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007-2009 Robert N. M. Watson
  * Copyright (c) 2010-2011 Juniper Networks, Inc.
@@ -31,8 +31,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * netisr is a packet dispatch service, allowing synchronous (directly
  * dispatched) and asynchronous (deferred dispatch) processing of packets by
@@ -970,8 +968,8 @@ swi_net(void *arg)
 	nwsp->nws_flags |= NWS_RUNNING;
 	nwsp->nws_flags &= ~NWS_SCHEDULED;
 	while ((bits = nwsp->nws_pendingbits) != 0) {
-		while ((prot = ffs(bits)) != 0) {
-			prot--;
+		while (bits != 0) {
+			prot = ffs(bits) - 1;
 			bits &= ~(1 << prot);
 			(void)netisr_process_workstream_proto(nwsp, prot);
 		}

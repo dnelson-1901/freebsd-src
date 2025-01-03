@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 The FreeBSD Foundation
  *
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 extern "C" {
@@ -71,13 +69,6 @@ void expect_opendir(uint64_t ino, uint32_t flags, ProcessMockerT r)
 	).WillOnce(Invoke(r));
 }
 
-};
-
-class OpendirNoOpendirSupport: public Opendir {
-	virtual void SetUp() {
-		m_init_flags = FUSE_NO_OPENDIR_SUPPORT;
-		FuseTest::SetUp();
-	}
 };
 
 
@@ -181,27 +172,11 @@ TEST_F(Opendir, opendir)
 }
 
 /*
- * Without FUSE_NO_OPENDIR_SUPPORT, returning ENOSYS is an error
- */
-TEST_F(Opendir, enosys)
-{
-	const char FULLPATH[] = "mountpoint/some_file.txt";
-	const char RELPATH[] = "some_file.txt";
-	uint64_t ino = 42;
-
-	expect_lookup(RELPATH, ino);
-	expect_opendir(ino, O_RDONLY, ReturnErrno(ENOSYS));
-
-	EXPECT_EQ(-1, open(FULLPATH, O_DIRECTORY));
-	EXPECT_EQ(ENOSYS, errno);
-}
-
-/*
- * If a fuse server sets FUSE_NO_OPENDIR_SUPPORT and returns ENOSYS to a
+ * If a fuse server returns ENOSYS to a
  * FUSE_OPENDIR, then it and subsequent FUSE_OPENDIR and FUSE_RELEASEDIR
  * operations will also succeed automatically without being sent to the server.
  */
-TEST_F(OpendirNoOpendirSupport, enosys)
+TEST_F(Opendir, enosys)
 {
 	const char FULLPATH[] = "mountpoint/some_file.txt";
 	const char RELPATH[] = "some_file.txt";

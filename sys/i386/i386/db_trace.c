@@ -24,9 +24,6 @@
  * rights to redistribute these changes.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kdb.h>
@@ -200,8 +197,7 @@ static void db_print_stack_entry(const char *, int, char **, int *, db_addr_t,
  * Figure out how many arguments were passed into the frame at "fp".
  */
 static int
-db_numargs(fp)
-	struct i386_frame *fp;
+db_numargs(struct i386_frame *fp)
 {
 	char   *argp;
 	int	inst;
@@ -232,13 +228,8 @@ retry:
 }
 
 static void
-db_print_stack_entry(name, narg, argnp, argp, callpc, frame)
-	const char *name;
-	int narg;
-	char **argnp;
-	int *argp;
-	db_addr_t callpc;
-	void *frame;
+db_print_stack_entry(const char *name, int narg, char **argnp, int *argp,
+    db_addr_t callpc, void *frame)
 {
 	int n = narg >= 0 ? narg : 5;
 

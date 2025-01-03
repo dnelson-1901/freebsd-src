@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Adam Starak <starak.adam@gmail.com>
  * All rights reserved.
@@ -24,14 +24,13 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_CNV_H_
 #define	_CNV_H_
 
 #include <sys/cdefs.h>
+#include <sys/_nv.h>
 
 #ifndef _KERNEL
 #include <stdarg.h>
@@ -39,13 +38,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/nv_namespace.h>
-#endif
-
-#ifndef	_NVLIST_T_DECLARED
-#define	_NVLIST_T_DECLARED
-struct nvlist;
-
-typedef struct nvlist nvlist_t;
 #endif
 
 __BEGIN_DECLS

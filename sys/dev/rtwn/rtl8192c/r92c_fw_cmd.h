@@ -15,7 +15,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
  * $OpenBSD: if_urtwnreg.h,v 1.3 2010/11/16 18:02:59 damien Exp $
- * $FreeBSD$
  */
 
 #ifndef R92C_FW_CMD_H
@@ -81,6 +80,7 @@ struct r92c_fw_cmd_macid_cfg {
 	uint32_t	mask;
 	uint8_t		macid;
 #define R92C_CMD_MACID_VALID	0x80
+#define R92C_CMD_MACID_SGI	0x20
 } __packed;
 
 /*

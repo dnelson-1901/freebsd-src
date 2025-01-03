@@ -25,8 +25,6 @@
 .\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-.\"
-.\" $FreeBSD$
 .Dd February 12, 2005
 .Dt CATOPEN 3
 .Os
@@ -132,16 +130,17 @@ Otherwise, (nl_catd) -1 is returned and
 is set to indicate the error.
 .Sh ERRORS
 .Bl -tag -width Er
-.It Bq Er EINVAL
-Argument
-.Fa name
-does not point to a valid message catalog, or catalog is corrupt.
 .It Bq Er ENAMETOOLONG
 An entire path to the message catalog exceeded 1024 characters.
 .It Bq Er ENOENT
-The named message catalog does not exists, or the
+Argument
 .Fa name
-argument points to an empty string.
+does not point to a valid message catalog name,
+or it points to an empty string.
+.It Bq Er ENOENT
+The named message catalog does not exist.
+.It Bq Er ENOENT
+The named message catalog file is in wrong format.
 .It Bq Er ENOMEM
 Insufficient memory is available.
 .El

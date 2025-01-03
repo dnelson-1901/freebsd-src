@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 Chelsio Communications, Inc.
  * All rights reserved.
@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_kern_tls.h"
@@ -81,11 +79,7 @@ __FBSDID("$FreeBSD$");
 #include "t4_l2t.h"
 #include "t4_mp_ring.h"
 
-#ifdef T4_PKT_TIMESTAMP
-#define RX_COPY_THRESHOLD (MINCLSIZE - 8)
-#else
 #define RX_COPY_THRESHOLD MINCLSIZE
-#endif
 
 /*
  * Ethernet frames are DMA'd at this byte offset into the freelist buffer.
@@ -335,12 +329,12 @@ static void drain_wrq_wr_list(struct adapter *, struct sge_wrq *);
 
 static int sysctl_bufsizes(SYSCTL_HANDLER_ARGS);
 #ifdef RATELIMIT
-#if defined(INET) || defined(INET6)
-static inline u_int txpkt_eo_len16(u_int, u_int, u_int);
-#endif
 static int ethofld_fw4_ack(struct sge_iq *, const struct rss_header *,
     struct mbuf *);
+#if defined(INET) || defined(INET6)
+static inline u_int txpkt_eo_len16(u_int, u_int, u_int);
 static int ethofld_transmit(if_t, struct mbuf *);
+#endif
 #endif
 
 static counter_u64_t extfree_refs;
@@ -2092,9 +2086,17 @@ have_mbuf:
 	}
 
 	if (cpl->vlan_ex) {
-		m0->m_pkthdr.ether_vtag = be16toh(cpl->vlan);
-		m0->m_flags |= M_VLANTAG;
-		rxq->vlan_extraction++;
+		if (sc->flags & IS_VF && sc->vlan_id) {
+			/*
+			 * HW is not setup correctly if extracted vlan_id does
+			 * not match the VF's setting.
+			 */
+			MPASS(be16toh(cpl->vlan) == sc->vlan_id);
+		} else {
+			m0->m_pkthdr.ether_vtag = be16toh(cpl->vlan);
+			m0->m_flags |= M_VLANTAG;
+			rxq->vlan_extraction++;
+		}
 	}
 
 	if (rxq->iq.flags & IQ_RX_TIMESTAMP) {
@@ -2919,6 +2921,10 @@ start_wrq_wr(struct sge_wrq *wrq, int len16, struct wrq_cookie *cookie)
 	MPASS(ndesc > 0 && ndesc <= SGE_MAX_WR_NDESC);
 
 	EQ_LOCK(eq);
+	if (__predict_false((eq->flags & EQ_HW_ALLOCATED) == 0)) {
+		EQ_UNLOCK(eq);
+		return (NULL);
+	}
 
 	if (TAILQ_EMPTY(&wrq->incomplete_wrs) && !STAILQ_EMPTY(&wrq->wr_list))
 		drain_wrq_wr_list(sc, wrq);
@@ -3014,7 +3020,10 @@ commit_wrq_wr(struct sge_wrq *wrq, void *w, struct wrq_cookie *cookie)
 				    F_FW_WR_EQUEQ);
 			}
 
-			ring_eq_db(wrq->adapter, eq, ndesc);
+			if (__predict_true(eq->flags & EQ_HW_ALLOCATED))
+				ring_eq_db(wrq->adapter, eq, ndesc);
+			else
+				IDXINCR(eq->dbidx, ndesc, eq->sidx);
 		} else {
 			MPASS(IDXDIFF(next->pidx, pidx, eq->sidx) == ndesc);
 			next->pidx = pidx;
@@ -3389,13 +3398,14 @@ init_fl(struct adapter *sc, struct sge_fl *fl, int qsize, int maxp, char *name)
 
 static inline void
 init_eq(struct adapter *sc, struct sge_eq *eq, int eqtype, int qsize,
-    uint8_t tx_chan, struct sge_iq *iq, char *name)
+    uint8_t port_id, struct sge_iq *iq, char *name)
 {
 	KASSERT(eqtype >= EQ_CTRL && eqtype <= EQ_OFLD,
 	    ("%s: bad qtype %d", __func__, eqtype));
 
 	eq->type = eqtype;
-	eq->tx_chan = tx_chan;
+	eq->port_id = port_id;
+	eq->tx_chan = sc->port[port_id]->tx_chan;
 	eq->iq = iq;
 	eq->sidx = qsize - sc->params.sge.spg_len / EQ_ESIZE;
 	strlcpy(eq->lockname, name, sizeof(eq->lockname));
@@ -3836,8 +3846,8 @@ alloc_ctrlq(struct adapter *sc, int idx)
 
 		snprintf(name, sizeof(name), "%s ctrlq%d",
 		    device_get_nameunit(sc->dev), idx);
-		init_eq(sc, &ctrlq->eq, EQ_CTRL, CTRL_EQ_QSIZE,
-		    sc->port[idx]->tx_chan, &sc->sge.fwq, name);
+		init_eq(sc, &ctrlq->eq, EQ_CTRL, CTRL_EQ_QSIZE, idx,
+		    &sc->sge.fwq, name);
 		rc = alloc_wrq(sc, NULL, ctrlq, &sc->ctx, oid);
 		if (rc != 0) {
 			CH_ERR(sc, "failed to allocate ctrlq%d: %d\n", idx, rc);
@@ -3849,6 +3859,8 @@ alloc_ctrlq(struct adapter *sc, int idx)
 
 	if (!(ctrlq->eq.flags & EQ_HW_ALLOCATED)) {
 		MPASS(ctrlq->eq.flags & EQ_SW_ALLOCATED);
+		MPASS(ctrlq->nwr_pending == 0);
+		MPASS(ctrlq->ndesc_needed == 0);
 
 		rc = alloc_eq_hwq(sc, NULL, &ctrlq->eq);
 		if (rc != 0) {
@@ -4104,6 +4116,9 @@ alloc_ofld_rxq(struct vi_info *vi, struct sge_ofld_rxq *ofld_rxq, int idx,
 		ofld_rxq->rx_iscsi_ddp_setup_ok = counter_u64_alloc(M_WAITOK);
 		ofld_rxq->rx_iscsi_ddp_setup_error =
 		    counter_u64_alloc(M_WAITOK);
+		ofld_rxq->ddp_buffer_alloc = counter_u64_alloc(M_WAITOK);
+		ofld_rxq->ddp_buffer_reuse = counter_u64_alloc(M_WAITOK);
+		ofld_rxq->ddp_buffer_free = counter_u64_alloc(M_WAITOK);
 		add_ofld_rxq_sysctls(&vi->ctx, oid, ofld_rxq);
 	}
 
@@ -4138,6 +4153,9 @@ free_ofld_rxq(struct vi_info *vi, struct sge_ofld_rxq *ofld_rxq)
 		MPASS(!(ofld_rxq->iq.flags & IQ_SW_ALLOCATED));
 		counter_u64_free(ofld_rxq->rx_iscsi_ddp_setup_ok);
 		counter_u64_free(ofld_rxq->rx_iscsi_ddp_setup_error);
+		counter_u64_free(ofld_rxq->ddp_buffer_alloc);
+		counter_u64_free(ofld_rxq->ddp_buffer_reuse);
+		counter_u64_free(ofld_rxq->ddp_buffer_free);
 		bzero(ofld_rxq, sizeof(*ofld_rxq));
 	}
 }
@@ -4152,12 +4170,30 @@ add_ofld_rxq_sysctls(struct sysctl_ctx_list *ctx, struct sysctl_oid *oid,
 		return;
 
 	children = SYSCTL_CHILDREN(oid);
+	SYSCTL_ADD_U64(ctx, children, OID_AUTO, "rx_aio_ddp_jobs",
+	    CTLFLAG_RD, &ofld_rxq->rx_aio_ddp_jobs, 0,
+	    "# of aio_read(2) jobs completed via DDP");
+	SYSCTL_ADD_U64(ctx, children, OID_AUTO, "rx_aio_ddp_octets",
+	    CTLFLAG_RD, &ofld_rxq->rx_aio_ddp_octets, 0,
+	    "# of octets placed directly for aio_read(2) jobs");
 	SYSCTL_ADD_ULONG(ctx, children, OID_AUTO,
 	    "rx_toe_tls_records", CTLFLAG_RD, &ofld_rxq->rx_toe_tls_records,
 	    "# of TOE TLS records received");
 	SYSCTL_ADD_ULONG(ctx, children, OID_AUTO,
 	    "rx_toe_tls_octets", CTLFLAG_RD, &ofld_rxq->rx_toe_tls_octets,
 	    "# of payload octets in received TOE TLS records");
+	SYSCTL_ADD_ULONG(ctx, children, OID_AUTO,
+	    "rx_toe_ddp_octets", CTLFLAG_RD, &ofld_rxq->rx_toe_ddp_octets,
+	    "# of payload octets received via TCP DDP");
+	SYSCTL_ADD_COUNTER_U64(ctx, children, OID_AUTO,
+	    "ddp_buffer_alloc", CTLFLAG_RD, &ofld_rxq->ddp_buffer_alloc,
+	    "# of DDP RCV buffers allocated");
+	SYSCTL_ADD_COUNTER_U64(ctx, children, OID_AUTO,
+	    "ddp_buffer_reuse", CTLFLAG_RD, &ofld_rxq->ddp_buffer_reuse,
+	    "# of DDP RCV buffers reused");
+	SYSCTL_ADD_COUNTER_U64(ctx, children, OID_AUTO,
+	    "ddp_buffer_free", CTLFLAG_RD, &ofld_rxq->ddp_buffer_free,
+	    "# of DDP RCV buffers freed");
 
 	oid = SYSCTL_ADD_NODE(ctx, children, OID_AUTO, "iscsi",
 	    CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, "TOE iSCSI statistics");
@@ -4201,9 +4237,7 @@ qsize_to_fthresh(int qsize)
 {
 	u_int fthresh;
 
-	while (!powerof2(qsize))
-		qsize++;
-	fthresh = ilog2(qsize);
+	fthresh = qsize == 0 ? 0 : order_base_2(qsize);
 	if (fthresh > X_CIDXFLUSHTHRESH_128)
 		fthresh = X_CIDXFLUSHTHRESH_128;
 
@@ -4529,6 +4563,7 @@ free_wrq(struct adapter *sc, struct sge_wrq *wrq)
 {
 	free_eq(sc, &wrq->eq);
 	MPASS(wrq->nwr_pending == 0);
+	MPASS(wrq->ndesc_needed == 0);
 	MPASS(TAILQ_EMPTY(&wrq->incomplete_wrs));
 	MPASS(STAILQ_EMPTY(&wrq->wr_list));
 	bzero(wrq, sizeof(*wrq));
@@ -4577,7 +4612,7 @@ alloc_txq(struct vi_info *vi, struct sge_txq *txq, int idx)
 		iqidx = vi->first_rxq + (idx % vi->nrxq);
 		snprintf(name, sizeof(name), "%s txq%d",
 		    device_get_nameunit(vi->dev), idx);
-		init_eq(sc, &txq->eq, EQ_ETH, vi->qsize_txq, pi->tx_chan,
+		init_eq(sc, &txq->eq, EQ_ETH, vi->qsize_txq, pi->port_id,
 		    &sc->sge.rxq[iqidx].iq, name);
 
 		rc = mp_ring_alloc(&txq->r, eq->sidx, txq, eth_tx,
@@ -4794,11 +4829,11 @@ alloc_ofld_txq(struct vi_info *vi, struct sge_ofld_txq *ofld_txq, int idx)
 		    device_get_nameunit(vi->dev), idx);
 		if (vi->nofldrxq > 0) {
 			iqidx = vi->first_ofld_rxq + (idx % vi->nofldrxq);
-			init_eq(sc, eq, EQ_OFLD, vi->qsize_txq, pi->tx_chan,
+			init_eq(sc, eq, EQ_OFLD, vi->qsize_txq, pi->port_id,
 			    &sc->sge.ofld_rxq[iqidx].iq, name);
 		} else {
 			iqidx = vi->first_rxq + (idx % vi->nrxq);
-			init_eq(sc, eq, EQ_OFLD, vi->qsize_txq, pi->tx_chan,
+			init_eq(sc, eq, EQ_OFLD, vi->qsize_txq, pi->port_id,
 			    &sc->sge.rxq[iqidx].iq, name);
 		}
 
@@ -4815,12 +4850,17 @@ alloc_ofld_txq(struct vi_info *vi, struct sge_ofld_txq *ofld_txq, int idx)
 		ofld_txq->tx_iscsi_pdus = counter_u64_alloc(M_WAITOK);
 		ofld_txq->tx_iscsi_octets = counter_u64_alloc(M_WAITOK);
 		ofld_txq->tx_iscsi_iso_wrs = counter_u64_alloc(M_WAITOK);
+		ofld_txq->tx_aio_jobs = counter_u64_alloc(M_WAITOK);
+		ofld_txq->tx_aio_octets = counter_u64_alloc(M_WAITOK);
 		ofld_txq->tx_toe_tls_records = counter_u64_alloc(M_WAITOK);
 		ofld_txq->tx_toe_tls_octets = counter_u64_alloc(M_WAITOK);
 		add_ofld_txq_sysctls(&vi->ctx, oid, ofld_txq);
 	}
 
 	if (!(eq->flags & EQ_HW_ALLOCATED)) {
+		MPASS(eq->flags & EQ_SW_ALLOCATED);
+		MPASS(ofld_txq->wrq.nwr_pending == 0);
+		MPASS(ofld_txq->wrq.ndesc_needed == 0);
 		rc = alloc_eq_hwq(sc, vi, eq);
 		if (rc != 0) {
 			CH_ERR(vi, "failed to create hw ofld_txq%d: %d\n", idx,
@@ -4853,6 +4893,8 @@ free_ofld_txq(struct vi_info *vi, struct sge_ofld_txq *ofld_txq)
 		counter_u64_free(ofld_txq->tx_iscsi_pdus);
 		counter_u64_free(ofld_txq->tx_iscsi_octets);
 		counter_u64_free(ofld_txq->tx_iscsi_iso_wrs);
+		counter_u64_free(ofld_txq->tx_aio_jobs);
+		counter_u64_free(ofld_txq->tx_aio_octets);
 		counter_u64_free(ofld_txq->tx_toe_tls_records);
 		counter_u64_free(ofld_txq->tx_toe_tls_octets);
 		free_wrq(sc, &ofld_txq->wrq);
@@ -4880,6 +4922,12 @@ add_ofld_txq_sysctls(struct sysctl_ctx_list *ctx, struct sysctl_oid *oid,
 	SYSCTL_ADD_COUNTER_U64(ctx, children, OID_AUTO, "tx_iscsi_iso_wrs",
 	    CTLFLAG_RD, &ofld_txq->tx_iscsi_iso_wrs,
 	    "# of iSCSI segmentation offload work requests");
+	SYSCTL_ADD_COUNTER_U64(ctx, children, OID_AUTO, "tx_aio_jobs",
+	    CTLFLAG_RD, &ofld_txq->tx_aio_jobs,
+	    "# of zero-copy aio_write(2) jobs transmitted");
+	SYSCTL_ADD_COUNTER_U64(ctx, children, OID_AUTO, "tx_aio_octets",
+	    CTLFLAG_RD, &ofld_txq->tx_aio_octets,
+	    "# of payload octets in transmitted zero-copy aio_write(2) jobs");
 	SYSCTL_ADD_COUNTER_U64(ctx, children, OID_AUTO, "tx_toe_tls_records",
 	    CTLFLAG_RD, &ofld_txq->tx_toe_tls_records,
 	    "# of TOE TLS records transmitted");
@@ -5449,7 +5497,8 @@ write_txpkt_vm_wr(struct adapter *sc, struct sge_txq *txq, struct mbuf *m0)
 		ctrl1 |= F_TXPKT_VLAN_VLD |
 		    V_TXPKT_VLAN(m0->m_pkthdr.ether_vtag);
 		txq->vlan_insertion++;
-	}
+	} else if (sc->vlan_id)
+		ctrl1 |= F_TXPKT_VLAN_VLD | V_TXPKT_VLAN(sc->vlan_id);
 
 	/* CPL header */
 	cpl->ctrl0 = txq->cpl_ctrl0;
@@ -5950,7 +5999,8 @@ write_txpkts_vm_wr(struct adapter *sc, struct sge_txq *txq)
 			ctrl1 |= F_TXPKT_VLAN_VLD |
 			    V_TXPKT_VLAN(m->m_pkthdr.ether_vtag);
 			txq->vlan_insertion++;
-		}
+		} else if (sc->vlan_id)
+			ctrl1 |= F_TXPKT_VLAN_VLD | V_TXPKT_VLAN(sc->vlan_id);
 
 		/* CPL header */
 		cpl->ctrl0 = txq->cpl_ctrl0;
@@ -6301,7 +6351,7 @@ handle_wrq_egr_update(struct adapter *sc, struct sge_eq *eq)
 	struct sge_wrq *wrq = (void *)eq;
 
 	atomic_readandclear_int(&eq->equiq);
-	taskqueue_enqueue(sc->tq[eq->tx_chan], &wrq->wrq_tx_task);
+	taskqueue_enqueue(sc->tq[eq->port_id], &wrq->wrq_tx_task);
 }
 
 static void
@@ -6313,7 +6363,7 @@ handle_eth_egr_update(struct adapter *sc, struct sge_eq *eq)
 
 	atomic_readandclear_int(&eq->equiq);
 	if (mp_ring_is_idle(txq->r))
-		taskqueue_enqueue(sc->tq[eq->tx_chan], &txq->tx_reclaim_task);
+		taskqueue_enqueue(sc->tq[eq->port_id], &txq->tx_reclaim_task);
 	else
 		mp_ring_check_drainage(txq->r, 64);
 }
@@ -6501,6 +6551,7 @@ done:
     ETID_FLOWC_NPARAMS * sizeof(struct fw_flowc_mnemval)), 16))
 #define ETID_FLOWC_LEN16 (howmany(ETID_FLOWC_LEN, 16))
 
+#if defined(INET) || defined(INET6)
 static int
 send_etid_flowc_wr(struct cxgbe_rate_tag *cst, struct port_info *pi,
     struct vi_info *vi)
@@ -6544,6 +6595,7 @@ send_etid_flowc_wr(struct cxgbe_rate_tag *cst, struct port_info *pi,
 
 	return (0);
 }
+#endif
 
 #define ETID_FLUSH_LEN16 (howmany(sizeof (struct fw_flowc_wr), 16))
 
@@ -6784,6 +6836,7 @@ ethofld_tx(struct cxgbe_rate_tag *cst)
 	}
 }
 
+#if defined(INET) || defined(INET6)
 static int
 ethofld_transmit(if_t ifp, struct mbuf *m0)
 {
@@ -6842,6 +6895,7 @@ done:
 	mtx_unlock(&cst->lock);
 	return (rc);
 }
+#endif
 
 static int
 ethofld_fw4_ack(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m0)

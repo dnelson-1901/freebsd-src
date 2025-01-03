@@ -40,8 +40,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)vm_fault.c	8.4 (Berkeley) 1/12/94
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -74,8 +72,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ktrace.h"
 #include "opt_vm.h"
 
@@ -161,7 +157,7 @@ struct faultstate {
  * Return codes for internal fault routines.
  */
 enum fault_status {
-	FAULT_SUCCESS = 1,	/* Return success to user. */
+	FAULT_SUCCESS = 10000,	/* Return success to user. */
 	FAULT_FAILURE,		/* Return failure to user. */
 	FAULT_CONTINUE,		/* Continue faulting. */
 	FAULT_RESTART,		/* Restart fault. */
@@ -348,23 +344,46 @@ vm_fault_soft_fast(struct faultstate *fs)
 
 	MPASS(fs->vp == NULL);
 
+	/*
+	 * If we fail, vast majority of the time it is because the page is not
+	 * there to begin with. Opportunistically perform the lookup and
+	 * subsequent checks without the object lock, revalidate later.
+	 *
+	 * Note: a busy page can be mapped for read|execute access.
+	 */
+	m = vm_page_lookup_unlocked(fs->first_object, fs->first_pindex);
+	if (m == NULL || !vm_page_all_valid(m) ||
+	    ((fs->prot & VM_PROT_WRITE) != 0 && vm_page_busied(m))) {
+		VM_OBJECT_WLOCK(fs->first_object);
+		return (FAULT_FAILURE);
+	}
+
 	vaddr = fs->vaddr;
-	vm_object_busy(fs->first_object);
-	m = vm_page_lookup(fs->first_object, fs->first_pindex);
-	/* A busy page can be mapped for read|execute access. */
-	if (m == NULL || ((fs->prot & VM_PROT_WRITE) != 0 &&
-	    vm_page_busied(m)) || !vm_page_all_valid(m))
+
+	VM_OBJECT_RLOCK(fs->first_object);
+
+	/*
+	 * Now that we stabilized the state, revalidate the page is in the shape
+	 * we encountered above.
+	 */
+
+	if (m->object != fs->first_object || m->pindex != fs->first_pindex)
 		goto fail;
+
+	vm_object_busy(fs->first_object);
+
+	if (!vm_page_all_valid(m) ||
+	    ((fs->prot & VM_PROT_WRITE) != 0 && vm_page_busied(m)))
+		goto fail_busy;
+
 	m_map = m;
 	psind = 0;
 #if VM_NRESERVLEVEL > 0
 	if ((m->flags & PG_FICTITIOUS) == 0 &&
-	    (m_super = vm_reserv_to_superpage(m)) != NULL &&
-	    rounddown2(vaddr, pagesizes[m_super->psind]) >= fs->entry->start &&
-	    roundup2(vaddr + 1, pagesizes[m_super->psind]) <= fs->entry->end &&
-	    (vaddr & (pagesizes[m_super->psind] - 1)) == (VM_PAGE_TO_PHYS(m) &
-	    (pagesizes[m_super->psind] - 1)) && !fs->wired &&
-	    pmap_ps_enabled(fs->map->pmap)) {
+	    (m_super = vm_reserv_to_superpage(m)) != NULL) {
+		psind = m_super->psind;
+		KASSERT(psind > 0,
+		    ("psind %d of m_super %p < 1", psind, m_super));
 		flags = PS_ALL_VALID;
 		if ((fs->prot & VM_PROT_WRITE) != 0) {
 			/*
@@ -377,9 +396,23 @@ vm_fault_soft_fast(struct faultstate *fs)
 			if ((fs->first_object->flags & OBJ_UNMANAGED) == 0)
 				flags |= PS_ALL_DIRTY;
 		}
-		if (vm_page_ps_test(m_super, flags, m)) {
+		while (rounddown2(vaddr, pagesizes[psind]) < fs->entry->start ||
+		    roundup2(vaddr + 1, pagesizes[psind]) > fs->entry->end ||
+		    (vaddr & (pagesizes[psind] - 1)) !=
+		    (VM_PAGE_TO_PHYS(m) & (pagesizes[psind] - 1)) ||
+		    !vm_page_ps_test(m_super, psind, flags, m) ||
+		    !pmap_ps_enabled(fs->map->pmap)) {
+			psind--;
+			if (psind == 0)
+				break;
+			m_super += rounddown2(m - m_super,
+			    atop(pagesizes[psind]));
+			KASSERT(m_super->psind >= psind,
+			    ("psind %d of m_super %p < %d", m_super->psind,
+			    m_super, psind));
+		}
+		if (psind > 0) {
 			m_map = m_super;
-			psind = m_super->psind;
 			vaddr = rounddown2(vaddr, pagesizes[psind]);
 			/* Preset the modified bit for dirty superpages. */
 			if ((flags & PS_ALL_DIRTY) != 0)
@@ -390,7 +423,7 @@ vm_fault_soft_fast(struct faultstate *fs)
 	if (pmap_enter(fs->map->pmap, vaddr, m_map, fs->prot, fs->fault_type |
 	    PMAP_ENTER_NOSLEEP | (fs->wired ? PMAP_ENTER_WIRED : 0), psind) !=
 	    KERN_SUCCESS)
-		goto fail;
+		goto fail_busy;
 	if (fs->m_hold != NULL) {
 		(*fs->m_hold) = m;
 		vm_page_wire(m);
@@ -403,8 +436,13 @@ vm_fault_soft_fast(struct faultstate *fs)
 	vm_map_lookup_done(fs->map, fs->entry);
 	curthread->td_ru.ru_minflt++;
 	return (FAULT_SUCCESS);
-fail:
+fail_busy:
 	vm_object_unbusy(fs->first_object);
+fail:
+	if (!VM_OBJECT_TRYUPGRADE(fs->first_object)) {
+		VM_OBJECT_RUNLOCK(fs->first_object);
+		VM_OBJECT_WLOCK(fs->first_object);
+	}
 	return (FAULT_FAILURE);
 }
 
@@ -447,7 +485,9 @@ vm_fault_populate_cleanup(vm_object_t object, vm_pindex_t first,
 	VM_OBJECT_ASSERT_WLOCKED(object);
 	MPASS(first <= last);
 	for (pidx = first, m = vm_page_lookup(object, pidx);
-	    pidx <= last; pidx++, m = vm_page_next(m)) {
+	    pidx <= last; pidx++, m = TAILQ_NEXT(m, listq)) {
+		KASSERT(m != NULL && m->pindex == pidx,
+		    ("%s: pindex mismatch", __func__));
 		vm_fault_populate_check_page(m);
 		vm_page_deactivate(m);
 		vm_page_xunbusy(m);
@@ -509,8 +549,7 @@ vm_fault_populate(struct faultstate *fs)
 	MPASS(pager_last < fs->first_object->size);
 
 	vm_fault_restore_map_lock(fs);
-	bdry_idx = (fs->entry->eflags & MAP_ENTRY_SPLIT_BOUNDARY_MASK) >>
-	    MAP_ENTRY_SPLIT_BOUNDARY_SHIFT;
+	bdry_idx = MAP_ENTRY_SPLIT_BOUNDARY_INDEX(fs->entry);
 	if (fs->map->timestamp != fs->map_generation) {
 		if (bdry_idx == 0) {
 			vm_fault_populate_cleanup(fs->first_object, pager_first,
@@ -586,14 +625,15 @@ vm_fault_populate(struct faultstate *fs)
 	}
 	for (pidx = pager_first, m = vm_page_lookup(fs->first_object, pidx);
 	    pidx <= pager_last;
-	    pidx += npages, m = vm_page_next(&m[npages - 1])) {
+	    pidx += npages, m = TAILQ_NEXT(&m[npages - 1], listq)) {
 		vaddr = fs->entry->start + IDX_TO_OFF(pidx) - fs->entry->offset;
-
+		KASSERT(m != NULL && m->pindex == pidx,
+		    ("%s: pindex mismatch", __func__));
 		psind = m->psind;
-		if (psind > 0 && ((vaddr & (pagesizes[psind] - 1)) != 0 ||
+		while (psind > 0 && ((vaddr & (pagesizes[psind] - 1)) != 0 ||
 		    pidx + OFF_TO_IDX(pagesizes[psind]) - 1 > pager_last ||
-		    !pmap_ps_enabled(fs->map->pmap) || fs->wired))
-			psind = 0;
+		    !pmap_ps_enabled(fs->map->pmap)))
+			psind--;
 
 		npages = atop(pagesizes[psind]);
 		for (i = 0; i < npages; i++) {
@@ -1315,7 +1355,7 @@ vm_fault_getpages(struct faultstate *fs, int *behindp, int *aheadp)
 	MPASS(status == FAULT_CONTINUE || status == FAULT_RESTART);
 	if (status == FAULT_RESTART)
 		return (status);
-	KASSERT(fs->vp == NULL || !fs->map->system_map,
+	KASSERT(fs->vp == NULL || !vm_map_is_system(fs->map),
 	    ("vm_fault: vnode-backed object mapped by system map"));
 
 	/*
@@ -1556,14 +1596,12 @@ RetryFault:
 	if (fs.vp == NULL /* avoid locked vnode leak */ &&
 	    (fs.entry->eflags & MAP_ENTRY_SPLIT_BOUNDARY_MASK) == 0 &&
 	    (fs.fault_flags & (VM_FAULT_WIRE | VM_FAULT_DIRTY)) == 0) {
-		VM_OBJECT_RLOCK(fs.first_object);
 		res = vm_fault_soft_fast(&fs);
-		if (res == FAULT_SUCCESS)
+		if (res == FAULT_SUCCESS) {
+			VM_OBJECT_ASSERT_UNLOCKED(fs.first_object);
 			return (KERN_SUCCESS);
-		if (!VM_OBJECT_TRYUPGRADE(fs.first_object)) {
-			VM_OBJECT_RUNLOCK(fs.first_object);
-			VM_OBJECT_WLOCK(fs.first_object);
 		}
+		VM_OBJECT_ASSERT_WLOCKED(fs.first_object);
 	} else {
 		VM_OBJECT_WLOCK(fs.first_object);
 	}
@@ -1868,6 +1906,7 @@ vm_fault_prefault(const struct faultstate *fs, vm_offset_t addra,
 	vm_offset_t addr, starta;
 	vm_pindex_t pindex;
 	vm_page_t m;
+	vm_prot_t prot;
 	int i;
 
 	pmap = fs->map->pmap;
@@ -1883,6 +1922,14 @@ vm_fault_prefault(const struct faultstate *fs, vm_offset_t addra,
 		if (starta < entry->start)
 			starta = entry->start;
 	}
+	prot = entry->protection;
+
+	/*
+	 * If pmap_enter() has enabled write access on a nearby mapping, then
+	 * don't attempt promotion, because it will fail.
+	 */
+	if ((fs->prot & VM_PROT_WRITE) != 0)
+		prot |= VM_PROT_NO_PROMOTE;
 
 	/*
 	 * Generate the sequence of virtual addresses that are candidates for
@@ -1926,7 +1973,7 @@ vm_fault_prefault(const struct faultstate *fs, vm_offset_t addra,
 		}
 		if (vm_page_all_valid(m) &&
 		    (m->flags & PG_FICTITIOUS) == 0)
-			pmap_enter_quick(pmap, addr, m, entry->protection);
+			pmap_enter_quick(pmap, addr, m, prot);
 		if (!obj_locked || lobject != entry->object.vm_object)
 			VM_OBJECT_RUNLOCK(lobject);
 	}

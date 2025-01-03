@@ -11,6 +11,7 @@
 
 #include <cstdint>
 
+#include <optional>
 #include <vector>
 
 #include "lldb/Symbol/ObjectFile.h"
@@ -124,7 +125,7 @@ public:
 
   /// Return the contents of the .gnu_debuglink section, if the object file
   /// contains it.
-  llvm::Optional<lldb_private::FileSpec> GetDebugLink();
+  std::optional<lldb_private::FileSpec> GetDebugLink();
 
   uint32_t GetDependentModules(lldb_private::FileSpecList &files) override;
 
@@ -186,6 +187,9 @@ private:
   typedef DynamicSymbolColl::iterator DynamicSymbolCollIter;
   typedef DynamicSymbolColl::const_iterator DynamicSymbolCollConstIter;
 
+  /// An ordered map of file address to address class. Used on architectures
+  /// like Arm where there is an alternative ISA mode like Thumb. The container
+  /// is ordered so that it can be binary searched.
   typedef std::map<lldb::addr_t, lldb_private::AddressClass>
       FileAddressToAddressClassMap;
 
@@ -284,18 +288,19 @@ private:
 
   /// Populates the symbol table with all non-dynamic linker symbols.  This
   /// method will parse the symbols only once.  Returns the number of symbols
-  /// parsed.
-  unsigned ParseSymbolTable(lldb_private::Symtab *symbol_table,
-                            lldb::user_id_t start_id,
-                            lldb_private::Section *symtab);
+  /// parsed and a map of address types (used by targets like Arm that have
+  /// an alternative ISA mode like Thumb).
+  std::pair<unsigned, FileAddressToAddressClassMap>
+  ParseSymbolTable(lldb_private::Symtab *symbol_table, lldb::user_id_t start_id,
+                   lldb_private::Section *symtab);
 
   /// Helper routine for ParseSymbolTable().
-  unsigned ParseSymbols(lldb_private::Symtab *symbol_table,
-                        lldb::user_id_t start_id,
-                        lldb_private::SectionList *section_list,
-                        const size_t num_symbols,
-                        const lldb_private::DataExtractor &symtab_data,
-                        const lldb_private::DataExtractor &strtab_data);
+  std::pair<unsigned, FileAddressToAddressClassMap>
+  ParseSymbols(lldb_private::Symtab *symbol_table, lldb::user_id_t start_id,
+               lldb_private::SectionList *section_list,
+               const size_t num_symbols,
+               const lldb_private::DataExtractor &symtab_data,
+               const lldb_private::DataExtractor &strtab_data);
 
   /// Scans the relocation entries and adds a set of artificial symbols to the
   /// given symbol table for each PLT slot.  Returns the number of symbols

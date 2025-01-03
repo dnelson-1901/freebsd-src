@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
@@ -31,9 +31,6 @@
  * Chapter 51, Vybrid Reference Manual, Rev. 5, 07/2013
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -46,7 +43,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/watchdog.h>
 
 #include <dev/sound/pcm/sound.h>
-#include <dev/sound/chip.h>
 #include <mixer_if.h>
 
 #include <dev/ofw/openfirm.h>
@@ -464,7 +460,7 @@ find_edma_controller(struct sc_info *sc)
 	sc->edma_chnum = edma_sc->channel_configure(edma_sc, edma_mux_group,
 	    edma_src_transmit);
 	if (sc->edma_chnum < 0) {
-		/* cant setup eDMA */
+		/* can't setup eDMA */
 		return (ENXIO);
 	}
 
@@ -766,18 +762,18 @@ sai_attach(device_t dev)
 
 	pcm_setflags(dev, pcm_getflags(dev) | SD_F_MPSAFE);
 
-	err = pcm_register(dev, scp, 1, 0);
-	if (err) {
-		device_printf(dev, "Can't register pcm.\n");
-		return (ENXIO);
-	}
+	pcm_init(dev, scp);
 
 	scp->chnum = 0;
 	pcm_addchan(dev, PCMDIR_PLAY, &saichan_class, scp);
 	scp->chnum++;
 
 	snprintf(status, SND_STATUSLEN, "at simplebus");
-	pcm_setstatus(dev, status);
+	err = pcm_register(dev, status);
+	if (err) {
+		device_printf(dev, "Can't register pcm.\n");
+		return (ENXIO);
+	}
 
 	mixer_init(dev, &saimixer_class, scp);
 

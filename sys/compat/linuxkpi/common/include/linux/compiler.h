@@ -26,8 +26,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_COMPILER_H_
 #define	_LINUXKPI_LINUX_COMPILER_H_
@@ -50,7 +48,9 @@
 #define __cond_lock(x,c)		(c)
 #define	__bitwise
 #define __devinitdata
+#ifndef	__deprecated
 #define	__deprecated
+#endif
 #define __init
 #define	__initconst
 #define	__devinit
@@ -64,9 +64,21 @@
 #undef __always_inline
 #define	__always_inline			inline
 #define	noinline			__noinline
+#define	noinline_for_stack		__noinline
 #define	____cacheline_aligned		__aligned(CACHE_LINE_SIZE)
 #define	____cacheline_aligned_in_smp	__aligned(CACHE_LINE_SIZE)
 #define	fallthrough			/* FALLTHROUGH */ do { } while(0)
+
+#if __has_attribute(__nonstring__)
+#define	__nonstring			__attribute__((__nonstring__))
+#else
+#define	__nonstring
+#endif
+#if __has_attribute(__counted_by__)
+#define	__counted_by(_x)		__attribute__((__counted_by__(_x)))
+#else
+#define	__counted_by(_x)
+#endif
 
 #define	likely(x)			__builtin_expect(!!(x), 1)
 #define	unlikely(x)			__builtin_expect(!!(x), 0)
@@ -79,6 +91,10 @@
 
 #define	__printf(a,b)			__printflike(a,b)
 
+#define __diag_push()
+#define __diag_pop()
+#define __diag_ignore_all(...)
+
 #define	barrier()			__asm__ __volatile__("": : :"memory")
 
 #define	lower_32_bits(n)		((u32)(n))
@@ -87,18 +103,16 @@
 #define	___PASTE(a,b) a##b
 #define	__PASTE(a,b) ___PASTE(a,b)
 
-#define	ACCESS_ONCE(x)			(*(volatile __typeof(x) *)&(x))
-
 #define	WRITE_ONCE(x,v) do {		\
 	barrier();			\
-	ACCESS_ONCE(x) = (v);		\
+	(*(volatile __typeof(x) *)(uintptr_t)&(x)) = (v); \
 	barrier();			\
 } while (0)
 
 #define	READ_ONCE(x) ({			\
 	__typeof(x) __var = ({		\
 		barrier();		\
-		ACCESS_ONCE(x);		\
+		(*(const volatile __typeof(x) *)&(x)); \
 	});				\
 	barrier();			\
 	__var;				\
@@ -112,5 +126,8 @@
 #define	__must_be_array(a)	__same_type(a, &(a)[0])
 
 #define	sizeof_field(_s, _m)	sizeof(((_s *)0)->_m)
+
+#define is_signed_type(t)	((t)-1 < (t)1)
+#define is_unsigned_type(t)	((t)-1 > (t)1)
 
 #endif	/* _LINUXKPI_LINUX_COMPILER_H_ */

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 The FreeBSD Foundation
  *
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 extern "C" {
@@ -37,6 +35,8 @@ extern "C" {
 
 #include "fuse_kernel.h"
 }
+
+#include <unordered_set>
 
 #include <gmock/gmock.h>
 
@@ -300,8 +300,8 @@ class MockFS {
 	/* pid of the test process */
 	pid_t m_pid;
 
-	/* The unique value of the header of the last received operation */
-	uint64_t m_last_unique;
+	/* Every "unique" value of a fuse ticket seen so far */
+	std::unique_ptr<std::unordered_set<uint64_t>> m_uniques;
 
 	/* Method the daemon should use for I/O to and from /dev/fuse */
 	enum poll_method m_pm;

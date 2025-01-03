@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_hwpmc_hooks.h"
 
 #include <sys/param.h>
@@ -48,6 +46,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/timetc.h>
 #include <sys/pmc.h>
 #include <sys/pmckern.h>
+#include <sys/proc.h>
 
 #include <machine/bus.h>
 #include <machine/cpu.h>
@@ -56,7 +55,7 @@ __FBSDID("$FreeBSD$");
 #include "pmu.h"
 
 /* CCNT */
-#if defined(__arm__) && (__ARM_ARCH > 6)
+#if defined(__arm__)
 int pmu_attched = 0;
 uint32_t ccnt_hi[MAXCPU];
 #endif
@@ -67,11 +66,8 @@ uint32_t ccnt_hi[MAXCPU];
 static int
 pmu_intr(void *arg)
 {
-#ifdef HWPMC_HOOKS
-	struct trapframe *tf;
-#endif
 	uint32_t r;
-#if defined(__arm__) && (__ARM_ARCH > 6)
+#if defined(__arm__)
 	u_int cpu;
 
 	cpu = PCPU_GET(cpuid);
@@ -89,10 +85,8 @@ pmu_intr(void *arg)
 
 #ifdef HWPMC_HOOKS
 	/* Only call into the HWPMC framework if we know there is work. */
-	if (r != 0 && pmc_intr) {
-		tf = arg;
-		(*pmc_intr)(tf);
-	}
+	if (r != 0 && pmc_intr)
+		(*pmc_intr)(curthread->td_intr_frame);
 #endif
 
 	return (FILTER_HANDLED);
@@ -102,7 +96,7 @@ int
 pmu_attach(device_t dev)
 {
 	struct pmu_softc *sc;
-#if defined(__arm__) && (__ARM_ARCH > 6)
+#if defined(__arm__)
 	uint32_t iesr;
 #endif
 	int err, i;
@@ -132,7 +126,7 @@ pmu_attach(device_t dev)
 		}
 	}
 
-#if defined(__arm__) && (__ARM_ARCH > 6)
+#if defined(__arm__)
 	/* Initialize to 0. */
 	for (i = 0; i < MAXCPU; i++)
 		ccnt_hi[i] = 0;

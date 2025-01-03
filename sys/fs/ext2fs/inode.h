@@ -32,9 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)inode.h	8.9 (Berkeley) 5/14/95
- * $FreeBSD$
  */
 
 #ifndef _FS_EXT2FS_INODE_H_
@@ -190,10 +187,10 @@ struct indir {
 
 /* This overlays the fid structure (see mount.h). */
 struct ufid {
-	uint16_t ufid_len;		/* Length of structure. */
-	uint16_t ufid_pad;		/* Force 32-bit alignment. */
-	ino_t	ufid_ino;		/* File number (ino). */
-	uint32_t ufid_gen;		/* Generation number. */
+	uint16_t	ufid_len;	/* Length of structure. */
+	uint16_t	ufid_pad;	/* Force 32-bit alignment. */
+	uint32_t	ufid_gen;	/* Generation number. */
+	ino_t		ufid_ino;	/* File number (ino). */
 };
 #endif	/* _KERNEL */
 

@@ -1,7 +1,7 @@
 /*	$NetBSD: tmpfs.h,v 1.26 2007/02/22 06:37:00 thorpej Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005, 2006 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -30,8 +30,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _FS_TMPFS_TMPFS_H_
@@ -183,7 +181,7 @@ struct tmpfs_node {
 	 * types instead of a custom enumeration is to make things simpler
 	 * and faster, as we do not need to convert between two types.
 	 */
-	enum vtype		tn_type;	/* (c) */
+	__enum_uint8(vtype)	tn_type;	/* (c) */
 
 	/*
 	 * See the top comment. Reordered here to fill LP64 hole.
@@ -294,6 +292,15 @@ struct tmpfs_node {
 			 */
 			off_t			tn_readdir_lastn;
 			struct tmpfs_dirent *	tn_readdir_lastp;
+
+			/*
+			 * Total size of whiteout directory entries.  This
+			 * must be a multiple of sizeof(struct tmpfs_dirent)
+			 * and is used to determine whether a directory is
+			 * empty (excluding whiteout entries) during rename/
+			 * rmdir operations.
+			 */
+			off_t			tn_wht_size;	/* (v) */
 		} tn_dir;
 
 		/* Valid when tn_type == VLNK. */
@@ -428,6 +435,9 @@ struct tmpfs_mount {
 	bool			tm_nonc;
 	/* Do not update mtime on writes through mmaped areas. */
 	bool			tm_nomtime;
+
+	/* Read from page cache directly. */
+	bool			tm_pgread;
 };
 #define	TMPFS_LOCK(tm) mtx_lock(&(tm)->tm_allnode_lock)
 #define	TMPFS_UNLOCK(tm) mtx_unlock(&(tm)->tm_allnode_lock)
@@ -438,11 +448,10 @@ struct tmpfs_mount {
  * NFS code.
  */
 struct tmpfs_fid_data {
+	unsigned short		tfd_len;
 	ino_t			tfd_id;
 	unsigned long		tfd_gen;
-};
-_Static_assert(sizeof(struct tmpfs_fid_data) <= MAXFIDSZ,
-    "(struct tmpfs_fid_data) is larger than (struct fid).fid_data");
+} __packed;
 
 struct tmpfs_dir_cursor {
 	struct tmpfs_dirent	*tdc_current;
@@ -455,7 +464,7 @@ struct tmpfs_dir_cursor {
  */
 
 void	tmpfs_ref_node(struct tmpfs_node *node);
-int	tmpfs_alloc_node(struct mount *mp, struct tmpfs_mount *, enum vtype,
+int	tmpfs_alloc_node(struct mount *mp, struct tmpfs_mount *, __enum_uint8(vtype),
 	    uid_t uid, gid_t gid, mode_t mode, struct tmpfs_node *,
 	    const char *, dev_t, struct tmpfs_node **);
 int	tmpfs_fo_close(struct file *fp, struct thread *td);
@@ -483,6 +492,7 @@ int	tmpfs_dir_getdents(struct tmpfs_mount *, struct tmpfs_node *,
 	    struct uio *, int, uint64_t *, int *);
 int	tmpfs_dir_whiteout_add(struct vnode *, struct componentname *);
 void	tmpfs_dir_whiteout_remove(struct vnode *, struct componentname *);
+void	tmpfs_dir_clear_whiteouts(struct vnode *);
 int	tmpfs_reg_resize(struct vnode *, off_t, boolean_t);
 int	tmpfs_reg_punch_hole(struct vnode *vp, off_t *, off_t *);
 int	tmpfs_chflags(struct vnode *, u_long, struct ucred *, struct thread *);
@@ -532,6 +542,8 @@ tmpfs_update(struct vnode *vp)
 #define TMPFS_VALIDATE_DIR(node) do { \
 	MPASS((node)->tn_type == VDIR); \
 	MPASS((node)->tn_size % sizeof(struct tmpfs_dirent) == 0); \
+	MPASS((node)->tn_dir.tn_wht_size % sizeof(struct tmpfs_dirent) == 0); \
+	MPASS((node)->tn_dir.tn_wht_size <= (node)->tn_size); \
 } while (0)
 
 /*
@@ -540,6 +552,14 @@ tmpfs_update(struct vnode *vp)
  */
 #if !defined(TMPFS_PAGES_MINRESERVED)
 #define TMPFS_PAGES_MINRESERVED		(4 * 1024 * 1024 / PAGE_SIZE)
+#endif
+
+/*
+ * Percent of available memory + swap available to use by tmpfs file systems
+ * without a size limit.
+ */
+#if !defined(TMPFS_MEM_PERCENT)
+#define TMPFS_MEM_PERCENT		100
 #endif
 
 /*

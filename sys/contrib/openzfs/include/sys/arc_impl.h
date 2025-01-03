@@ -30,6 +30,7 @@
 #define	_SYS_ARC_IMPL_H
 
 #include <sys/arc.h>
+#include <sys/multilist.h>
 #include <sys/zio_crypt.h>
 #include <sys/zthr.h>
 #include <sys/aggsum.h>
@@ -82,14 +83,17 @@ typedef struct arc_state {
 	 */
 	arc_state_type_t arcs_state;
 	/*
+	 * total amount of data in this state.
+	 */
+	zfs_refcount_t arcs_size[ARC_BUFC_NUMTYPES] ____cacheline_aligned;
+	/*
 	 * total amount of evictable data in this state
 	 */
-	zfs_refcount_t arcs_esize[ARC_BUFC_NUMTYPES] ____cacheline_aligned;
+	zfs_refcount_t arcs_esize[ARC_BUFC_NUMTYPES];
 	/*
-	 * total amount of data in this state; this includes: evictable,
-	 * non-evictable, ARC_BUFC_DATA, and ARC_BUFC_METADATA.
+	 * amount of hit bytes for this state (counted only for ghost states)
 	 */
-	zfs_refcount_t arcs_size;
+	wmsum_t arcs_hits[ARC_BUFC_NUMTYPES];
 } arc_state_t;
 
 typedef struct arc_callback arc_callback_t;
@@ -119,7 +123,6 @@ struct arc_write_callback {
 	void			*awcb_private;
 	arc_write_done_func_t	*awcb_ready;
 	arc_write_done_func_t	*awcb_children_ready;
-	arc_write_done_func_t	*awcb_physdone;
 	arc_write_done_func_t	*awcb_done;
 	arc_buf_t		*awcb_buf;
 };
@@ -156,10 +159,6 @@ struct arc_write_callback {
  * these two allocation states.
  */
 typedef struct l1arc_buf_hdr {
-	/* for waiting on reads to complete */
-	kcondvar_t		b_cv;
-	uint8_t			b_byteswap;
-
 	/* protected by arc state mutex */
 	arc_state_t		*b_state;
 	multilist_node_t	b_arc_node;
@@ -170,7 +169,7 @@ typedef struct l1arc_buf_hdr {
 	uint32_t		b_mru_ghost_hits;
 	uint32_t		b_mfu_hits;
 	uint32_t		b_mfu_ghost_hits;
-	uint32_t		b_bufcnt;
+	uint8_t			b_byteswap;
 	arc_buf_t		*b_buf;
 
 	/* self protecting */
@@ -357,8 +356,9 @@ typedef struct l2arc_lb_ptr_buf {
 #define	L2BLK_SET_PREFETCH(field, x)	BF64_SET((field), 39, 1, x)
 #define	L2BLK_GET_CHECKSUM(field)	BF64_GET((field), 40, 8)
 #define	L2BLK_SET_CHECKSUM(field, x)	BF64_SET((field), 40, 8, x)
-#define	L2BLK_GET_TYPE(field)		BF64_GET((field), 48, 8)
-#define	L2BLK_SET_TYPE(field, x)	BF64_SET((field), 48, 8, x)
+/* +/- 1 here are to keep compatibility after ARC_BUFC_INVALID removal. */
+#define	L2BLK_GET_TYPE(field)		(BF64_GET((field), 48, 8) - 1)
+#define	L2BLK_SET_TYPE(field, x)	BF64_SET((field), 48, 8, (x) + 1)
 #define	L2BLK_GET_PROTECTED(field)	BF64_GET((field), 56, 1)
 #define	L2BLK_SET_PROTECTED(field, x)	BF64_SET((field), 56, 1, x)
 #define	L2BLK_GET_STATE(field)		BF64_GET((field), 57, 4)
@@ -378,8 +378,8 @@ typedef struct l2arc_lb_ptr_buf {
  * L2ARC Internals
  */
 typedef struct l2arc_dev {
-	vdev_t			*l2ad_vdev;	/* vdev */
-	spa_t			*l2ad_spa;	/* spa */
+	vdev_t			*l2ad_vdev;	/* can be NULL during remove */
+	spa_t			*l2ad_spa;	/* can be NULL during remove */
 	uint64_t		l2ad_hand;	/* next write location */
 	uint64_t		l2ad_start;	/* first addr on device */
 	uint64_t		l2ad_end;	/* last addr on device */
@@ -432,11 +432,11 @@ typedef struct l2arc_dev {
  */
 typedef struct arc_buf_hdr_crypt {
 	abd_t			*b_rabd;	/* raw encrypted data */
-	dmu_object_type_t	b_ot;		/* object type */
-	uint32_t		b_ebufcnt;	/* count of encrypted buffers */
 
 	/* dsobj for looking up encryption key for l2arc encryption */
 	uint64_t		b_dsobj;
+
+	dmu_object_type_t	b_ot;		/* object type */
 
 	/* encryption parameters */
 	uint8_t			b_salt[ZIO_DATA_SALT_LEN];
@@ -475,8 +475,8 @@ struct arc_buf_hdr {
 
 	arc_buf_contents_t	b_type;
 	uint8_t			b_complevel;
-	uint8_t			b_reserved1; /* used for 4 byte alignment */
-	uint16_t		b_reserved2; /* used for 4 byte alignment */
+	uint8_t			b_reserved1;	/* used for 4 byte alignment */
+	uint16_t		b_l2size;	/* alignment or L2-only size */
 	arc_buf_hdr_t		*b_hash_next;
 	arc_flags_t		b_flags;
 
@@ -581,7 +581,9 @@ typedef struct arc_stats {
 	kstat_named_t arcstat_hash_collisions;
 	kstat_named_t arcstat_hash_chains;
 	kstat_named_t arcstat_hash_chain_max;
-	kstat_named_t arcstat_p;
+	kstat_named_t arcstat_meta;
+	kstat_named_t arcstat_pd;
+	kstat_named_t arcstat_pm;
 	kstat_named_t arcstat_c;
 	kstat_named_t arcstat_c_min;
 	kstat_named_t arcstat_c_max;
@@ -654,6 +656,8 @@ typedef struct arc_stats {
 	 * are all included in this value.
 	 */
 	kstat_named_t arcstat_anon_size;
+	kstat_named_t arcstat_anon_data;
+	kstat_named_t arcstat_anon_metadata;
 	/*
 	 * Number of bytes consumed by ARC buffers that meet the
 	 * following criteria: backing buffers of type ARC_BUFC_DATA,
@@ -675,6 +679,8 @@ typedef struct arc_stats {
 	 * are all included in this value.
 	 */
 	kstat_named_t arcstat_mru_size;
+	kstat_named_t arcstat_mru_data;
+	kstat_named_t arcstat_mru_metadata;
 	/*
 	 * Number of bytes consumed by ARC buffers that meet the
 	 * following criteria: backing buffers of type ARC_BUFC_DATA,
@@ -699,6 +705,8 @@ typedef struct arc_stats {
 	 * buffers *would have* consumed this number of bytes.
 	 */
 	kstat_named_t arcstat_mru_ghost_size;
+	kstat_named_t arcstat_mru_ghost_data;
+	kstat_named_t arcstat_mru_ghost_metadata;
 	/*
 	 * Number of bytes that *would have been* consumed by ARC
 	 * buffers that are eligible for eviction, of type
@@ -718,6 +726,8 @@ typedef struct arc_stats {
 	 * are all included in this value.
 	 */
 	kstat_named_t arcstat_mfu_size;
+	kstat_named_t arcstat_mfu_data;
+	kstat_named_t arcstat_mfu_metadata;
 	/*
 	 * Number of bytes consumed by ARC buffers that are eligible for
 	 * eviction, of type ARC_BUFC_DATA, and reside in the arc_mfu
@@ -736,6 +746,8 @@ typedef struct arc_stats {
 	 * arcstat_mru_ghost_size for more details.
 	 */
 	kstat_named_t arcstat_mfu_ghost_size;
+	kstat_named_t arcstat_mfu_ghost_data;
+	kstat_named_t arcstat_mfu_ghost_metadata;
 	/*
 	 * Number of bytes that *would have been* consumed by ARC
 	 * buffers that are eligible for eviction, of type
@@ -753,6 +765,8 @@ typedef struct arc_stats {
 	 * ARC_FLAG_UNCACHED being set.
 	 */
 	kstat_named_t arcstat_uncached_size;
+	kstat_named_t arcstat_uncached_data;
+	kstat_named_t arcstat_uncached_metadata;
 	/*
 	 * Number of data bytes that are going to be evicted from ARC due to
 	 * ARC_FLAG_UNCACHED being set.
@@ -875,10 +889,7 @@ typedef struct arc_stats {
 	kstat_named_t arcstat_loaned_bytes;
 	kstat_named_t arcstat_prune;
 	kstat_named_t arcstat_meta_used;
-	kstat_named_t arcstat_meta_limit;
 	kstat_named_t arcstat_dnode_limit;
-	kstat_named_t arcstat_meta_max;
-	kstat_named_t arcstat_meta_min;
 	kstat_named_t arcstat_async_upgrade_sync;
 	/* Number of predictive prefetch requests. */
 	kstat_named_t arcstat_predictive_prefetch;
@@ -931,6 +942,7 @@ typedef struct arc_sums {
 	wmsum_t arcstat_evict_l2_eligible_mru;
 	wmsum_t arcstat_evict_l2_ineligible;
 	wmsum_t arcstat_evict_l2_skip;
+	wmsum_t arcstat_hash_elements;
 	wmsum_t arcstat_hash_collisions;
 	wmsum_t arcstat_hash_chains;
 	aggsum_t arcstat_size;
@@ -941,7 +953,7 @@ typedef struct arc_sums {
 	wmsum_t arcstat_data_size;
 	wmsum_t arcstat_metadata_size;
 	wmsum_t arcstat_dbuf_size;
-	aggsum_t arcstat_dnode_size;
+	wmsum_t arcstat_dnode_size;
 	wmsum_t arcstat_bonus_size;
 	wmsum_t arcstat_l2_hits;
 	wmsum_t arcstat_l2_misses;
@@ -986,7 +998,7 @@ typedef struct arc_sums {
 	wmsum_t arcstat_memory_direct_count;
 	wmsum_t arcstat_memory_indirect_count;
 	wmsum_t arcstat_prune;
-	aggsum_t arcstat_meta_used;
+	wmsum_t arcstat_meta_used;
 	wmsum_t arcstat_async_upgrade_sync;
 	wmsum_t arcstat_predictive_prefetch;
 	wmsum_t arcstat_demand_hit_predictive_prefetch;
@@ -1014,7 +1026,9 @@ typedef struct arc_evict_waiter {
 #define	ARCSTAT_BUMPDOWN(stat)	ARCSTAT_INCR(stat, -1)
 
 #define	arc_no_grow	ARCSTAT(arcstat_no_grow) /* do not grow cache size */
-#define	arc_p		ARCSTAT(arcstat_p)	/* target size of MRU */
+#define	arc_meta	ARCSTAT(arcstat_meta)	/* target frac of metadata */
+#define	arc_pd		ARCSTAT(arcstat_pd)	/* target frac of data MRU */
+#define	arc_pm		ARCSTAT(arcstat_pm)	/* target frac of meta MRU */
 #define	arc_c		ARCSTAT(arcstat_c)	/* target size of cache */
 #define	arc_c_min	ARCSTAT(arcstat_c_min)	/* min target cache size */
 #define	arc_c_max	ARCSTAT(arcstat_c_max)	/* max target cache size */
@@ -1045,14 +1059,13 @@ extern uint_t arc_lotsfree_percent;
 extern uint64_t zfs_arc_min;
 extern uint64_t zfs_arc_max;
 
-extern void arc_reduce_target_size(int64_t to_free);
+extern uint64_t arc_reduce_target_size(uint64_t to_free);
 extern boolean_t arc_reclaim_needed(void);
 extern void arc_kmem_reap_soon(void);
-extern void arc_wait_for_eviction(uint64_t, boolean_t);
+extern void arc_wait_for_eviction(uint64_t, boolean_t, boolean_t);
 
 extern void arc_lowmem_init(void);
 extern void arc_lowmem_fini(void);
-extern void arc_prune_async(uint64_t);
 extern int arc_memory_throttle(spa_t *spa, uint64_t reserve, uint64_t txg);
 extern uint64_t arc_free_memory(void);
 extern int64_t arc_available_memory(void);

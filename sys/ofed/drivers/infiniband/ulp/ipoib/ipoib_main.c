@@ -35,8 +35,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "ipoib.h"
 #include <sys/eventhandler.h>
 
@@ -901,17 +899,13 @@ ipoib_priv_alloc(void)
 }
 
 struct ipoib_dev_priv *
-ipoib_intf_alloc(const char *name)
+ipoib_intf_alloc(const char *name, struct ib_device *hca)
 {
 	struct ipoib_dev_priv *priv;
 	if_t dev;
 
 	priv = ipoib_priv_alloc();
 	dev = priv->dev = if_alloc(IFT_INFINIBAND);
-	if (!dev) {
-		free(priv, M_TEMP);
-		return NULL;
-	}
 	if_setsoftc(dev, priv);
 	priv->gone = 2; /* initializing */
 	priv->unit = alloc_unr(ipoib_unrhdr);
@@ -922,6 +916,8 @@ ipoib_intf_alloc(const char *name)
 	}
 	if_initname(dev, name, priv->unit);
 	if_setflags(dev, IFF_BROADCAST | IFF_MULTICAST);
+	if ((hca->attrs.device_cap_flags & IB_DEVICE_KNOWSEPOCH) == 0)
+		if_setflagbits(dev, IFF_NEEDSEPOCH, 0);
 
 	infiniband_ifattach(priv->dev, NULL, priv->broadcastaddr);
 
@@ -976,7 +972,7 @@ ipoib_add_port(const char *format, struct ib_device *hca, u8 port)
 	struct ib_port_attr attr;
 	int result = -ENOMEM;
 
-	priv = ipoib_intf_alloc(format);
+	priv = ipoib_intf_alloc(format, hca);
 	if (!priv)
 		goto alloc_mem_failed;
 

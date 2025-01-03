@@ -1,7 +1,6 @@
 #!/bin/sh
 #-
 # Copyright (c) 2014, 2015 The FreeBSD Foundation
-# All rights reserved.
 #
 # This software was developed by Glen Barber under sponsorship
 # from the FreeBSD Foundation.
@@ -29,7 +28,6 @@
 #
 # mk-vmimage.sh: Create virtual machine disk images in various formats.
 #
-# $FreeBSD$
 #
 
 usage() {
@@ -99,13 +97,14 @@ main() {
 
 	vm_create_base
 	vm_install_base
+	vm_emulation_setup
 	vm_extra_install_base
 	vm_extra_install_packages
 	vm_extra_install_ports
 	vm_extra_enable_services
 	vm_extra_pre_umount
 	vm_extra_pkg_rmcache
-	cleanup
+	vm_emulation_cleanup
 	vm_copy_base
 	vm_create_disk || return 0
 	vm_extra_create_disk

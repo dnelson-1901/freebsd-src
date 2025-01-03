@@ -28,9 +28,6 @@
  * Generic OHCI driver based on AT91 OHCI
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -56,10 +53,10 @@ __FBSDID("$FreeBSD$");
 #include <dev/usb/controller/ohci.h>
 #include <dev/usb/controller/ohcireg.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/phy/phy.h>
-#include <dev/extres/phy/phy_usb.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/phy/phy.h>
+#include <dev/phy/phy_usb.h>
 
 #include "generic_usb_if.h"
 
@@ -144,7 +141,7 @@ generic_ohci_attach(device_t dev)
 		err = ENXIO;
 		goto error;
 	}
-	sc->ohci_sc.sc_bus.bdev = device_add_child(dev, "usbus", -1);
+	sc->ohci_sc.sc_bus.bdev = device_add_child(dev, "usbus", DEVICE_UNIT_ANY);
 	if (sc->ohci_sc.sc_bus.bdev == 0) {
 		err = ENXIO;
 		goto error;
@@ -234,7 +231,9 @@ generic_ohci_detach(device_t dev)
 	struct hwrst_list *rst, *rst_tmp;
 
 	/* during module unload there are lots of children leftover */
-	device_delete_children(dev);
+	err = bus_generic_detach(dev);
+	if (err != 0)
+		return (err);
 
 	/*
 	 * Put the controller into reset, then disable clocks and do

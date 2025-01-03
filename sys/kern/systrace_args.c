@@ -1,9 +1,9 @@
 /*
- * System call argument to DTrace register array converstion.
+ * System call argument to DTrace register array conversion.
+ *
+ * This file is part of the DTrace syscall provider.
  *
  * DO NOT EDIT-- this file is automatically @generated.
- * $FreeBSD$
- * This file is part of the DTrace syscall provider.
  */
 
 static void
@@ -419,20 +419,6 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 0;
 		break;
 	}
-	/* sbrk */
-	case 69: {
-		struct sbrk_args *p = params;
-		iarg[a++] = p->incr; /* int */
-		*n_args = 1;
-		break;
-	}
-	/* sstk */
-	case 70: {
-		struct sstk_args *p = params;
-		iarg[a++] = p->incr; /* int */
-		*n_args = 1;
-		break;
-	}
 	/* munmap */
 	case 73: {
 		struct munmap_args *p = params;
@@ -539,7 +525,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		struct fcntl_args *p = params;
 		iarg[a++] = p->fd; /* int */
 		iarg[a++] = p->cmd; /* int */
-		iarg[a++] = p->arg; /* long */
+		uarg[a++] = (intptr_t)p->arg; /* intptr_t */
 		*n_args = 3;
 		break;
 	}
@@ -655,7 +641,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 120: {
 		struct readv_args *p = params;
 		iarg[a++] = p->fd; /* int */
-		uarg[a++] = (intptr_t)p->iovp; /* struct iovec * */
+		uarg[a++] = (intptr_t)p->iovp; /* const struct iovec * */
 		uarg[a++] = p->iovcnt; /* u_int */
 		*n_args = 3;
 		break;
@@ -664,7 +650,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 121: {
 		struct writev_args *p = params;
 		iarg[a++] = p->fd; /* int */
-		uarg[a++] = (intptr_t)p->iovp; /* struct iovec * */
+		uarg[a++] = (intptr_t)p->iovp; /* const struct iovec * */
 		uarg[a++] = p->iovcnt; /* u_int */
 		*n_args = 3;
 		break;
@@ -1472,7 +1458,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	/* aio_suspend */
 	case 315: {
 		struct aio_suspend_args *p = params;
-		uarg[a++] = (intptr_t)p->aiocbp; /* struct aiocb * const * */
+		uarg[a++] = (intptr_t)p->aiocbp; /* const struct aiocb * const * */
 		iarg[a++] = p->nent; /* int */
 		uarg[a++] = (intptr_t)p->timeout; /* const struct timespec * */
 		*n_args = 3;
@@ -1639,7 +1625,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 345: {
 		struct sigtimedwait_args *p = params;
 		uarg[a++] = (intptr_t)p->set; /* const sigset_t * */
-		uarg[a++] = (intptr_t)p->info; /* struct siginfo * */
+		uarg[a++] = (intptr_t)p->info; /* struct __siginfo * */
 		uarg[a++] = (intptr_t)p->timeout; /* const struct timespec * */
 		*n_args = 3;
 		break;
@@ -1648,7 +1634,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 346: {
 		struct sigwaitinfo_args *p = params;
 		uarg[a++] = (intptr_t)p->set; /* const sigset_t * */
-		uarg[a++] = (intptr_t)p->info; /* struct siginfo * */
+		uarg[a++] = (intptr_t)p->info; /* struct __siginfo * */
 		*n_args = 2;
 		break;
 	}
@@ -1656,7 +1642,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 347: {
 		struct __acl_get_file_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -1665,7 +1651,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 348: {
 		struct __acl_set_file_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -1674,7 +1660,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 349: {
 		struct __acl_get_fd_args *p = params;
 		iarg[a++] = p->filedes; /* int */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -1683,7 +1669,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 350: {
 		struct __acl_set_fd_args *p = params;
 		iarg[a++] = p->filedes; /* int */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -1692,7 +1678,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 351: {
 		struct __acl_delete_file_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		*n_args = 2;
 		break;
 	}
@@ -1700,7 +1686,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 352: {
 		struct __acl_delete_fd_args *p = params;
 		iarg[a++] = p->filedes; /* int */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		*n_args = 2;
 		break;
 	}
@@ -1708,7 +1694,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 353: {
 		struct __acl_aclcheck_file_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -1717,7 +1703,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 354: {
 		struct __acl_aclcheck_fd_args *p = params;
 		iarg[a++] = p->filedes; /* int */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -2133,7 +2119,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 425: {
 		struct __acl_get_link_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -2142,7 +2128,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 426: {
 		struct __acl_set_link_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -2151,7 +2137,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 427: {
 		struct __acl_delete_link_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		*n_args = 2;
 		break;
 	}
@@ -2159,7 +2145,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 428: {
 		struct __acl_aclcheck_link_args *p = params;
 		uarg[a++] = (intptr_t)p->path; /* const char * */
-		iarg[a++] = p->type; /* acl_type_t */
+		iarg[a++] = p->type; /* __acl_type_t */
 		uarg[a++] = (intptr_t)p->aclp; /* struct acl * */
 		*n_args = 3;
 		break;
@@ -2974,7 +2960,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		uarg[a++] = (intptr_t)p->status; /* int * */
 		iarg[a++] = p->options; /* int */
 		uarg[a++] = (intptr_t)p->wrusage; /* struct __wrusage * */
-		uarg[a++] = (intptr_t)p->info; /* struct siginfo * */
+		uarg[a++] = (intptr_t)p->info; /* struct __siginfo * */
 		*n_args = 6;
 		break;
 	}
@@ -3338,7 +3324,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 573: {
 		struct sigfastblock_args *p = params;
 		iarg[a++] = p->cmd; /* int */
-		uarg[a++] = (intptr_t)p->ptr; /* uint32_t * */
+		uarg[a++] = (intptr_t)p->ptr; /* void * */
 		*n_args = 2;
 		break;
 	}
@@ -3415,6 +3401,84 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		uarg[a++] = (intptr_t)p->name; /* const char * */
 		uarg[a++] = p->flags; /* u_int */
 		*n_args = 2;
+		break;
+	}
+	/* kqueuex */
+	case 583: {
+		struct kqueuex_args *p = params;
+		uarg[a++] = p->flags; /* u_int */
+		*n_args = 1;
+		break;
+	}
+	/* membarrier */
+	case 584: {
+		struct membarrier_args *p = params;
+		iarg[a++] = p->cmd; /* int */
+		uarg[a++] = p->flags; /* unsigned */
+		iarg[a++] = p->cpu_id; /* int */
+		*n_args = 3;
+		break;
+	}
+	/* timerfd_create */
+	case 585: {
+		struct timerfd_create_args *p = params;
+		iarg[a++] = p->clockid; /* int */
+		iarg[a++] = p->flags; /* int */
+		*n_args = 2;
+		break;
+	}
+	/* timerfd_gettime */
+	case 586: {
+		struct timerfd_gettime_args *p = params;
+		iarg[a++] = p->fd; /* int */
+		uarg[a++] = (intptr_t)p->curr_value; /* struct itimerspec * */
+		*n_args = 2;
+		break;
+	}
+	/* timerfd_settime */
+	case 587: {
+		struct timerfd_settime_args *p = params;
+		iarg[a++] = p->fd; /* int */
+		iarg[a++] = p->flags; /* int */
+		uarg[a++] = (intptr_t)p->new_value; /* const struct itimerspec * */
+		uarg[a++] = (intptr_t)p->old_value; /* struct itimerspec * */
+		*n_args = 4;
+		break;
+	}
+	/* kcmp */
+	case 588: {
+		struct kcmp_args *p = params;
+		iarg[a++] = p->pid1; /* pid_t */
+		iarg[a++] = p->pid2; /* pid_t */
+		iarg[a++] = p->type; /* int */
+		uarg[a++] = (intptr_t)p->idx1; /* uintptr_t */
+		uarg[a++] = (intptr_t)p->idx2; /* uintptr_t */
+		*n_args = 5;
+		break;
+	}
+	/* getrlimitusage */
+	case 589: {
+		struct getrlimitusage_args *p = params;
+		uarg[a++] = p->which; /* u_int */
+		iarg[a++] = p->flags; /* int */
+		uarg[a++] = (intptr_t)p->res; /* rlim_t * */
+		*n_args = 3;
+		break;
+	}
+	/* fchroot */
+	case 590: {
+		struct fchroot_args *p = params;
+		iarg[a++] = p->fd; /* int */
+		*n_args = 1;
+		break;
+	}
+	/* setcred */
+	case 591: {
+		struct setcred_args *p = params;
+		uarg[a++] = p->flags; /* u_int */
+		uarg[a++] = (intptr_t)p->wcred; /* const struct setcred * */
+		uarg[a++] = p->size; /* size_t */
+		*n_args = 3;
 		break;
 	}
 	default:
@@ -4055,26 +4119,6 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	/* vfork */
 	case 66:
 		break;
-	/* sbrk */
-	case 69:
-		switch (ndx) {
-		case 0:
-			p = "int";
-			break;
-		default:
-			break;
-		};
-		break;
-	/* sstk */
-	case 70:
-		switch (ndx) {
-		case 0:
-			p = "int";
-			break;
-		default:
-			break;
-		};
-		break;
 	/* munmap */
 	case 73:
 		switch (ndx) {
@@ -4243,7 +4287,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 2:
-			p = "long";
+			p = "intptr_t";
 			break;
 		default:
 			break;
@@ -4448,7 +4492,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 1:
-			p = "userland struct iovec *";
+			p = "userland const struct iovec *";
 			break;
 		case 2:
 			p = "u_int";
@@ -4464,7 +4508,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 1:
-			p = "userland struct iovec *";
+			p = "userland const struct iovec *";
 			break;
 		case 2:
 			p = "u_int";
@@ -5742,7 +5786,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	case 315:
 		switch (ndx) {
 		case 0:
-			p = "userland struct aiocb * const *";
+			p = "userland const struct aiocb * const *";
 			break;
 		case 1:
 			p = "int";
@@ -5998,7 +6042,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const sigset_t *";
 			break;
 		case 1:
-			p = "userland struct siginfo *";
+			p = "userland struct __siginfo *";
 			break;
 		case 2:
 			p = "userland const struct timespec *";
@@ -6014,7 +6058,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const sigset_t *";
 			break;
 		case 1:
-			p = "userland struct siginfo *";
+			p = "userland struct __siginfo *";
 			break;
 		default:
 			break;
@@ -6027,7 +6071,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6043,7 +6087,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6059,7 +6103,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6075,7 +6119,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6091,7 +6135,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		default:
 			break;
@@ -6104,7 +6148,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		default:
 			break;
@@ -6117,7 +6161,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6133,7 +6177,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6852,7 +6896,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6868,7 +6912,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -6884,7 +6928,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		default:
 			break;
@@ -6897,7 +6941,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland const char *";
 			break;
 		case 1:
-			p = "acl_type_t";
+			p = "__acl_type_t";
 			break;
 		case 2:
 			p = "userland struct acl *";
@@ -8340,7 +8384,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland struct __wrusage *";
 			break;
 		case 5:
-			p = "userland struct siginfo *";
+			p = "userland struct __siginfo *";
 			break;
 		default:
 			break;
@@ -9003,7 +9047,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "int";
 			break;
 		case 1:
-			p = "userland uint32_t *";
+			p = "userland void *";
 			break;
 		default:
 			break;
@@ -9129,6 +9173,141 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			break;
 		case 1:
 			p = "u_int";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* kqueuex */
+	case 583:
+		switch (ndx) {
+		case 0:
+			p = "u_int";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* membarrier */
+	case 584:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "unsigned";
+			break;
+		case 2:
+			p = "int";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* timerfd_create */
+	case 585:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "int";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* timerfd_gettime */
+	case 586:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "userland struct itimerspec *";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* timerfd_settime */
+	case 587:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		case 1:
+			p = "int";
+			break;
+		case 2:
+			p = "userland const struct itimerspec *";
+			break;
+		case 3:
+			p = "userland struct itimerspec *";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* kcmp */
+	case 588:
+		switch (ndx) {
+		case 0:
+			p = "pid_t";
+			break;
+		case 1:
+			p = "pid_t";
+			break;
+		case 2:
+			p = "int";
+			break;
+		case 3:
+			p = "uintptr_t";
+			break;
+		case 4:
+			p = "uintptr_t";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* getrlimitusage */
+	case 589:
+		switch (ndx) {
+		case 0:
+			p = "u_int";
+			break;
+		case 1:
+			p = "int";
+			break;
+		case 2:
+			p = "userland rlim_t *";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* fchroot */
+	case 590:
+		switch (ndx) {
+		case 0:
+			p = "int";
+			break;
+		default:
+			break;
+		};
+		break;
+	/* setcred */
+	case 591:
+		switch (ndx) {
+		case 0:
+			p = "u_int";
+			break;
+		case 1:
+			p = "userland const struct setcred *";
+			break;
+		case 2:
+			p = "size_t";
 			break;
 		default:
 			break;
@@ -9380,16 +9559,6 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* vfork */
 	case 66:
-	/* sbrk */
-	case 69:
-		if (ndx == 0 || ndx == 1)
-			p = "int";
-		break;
-	/* sstk */
-	case 70:
-		if (ndx == 0 || ndx == 1)
-			p = "int";
-		break;
 	/* munmap */
 	case 73:
 		if (ndx == 0 || ndx == 1)
@@ -9517,12 +9686,12 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	/* readv */
 	case 120:
 		if (ndx == 0 || ndx == 1)
-			p = "int";
+			p = "ssize_t";
 		break;
 	/* writev */
 	case 121:
 		if (ndx == 0 || ndx == 1)
-			p = "int";
+			p = "ssize_t";
 		break;
 	/* settimeofday */
 	case 122:
@@ -11084,6 +11253,51 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 	case 581:
 	/* swapoff */
 	case 582:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* kqueuex */
+	case 583:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* membarrier */
+	case 584:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* timerfd_create */
+	case 585:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* timerfd_gettime */
+	case 586:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* timerfd_settime */
+	case 587:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* kcmp */
+	case 588:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* getrlimitusage */
+	case 589:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* fchroot */
+	case 590:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* setcred */
+	case 591:
 		if (ndx == 0 || ndx == 1)
 			p = "int";
 		break;

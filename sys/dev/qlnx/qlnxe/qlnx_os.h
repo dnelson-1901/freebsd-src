@@ -24,8 +24,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD$
- *
  */
 
 /*
@@ -90,12 +88,6 @@
 #include <sys/smp.h>
 #include <sys/sched.h>
 
-#ifdef CONFIG_ECORE_SRIOV
-#include <sys/nv.h>
-#include <sys/iov_schema.h>
-#include <dev/pci/pci_iov.h>
-#endif /* #ifdef CONFIG_ECORE_SRIOV */
-
 static __inline int qlnx_ms_to_hz(int ms)
 {
 	int qlnx_hz;
@@ -138,8 +130,8 @@ MALLOC_DECLARE(M_QLNXBUF);
 /*
  * Locks
  */
-#define QLNX_LOCK(ha)		mtx_lock(&ha->hw_lock)
-#define QLNX_UNLOCK(ha)		mtx_unlock(&ha->hw_lock)
+#define QLNX_LOCK(ha)		sx_xlock(&ha->hw_lock)
+#define QLNX_UNLOCK(ha)		sx_xunlock(&ha->hw_lock)
 
 /*
  * structure encapsulating a DMA buffer

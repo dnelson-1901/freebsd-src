@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
  * Copyright 2004 John-Mark Gurney <jmg@FreeBSD.org>
@@ -29,8 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ktrace.h"
 #include "opt_kqueue.h"
 
@@ -107,7 +105,7 @@ static int	kqueue_acquire(struct file *fp, struct kqueue **kqp);
 static void	kqueue_release(struct kqueue *kq, int locked);
 static void	kqueue_destroy(struct kqueue *kq);
 static void	kqueue_drain(struct kqueue *kq, struct thread *td);
-static int	kqueue_expand(struct kqueue *kq, struct filterops *fops,
+static int	kqueue_expand(struct kqueue *kq, const struct filterops *fops,
 		    uintptr_t ident, int mflag);
 static void	kqueue_task(void *arg, int pending);
 static int	kqueue_scan(struct kqueue *kq, int maxevents,
@@ -115,7 +113,7 @@ static int	kqueue_scan(struct kqueue *kq, int maxevents,
 		    const struct timespec *timeout,
 		    struct kevent *keva, struct thread *td);
 static void 	kqueue_wakeup(struct kqueue *kq);
-static struct filterops *kqueue_fo_find(int filt);
+static const struct filterops *kqueue_fo_find(int filt);
 static void	kqueue_fo_release(int filt);
 struct g_kevent_args;
 static int	kern_kevent_generic(struct thread *td,
@@ -129,7 +127,7 @@ static fo_stat_t	kqueue_stat;
 static fo_close_t	kqueue_close;
 static fo_fill_kinfo_t	kqueue_fill_kinfo;
 
-static struct fileops kqueueops = {
+static const struct fileops kqueueops = {
 	.fo_read = invfo_rdwr,
 	.fo_write = invfo_rdwr,
 	.fo_truncate = invfo_truncate,
@@ -141,6 +139,7 @@ static struct fileops kqueueops = {
 	.fo_chmod = invfo_chmod,
 	.fo_chown = invfo_chown,
 	.fo_sendfile = invfo_sendfile,
+	.fo_cmp = file_kcmp_generic,
 	.fo_fill_kinfo = kqueue_fill_kinfo,
 };
 
@@ -174,30 +173,30 @@ static int	filt_user(struct knote *kn, long hint);
 static void	filt_usertouch(struct knote *kn, struct kevent *kev,
 		    u_long type);
 
-static struct filterops file_filtops = {
+static const struct filterops file_filtops = {
 	.f_isfd = 1,
 	.f_attach = filt_fileattach,
 };
-static struct filterops kqread_filtops = {
+static const struct filterops kqread_filtops = {
 	.f_isfd = 1,
 	.f_detach = filt_kqdetach,
 	.f_event = filt_kqueue,
 };
 /* XXX - move to kern_proc.c?  */
-static struct filterops proc_filtops = {
+static const struct filterops proc_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_procattach,
 	.f_detach = filt_procdetach,
 	.f_event = filt_proc,
 };
-static struct filterops timer_filtops = {
+static const struct filterops timer_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_timerattach,
 	.f_detach = filt_timerdetach,
 	.f_event = filt_timer,
 	.f_touch = filt_timertouch,
 };
-static struct filterops user_filtops = {
+static const struct filterops user_filtops = {
 	.f_attach = filt_userattach,
 	.f_detach = filt_userdetach,
 	.f_event = filt_user,
@@ -328,39 +327,38 @@ filt_nullattach(struct knote *kn)
 	return (ENXIO);
 };
 
-struct filterops null_filtops = {
+static const struct filterops null_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_nullattach,
 };
 
 /* XXX - make SYSINIT to add these, and move into respective modules. */
-extern struct filterops sig_filtops;
-extern struct filterops fs_filtops;
+extern const struct filterops sig_filtops;
+extern const struct filterops fs_filtops;
 
 /*
  * Table for all system-defined filters.
  */
 static struct mtx	filterops_lock;
-MTX_SYSINIT(kqueue_filterops, &filterops_lock, "protect sysfilt_ops",
-	MTX_DEF);
+MTX_SYSINIT(kqueue_filterops, &filterops_lock, "protect sysfilt_ops", MTX_DEF);
 static struct {
-	struct filterops *for_fop;
+	const struct filterops *for_fop;
 	int for_nolock;
 	int for_refcnt;
 } sysfilt_ops[EVFILT_SYSCOUNT] = {
-	{ &file_filtops, 1 },			/* EVFILT_READ */
-	{ &file_filtops, 1 },			/* EVFILT_WRITE */
-	{ &null_filtops },			/* EVFILT_AIO */
-	{ &file_filtops, 1 },			/* EVFILT_VNODE */
-	{ &proc_filtops, 1 },			/* EVFILT_PROC */
-	{ &sig_filtops, 1 },			/* EVFILT_SIGNAL */
-	{ &timer_filtops, 1 },			/* EVFILT_TIMER */
-	{ &file_filtops, 1 },			/* EVFILT_PROCDESC */
-	{ &fs_filtops, 1 },			/* EVFILT_FS */
-	{ &null_filtops },			/* EVFILT_LIO */
-	{ &user_filtops, 1 },			/* EVFILT_USER */
-	{ &null_filtops },			/* EVFILT_SENDFILE */
-	{ &file_filtops, 1 },                   /* EVFILT_EMPTY */
+	[~EVFILT_READ] = { &file_filtops, 1 },
+	[~EVFILT_WRITE] = { &file_filtops, 1 },
+	[~EVFILT_AIO] = { &null_filtops },
+	[~EVFILT_VNODE] = { &file_filtops, 1 },
+	[~EVFILT_PROC] = { &proc_filtops, 1 },
+	[~EVFILT_SIGNAL] = { &sig_filtops, 1 },
+	[~EVFILT_TIMER] = { &timer_filtops, 1 },
+	[~EVFILT_PROCDESC] = { &file_filtops, 1 },
+	[~EVFILT_FS] = { &fs_filtops, 1 },
+	[~EVFILT_LIO] = { &null_filtops },
+	[~EVFILT_USER] = { &user_filtops, 1 },
+	[~EVFILT_SENDFILE] = { &null_filtops },
+	[~EVFILT_EMPTY] = { &file_filtops, 1 },
 };
 
 /*
@@ -1057,6 +1055,19 @@ sys_kqueue(struct thread *td, struct kqueue_args *uap)
 	return (kern_kqueue(td, 0, NULL));
 }
 
+int
+sys_kqueuex(struct thread *td, struct kqueuex_args *uap)
+{
+	int flags;
+
+	if ((uap->flags & ~(KQUEUE_CLOEXEC)) != 0)
+		return (EINVAL);
+	flags = 0;
+	if ((uap->flags & KQUEUE_CLOEXEC) != 0)
+		flags |= O_CLOEXEC;
+	return (kern_kqueue(td, flags, NULL));
+}
+
 static void
 kqueue_init(struct kqueue *kq)
 {
@@ -1387,7 +1398,7 @@ kern_kevent_anonymous(struct thread *td, int nevents,
 }
 
 int
-kqueue_add_filteropts(int filt, struct filterops *filtops)
+kqueue_add_filteropts(int filt, const struct filterops *filtops)
 {
 	int error;
 
@@ -1435,7 +1446,7 @@ kqueue_del_filteropts(int filt)
 	return error;
 }
 
-static struct filterops *
+static const struct filterops *
 kqueue_fo_find(int filt)
 {
 
@@ -1478,7 +1489,7 @@ static int
 kqueue_register(struct kqueue *kq, struct kevent *kev, struct thread *td,
     int mflag)
 {
-	struct filterops *fops;
+	const struct filterops *fops;
 	struct file *fp;
 	struct knote *kn, *tkn;
 	struct knlist *knl;
@@ -1807,7 +1818,7 @@ kqueue_schedtask(struct kqueue *kq)
  * Return 0 on success (or no work necessary), return errno on failure.
  */
 static int
-kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
+kqueue_expand(struct kqueue *kq, const struct filterops *fops, uintptr_t ident,
     int mflag)
 {
 	struct klist *list, *tmp_knhash, *to_free;

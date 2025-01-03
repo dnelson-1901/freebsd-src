@@ -29,9 +29,7 @@
 .\"
 .\" * Other names and brands may be claimed as the property of others.
 .\"
-.\" $FreeBSD$
-.\"
-.Dd January 19, 2021
+.Dd August 1, 2023
 .Dt IXL 4
 .Os
 .Sh NAME
@@ -105,7 +103,10 @@ package.
 .It
 To update the firmware on an adapter, use the Intel Non-Volatile Memory (NVM)
 Update Utility; installed by the
-.Em sysutils/intel-nvmupdate
+.Em sysutils/intel-nvmupdate-10g ,
+.Em sysutils/intel-nvmupdate-40g ,
+or
+.Em sysutils/intel-nvmupdate-100g ,
 package.
 .It
 Drivers are provided by Intel outside of the
@@ -115,7 +116,10 @@ kernel; install the
 package for the latest driver.
 .El
 .Sh HARDWARE
-Most adapters in the Intel Ethernet 700 Series with SFP+/SFP28/QSFP+ cages
+The
+.Nm
+driver supports the Intel Ethernet 700 series.
+Most adapters in this series with SFP+/SFP28/QSFP+ cages
 have firmware that requires that Intel qualified modules are used; these
 qualified modules are listed below.
 This qualification check cannot be disabled by the driver.
@@ -208,7 +212,7 @@ When the driver is finding the last TX descriptor processed by the hardware,
 use a value written to memory by the hardware instead of scanning the
 descriptor ring for completed descriptors.
 Enabled by default; disable to mimic the TX behavior found in
-.Xr ixgbe 4 .
+.Xr ix 4 .
 .El
 .Sh SYSCTL PROCEDURES
 .Bl -tag -width indent

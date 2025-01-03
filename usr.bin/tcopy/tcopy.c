@@ -29,20 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-
-__FBSDID("$FreeBSD$");
-
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1985, 1987, 1993\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif
-
-#ifndef lint
-static const char sccsid[] = "@(#)tcopy.c	8.2 (Berkeley) 4/17/94";
-#endif
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -51,7 +37,9 @@ static const char sccsid[] = "@(#)tcopy.c	8.2 (Berkeley) 4/17/94";
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <libutil.h>
 #include <paths.h>
+#include <sys/sysctl.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -82,6 +70,12 @@ main(int argc, char *argv[])
 	int ch, needeof;
 	char *buff;
 	const char *inf;
+	unsigned long maxphys = 0;
+	size_t l_maxphys = sizeof maxphys;
+	uint64_t tmp;
+
+	if (!sysctlbyname("kern.maxphys", &maxphys, &l_maxphys, NULL, 0))
+		maxblk = maxphys;
 
 	msg = stdout;
 	guesslen = 1;
@@ -92,8 +86,12 @@ main(int argc, char *argv[])
 			op = COPYVERIFY;
 			break;
 		case 's':
-			maxblk = atoi(optarg);
-			if (maxblk <= 0) {
+			if (expand_number(optarg, &tmp)) {
+				warnx("illegal block size");
+				usage();
+			}
+			maxblk = tmp;
+			if (maxblk == 0) {
 				warnx("illegal block size");
 				usage();
 			}

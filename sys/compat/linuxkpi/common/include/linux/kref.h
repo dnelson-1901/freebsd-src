@@ -26,8 +26,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef _LINUXKPI_LINUX_KREF_H_
 #define _LINUXKPI_LINUX_KREF_H_
@@ -43,8 +41,7 @@
 #include <asm/atomic.h>
 
 struct kref {
-	/* XXX In Linux this is a refcount_t */
-	atomic_t refcount;
+	refcount_t refcount;
 };
 
 static inline void

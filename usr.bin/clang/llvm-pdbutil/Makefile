@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PROG_CXX=	llvm-pdbutil
 
 SRCDIR=		llvm/tools/llvm-pdbutil
@@ -23,7 +21,5 @@ SRCS+=		StreamUtil.cpp
 SRCS+=		TypeReferenceTracker.cpp
 SRCS+=		YAMLOutputStyle.cpp
 SRCS+=		llvm-pdbutil.cpp
-
-LIBADD+=	z
 
 .include "../llvm.prog.mk"

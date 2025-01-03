@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011-2012 Stefan Bethke.
  * Copyright (c) 2012 Adrian Chadd.
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -64,12 +62,10 @@
 #include <dev/etherswitch/arswitch/arswitch_phy.h>
 #include <dev/etherswitch/arswitch/arswitch_vlans.h>
 
-#include <dev/etherswitch/arswitch/arswitch_7240.h>
 #include <dev/etherswitch/arswitch/arswitch_8216.h>
 #include <dev/etherswitch/arswitch/arswitch_8226.h>
 #include <dev/etherswitch/arswitch/arswitch_8316.h>
 #include <dev/etherswitch/arswitch/arswitch_8327.h>
-#include <dev/etherswitch/arswitch/arswitch_9340.h>
 
 #include <dev/led/led.h>
 
@@ -102,34 +98,16 @@ arswitch_probe(device_t dev)
 {
 	struct arswitch_softc *sc;
 	uint32_t id;
-	char *chipname, desc[256];
+	char *chipname;
 
 	sc = device_get_softc(dev);
 	bzero(sc, sizeof(*sc));
 	sc->page = -1;
 
-	/* AR7240 probe */
-	if (ar7240_probe(dev) == 0) {
-		chipname = "AR7240";
-		sc->sc_switchtype = AR8X16_SWITCH_AR7240;
-		sc->is_internal_switch = 1;
-		id = 0;
-		goto done;
-	}
-
-	/* AR9340 probe */
-	if (ar9340_probe(dev) == 0) {
-		chipname = "AR9340";
-		sc->sc_switchtype = AR8X16_SWITCH_AR9340;
-		sc->is_internal_switch = 1;
-		id = 0;
-		goto done;
-	}
-
 	/* AR8xxx probe */
 	id = arswitch_readreg(dev, AR8X16_REG_MASK_CTRL);
 	sc->chip_rev = (id & AR8X16_MASK_CTRL_REV_MASK);
-	sc->chip_ver = (id & AR8X16_MASK_CTRL_VER_MASK) > AR8X16_MASK_CTRL_VER_SHIFT;
+	sc->chip_ver = (id & AR8X16_MASK_CTRL_VER_MASK) >> AR8X16_MASK_CTRL_VER_SHIFT;
 	switch (id & (AR8X16_MASK_CTRL_VER_MASK | AR8X16_MASK_CTRL_REV_MASK)) {
 	case 0x0101:
 		chipname = "AR8216";
@@ -155,16 +133,11 @@ arswitch_probe(device_t dev)
 		chipname = NULL;
 	}
 
-done:
-
 	DPRINTF(sc, ARSWITCH_DBG_ANY, "chipname=%s, id=%08x\n", chipname, id);
 	if (chipname != NULL) {
-		snprintf(desc, sizeof(desc),
+		device_set_descf(dev,
 		    "Atheros %s Ethernet Switch (ver %d rev %d)",
-		    chipname,
-		    sc->chip_ver,
-		    sc->chip_rev);
-		device_set_desc_copy(dev, desc);
+		    chipname, sc->chip_ver, sc->chip_rev);
 		return (BUS_PROBE_DEFAULT);
 	}
 	return (ENXIO);
@@ -180,12 +153,6 @@ arswitch_attach_phys(struct arswitch_softc *sc)
 	snprintf(name, IFNAMSIZ, "%sport", device_get_nameunit(sc->sc_dev));
 	for (phy = 0; phy < sc->numphys; phy++) {
 		sc->ifp[phy] = if_alloc(IFT_ETHER);
-		if (sc->ifp[phy] == NULL) {
-			device_printf(sc->sc_dev, "couldn't allocate ifnet structure\n");
-			err = ENOMEM;
-			break;
-		}
-
 		if_setsoftc(sc->ifp[phy], sc);
 		if_setflagbits(sc->ifp[phy], IFF_UP | IFF_BROADCAST |
 		    IFF_DRV_RUNNING | IFF_SIMPLEX, 0);
@@ -595,11 +562,7 @@ arswitch_attach(device_t dev)
 	/*
 	 * Attach switch related functions
 	 */
-	if (AR8X16_IS_SWITCH(sc, AR7240))
-		ar7240_attach(sc);
-	else if (AR8X16_IS_SWITCH(sc, AR9340))
-		ar9340_attach(sc);
-	else if (AR8X16_IS_SWITCH(sc, AR8216))
+	if (AR8X16_IS_SWITCH(sc, AR8216))
 		ar8216_attach(sc);
 	else if (AR8X16_IS_SWITCH(sc, AR8226))
 		ar8226_attach(sc);
@@ -692,14 +655,9 @@ arswitch_attach(device_t dev)
 		return (err);
 	}
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
-	err = bus_generic_attach(dev);
-	if (err != 0) {
-		DPRINTF(sc, ARSWITCH_DBG_ANY,
-		    "%s: bus_generic_attach: err=%d\n", __func__, err);
-		return (err);
-	}
+	bus_attach_children(dev);
 	
 	callout_init_mtx(&sc->callout_tick, &sc->sc_mtx, 0);
 
@@ -714,13 +672,15 @@ static int
 arswitch_detach(device_t dev)
 {
 	struct arswitch_softc *sc = device_get_softc(dev);
-	int i, led;
+	int error, i, led;
 
 	callout_drain(&sc->callout_tick);
 
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
+
 	for (i=0; i < sc->numphys; i++) {
-		if (sc->miibus[i] != NULL)
-			device_delete_child(dev, sc->miibus[i]);
 		if (sc->ifp[i] != NULL)
 			if_free(sc->ifp[i]);
 		free(sc->ifname[i], M_DEVBUF);
@@ -731,7 +691,6 @@ arswitch_detach(device_t dev)
 
 	free(sc->atu.entries, M_DEVBUF);
 
-	bus_generic_detach(dev);
 	mtx_destroy(&sc->sc_mtx);
 
 	return (0);

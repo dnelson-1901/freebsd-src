@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Katsurajima Naoto <raven@katsurajima.seya.yokohama.jp>
  * All rights reserved.
@@ -40,8 +40,6 @@
 #include <dev/pci/pcivar.h>
 
 #include "mixer_if.h"
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 static MALLOC_DEFINE(M_ENVY24, "envy24", "envy24 audio");
 
@@ -2577,9 +2575,7 @@ envy24_pci_attach(device_t dev)
 	mixer_init(dev, &envy24mixer_class, sc);
 
 	/* set channel information */
-	err = pcm_register(dev, sc, 5, 2 + sc->adcn);
-	if (err)
-		goto bad;
+	pcm_init(dev, sc);
 	sc->chnum = 0;
 	for (i = 0; i < 5; i++) {
 		pcm_addchan(dev, PCMDIR_PLAY, &envy24chan_class, sc);
@@ -2592,7 +2588,7 @@ envy24_pci_attach(device_t dev)
 
 	/* set status iformation */
 	snprintf(status, SND_STATUSLEN,
-	    "at io 0x%jx:%jd,0x%jx:%jd,0x%jx:%jd,0x%jx:%jd irq %jd",
+	    "port 0x%jx:%jd,0x%jx:%jd,0x%jx:%jd,0x%jx:%jd irq %jd on %s",
 	    rman_get_start(sc->cs),
 	    rman_get_end(sc->cs) - rman_get_start(sc->cs) + 1,
 	    rman_get_start(sc->ddma),
@@ -2601,8 +2597,10 @@ envy24_pci_attach(device_t dev)
 	    rman_get_end(sc->ds) - rman_get_start(sc->ds) + 1,
 	    rman_get_start(sc->mt),
 	    rman_get_end(sc->mt) - rman_get_start(sc->mt) + 1,
-	    rman_get_start(sc->irq));
-	pcm_setstatus(dev, status);
+	    rman_get_start(sc->irq),
+	    device_get_nameunit(device_get_parent(dev)));
+	if (pcm_register(dev, status))
+		goto bad;
 
 	return 0;
 

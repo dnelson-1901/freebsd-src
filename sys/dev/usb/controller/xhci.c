@@ -1,6 +1,5 @@
-/* $FreeBSD$ */
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010-2022 Hans Petter Selasky
  *
@@ -4407,3 +4406,5 @@ static const struct usb_bus_methods xhci_bus_methods = {
 	.set_hw_power_sleep = xhci_set_hw_power_sleep,
 	.set_endpoint_mode = xhci_set_endpoint_mode,
 };
+
+MODULE_VERSION(xhci, 1);

@@ -29,10 +29,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"     @(#)mount_cd9660.8	8.3 (Berkeley) 3/27/94
-.\" $FreeBSD$
-.\"
-.Dd August 11, 2018
+.Dd December 6, 2024
 .Dt MOUNT_CD9660 8
 .Os
 .Sh NAME
@@ -42,8 +39,12 @@
 .Nm
 .Op Fl begjrv
 .Op Fl C Ar charset
+.Op Fl G Ar gid
+.Op Fl m Ar mask
+.Op Fl M Ar mask
 .Op Fl o Ar options
 .Op Fl s Ar startsector
+.Op Fl U Ar uid
 .Ar special node
 .Sh DESCRIPTION
 The
@@ -69,6 +70,38 @@ Do not strip version numbers on files.
 only the last one will be listed.)
 In either case, files may be opened without explicitly stating a
 version number.
+.It Fl G Ar group
+Set the group of the files in the file system to
+.Ar group .
+The default gid on volumes without extended attributes or Rockridge extensions
+is zero.
+.It Fl U Ar user
+Set the owner of the files in the file system to
+.Ar user .
+The default uid on volumes without extended attributes or Rockridge extensions
+is zero.
+.It Fl m Ar mask
+Specify the maximum file permissions for files
+in the file system.
+For example, a
+.Ar mask
+of
+.Li 544
+limits the owner to
+read and execute permissions for files and
+others to only read permission.
+See
+.Xr chmod 1
+for more information about octal file modes.
+The default
+.Ar mask
+is 7777.
+The default permissions on volumes without extended attributes or Rockridge
+extensions is 555.
+.It Fl M Ar mask
+Specify the maximum file permissions for directories
+in the file system.
+See the previous option's description for details.
 .It Fl j
 Do not use any Joliet extensions included in the file system.
 .It Fl o
@@ -138,7 +171,7 @@ The following command can be used to mount a Kodak Photo-CD:
 .Xr cdcontrol 1 ,
 .Xr mount 2 ,
 .Xr unmount 2 ,
-.Xr cd9660 5 ,
+.Xr cd9660 4 ,
 .Xr fstab 5 ,
 .Xr mdconfig 8 ,
 .Xr mount 8

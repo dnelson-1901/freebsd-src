@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004-2019 Pawel Jakub Dawidek <pawel@dawidek.net>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/mman.h>
@@ -1423,6 +1420,12 @@ eli_setkey_detached(struct gctl_req *req, const char *prov,
 	bcopy(mkey, mkeydst, sizeof(mkey));
 	explicit_bzero(mkey, sizeof(mkey));
 
+	/*
+	 * The previous eli_genkey() set cached_passphrase, we do not want to
+	 * use that for the new passphrase so always prompt for it
+	 */
+	explicit_bzero(cached_passphrase, sizeof(cached_passphrase));
+
 	/* Generate key for Master Key encryption. */
 	if (eli_genkey_single(req, md, key, true) == NULL) {
 		explicit_bzero(key, sizeof(key));
@@ -1469,7 +1472,7 @@ eli_setkey(struct gctl_req *req)
 
 	if (req->error == NULL || req->error[0] == '\0') {
 		printf("Note, that the master key encrypted with old keys "
-		    "and/or passphrase may still exists in a metadata backup "
+		    "and/or passphrase may still exist in a metadata backup "
 		    "file.\n");
 	}
 }

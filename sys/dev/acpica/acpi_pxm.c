@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010 Hudson River Trading LLC
  * Written by: John H. Baldwin <jhb@FreeBSD.org>
@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_vm.h"
 
 #include <sys/param.h>
@@ -56,8 +54,8 @@ __FBSDID("$FreeBSD$");
 
 #if MAXMEMDOM > 1
 static struct cpu_info {
-	int enabled:1;
-	int has_memory:1;
+	bool enabled:1;
+	bool has_memory:1;
 	int domain;
 	int id;
 } *cpus;

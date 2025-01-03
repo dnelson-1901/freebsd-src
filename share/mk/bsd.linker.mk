@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 # Setup variables for the linker.
 #
@@ -12,9 +11,11 @@
 # LINKER_FEATURES may contain one or more of the following, based on
 # linker support for that feature:
 #
-# - build-id:  support for generating a Build-ID note
-# - retpoline: support for generating PLT with retpoline speculative
-#              execution vulnerability mitigation
+# - build-id:   support for generating a Build-ID note
+# - retpoline:  support for generating PLT with retpoline speculative
+#               execution vulnerability mitigation
+# - bti-report: support for specifying how to report the missing
+#               Branch Target Identification (BTI) property (AArch64)
 #
 # LINKER_FREEBSD_VERSION is the linker's internal source version.
 #
@@ -79,10 +80,10 @@ ${X_}LINKER_FREEBSD_VERSION:=	${_ld_version:[4]:C/.*-([^-]*)\)/\1/}
 .else
 ${X_}LINKER_FREEBSD_VERSION=	0
 .endif
-.elif ${_ld_version:[1]} == "@(\#)PROGRAM:ld"
+.elif ${_ld_version:[1]:S/-classic$//} == "@(\#)PROGRAM:ld"
 # bootstrap linker on MacOS
 ${X_}LINKER_TYPE=        mac
-_v=        ${_ld_version:[2]:S/PROJECT:ld64-//}
+_v=        ${_ld_version:[2]:C/PROJECT:(ld64|dyld)-//}
 # Convert version 409.12 to 409.12.0 so that the echo + awk below works
 .if empty(_v:M[1-9]*.[0-9]*.[0-9]*) && !empty(_v:M[1-9]*.[0-9]*)
 _v:=${_v}.0
@@ -112,6 +113,9 @@ ${X_}LINKER_FEATURES+=	retpoline
 .endif
 .if ${${X_}LINKER_TYPE} == "lld" && ${${X_}LINKER_VERSION} >= 90000
 ${X_}LINKER_FEATURES+=	ifunc-noplt
+.endif
+.if ${${X_}LINKER_TYPE} == "lld" && ${${X_}LINKER_VERSION} >= 140000
+${X_}LINKER_FEATURES+=	bti-report
 .endif
 .endif
 .else

@@ -27,9 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)rtsock.c	8.7 (Berkeley) 10/12/95
- * $FreeBSD$
  */
 #include "opt_ddb.h"
 #include "opt_route.h"
@@ -139,7 +136,9 @@ struct linear_buffer {
 };
 #define	SCRATCH_BUFFER_SIZE	1024
 
-#define	RTS_PID_LOG(_l, _fmt, ...)	RT_LOG_##_l(_l, "PID %d: " _fmt, curproc ? curproc->p_pid : 0, ## __VA_ARGS__)
+#define	RTS_PID_LOG(_l, _fmt, ...)					\
+	RT_LOG_##_l(_l, "PID %d: " _fmt, curproc ? curproc->p_pid : 0,	\
+	    ## __VA_ARGS__)
 
 MALLOC_DEFINE(M_RTABLE, "routetbl", "routing tables");
 
@@ -218,8 +217,6 @@ static int	update_rtm_from_rc(struct rt_addrinfo *info,
 static void	send_rtm_reply(struct socket *so, struct rt_msghdr *rtm,
 			struct mbuf *m, sa_family_t saf, u_int fibnum,
 			int rtm_errno);
-static bool	can_export_rte(struct ucred *td_ucred, bool rt_is_host,
-			const struct sockaddr *rt_dst);
 static void	rtsock_notify_event(uint32_t fibnum, const struct rib_cmd_info *rc);
 static void	rtsock_ifmsg(struct ifnet *ifp, int if_flags_mask);
 
@@ -244,7 +241,7 @@ sysctl_route_netisr_maxqlen(SYSCTL_HANDLER_ARGS)
 	return (netisr_setqlimit(&rtsock_nh, qlimit));
 }
 SYSCTL_PROC(_net_route, OID_AUTO, netisr_maxqlen,
-    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+    CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_MPSAFE,
     0, 0, sysctl_route_netisr_maxqlen, "I",
     "maximum routing socket dispatch queue length");
 
@@ -264,7 +261,7 @@ vnet_rts_init(void)
 #endif
 }
 VNET_SYSINIT(vnet_rtsock, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD,
-    vnet_rts_init, 0);
+    vnet_rts_init, NULL);
 
 #ifdef VIMAGE
 static void
@@ -274,7 +271,7 @@ vnet_rts_uninit(void)
 	netisr_unregister_vnet(&rtsock_nh);
 }
 VNET_SYSUNINIT(vnet_rts_uninit, SI_SUB_PROTO_DOMAIN, SI_ORDER_THIRD,
-    vnet_rts_uninit, 0);
+    vnet_rts_uninit, NULL);
 #endif
 
 static void
@@ -455,10 +452,22 @@ rts_disconnect(struct socket *so)
 }
 
 static int
-rts_shutdown(struct socket *so)
+rts_shutdown(struct socket *so, enum shutdown_how how)
 {
+	/*
+	 * Note: route socket marks itself as connected through its lifetime.
+	 */
+	switch (how) {
+	case SHUT_RD:
+		sorflush(so);
+		break;
+	case SHUT_RDWR:
+		sorflush(so);
+		/* FALLTHROUGH */
+	case SHUT_WR:
+		socantsendmore(so);
+	}
 
-	socantsendmore(so);
 	return (0);
 }
 
@@ -686,7 +695,7 @@ fill_addrinfo(struct rt_msghdr *rtm, int len, struct linear_buffer *lb, u_int fi
 
 		/* 
 		 * A host route through the loopback interface is 
-		 * installed for each interface adddress. In pre 8.0
+		 * installed for each interface address. In pre 8.0
 		 * releases the interface address of a PPP link type
 		 * is not reachable locally. This behavior is fixed as 
 		 * part of the new L2/L3 redesign and rewrite work. The
@@ -912,8 +921,10 @@ update_rtm_from_info(struct rt_addrinfo *info, struct rt_msghdr **prtm,
 		 */
 	}
 
-	w.w_tmem = (caddr_t)rtm;
-	w.w_tmemsize = alloc_len;
+	w = (struct walkarg ){
+		.w_tmem = (caddr_t)rtm,
+		.w_tmemsize = alloc_len,
+	};
 	rtsock_msg_buffer(rtm->rtm_type, info, &w, &len);
 	rtm->rtm_addrs = info->rti_addrs;
 
@@ -1168,11 +1179,8 @@ rts_send(struct socket *so, int flags, struct mbuf *m,
 			senderr(error);
 		nh = rc.rc_nh_new;
 
-		if (!can_export_rte(curthread->td_ucred,
-		    info.rti_info[RTAX_NETMASK] == NULL,
-		    info.rti_info[RTAX_DST])) {
+		if (!rt_is_exportable(rc.rc_rt, curthread->td_ucred))
 			senderr(ESRCH);
-		}
 		break;
 
 	default:
@@ -1768,7 +1776,10 @@ rtsock_msg_buffer(int type, struct rt_addrinfo *rtinfo, struct walkarg *w, int *
 	struct sockaddr_in6 *sin6;
 #endif
 #ifdef COMPAT_FREEBSD32
-	bool compat32 = false;
+	bool compat32;
+
+	compat32 = w != NULL && w->w_req != NULL &&
+	    (w->w_req->flags & SCTL_MASK32);
 #endif
 
 	switch (type) {
@@ -1776,10 +1787,9 @@ rtsock_msg_buffer(int type, struct rt_addrinfo *rtinfo, struct walkarg *w, int *
 	case RTM_NEWADDR:
 		if (w != NULL && w->w_op == NET_RT_IFLISTL) {
 #ifdef COMPAT_FREEBSD32
-			if (w->w_req->flags & SCTL_MASK32) {
+			if (compat32)
 				len = sizeof(struct ifa_msghdrl32);
-				compat32 = true;
-			} else
+			else
 #endif
 				len = sizeof(struct ifa_msghdrl);
 		} else
@@ -1787,20 +1797,21 @@ rtsock_msg_buffer(int type, struct rt_addrinfo *rtinfo, struct walkarg *w, int *
 		break;
 
 	case RTM_IFINFO:
+		if (w != NULL && w->w_op == NET_RT_IFLISTL) {
 #ifdef COMPAT_FREEBSD32
-		if (w != NULL && w->w_req->flags & SCTL_MASK32) {
-			if (w->w_op == NET_RT_IFLISTL)
+			if (compat32)
 				len = sizeof(struct if_msghdrl32);
 			else
-				len = sizeof(struct if_msghdr32);
-			compat32 = true;
-			break;
-		}
 #endif
-		if (w != NULL && w->w_op == NET_RT_IFLISTL)
-			len = sizeof(struct if_msghdrl);
-		else
-			len = sizeof(struct if_msghdr);
+				len = sizeof(struct if_msghdrl);
+		} else {
+#ifdef COMPAT_FREEBSD32
+			if (compat32)
+				len = sizeof(struct if_msghdr32);
+			else
+#endif
+				len = sizeof(struct if_msghdr);
+		}
 		break;
 
 	case RTM_NEWMADDR:
@@ -2199,23 +2210,6 @@ rt_dispatch(struct mbuf *m, sa_family_t saf)
 }
 
 /*
- * Checks if rte can be exported w.r.t jails/vnets.
- *
- * Returns true if it can, false otherwise.
- */
-static bool
-can_export_rte(struct ucred *td_ucred, bool rt_is_host,
-    const struct sockaddr *rt_dst)
-{
-
-	if ((!rt_is_host) ? jailed_without_vnet(td_ucred)
-	    : prison_if(td_ucred, rt_dst) != 0)
-		return (false);
-	return (true);
-}
-
-
-/*
  * This is used in dumping the kernel table via sysctl().
  */
 static int
@@ -2226,9 +2220,10 @@ sysctl_dumpentry(struct rtentry *rt, void *vw)
 
 	NET_EPOCH_ASSERT();
 
-	export_rtaddrs(rt, w->dst, w->mask);
-	if (!can_export_rte(w->w_req->td->td_ucred, rt_is_host(rt), w->dst))
+	if (!rt_is_exportable(rt, w->w_req->td->td_ucred))
 		return (0);
+
+	export_rtaddrs(rt, w->dst, w->mask);
 	nh = rt_get_raw_nhop(rt);
 #ifdef ROUTE_MPATH
 	if (NH_IS_NHGRP(nh)) {

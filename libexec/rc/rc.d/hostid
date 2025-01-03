@@ -24,7 +24,6 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #
-# $FreeBSD$
 #
 
 # PROVIDE: hostid
@@ -77,6 +76,8 @@ valid_hostid()
 	11111111-1111-1111-1111-111111111111)
 		;;
 	11111111-2222-3333-4444-555555555555)
+		;;
+	12345678-1234-5678-90ab-cddeefaabbcc)
 		;;
 	4c4c4544-0000-2010-8020-80c04f202020)
 		;;
@@ -157,4 +158,8 @@ hostid_start()
 }
 
 load_rc_config $name
+
+# doesn't make sense to run in a svcj: config setting
+hostid_svcj="NO"
+
 run_rc_command "$1"

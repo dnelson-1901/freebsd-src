@@ -1,4 +1,3 @@
-# $FreeBSD$
 
 .include <src.opts.mk>
 
@@ -38,19 +37,20 @@ TARGET_ARCH?=	${MACHINE_ARCH}
 BUILD_ARCH?=	${MACHINE_ARCH}
 
 # Armv6 and armv7 uses hard float abi, unless the CPUTYPE has soft in it.
-# arm (for armv4 and armv5 CPUs) always uses the soft float ABI.
 # For all other targets, we stick with 'unknown'.
-.if ${TARGET_ARCH:Marmv[67]*} && (!defined(CPUTYPE) || ${CPUTYPE:M*soft*} == "")
-TARGET_TRIPLE_ABI=	-gnueabihf
-.elif ${TARGET_ARCH:Marm*}
-TARGET_TRIPLE_ABI=	-gnueabi
+.if ${TARGET_ARCH:Marm*}
+.if !defined(CPUTYPE) || ${CPUTYPE:M*soft*} == ""
+TARGET_TRIPLE_ABI=-gnueabihf
+.else
+TARGET_TRIPLE_ABI=-gnueabi
+.endif
 .else
 TARGET_TRIPLE_ABI=
 .endif
 VENDOR=		unknown
 
-LLVM_TARGET_TRIPLE?=	${TARGET_ARCH:C/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${VENDOR}-freebsd${OS_REVISION}${TARGET_TRIPLE_ABI}
-LLVM_BUILD_TRIPLE?=	${BUILD_ARCH:C/amd64/x86_64/:C/[hs]f$//:S/mipsn32/mips64/}-${VENDOR}-freebsd${OS_REVISION}
+LLVM_TARGET_TRIPLE?=	${TARGET_ARCH:C/amd64/x86_64/}-${VENDOR}-freebsd${OS_REVISION}${TARGET_TRIPLE_ABI}
+LLVM_BUILD_TRIPLE?=	${BUILD_ARCH:C/amd64/x86_64/}-${VENDOR}-freebsd${OS_REVISION}
 
 CFLAGS+=	-DLLVM_DEFAULT_TARGET_TRIPLE=\"${LLVM_TARGET_TRIPLE}\"
 CFLAGS+=	-DLLVM_HOST_TRIPLE=\"${LLVM_BUILD_TRIPLE}\"
@@ -73,9 +73,6 @@ CFLAGS+=	-DLLVM_TARGET_ENABLE_BPF
 .endif
 .if ${MK_LLVM_TARGET_MIPS} != "no"
 CFLAGS+=	-DLLVM_TARGET_ENABLE_MIPS
-. if ${MACHINE_CPUARCH} == "mips"
-LLVM_NATIVE_ARCH=	Mips
-. endif
 .endif
 .if ${MK_LLVM_TARGET_POWERPC} != "no"
 CFLAGS+=	-DLLVM_TARGET_ENABLE_POWERPC
@@ -112,9 +109,17 @@ CFLAGS+=	-fdata-sections
 LDFLAGS+=	-Wl,-dead_strip
 .else
 LDFLAGS+=	-Wl,--gc-sections
+# XXX: --gc-sections strips the ELF brand note and on RISC-V the OS/ABI ends up
+# as NONE, so for statically-linked binaries, i.e. lacking an interpreter,
+# get_brandinfo finds nothing and (f)execve fails with ENOEXEC. Work around
+# this by manually setting the OS/ABI field via the emulation.
+.if ${MACHINE_ARCH:Mriscv64*} != "" && ${NO_SHARED:Uno:tl} != "no" && \
+    (${.MAKE.OS} == "FreeBSD" || !defined(BOOTSTRAPPING))
+LDFLAGS+=	-Wl,-m,elf64lriscv_fbsd
+.endif
 .endif
 
-CXXSTD?=	c++14
+CXXSTD?=	c++17
 CXXFLAGS+=	-fno-exceptions
 CXXFLAGS+=	-fno-rtti
 .if ${.MAKE.OS} == "FreeBSD" || !defined(BOOTSTRAPPING)
@@ -127,15 +132,10 @@ CFLAGS+=	-DBOOTSTRAPPING_WANT_NATIVE_SYSCTL
 LIBADD+=	dl
 .endif
 
-.if ${MACHINE_ARCH:Mmips64}
-STATIC_CFLAGS+= -mxgot
-STATIC_CXXFLAGS+= -mxgot
-.endif
-
 # Link clang and tools with LTO for a 10% speed boost.  May need to disable
 # during clang version or base system jumps, because LTO bitcode changes
 # across versions and required shlibs may not be available
-.if ${COMPILER_TYPE} == "clang" && exists(/usr/bin/llvm-ar) && exists(/usr/bin/llvm-objcopy)
+.if ${COMPILER_TYPE} == "zclang" && exists(/usr/bin/llvm-ar) && exists(/usr/bin/llvm-objcopy)
 # Build with LTO
 CFLAGS+=	-flto=thin
 CXXFLAGS+=	-flto=thin

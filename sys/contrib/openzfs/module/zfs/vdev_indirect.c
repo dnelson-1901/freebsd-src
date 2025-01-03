@@ -34,6 +34,7 @@
 #include <sys/zap.h>
 #include <sys/abd.h>
 #include <sys/zthr.h>
+#include <sys/fm/fs/zfs.h>
 
 /*
  * An indirect vdev corresponds to a vdev that has been removed.  Since
@@ -293,17 +294,16 @@ vdev_indirect_map_free(zio_t *zio)
 	indirect_vsd_t *iv = zio->io_vsd;
 
 	indirect_split_t *is;
-	while ((is = list_head(&iv->iv_splits)) != NULL) {
+	while ((is = list_remove_head(&iv->iv_splits)) != NULL) {
 		for (int c = 0; c < is->is_children; c++) {
 			indirect_child_t *ic = &is->is_child[c];
 			if (ic->ic_data != NULL)
 				abd_free(ic->ic_data);
 		}
-		list_remove(&iv->iv_splits, is);
 
 		indirect_child_t *ic;
-		while ((ic = list_head(&is->is_unique_child)) != NULL)
-			list_remove(&is->is_unique_child, ic);
+		while ((ic = list_remove_head(&is->is_unique_child)) != NULL)
+			;
 
 		list_destroy(&is->is_unique_child);
 
@@ -1370,9 +1370,10 @@ vdev_indirect_io_start(zio_t *zio)
 			    is != NULL; is = list_next(&iv->iv_splits, is)) {
 				zio_nowait(zio_vdev_child_io(zio, NULL,
 				    is->is_vdev, is->is_target_offset,
-				    abd_get_offset(zio->io_abd,
-				    is->is_split_offset), is->is_size,
-				    zio->io_type, zio->io_priority, 0,
+				    abd_get_offset_size(zio->io_abd,
+				    is->is_split_offset, is->is_size),
+				    is->is_size, zio->io_type,
+				    zio->io_priority, 0,
 				    vdev_indirect_child_io_done, zio));
 			}
 
@@ -1398,7 +1399,7 @@ vdev_indirect_checksum_error(zio_t *zio,
 	vd->vdev_stat.vs_checksum_errors++;
 	mutex_exit(&vd->vdev_stat_lock);
 
-	zio_bad_cksum_t zbc = {{{ 0 }}};
+	zio_bad_cksum_t zbc = { 0 };
 	abd_t *bad_abd = ic->ic_data;
 	abd_t *good_abd = is->is_good_child->ic_data;
 	(void) zfs_ereport_post_checksum(zio->io_spa, vd, NULL, zio,
@@ -1658,8 +1659,8 @@ out:
 	for (indirect_split_t *is = list_head(&iv->iv_splits);
 	    is != NULL; is = list_next(&iv->iv_splits, is)) {
 		indirect_child_t *ic;
-		while ((ic = list_head(&is->is_unique_child)) != NULL)
-			list_remove(&is->is_unique_child, ic);
+		while ((ic = list_remove_head(&is->is_unique_child)) != NULL)
+			;
 
 		is->is_unique_children = 0;
 	}
@@ -1832,6 +1833,19 @@ vdev_indirect_io_done(zio_t *zio)
 
 	zio_bad_cksum_t zbc;
 	int ret = zio_checksum_error(zio, &zbc);
+	/*
+	 * Any Direct I/O read that has a checksum error must be treated as
+	 * suspicious as the contents of the buffer could be getting
+	 * manipulated while the I/O is taking place. The checksum verify error
+	 * will be reported to the top-level VDEV.
+	 */
+	if (zio->io_flags & ZIO_FLAG_DIO_READ && ret == ECKSUM) {
+		zio->io_error = ret;
+		zio->io_flags |= ZIO_FLAG_DIO_CHKSUM_ERR;
+		zio_dio_chksum_verify_error_report(zio);
+		ret = 0;
+	}
+
 	if (ret == 0) {
 		zio_checksum_verified(zio);
 		return;
@@ -1883,7 +1897,6 @@ EXPORT_SYMBOL(vdev_indirect_sync_obsolete);
 EXPORT_SYMBOL(vdev_obsolete_counts_are_precise);
 EXPORT_SYMBOL(vdev_obsolete_sm_object);
 
-/* BEGIN CSTYLED */
 ZFS_MODULE_PARAM(zfs_condense, zfs_condense_, indirect_vdevs_enable, INT,
 	ZMOD_RW, "Whether to attempt condensing indirect vdev mappings");
 
@@ -1908,4 +1921,3 @@ ZFS_MODULE_PARAM(zfs_condense, zfs_condense_, indirect_commit_entry_delay_ms,
 ZFS_MODULE_PARAM(zfs_reconstruct, zfs_reconstruct_, indirect_combinations_max,
 	UINT, ZMOD_RW,
 	"Maximum number of combinations when reconstructing split segments");
-/* END CSTYLED */

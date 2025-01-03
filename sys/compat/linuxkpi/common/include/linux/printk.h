@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef _LINUXKPI_LINUX_PRINTK_H_
 #define	_LINUXKPI_LINUX_PRINTK_H_
@@ -126,5 +124,12 @@ print_hex_dump_bytes(const char *prefix_str, const int prefix_type,
 
 #define	pr_info_ratelimited(fmt, ...) \
 	printk_ratelimited(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__)
+
+#define	no_printk(fmt, ...)					\
+({								\
+	if (0)							\
+		printk(pr_fmt(fmt), ##__VA_ARGS__);		\
+	0;							\
+})
 
 #endif					/* _LINUXKPI_LINUX_PRINTK_H_ */

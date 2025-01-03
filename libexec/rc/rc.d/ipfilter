@@ -1,6 +1,5 @@
 #!/bin/sh
 #
-# $FreeBSD$
 #
 
 # PROVIDE: ipfilter
@@ -15,6 +14,9 @@ desc="IP packet filter"
 rcvar="ipfilter_enable"
 load_rc_config $name
 stop_precmd="test -f ${ipfilter_rules}"
+
+# doesn't make sense to run in a svcj: config setting
+ipfilter_svcj="NO"
 
 start_precmd="$stop_precmd"
 start_cmd="ipfilter_start"
@@ -31,7 +33,13 @@ required_modules="ipl:ipfilter"
 ipfilter_start()
 {
 	echo "Enabling ipfilter."
-	if ! ${ipfilter_program:-/sbin/ipf} -V | grep -q 'Running: yes'; then
+	if [ -n "${ifilter_optionlist}" ]; then
+		if ${ipfilter_program:-/sbin/ipf} -V | grep -q 'Running: yes'; then
+			${ipfilter_program:-/sbin/ipf} -D
+		fi
+		${ipfilter_program:-/sbin/ipf} -T "${ipfilter_optionlist}"
+		${ipfilter_program:-/sbin/ipf} -E
+	elif ! ${ipfilter_program:-/sbin/ipf} -V | grep -q 'Running: yes'; then
 		${ipfilter_program:-/sbin/ipf} -E
 	fi
 	${ipfilter_program:-/sbin/ipf} -Fa

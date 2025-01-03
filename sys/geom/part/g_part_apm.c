@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006-2008 Marcel Moolenaar
  * All rights reserved.
@@ -25,9 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/apm.h>
@@ -104,6 +101,7 @@ static struct g_part_scheme g_part_apm_scheme = {
 	sizeof(struct g_part_apm_table),
 	.gps_entrysz = sizeof(struct g_part_apm_entry),
 	.gps_minent = 16,
+	.gps_defent = 16,
 	.gps_maxent = 4096,
 };
 G_PART_SCHEME_DECLARE(g_part_apm);

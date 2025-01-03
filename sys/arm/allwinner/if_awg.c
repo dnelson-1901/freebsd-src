@@ -21,8 +21,6 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -30,9 +28,6 @@
  */
 
 #include "opt_device_polling.h"
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -64,10 +59,10 @@ __FBSDID("$FreeBSD$");
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/regulator/regulator.h>
-#include <dev/extres/syscon/syscon.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/regulator/regulator.h>
+#include <dev/syscon/syscon.h>
 
 #include "syscon_if.h"
 #include "miibus_if.h"
@@ -148,12 +143,14 @@ enum awg_type {
 	EMAC_A83T = 1,
 	EMAC_H3,
 	EMAC_A64,
+	EMAC_D1,
 };
 
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun8i-a83t-emac",		EMAC_A83T },
 	{ "allwinner,sun8i-h3-emac",		EMAC_H3 },
 	{ "allwinner,sun50i-a64-emac",		EMAC_A64 },
+	{ "allwinner,sun20i-d1-emac",		EMAC_D1 },
 	{ NULL,					0 }
 };
 
@@ -988,7 +985,7 @@ awg_start_locked(struct awg_softc *sc)
 				if_sendq_prepend(ifp, m);
 			break;
 		}
-		if_bpfmtap(ifp, m);
+		bpf_mtap_if(ifp, m);
 	}
 
 	if (cnt != 0) {

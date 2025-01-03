@@ -1,4 +1,3 @@
-/*	$FreeBSD$	*/
 /* $OpenBSD: ip_ipcomp.c,v 1.1 2001/07/05 12:08:52 jjbg Exp $ */
 
 /*-
@@ -328,7 +327,7 @@ ipcomp_input_cb(struct cryptop *crp)
 		error = EINVAL;
 		goto bad;
 	}
-	IPCOMPSTAT_INC(ipcomps_hist[sav->alg_comp]);
+	IPCOMPSTAT_INC2(ipcomps_hist, sav->alg_comp);
 
 	clen = crp->crp_olen;		/* Length of data after processing */
 
@@ -572,7 +571,7 @@ ipcomp_output_cb(struct cryptop *crp)
 		error = EINVAL;
 		goto bad;
 	}
-	IPCOMPSTAT_INC(ipcomps_hist[sav->alg_comp]);
+	IPCOMPSTAT_INC2(ipcomps_hist, sav->alg_comp);
 
 	if (crp->crp_payload_length > crp->crp_olen) {
 		struct mbuf *mo;

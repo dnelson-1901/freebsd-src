@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2018 Kyle Evans <kevans@FreeBSD.org>
  *
@@ -29,9 +29,6 @@
  * Allwinner syscon driver
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -44,8 +41,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
-#include <dev/extres/syscon/syscon.h>
-#include <dev/extres/syscon/syscon_generic.h>
+#include <dev/syscon/syscon.h>
+#include <dev/syscon/syscon_generic.h>
 
 static struct ofw_compat_data compat_data[] = {
 	{"allwinner,sun50i-a64-system-controller", 1},
@@ -54,6 +51,7 @@ static struct ofw_compat_data compat_data[] = {
 	{"allwinner,sun8i-h3-system-controller", 1},
 	{"allwinner,sun8i-h3-system-control", 1},
 	{"allwinner,sun50i-h5-system-control", 1},
+	{"allwinner,sun20i-d1-system-control", 1},
 	{NULL,             0}
 };
 

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999 Kazutaka YOKOTA <yokota@zodiac.mech.utsunomiya-u.ac.jp>
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_vga.h"
 #include "opt_fb.h"
 #include "opt_syscons.h"	/* should be removed in the future, XXX */
@@ -192,8 +190,8 @@ isavga_attach(device_t dev)
 		vidd_diag(sc->adp, bootverbose);
 
 #if 0 /* experimental */
-	device_add_child(dev, "fb", -1);
-	bus_generic_attach(dev);
+	device_add_child(dev, "fb", DEVICE_UNIT_ANY);
+	bus_attach_children(dev);
 #endif
 
 	return (0);
@@ -261,8 +259,8 @@ static int
 vgapm_attach(device_t dev)
 {
 
-	bus_generic_probe(dev);
-	bus_generic_attach(dev);
+	bus_identify_children(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }

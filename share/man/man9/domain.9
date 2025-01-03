@@ -25,8 +25,6 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 .\" DAMAGE.
 .\"
-.\" $FreeBSD$
-.\"
 .Dd September 14, 2022
 .Dt DOMAIN 9
 .Os
@@ -185,7 +183,6 @@ has an empty slot in its
 .Va dom_protosw .
 Dynamically added protocol can later be unloaded with
 .Fn protosw_unregister .
-.Ed
 .Sh RETURN VALUES
 The
 .Fn domain_add

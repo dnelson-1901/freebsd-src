@@ -1,10 +1,8 @@
-#	from: @(#)bsd.lib.mk	5.26 (Berkeley) 5/2/91
-# $FreeBSD$
-#
 
 .include <bsd.init.mk>
 .include <bsd.compiler.mk>
 .include <bsd.linker.mk>
+.include <bsd.compat.pre.mk>
 
 __<bsd.lib.mk>__:
 
@@ -64,9 +62,11 @@ CTFFLAGS+= -g
 STRIP?=	-s
 .endif
 
-.if ${SHLIBDIR:M*lib32*}
-TAGS+=	lib32
+.for _libcompat in ${_ALL_libcompats}
+.if ${SHLIBDIR:M*/lib${_libcompat}} || ${SHLIBDIR:M*/lib${_libcompat}/*}
+TAGS+=	lib${_libcompat}
 .endif
+.endfor
 
 .if defined(NO_ROOT)
 .if !defined(TAGS) || ! ${TAGS:Mpackage=*}
@@ -95,23 +95,26 @@ LDFLAGS+= -Wl,-zretpolineplt
 .warning Retpoline requested but not supported by compiler or linker
 .endif
 .endif
+# LLD sensibly defaults to -znoexecstack, so do the same for BFD
+LDFLAGS.bfd+= -Wl,-znoexecstack
+.if ${MK_BRANCH_PROTECTION} != "no"
+CFLAGS+=  -mbranch-protection=standard
+.if ${LINKER_FEATURES:Mbti-report} && defined(BTI_REPORT_ERROR)
+LDFLAGS+= -Wl,-zbti-report=error
+.endif
+.endif
 
 # Initialize stack variables on function entry
-.if ${MK_INIT_ALL_ZERO} == "yes"
+.if ${OPT_INIT_ALL} != "none"
 .if ${COMPILER_FEATURES:Minit-all}
-CFLAGS+= -ftrivial-auto-var-init=zero \
-    -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
-CXXFLAGS+= -ftrivial-auto-var-init=zero \
-    -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
-.else
-.warning InitAll (zeros) requested but not support by compiler
+CFLAGS+= -ftrivial-auto-var-init=${OPT_INIT_ALL}
+CXXFLAGS+= -ftrivial-auto-var-init=${OPT_INIT_ALL}
+.if ${OPT_INIT_ALL} == "zero" && ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} < 160000
+CFLAGS+= -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
+CXXFLAGS+= -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang
 .endif
-.elif ${MK_INIT_ALL_PATTERN} == "yes"
-.if ${COMPILER_FEATURES:Minit-all}
-CFLAGS+= -ftrivial-auto-var-init=pattern
-CXXFLAGS+= -ftrivial-auto-var-init=pattern
 .else
-.warning InitAll (pattern) requested but not support by compiler
+.warning INIT_ALL (${OPT_INIT_ALL}) requested but not supported by compiler
 .endif
 .endif
 
@@ -190,7 +193,7 @@ PO_FLAG=-pg
 	${CTFCONVERT_CMD}
 
 .s.po .s.pico .s.nossppico .s.pieo:
-	${AS} ${AFLAGS} -o ${.TARGET} ${.IMPSRC}
+	${CC:N${CCACHE_BIN}} -x assembler ${ACFLAGS} -c ${.IMPSRC} -o ${.TARGET}
 	${CTFCONVERT_CMD}
 
 .asm.po:
@@ -262,6 +265,15 @@ SHLIB_NAME_FULL=${SHLIB_NAME}
 .if !empty(VERSION_MAP)
 ${SHLIB_NAME_FULL}:	${VERSION_MAP}
 LDFLAGS+=	-Wl,--version-script=${VERSION_MAP}
+
+# Ideally we'd always enable --no-undefined-version (default for lld >= 16),
+# but we have several symbols in our version maps that may or may not exist,
+# depending on compile-time defines and that needs to be handled first.
+.if ${MK_UNDEFINED_VERSION} == "no"
+LDFLAGS+=	-Wl,--no-undefined-version
+.else
+LDFLAGS+=	-Wl,--undefined-version
+.endif
 .endif
 
 .if defined(LIB) && !empty(LIB) || defined(SHLIB_NAME)
@@ -278,24 +290,12 @@ _STATICLIB_SUFFIX=	_real
 _LIBS=		lib${LIB_PRIVATE}${LIB}${_STATICLIB_SUFFIX}.a
 
 lib${LIB_PRIVATE}${LIB}${_STATICLIB_SUFFIX}.a: ${OBJS} ${STATICOBJS}
-	@${ECHO} building static ${LIB} library
+	@${ECHO} Building static ${LIB} library
 	@rm -f ${.TARGET}
 	${AR} ${ARFLAGS} ${.TARGET} ${OBJS} ${STATICOBJS} ${ARADD}
 .endif
 
 .if !defined(INTERNALLIB)
-
-.if ${MK_PROFILE} != "no" && defined(LIB) && !empty(LIB)
-_LIBS+=		lib${LIB_PRIVATE}${LIB}_p.a
-POBJS+=		${OBJS:.o=.po} ${STATICOBJS:.o=.po}
-DEPENDOBJS+=	${POBJS}
-CLEANFILES+=	${POBJS}
-
-lib${LIB_PRIVATE}${LIB}_p.a: ${POBJS}
-	@${ECHO} building profiled ${LIB} library
-	@rm -f ${.TARGET}
-	${AR} ${ARFLAGS} ${.TARGET} ${POBJS} ${ARADD}
-.endif
 
 .if defined(LLVM_LINK)
 lib${LIB_PRIVATE}${LIB}.bc: ${BCOBJS}
@@ -344,7 +344,7 @@ CLEANFILES+=	${SHLIB_LINK}
 .endif
 
 ${SHLIB_NAME_FULL}: ${SOBJS}
-	@${ECHO} building shared library ${SHLIB_NAME}
+	@${ECHO} Building shared library ${SHLIB_NAME}
 	@rm -f ${SHLIB_NAME} ${SHLIB_LINK}
 .if defined(SHLIB_LINK) && !commands(${SHLIB_LINK:R}.ld) && ${MK_DEBUG_FILES} == "no"
 	# Note: This uses ln instead of ${INSTALL_LIBSYMLINK} since we are in OBJDIR
@@ -371,11 +371,11 @@ ${SHLIB_NAME}.debug: ${SHLIB_NAME_FULL}
 .endif
 .endif #defined(SHLIB_NAME)
 
-.if defined(INSTALL_PIC_ARCHIVE) && defined(LIB) && !empty(LIB) && ${MK_TOOLCHAIN} != "no"
+.if defined(INSTALL_PIC_ARCHIVE) && defined(LIB) && !empty(LIB)
 _LIBS+=		lib${LIB_PRIVATE}${LIB}_pic.a
 
 lib${LIB_PRIVATE}${LIB}_pic.a: ${SOBJS}
-	@${ECHO} building special pic ${LIB} library
+	@${ECHO} Building special pic ${LIB} library
 	@rm -f ${.TARGET}
 	${AR} ${ARFLAGS} ${.TARGET} ${SOBJS} ${ARADD}
 .endif
@@ -387,7 +387,7 @@ CLEANFILES+=	${NOSSPSOBJS}
 _LIBS+=		lib${LIB_PRIVATE}${LIB}_nossp_pic.a
 
 lib${LIB_PRIVATE}${LIB}_nossp_pic.a: ${NOSSPSOBJS}
-	@${ECHO} building special nossp pic ${LIB} library
+	@${ECHO} Building special nossp pic ${LIB} library
 	@rm -f ${.TARGET}
 	${AR} ${ARFLAGS} ${.TARGET} ${NOSSPSOBJS} ${ARADD}
 .endif
@@ -402,7 +402,7 @@ CLEANFILES+=	${PIEOBJS}
 _LIBS+=		lib${LIB_PRIVATE}${LIB}_pie.a
 
 lib${LIB_PRIVATE}${LIB}_pie.a: ${PIEOBJS}
-	@${ECHO} building pie ${LIB} library
+	@${ECHO} Building pie ${LIB} library
 	@rm -f ${.TARGET}
 	${AR} ${ARFLAGS} ${.TARGET} ${PIEOBJS} ${ARADD}
 .endif
@@ -430,6 +430,7 @@ _EXTRADEPEND:
 
 .if !target(install)
 
+INSTALLFLAGS+= -C
 .if defined(PRECIOUSLIB)
 .if !defined(NO_FSCHG)
 SHLINSTALLFLAGS+= -fschg
@@ -480,12 +481,8 @@ realinstall: _libinstall installpcfiles
 .ORDER: beforeinstall _libinstall
 _libinstall:
 .if defined(LIB) && !empty(LIB) && ${MK_INSTALLLIB} != "no"
-	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
+	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${_INSTALLFLAGS} lib${LIB_PRIVATE}${LIB}${_STATICLIB_SUFFIX}.a ${DESTDIR}${_LIBDIR}/
-.if ${MK_PROFILE} != "no"
-	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
-	    ${_INSTALLFLAGS} lib${LIB_PRIVATE}${LIB}_p.a ${DESTDIR}${_LIBDIR}/
-.endif
 .endif
 .if defined(SHLIB_NAME)
 	${INSTALL} ${TAG_ARGS} ${STRIP} -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
@@ -501,7 +498,7 @@ _libinstall:
 .endif
 .if defined(SHLIB_LINK)
 .if commands(${SHLIB_LINK:R}.ld)
-	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -S -C -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
+	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -S -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${_INSTALLFLAGS} ${SHLIB_LINK:R}.ld \
 	    ${DESTDIR}${_LIBDIR}/${SHLIB_LINK}
 .for _SHLIB_LINK_LINK in ${SHLIB_LDSCRIPT_LINKS}
@@ -533,7 +530,7 @@ _libinstall:
 .endif # SHLIB_LDSCRIPT
 .endif # SHLIB_LINK
 .endif # SHIB_NAME
-.if defined(INSTALL_PIC_ARCHIVE) && defined(LIB) && !empty(LIB) && ${MK_TOOLCHAIN} != "no"
+.if defined(INSTALL_PIC_ARCHIVE) && defined(LIB) && !empty(LIB)
 	${INSTALL} ${TAG_ARGS:D${TAG_ARGS},dev} -o ${LIBOWN} -g ${LIBGRP} -m ${LIBMODE} \
 	    ${_INSTALLFLAGS} lib${LIB}_pic.a ${DESTDIR}${_LIBDIR}/
 .endif
@@ -554,6 +551,7 @@ LINKGRP?=	${LIBGRP}
 LINKMODE?=	${LIBMODE}
 SYMLINKOWN?=	${LIBOWN}
 SYMLINKGRP?=	${LIBGRP}
+LINKTAGS=	dev
 .include <bsd.links.mk>
 
 .if ${MK_MAN} != "no" && !defined(LIBRARIES_ONLY)

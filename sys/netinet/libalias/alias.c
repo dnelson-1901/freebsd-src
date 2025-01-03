@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Charles Mott <cm@linktel.net>
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
     Alias.c provides supervisory control for the functions of the
     packet aliasing software.  It consists of routines to monitor
@@ -185,12 +183,12 @@ a timeout period.
 */
 
 /* Local prototypes */
-static void	TcpMonitorIn(u_char, struct alias_link *);
+static void	TcpMonitorIn(uint16_t, struct alias_link *);
 
-static void	TcpMonitorOut(u_char, struct alias_link *);
+static void	TcpMonitorOut(uint16_t, struct alias_link *);
 
 static void
-TcpMonitorIn(u_char th_flags, struct alias_link *lnk)
+TcpMonitorIn(uint16_t th_flags, struct alias_link *lnk)
 {
 	switch (GetStateIn(lnk)) {
 	case ALIAS_TCP_STATE_NOT_CONNECTED:
@@ -207,7 +205,7 @@ TcpMonitorIn(u_char th_flags, struct alias_link *lnk)
 }
 
 static void
-TcpMonitorOut(u_char th_flags, struct alias_link *lnk)
+TcpMonitorOut(uint16_t th_flags, struct alias_link *lnk)
 {
 	switch (GetStateOut(lnk)) {
 	case ALIAS_TCP_STATE_NOT_CONNECTED:
@@ -1055,7 +1053,7 @@ TcpAliasIn(struct libalias *la, struct ip *pip)
 
 		/* Monitor TCP connection state */
 		tc = (struct tcphdr *)ip_next(pip);
-		TcpMonitorIn(tc->th_flags, lnk);
+		TcpMonitorIn(__tcp_get_flags(tc), lnk);
 
 		return (PKT_ALIAS_OK);
 	}
@@ -1144,7 +1142,7 @@ TcpAliasOut(struct libalias *la, struct ip *pip, int maxpacketsize, int create)
 
 		/* Monitor TCP connection state */
 		tc = (struct tcphdr *)ip_next(pip);
-		TcpMonitorOut(tc->th_flags, lnk);
+		TcpMonitorOut(__tcp_get_flags(tc), lnk);
 
 		/* Walk out chain. */
 		find_handler(OUT, TCP, la, pip, &ad);

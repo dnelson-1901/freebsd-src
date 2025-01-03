@@ -25,9 +25,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
@@ -286,6 +283,8 @@ static int
 servent_fill_test_data(struct servent_test_data *td)
 {
 	struct servent *serv;
+	const int limit = 1024;
+	int count = 0;
 
 	setservent(1);
 	while ((serv = getservent()) != NULL) {
@@ -293,6 +292,8 @@ servent_fill_test_data(struct servent_test_data *td)
 			TEST_DATA_APPEND(servent, td, serv);
 		else
 			return (-1);
+		if (++count >= limit)
+			break;
 	}
 	endservent();
 

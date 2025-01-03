@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011
  *	Ben Gray <ben.r.gray@gmail.com>.
@@ -26,8 +26,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -339,7 +337,7 @@ omap_ehci_attach(device_t dev)
 	}
 
 	/* Add this device as a child of the USBus device */
-	sc->sc_bus.bdev = device_add_child(dev, "usbus", -1);
+	sc->sc_bus.bdev = device_add_child(dev, "usbus", DEVICE_UNIT_ANY);
 	if (!sc->sc_bus.bdev) {
 		device_printf(dev, "Error: could not add USB device\n");
 		goto error;
@@ -408,7 +406,9 @@ omap_ehci_detach(device_t dev)
 	int err;
 
 	/* during module unload there are lots of children leftover */
-	device_delete_children(dev);
+	err = bus_generic_detach(dev);
+	if (err != 0)
+		return (err);
 
 	/*
 	 * disable interrupts that might have been switched on in ehci_init

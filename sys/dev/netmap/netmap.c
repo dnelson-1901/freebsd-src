@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2011-2014 Matteo Landi
  * Copyright (C) 2011-2016 Luigi Rizzo
@@ -31,7 +31,6 @@
 
 
 /*
- * $FreeBSD$
  *
  * This module supports memory mapped access to network devices,
  * see netmap(4).
@@ -4011,8 +4010,8 @@ netmap_attach_common(struct netmap_adapter *na)
 	na->active_fds = 0;
 
 	if (na->nm_mem == NULL) {
-		/* use iommu or global allocator */
-		na->nm_mem = netmap_mem_get_iommu(na);
+		/* select an allocator based on IOMMU and NUMA affinity */
+		na->nm_mem = netmap_mem_get_allocator(na);
 	}
 	if (na->nm_bdg_attach == NULL)
 		/* no special nm_bdg_attach callback. On VALE

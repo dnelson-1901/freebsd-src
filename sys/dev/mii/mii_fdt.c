@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Utility functions for PHY drivers on systems configured using FDT data.
  */
@@ -117,6 +115,8 @@ mii_fdt_lookup_phy(phandle_t node, int addr)
 	 * Since we have multiple candidates select one based on PHY address.
 	 */
 	ports = ofw_bus_find_child(node, "ports");
+	if (ports <= 0)
+		ports = ofw_bus_find_child(node, "ethernet-ports");
 	if (ports <= 0)
 		return (-1);
 

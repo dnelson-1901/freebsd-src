@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2018 Klaus P. Ohrhallinger <k@7he.at>
  * All rights reserved.
@@ -31,8 +31,6 @@
  *
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * pin 48-53 - card slot
  * pin 34-39 - radio module
@@ -474,8 +472,8 @@ bcm_sdhost_attach(device_t dev)
 
 	sdhci_init_slot(dev, &sc->sc_slot, 0);
 
-	bus_generic_probe(dev);
-	bus_generic_attach(dev);
+	bus_identify_children(dev);
+	bus_attach_children(dev);
 
 	sdhci_start_slot(&sc->sc_slot);
 

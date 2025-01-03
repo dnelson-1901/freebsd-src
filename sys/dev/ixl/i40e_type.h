@@ -30,7 +30,6 @@
   POSSIBILITY OF SUCH DAMAGE.
 
 ******************************************************************************/
-/*$FreeBSD$*/
 
 #ifndef _I40E_TYPE_H_
 #define _I40E_TYPE_H_
@@ -1473,6 +1472,7 @@ struct i40e_hw_port_stats {
 	u64 rx_undersize;		/* ruc */
 	u64 rx_fragments;		/* rfc */
 	u64 rx_oversize;		/* roc */
+	u64 rx_err1;			/* rxerr1 */
 	u64 rx_jabber;			/* rjc */
 	u64 tx_size_64;			/* ptc64 */
 	u64 tx_size_127;		/* ptc127 */

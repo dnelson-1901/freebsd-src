@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_DEV_PCI_PCI_HOST_GENERIC_ACPI_H_
@@ -37,6 +35,7 @@
 struct generic_pcie_acpi_softc {
 	struct generic_pcie_core_softc base;
 	int segment;
+	uint32_t		osc_ctl;
 	ACPI_BUFFER		ap_prt;		/* interrupt routing table */
 };
 

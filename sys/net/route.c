@@ -27,9 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)route.c	8.3.1.1 (Berkeley) 2/23/95
- * $FreeBSD$
  */
 /************************************************************************
  * Note: In this file a 'fib' is a "forwarding information base"	*
@@ -77,6 +74,10 @@ VNET_PCPUSTAT_SYSINIT(rtstat);
 #ifdef VIMAGE
 VNET_PCPUSTAT_SYSUNINIT(rtstat);
 #endif
+
+SYSCTL_DECL(_net_route);
+SYSCTL_VNET_PCPUSTAT(_net_route, OID_AUTO, stats, struct rtstat,
+    rtstat, "route statistics");
 
 EVENTHANDLER_LIST_DEFINE(rt_addrmsg);
 
@@ -703,22 +704,3 @@ rt_ifmsg(struct ifnet *ifp, int if_flags_mask)
 	netlink_callback_p->ifmsg_f(ifp, if_flags_mask);
 }
 
-/* Netlink-related callbacks needed to glue rtsock, netlink and linuxolator */
-static void
-ignore_route_event(uint32_t fibnum, const struct rib_cmd_info *rc)
-{
-}
-
-static void
-ignore_ifmsg_event(struct ifnet *ifp, int if_flags_mask)
-{
-}
-
-static struct rtbridge ignore_cb = {
-	.route_f = ignore_route_event,
-	.ifmsg_f = ignore_ifmsg_event,
-};
-
-void *linux_netlink_p = NULL; /* Callback pointer for Linux translator functions */
-struct rtbridge *rtsock_callback_p = &ignore_cb;
-struct rtbridge *netlink_callback_p = &ignore_cb;

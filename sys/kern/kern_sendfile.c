@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_kern_tls.h"
 
 #include <sys/param.h>
@@ -57,6 +55,9 @@ __FBSDID("$FreeBSD$");
 #include <net/vnet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <netinet/in_pcb.h>
+#include <netinet/tcp_var.h>
+#include <netinet/tcp_log_buf.h>
 
 #include <security/audit/audit.h>
 #include <security/mac/mac_framework.h>
@@ -1002,7 +1003,7 @@ retry_space:
 				ext_pgs_idx++;
 				if (ext_pgs_idx == max_pgs) {
 					m0 = mb_alloc_ext_pgs(M_WAITOK,
-					    sendfile_free_mext_pg);
+					    sendfile_free_mext_pg, M_RDONLY);
 
 					if (flags & SF_NOCACHE) {
 						m0->m_ext.ext_flags |=
@@ -1188,6 +1189,12 @@ prepend_header:
 			    NULL, NULL, td);
 			sendfile_iodone(sfio, NULL, 0, error);
 		}
+#ifdef TCP_REQUEST_TRK
+		if (so->so_proto->pr_protocol == IPPROTO_TCP) {
+			/* log the sendfile call to the TCP log, if enabled */
+			tcp_log_sendfile(so, offset, nbytes, flags);
+		}
+#endif
 		CURVNET_RESTORE();
 
 		m = NULL;
@@ -1321,11 +1328,11 @@ sendfile(struct thread *td, struct sendfile_args *uap, int compat)
 	fdrop(fp, td);
 
 	if (uap->sbytes != NULL)
-		copyout(&sbytes, uap->sbytes, sizeof(off_t));
+		(void)copyout(&sbytes, uap->sbytes, sizeof(off_t));
 
 out:
-	free(hdr_uio, M_IOV);
-	free(trl_uio, M_IOV);
+	freeuio(hdr_uio);
+	freeuio(trl_uio);
 	return (error);
 }
 

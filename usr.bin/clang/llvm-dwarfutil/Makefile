@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PROG_CXX=	llvm-dwarfutil
 
 SRCDIR=		llvm/tools/llvm-dwarfutil
@@ -18,12 +16,8 @@ ${INCFILE}: ${TDFILE}
 	    -o ${.TARGET} ${TDFILE}
 TGHDRS+=	${INCFILE}
 
-${TGHDRS}: ${LLVM_TBLGEN_BIN}
-
 DEPENDFILES+=	${TGHDRS:C/$/.d/}
 DPSRCS+=	${TGHDRS}
 CLEANFILES+=	${TGHDRS} ${TGHDRS:C/$/.d/}
-
-LIBADD+=	z
 
 .include "../llvm.prog.mk"

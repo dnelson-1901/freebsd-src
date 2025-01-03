@@ -1,12 +1,10 @@
-#	From: @(#)Makefile	5.20 (Berkeley) 6/12/93
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 SUBDIR=	adduser \
 	arp \
 	binmiscctl \
 	boottrace \
+	bsdconfig \
 	camdd \
 	cdcontrol \
 	chkgrp \
@@ -28,6 +26,7 @@ SUBDIR=	adduser \
 	fifolog \
 	fstyp \
 	fwcontrol \
+	fwget \
 	getfmac \
 	getpmac \
 	gstat \
@@ -39,7 +38,6 @@ SUBDIR=	adduser \
 	mailwrapper \
 	makefs \
 	memcontrol \
-	mergemaster \
 	mfiutil \
 	mixer \
 	mlxcontrol \
@@ -56,6 +54,7 @@ SUBDIR=	adduser \
 	nfsuserd \
 	nmtree \
 	nologin \
+	nvmfd \
 	pciconf \
 	periodic \
 	pnfsdscopymr \
@@ -128,11 +127,11 @@ SUBDIR.${MK_BSNMP}+=	bsnmpd
 SUBDIR.${MK_OPENSSL}+=	certctl
 .endif
 SUBDIR.${MK_CXGBETOOL}+=	cxgbetool
-SUBDIR.${MK_DIALOG}+=	bsdconfig
-SUBDIR.${MK_EFI}+=	efivar efidp efibootmgr efitable
+SUBDIR.${MK_EFI}+=	efivar efidp efibootmgr efitable efiwake
 .if ${MK_OPENSSL} != "no"
 SUBDIR.${MK_EFI}+=	uefisign
 .endif
+SUBDIR.${MK_FDT}+=	ofwdump
 SUBDIR.${MK_FLOPPY}+=	fdcontrol
 SUBDIR.${MK_FLOPPY}+=	fdformat
 SUBDIR.${MK_FLOPPY}+=	fdread
@@ -187,7 +186,6 @@ SUBDIR.${MK_OPENSSL_KTLS}+=	rpc.tlsservd
 SUBDIR.${MK_PF}+=	ftp-proxy
 SUBDIR.${MK_PKGBOOTSTRAP}+=	pkg
 SUBDIR.${MK_PMC}+=	pmc pmcannotate pmccontrol pmcstat pmcstudy
-SUBDIR.${MK_PORTSNAP}+=	portsnap
 SUBDIR.${MK_PPP}+=	ppp
 SUBDIR.${MK_QUOTAS}+=	edquota
 SUBDIR.${MK_QUOTAS}+=	quotaon

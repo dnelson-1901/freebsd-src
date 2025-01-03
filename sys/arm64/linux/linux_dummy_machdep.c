@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Dmitry Chagin <dchagin@FreeBSD.org>
  *
@@ -25,9 +25,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/proc.h>
@@ -45,15 +42,4 @@ LIN_SDT_PROVIDER_DECLARE(LINUX_DTRACE);
  * Before adding new stubs to this file, please check if a stub can be added to
  * the machine-independent code in sys/compat/linux/linux_dummy.c.
  */
-
-UNIMPLEMENTED(get_thread_area);
-UNIMPLEMENTED(set_thread_area);
-UNIMPLEMENTED(uselib);
-
-DUMMY(mq_open);
-DUMMY(mq_unlink);
-DUMMY(mq_timedsend);
-DUMMY(mq_timedreceive);
-DUMMY(mq_notify);
-DUMMY(mq_getsetattr);
 DUMMY(kexec_file_load);

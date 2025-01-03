@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020 Alexander V. Chernikov
  *
@@ -23,8 +23,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -34,6 +32,8 @@
 
 #ifndef	_NET_ROUTE_ROUTE_CTL_H_
 #define	_NET_ROUTE_ROUTE_CTL_H_
+
+struct rib_head *rt_tables_get_rnh_safe(uint32_t table, sa_family_t family);
 
 struct rib_cmd_info {
 	uint8_t			rc_cmd;		/* RTM_ADD|RTM_DEL|RTM_CHANGE */
@@ -61,11 +61,11 @@ int rib_del_route_px_gw(uint32_t fibnum, struct sockaddr *dst, int plen,
     const struct sockaddr *gw, int op_flags, struct rib_cmd_info *rc);
 
 /* operation flags */
-#define	RTM_F_CREATE	0x01
-#define	RTM_F_EXCL	0x02
-#define	RTM_F_REPLACE	0x04
-#define	RTM_F_APPEND	0x08
-#define	RTM_F_FORCE	0x10
+#define	RTM_F_CREATE	0x01	/* Create object if not exists */
+#define	RTM_F_EXCL	0x02	/* (Deprecated) Do not replace or append if exists */
+#define	RTM_F_REPLACE	0x04	/* Replace if route (even multipath) if exists */
+#define	RTM_F_APPEND	0x08	/* Append path to the route */
+#define	RTM_F_FORCE	0x10	/* Bump operation priority to highest */
 
 int rib_add_route(uint32_t fibnum, struct rt_addrinfo *info,
   struct rib_cmd_info *rc);
@@ -121,18 +121,18 @@ void rib_foreach_table_walk_del(int family, rib_filter_f_t *filter_f, void *arg)
 
 struct nhop_object;
 struct nhgrp_object;
+struct ucred;
 
-const struct rtentry *rib_lookup_prefix(uint32_t fibnum, int family,
-    const struct sockaddr *dst, const struct sockaddr *netmask,
+const struct rtentry *
+rib_lookup_prefix_plen(struct rib_head *rnh, struct sockaddr *dst, int plen,
     struct route_nhop_data *rnd);
-const struct rtentry *rib_lookup_lpm(uint32_t fibnum, int family,
-    const struct sockaddr *dst, struct route_nhop_data *rnd);
 
 /* rtentry accessors */
 bool rt_is_host(const struct rtentry *rt);
 sa_family_t rt_get_family(const struct rtentry *);
 struct nhop_object *rt_get_raw_nhop(const struct rtentry *rt);
 void rt_get_rnd(const struct rtentry *rt, struct route_nhop_data *rnd);
+bool rt_is_exportable(const struct rtentry *rt, struct ucred *cred);
 #ifdef INET
 struct in_addr;
 void rt_get_inet_prefix_plen(const struct rtentry *rt, struct in_addr *paddr,
@@ -156,6 +156,19 @@ void ip6_writemask(struct in6_addr *addr6, uint8_t mask);
 
 /* Nexthops */
 uint32_t nhops_get_count(struct rib_head *rh);
+
+struct nhop_priv;
+struct nhop_iter {
+	uint32_t		fibnum;
+	uint8_t			family;
+	struct rib_head		*rh;
+	int			_i;
+	struct nhop_priv	*_next;
+};
+
+struct nhop_object *nhops_iter_start(struct nhop_iter *iter);
+struct nhop_object *nhops_iter_next(struct nhop_iter *iter);
+void nhops_iter_stop(struct nhop_iter *iter);
 
 /* Multipath */
 struct weightened_nhop;

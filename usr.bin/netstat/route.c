@@ -29,15 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#if 0
-#ifndef lint
-static char sccsid[] = "From: @(#)route.c	8.6 (Berkeley) 4/28/95";
-#endif /* not lint */
-#endif
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/protosw.h>
 #include <sys/socket.h>
@@ -66,7 +57,6 @@ __FBSDID("$FreeBSD$");
 #include <string.h>
 #include <sysexits.h>
 #include <unistd.h>
-#include <err.h>
 #include <libxo/xo.h>
 #include "netstat.h"
 #include "common.h"
@@ -96,16 +86,20 @@ struct bits rt_bits[] = {
 	{ 0 , 0, NULL }
 };
 
+#ifdef WITHOUT_NETLINK
 static struct ifmap_entry *ifmap;
 static size_t ifmap_size;
+#endif
 static struct timespec uptime;
 
 static const char *netname4(in_addr_t, in_addr_t);
 #ifdef INET6
 static const char *netname6(struct sockaddr_in6 *, struct sockaddr_in6 *);
 #endif
+#ifdef WITHOUT_NETLINK
 static void p_rtable_sysctl(int, int);
 static void p_rtentry_sysctl(const char *name, struct rt_msghdr *);
+#endif
 static void domask(char *, size_t, u_long);
 
 const uint32_t rt_default_weight = RT_DEFAULT_WEIGHT;
@@ -129,22 +123,25 @@ routepr(int fibnum, int af)
 	if (sysctlbyname("net.fibs", &numfibs, &intsize, NULL, 0) == -1)
 		numfibs = 1;
 	if (fibnum < 0 || fibnum > numfibs - 1)
-		errx(EX_USAGE, "%d: invalid fib", fibnum);
+		xo_errx(EX_USAGE, "%d: invalid fib", fibnum);
 	/*
 	 * Since kernel & userland use different timebase
 	 * (time_uptime vs time_second) and we are reading kernel memory
 	 * directly we should do rt_expire --> expire_time conversion.
 	 */
 	if (clock_gettime(CLOCK_UPTIME, &uptime) < 0)
-		err(EX_OSERR, "clock_gettime() failed");
+		xo_err(EX_OSERR, "clock_gettime() failed");
 
 	xo_open_container("route-information");
 	xo_emit("{T:Routing tables}");
 	if (fibnum)
 		xo_emit(" ({L:fib}: {:fib/%d})", fibnum);
 	xo_emit("\n");
-	if (!p_rtable_netlink(fibnum, af))
-		p_rtable_sysctl(fibnum, af);
+#ifdef WITHOUT_NETLINK
+	p_rtable_sysctl(fibnum, af);
+#else
+	p_rtable_netlink(fibnum, af);
+#endif
 	xo_close_container("route-information");
 }
 
@@ -186,16 +183,15 @@ pr_family(int af1)
 }
 
 /* column widths; each followed by one space */
+#define WID_IF_DEFAULT		(Wflag ? IFNAMSIZ : 12)	/* width of netif column */
 #ifndef INET6
 #define	WID_DST_DEFAULT(af) 	18	/* width of destination column */
 #define	WID_GW_DEFAULT(af)	18	/* width of gateway column */
-#define	WID_IF_DEFAULT(af)	(Wflag ? 10 : 8) /* width of netif column */
 #else
 #define	WID_DST_DEFAULT(af) \
 	((af) == AF_INET6 ? (numeric_addr ? 33: 18) : 18)
 #define	WID_GW_DEFAULT(af) \
 	((af) == AF_INET6 ? (numeric_addr ? 29 : 18) : 18)
-#define	WID_IF_DEFAULT(af)	((af) == AF_INET6 ? 8 : (Wflag ? 10 : 8))
 #endif /*INET6*/
 
 struct _wid wid;
@@ -236,10 +232,11 @@ set_wid(int fam)
 	wid.flags = 6;
 	wid.pksent = 8;
 	wid.mtu = 6;
-	wid.iface = WID_IF_DEFAULT(fam);
+	wid.iface = WID_IF_DEFAULT;
 	wid.expire = 6;
 }
 
+#ifdef WITHOUT_NETLINK
 static void
 p_rtable_sysctl(int fibnum, int af)
 {
@@ -261,12 +258,12 @@ p_rtable_sysctl(int fibnum, int af)
 	mib[5] = 0;
 	mib[6] = fibnum;
 	if (sysctl(mib, nitems(mib), NULL, &needed, NULL, 0) < 0)
-		err(EX_OSERR, "sysctl: net.route.0.%d.dump.%d estimate", af,
+		xo_err(EX_OSERR, "sysctl: net.route.0.%d.dump.%d estimate", af,
 		    fibnum);
 	if ((buf = malloc(needed)) == NULL)
-		errx(2, "malloc(%lu)", (unsigned long)needed);
+		xo_errx(EX_OSERR, "malloc(%lu)", (unsigned long)needed);
 	if (sysctl(mib, nitems(mib), buf, &needed, NULL, 0) < 0)
-		err(1, "sysctl: net.route.0.%d.dump.%d", af, fibnum);
+		xo_err(EX_OSERR, "sysctl: net.route.0.%d.dump.%d", af, fibnum);
 	lim  = buf + needed;
 	xo_open_container("route-table");
 	xo_open_list("rt-family");
@@ -365,6 +362,7 @@ p_rtentry_sysctl(const char *name, struct rt_msghdr *rtm)
 	xo_emit("\n");
 	xo_close_instance(name);
 }
+#endif
 
 int
 p_sockaddr(const char *name, struct sockaddr *sa, struct sockaddr *mask,
@@ -580,7 +578,7 @@ netname4(in_addr_t in, in_addr_t mask)
 	struct netent *np = 0;
 	in_addr_t i;
 
-	if (in == INADDR_ANY && mask == 0) {
+	if (!numeric_addr && in == INADDR_ANY && mask == 0) {
 		strlcpy(line, "default", sizeof(line));
 		return (line);
 	}
@@ -675,7 +673,8 @@ netname6(struct sockaddr_in6 *sa6, struct sockaddr_in6 *mask)
 	else
 		masklen = 128;
 
-	if (masklen == 0 && IN6_IS_ADDR_UNSPECIFIED(&sa6->sin6_addr))
+	if (!numeric_addr && masklen == 0 &&
+	    IN6_IS_ADDR_UNSPECIFIED(&sa6->sin6_addr))
 		return("default");
 
 	getnameinfo((struct sockaddr *)sa6, sa6->sin6_len, nline, sizeof(nline),
@@ -701,13 +700,11 @@ void
 rt_stats(void)
 {
 	struct rtstat rtstat;
-	u_long rtsaddr;
 
-	if ((rtsaddr = nl[N_RTSTAT].n_value) == 0) {
-		xo_emit("{W:rtstat: symbol not in namelist}\n");
+	if (fetch_stats("net.route.stats", nl[N_RTSTAT].n_value, &rtstat,
+	    sizeof(rtstat), kread_counters) != 0)
 		return;
-	}
-	kread_counters(rtsaddr, (char *)&rtstat, sizeof (rtstat));
+
 	xo_emit("{T:routing}:\n");
 
 #define	p(f, m) if (rtstat.f || sflag <= 1) \

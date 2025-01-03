@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Mitsuru IWASAKI
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -270,11 +267,12 @@ nexus_acpi_attach(device_t dev)
 {
 
 	nexus_init_resources();
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	if (BUS_ADD_CHILD(dev, 10, "acpi", 0) == NULL)
 		panic("failed to add acpi0 device");
+	bus_attach_children(dev);
 
-	return (bus_generic_attach(dev));
+	return (0);
 }
 
 static device_method_t nexus_acpi_methods[] = {

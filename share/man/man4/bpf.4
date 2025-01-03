@@ -47,8 +47,6 @@
 .\" This document is derived in part from the enet man page (enet.4)
 .\" distributed with 4.3BSD Unix.
 .\"
-.\" $FreeBSD$
-.\"
 .Dd October 13, 2021
 .Dt BPF 4
 .Os
@@ -667,7 +665,7 @@ Set the VLAN PCP bits to the supplied value.
 now supports several standard
 .Xr ioctl 2 Ns 's
 which allow the user to do async and/or non-blocking I/O to an open
-.I bpf
+.Em bpf
 file descriptor.
 .Bl -tag -width SIOCGIFADDR
 .It Dv FIONREAD

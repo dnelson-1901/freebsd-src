@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Atsushi Onoe
  * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef _NET80211_IEEE80211_H_
 #define _NET80211_IEEE80211_H_
@@ -163,6 +161,7 @@ struct ieee80211_qosframe_addr4 {
 /* 0001-0011 Reserved				0x10-0x30 */	/* Were: CF_ACK, CF_POLL, CF_ACPL */
 #define	IEEE80211_FC0_SUBTYPE_NODATA		0x40	/* Null */
 /* 0101-0111 Reserved				0x50-0x70 */	/* Were: CFACK, CFPOLL, CF_ACK_CF_ACK */
+#define	IEEE80211_FC0_SUBTYPE_QOS_MASK_ANY	0x80	/* QoS mask - matching any subtypes 8..15 */
 #define	IEEE80211_FC0_SUBTYPE_QOS_DATA		0x80	/* QoS Data */
 #define	IEEE80211_FC0_SUBTYPE_QOS_DATA_CFACK	0x90	/* QoS Data +CF-Ack */
 #define	IEEE80211_FC0_SUBTYPE_QOS_DATA_CFPOLL	0xa0	/* QoS Data +CF-Poll */
@@ -192,24 +191,98 @@ struct ieee80211_qosframe_addr4 {
 #define	IEEE80211_CTL_EXT_TDD_BF		0x0b	/* TDD Beamforming, 80211ay-2021 */
 /* 1100-1111 Reserved				0xc-0xf */
 
-#define	IEEE80211_IS_MGMT(wh)					\
-	(!! (((wh)->i_fc[0] & IEEE80211_FC0_TYPE_MASK)		\
-	    == IEEE80211_FC0_TYPE_MGT))
+/* Check the version field */
+#define	IEEE80211_IS_FC0_CHECK_VER(wh, v)			\
+	(((wh)->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == (v))
+
+/* Check the version and type field */
+#define	IEEE80211_IS_FC0_CHECK_VER_TYPE(wh, v, t)			\
+	(((((wh)->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == (v))) &&	\
+	  (((wh)->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == (t)))
+
+/* Check the version, type and subtype field */
+#define	IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh, v, t, st)		\
+	(((((wh)->i_fc[0] & IEEE80211_FC0_VERSION_MASK) == (v))) &&	\
+	  (((wh)->i_fc[0] & IEEE80211_FC0_TYPE_MASK) == (t)) &&		\
+	  (((wh)->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK) == (st)))
+
+#define	IEEE80211_IS_MGMT(wh)						\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE(wh, IEEE80211_FC0_VERSION_0,	\
+	 IEEE80211_FC0_TYPE_MGT))
 #define	IEEE80211_IS_CTL(wh)					\
-	(!! (((wh)->i_fc[0] & IEEE80211_FC0_TYPE_MASK)		\
-	    == IEEE80211_FC0_TYPE_CTL))
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE(wh, IEEE80211_FC0_VERSION_0,	\
+	 IEEE80211_FC0_TYPE_CTL))
 #define	IEEE80211_IS_DATA(wh)					\
-	(!! (((wh)->i_fc[0] & IEEE80211_FC0_TYPE_MASK)		\
-	    == IEEE80211_FC0_TYPE_DATA))
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE(wh, IEEE80211_FC0_VERSION_0,	\
+	 IEEE80211_FC0_TYPE_DATA))
 #define	IEEE80211_IS_EXT(wh)					\
-	(!! (((wh)->i_fc[0] & IEEE80211_FC0_TYPE_MASK)		\
-	    == IEEE80211_FC0_TYPE_EXT))
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE(wh, IEEE80211_FC0_VERSION_0,	\
+	 IEEE80211_FC0_TYPE_EXT))
 
-#define	IEEE80211_FC0_QOSDATA \
-	(IEEE80211_FC0_TYPE_DATA|IEEE80211_FC0_SUBTYPE_QOS_DATA|IEEE80211_FC0_VERSION_0)
+/* Management frame types */
 
-#define	IEEE80211_IS_QOSDATA(wh) \
-	((wh)->i_fc[0] == IEEE80211_FC0_QOSDATA)
+#define	IEEE80211_IS_MGMT_BEACON(wh)			\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh,	\
+	 IEEE80211_FC0_VERSION_0,			\
+	 IEEE80211_FC0_TYPE_MGT,			\
+	 IEEE80211_FC0_SUBTYPE_BEACON))
+
+#define	IEEE80211_IS_MGMT_PROBE_RESP(wh)		\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh,	\
+	 IEEE80211_FC0_VERSION_0,			\
+	 IEEE80211_FC0_TYPE_MGT,			\
+	 IEEE80211_FC0_SUBTYPE_PROBE_RESP))
+
+#define	IEEE80211_IS_MGMT_ACTION(wh)		\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh,	\
+	 IEEE80211_FC0_VERSION_0,			\
+	 IEEE80211_FC0_TYPE_MGT,			\
+	 IEEE80211_FC0_SUBTYPE_ACTION))
+
+/* Control frame types */
+
+#define	IEEE80211_IS_CTL_PS_POLL(wh)			\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh,	\
+	 IEEE80211_FC0_VERSION_0,			\
+	 IEEE80211_FC0_TYPE_CTL,			\
+	 IEEE80211_FC0_SUBTYPE_PS_POLL))
+
+#define	IEEE80211_IS_CTL_BAR(wh)			\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh,	\
+	 IEEE80211_FC0_VERSION_0,			\
+	 IEEE80211_FC0_TYPE_CTL,			\
+	 IEEE80211_FC0_SUBTYPE_BAR))
+
+/* Data frame types */
+
+/*
+ * Return true if the frame is any of the QOS frame types, not just
+ * data frames.  Matching on the IEEE80211_FC0_SUBTYPE_QOS_ANY bit
+ * being set also matches on subtypes 8..15.
+ */
+#define	IEEE80211_IS_QOS_ANY(wh)					\
+	((IEEE80211_IS_FC0_CHECK_VER_TYPE(wh, IEEE80211_FC0_VERSION_0,	\
+	 IEEE80211_FC0_TYPE_DATA)) &&					\
+	 ((wh)->i_fc[0] & IEEE80211_FC0_SUBTYPE_QOS_MASK_ANY))
+
+/*
+ * Return true if this frame is QOS data, and only QOS data.
+ */
+#define	IEEE80211_IS_QOSDATA(wh)			\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh,	\
+	 IEEE80211_FC0_VERSION_0,			\
+	 IEEE80211_FC0_TYPE_DATA,			\
+	 IEEE80211_FC0_SUBTYPE_QOS_DATA))
+
+/*
+ * Return true if this frame is a QoS NULL data frame.
+ */
+#define	IEEE80211_IS_QOS_NULL(wh)			\
+	(IEEE80211_IS_FC0_CHECK_VER_TYPE_SUBTYPE(wh,	\
+	 IEEE80211_FC0_VERSION_0,			\
+	 IEEE80211_FC0_TYPE_DATA,			\
+	 IEEE80211_FC0_SUBTYPE_QOS_NULL))
+
 
 #define	IEEE80211_FC1_DIR_MASK			0x03
 #define	IEEE80211_FC1_DIR_NODS			0x00	/* STA->STA */
@@ -423,7 +496,7 @@ struct ieee80211_action {
 #define	IEEE80211_ACTION_CAT_BA			3	/* 9.6.4 Block Ack */
 #define	IEEE80211_ACTION_CAT_PUBLIC		4	/* 9.6.7 Public */
 #define	IEEE80211_ACTION_CAT_RADIO_MEASUREMENT	5	/* 9.6.6 Radio Measurement */
-#define	IEEE80211_ACTION_CAT_FAST_BBS_TRANSITION 6	/* 9.6.8 Fast BSS Transition */
+#define	IEEE80211_ACTION_CAT_FAST_BSS_TRANSITION 6	/* 9.6.8 Fast BSS Transition */
 #define	IEEE80211_ACTION_CAT_HT			7	/* 9.6.11 HT */
 #define	IEEE80211_ACTION_CAT_SA_QUERY		8	/* 9.6.9 SA Query */
 #define	IEEE80211_ACTION_CAT_PROTECTED_DUAL_OF_PUBLIC_ACTION 9 /* 9.6.10 Protected Dual of Public Action */
@@ -858,6 +931,7 @@ enum ieee80211_vht_mcs_support {
 	IEEE80211_VHT_MCS_NOT_SUPPORTED		= 3	/* not supported */
 };
 
+/* 802.11ac-2013, 8.4.2.160.3 Supported VHT-MCS and NSS Set field */
 struct ieee80211_vht_mcs_info {
 	uint16_t rx_mcs_map;
 	uint16_t rx_highest;
@@ -871,29 +945,25 @@ struct ieee80211_vht_cap {
 	struct ieee80211_vht_mcs_info	supp_mcs;
 } __packed;
 
-/* VHT capabilities element: 802.11ac-2013 8.4.2.160 */
-struct ieee80211_ie_vhtcap {
-	uint8_t ie;
-	uint8_t len;
-	uint32_t vht_cap_info;
-	struct ieee80211_vht_mcs_info supp_mcs;
-} __packed;
+/* 802.11ac-2013, Table 8-183x-VHT Operation Information subfields */
+enum ieee80211_vht_chanwidth {
+	IEEE80211_VHT_CHANWIDTH_USE_HT		= 0,	/* 20 MHz or 40 MHz */
+	IEEE80211_VHT_CHANWIDTH_80MHZ		= 1,	/* 80MHz */
+	IEEE80211_VHT_CHANWIDTH_160MHZ		= 2,	/* 160MHz */
+	IEEE80211_VHT_CHANWIDTH_80P80MHZ	= 3,	/* 80+80MHz */
+	/* 4..255 reserved. */
+};
 
-/* VHT operation mode subfields - 802.11ac-2013 Table 8.183x */
-#define	IEEE80211_VHT_CHANWIDTH_USE_HT		0	/* Use HT IE for chw */
-#define	IEEE80211_VHT_CHANWIDTH_80MHZ		1	/* 80MHz */
-#define	IEEE80211_VHT_CHANWIDTH_160MHZ		2	/* 160MHz */
-#define	IEEE80211_VHT_CHANWIDTH_80P80MHZ	3	/* 80+80MHz */
-
-/* VHT operation IE - 802.11ac-2013 8.4.2.161 */
-struct ieee80211_ie_vht_operation {
-	uint8_t ie;
-	uint8_t len;
-	uint8_t chan_width;
-	uint8_t center_freq_seg1_idx;
-	uint8_t center_freq_seg2_idx;
-	uint16_t basic_mcs_set;
+/* The name conflicts with the same structure in wpa.  Only ifconfig needs this. */
+#if defined(_KERNEL) || defined(WANT_NET80211)
+/* 802.11ac-2013 8.4.2.161 VHT Operation element */
+struct ieee80211_vht_operation {
+	uint8_t			chan_width;		/* enum ieee80211_vht_chanwidth */
+	uint8_t			center_freq_seq0_idx;	/* 20/40/80/160 - VHT chan1 */
+	uint8_t			center_freq_seq1_idx;	/* 80+80 - VHT chan2 */
+	uint16_t		basic_mcs_set;		/* Basic VHT-MCS and NSS Set */
 } __packed;
+#endif
 
 /* 802.11ac VHT Capabilities */
 #define	IEEE80211_VHTCAP_MAX_MPDU_LENGTH_3895	0x00000000
@@ -904,7 +974,7 @@ struct ieee80211_ie_vht_operation {
 
 #define	IEEE80211_VHTCAP_SUPP_CHAN_WIDTH_MASK	0x0000000C
 #define	IEEE80211_VHTCAP_SUPP_CHAN_WIDTH_MASK_S	2
-#define	IEEE80211_VHTCAP_SUPP_CHAN_WIDTH_NONE		0
+#define	IEEE80211_VHTCAP_SUPP_CHAN_WIDTH_NO160		0
 #define	IEEE80211_VHTCAP_SUPP_CHAN_WIDTH_160MHZ		1
 #define	IEEE80211_VHTCAP_SUPP_CHAN_WIDTH_160_80P80MHZ	2
 #define	IEEE80211_VHTCAP_SUPP_CHAN_WIDTH_RESERVED	3
@@ -1023,6 +1093,8 @@ struct ieee80211_ie_vht_txpwrenv {
 
 /*
  * Management information element payloads.
+ *
+ * 802.11-2016 Table 9-77 (Element IDs).
  */
 
 enum {
@@ -1064,6 +1136,7 @@ enum {
 	IEEE80211_ELEMID_COEX_2040	= 72,
 	IEEE80211_ELEMID_INTOL_CHN_REPORT	= 73,
 	IEEE80211_ELEMID_OVERLAP_BSS_SCAN_PARAM = 74,
+	IEEE80211_ELEMID_MMIC		= 76,
 	IEEE80211_ELEMID_TSF_REQ	= 91,
 	IEEE80211_ELEMID_TSF_RESP	= 92,
 	IEEE80211_ELEMID_WNM_SLEEP_MODE	= 93,
@@ -1272,7 +1345,7 @@ struct ieee80211_csa_ie {
 #define	WPA_CSE_NULL		0x00
 #define	WPA_CSE_WEP40		0x01
 #define	WPA_CSE_TKIP		0x02
-#define	WPA_CSE_CCMP		0x04
+#define	WPA_CSE_CCMP		0x04		/* CCMP 128-bit */
 #define	WPA_CSE_WEP104		0x05
 
 #define	WPA_ASE_NONE		0x00
@@ -1281,21 +1354,62 @@ struct ieee80211_csa_ie {
 
 #define	WPS_OUI_TYPE		0x04
 
+/* 802.11-2016 Table 9-131 - Cipher Suite Selectors */
 #define	RSN_OUI			0xac0f00
 #define	RSN_VERSION		1		/* current supported version */
 
-#define	RSN_CSE_NULL		0x00
-#define	RSN_CSE_WEP40		0x01
-#define	RSN_CSE_TKIP		0x02
-#define	RSN_CSE_WRAP		0x03
-#define	RSN_CSE_CCMP		0x04
-#define	RSN_CSE_WEP104		0x05
+/* RSN cipher suite element */
+#define	RSN_CSE_NULL		0
+#define	RSN_CSE_WEP40		1
+#define	RSN_CSE_TKIP		2
+#define	RSN_CSE_WRAP		3		/* Reserved in the 802.11-2016 */
+#define	RSN_CSE_CCMP		4		/* CCMP 128 bit */
+#define	RSN_CSE_WEP104		5
+#define	RSN_CSE_BIP_CMAC_128	6
+/* 7 - "Group addressed traffic not allowed" */
+#define	RSN_CSE_GCMP_128	8
+#define	RSN_CSE_GCMP_256	9
+#define	RSN_CSE_CCMP_256	10
+#define	RSN_CSE_BIP_GMAC_128	11
+#define	RSN_CSE_BIP_GMAC_256	12
+#define	RSN_CSE_BIP_CMAC_256	13
 
-#define	RSN_ASE_NONE		0x00
-#define	RSN_ASE_8021X_UNSPEC	0x01
-#define	RSN_ASE_8021X_PSK	0x02
+/* 802.11-2016 Table 9-133 - AKM suite selectors */
+/* RSN AKM suite element */
+#define	RSN_ASE_NONE		0
+#define	RSN_ASE_8021X_UNSPEC	1
+#define	RSN_ASE_8021X_PSK	2
+#define	RSN_ASE_FT_8021X	3		/* SHA-256 */
+#define	RSN_ASE_FT_PSK		4		/* SHA-256 */
+#define	RSN_ASE_8021X_UNSPEC_SHA256	5
+#define	RSN_ASE_8021X_PSK_SHA256	6
+#define	RSN_ASE_8021X_TDLS	7		/* SHA-256 */
+#define	RSN_ASE_SAE_UNSPEC	8		/* SHA-256 */
+#define	RSN_ASE_FT_SAE		9		/* SHA-256 */
+#define	RSN_ASE_AP_PEERKEY	10		/* SHA-256 */
+#define	RSN_ASE_8021X_SUITE_B_SHA256	11
+#define	RSN_ASE_8021X_SUITE_B_SHA384	12
+#define	RSN_ASE_FT_8021X_SHA384	13
 
-#define	RSN_CAP_PREAUTH		0x01
+/* 802.11-2016 Figure 9-257 - RSN Capabilities (2 byte field) */
+#define	RSN_CAP_PREAUTH		0x0001
+#define	RSN_CAP_NO_PAIRWISE	0x0002
+#define	RSN_CAP_PTKSA_REPLAY_COUNTER	0x000c	/* 2 bit field */
+#define	RSN_CAP_GTKSA_REPLAY_COUNTER	0x0030	/* 2 bit field */
+#define	RSN_CAP_MFP_REQUIRED	0x0040
+#define	RSN_CAP_MFP_CAPABLE	0x0080
+#define	RSN_CAP_JOINT_MULTIBAND_RSNA		0x0100
+#define	RSN_CAP_PEERKEY_ENABLED	0x0200
+#define	RSN_CAP_SPP_AMSDU_CAPABLE	0x0400
+#define	RSN_CAP_SPP_AMSDU_REQUIRED	0x0800
+#define	RSN_CAP_PBAC_CAPABLE	0x1000
+#define	RSN_CAP_EXT_KEYID_CAPABLE	0x0200
+
+/* 802.11-2016 Table 9-134 PTKSA/GTKSA/STKSA replay counters usage */
+#define		RSN_CAP_REPLAY_COUNTER_1_PER	0
+#define		RSN_CAP_REPLAY_COUNTER_2_PER	1
+#define		RSN_CAP_REPLAY_COUNTER_4_PER	2
+#define		RSN_CAP_REPLAY_COUNTER_16_PER	3
 
 #define	WME_OUI			0xf25000
 #define	WME_OUI_TYPE		0x02

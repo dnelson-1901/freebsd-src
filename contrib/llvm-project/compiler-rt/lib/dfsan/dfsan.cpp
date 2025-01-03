@@ -33,6 +33,9 @@
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_report_decorator.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
+#if SANITIZER_LINUX
+#  include <sys/personality.h>
+#endif
 
 using namespace __dfsan;
 
@@ -197,8 +200,7 @@ static dfsan_origin GetOriginIfTainted(uptr addr, uptr size) {
 
 #define PRINT_CALLER_STACK_TRACE        \
   {                                     \
-    GET_CALLER_PC_BP_SP;                \
-    (void)sp;                           \
+    GET_CALLER_PC_BP;                   \
     GET_STORE_STACK_TRACE_PC_BP(pc, bp) \
     stack.Print();                      \
   }
@@ -381,8 +383,7 @@ static void SetOrigin(const void *dst, uptr size, u32 origin) {
 }
 
 #define RET_CHAIN_ORIGIN(id)           \
-  GET_CALLER_PC_BP_SP;                 \
-  (void)sp;                            \
+  GET_CALLER_PC_BP;                    \
   GET_STORE_STACK_TRACE_PC_BP(pc, bp); \
   return ChainOrigin(id, &stack);
 
@@ -417,11 +418,59 @@ extern "C" SANITIZER_INTERFACE_ATTRIBUTE void dfsan_mem_origin_transfer(
   __dfsan_mem_origin_transfer(dst, src, len);
 }
 
-extern "C" SANITIZER_INTERFACE_ATTRIBUTE void dfsan_mem_shadow_transfer(
-    void *dst, const void *src, uptr len) {
+static void CopyShadow(void *dst, const void *src, uptr len) {
   internal_memcpy((void *)__dfsan::shadow_for(dst),
                   (const void *)__dfsan::shadow_for(src),
                   len * sizeof(dfsan_label));
+}
+
+extern "C" SANITIZER_INTERFACE_ATTRIBUTE void dfsan_mem_shadow_transfer(
+    void *dst, const void *src, uptr len) {
+  CopyShadow(dst, src, len);
+}
+
+// Copy shadow and origins of the len bytes from src to dst.
+extern "C" SANITIZER_INTERFACE_ATTRIBUTE void
+__dfsan_mem_shadow_origin_transfer(void *dst, const void *src, uptr size) {
+  if (src == dst)
+    return;
+  CopyShadow(dst, src, size);
+  if (dfsan_get_track_origins()) {
+    // Duplicating code instead of calling __dfsan_mem_origin_transfer
+    // so that the getting the caller stack frame works correctly.
+    GET_CALLER_PC_BP;
+    GET_STORE_STACK_TRACE_PC_BP(pc, bp);
+    MoveOrigin(dst, src, size, &stack);
+  }
+}
+
+// Copy shadow and origins as per __atomic_compare_exchange.
+extern "C" SANITIZER_INTERFACE_ATTRIBUTE void
+__dfsan_mem_shadow_origin_conditional_exchange(u8 condition, void *target,
+                                               void *expected,
+                                               const void *desired, uptr size) {
+  void *dst;
+  const void *src;
+  // condition is result of native call to __atomic_compare_exchange
+  if (condition) {
+    // Copy desired into target
+    dst = target;
+    src = desired;
+  } else {
+    // Copy target into expected
+    dst = expected;
+    src = target;
+  }
+  if (src == dst)
+    return;
+  CopyShadow(dst, src, size);
+  if (dfsan_get_track_origins()) {
+    // Duplicating code instead of calling __dfsan_mem_origin_transfer
+    // so that the getting the caller stack frame works correctly.
+    GET_CALLER_PC_BP;
+    GET_STORE_STACK_TRACE_PC_BP(pc, bp);
+    MoveOrigin(dst, src, size, &stack);
+  }
 }
 
 namespace __dfsan {
@@ -519,8 +568,7 @@ void SetShadow(dfsan_label label, void *addr, uptr size, dfsan_origin origin) {
 extern "C" SANITIZER_INTERFACE_ATTRIBUTE void __dfsan_maybe_store_origin(
     dfsan_label s, void *p, uptr size, dfsan_origin o) {
   if (UNLIKELY(s)) {
-    GET_CALLER_PC_BP_SP;
-    (void)sp;
+    GET_CALLER_PC_BP;
     GET_STORE_STACK_TRACE_PC_BP(pc, bp);
     SetOrigin(p, size, ChainOrigin(o, &stack));
   }
@@ -670,6 +718,67 @@ dfsan_get_labels_in_signal_conditional() {
   return __dfsan::labels_in_signal_conditional;
 }
 
+namespace __dfsan {
+
+typedef void (*dfsan_reaches_function_callback_t)(dfsan_label label,
+                                                  dfsan_origin origin,
+                                                  const char *file,
+                                                  unsigned int line,
+                                                  const char *function);
+static dfsan_reaches_function_callback_t reaches_function_callback = nullptr;
+static dfsan_label labels_in_signal_reaches_function = 0;
+
+static void ReachesFunctionCallback(dfsan_label label, dfsan_origin origin,
+                                    const char *file, unsigned int line,
+                                    const char *function) {
+  if (label == 0) {
+    return;
+  }
+  if (reaches_function_callback == nullptr) {
+    return;
+  }
+
+  // This initial ReachesFunctionCallback handler needs to be in here in dfsan
+  // runtime (rather than being an entirely user implemented hook) so that it
+  // has access to dfsan thread information.
+  DFsanThread *t = GetCurrentThread();
+  // A callback operation which does useful work (like record the flow) will
+  // likely be too long executed in a signal handler.
+  if (t && t->InSignalHandler()) {
+    // Record set of labels used in signal handler for completeness.
+    labels_in_signal_reaches_function |= label;
+    return;
+  }
+
+  reaches_function_callback(label, origin, file, line, function);
+}
+
+}  // namespace __dfsan
+
+extern "C" SANITIZER_INTERFACE_ATTRIBUTE void
+__dfsan_reaches_function_callback_origin(dfsan_label label, dfsan_origin origin,
+                                         const char *file, unsigned int line,
+                                         const char *function) {
+  __dfsan::ReachesFunctionCallback(label, origin, file, line, function);
+}
+
+extern "C" SANITIZER_INTERFACE_ATTRIBUTE void
+__dfsan_reaches_function_callback(dfsan_label label, const char *file,
+                                  unsigned int line, const char *function) {
+  __dfsan::ReachesFunctionCallback(label, 0, file, line, function);
+}
+
+extern "C" SANITIZER_INTERFACE_ATTRIBUTE void
+dfsan_set_reaches_function_callback(
+    __dfsan::dfsan_reaches_function_callback_t callback) {
+  __dfsan::reaches_function_callback = callback;
+}
+
+extern "C" SANITIZER_INTERFACE_ATTRIBUTE dfsan_label
+dfsan_get_labels_in_signal_reaches_function() {
+  return __dfsan::labels_in_signal_reaches_function;
+}
+
 class Decorator : public __sanitizer::SanitizerCommonDecorator {
  public:
   Decorator() : SanitizerCommonDecorator() {}
@@ -717,12 +826,12 @@ bool PrintOriginTraceFramesToStr(Origin o, InternalScopedString *out) {
     dfsan_origin origin_id = o.raw_id();
     o = o.getNextChainedOrigin(&stack);
     if (o.isChainedOrigin())
-      out->append(
+      out->AppendF(
           "  %sOrigin value: 0x%x, Taint value was stored to memory at%s\n",
           d.Origin(), origin_id, d.Default());
     else
-      out->append("  %sOrigin value: 0x%x, Taint value was created at%s\n",
-                  d.Origin(), origin_id, d.Default());
+      out->AppendF("  %sOrigin value: 0x%x, Taint value was created at%s\n",
+                   d.Origin(), origin_id, d.Default());
 
     // Includes a trailing newline, so no need to add it again.
     stack.PrintTo(out);
@@ -743,9 +852,9 @@ bool PrintOriginTraceToStr(const void *addr, const char *description,
 
   const dfsan_origin origin = *__dfsan::origin_for(addr);
 
-  out->append("  %sTaint value 0x%x (at %p) origin tracking (%s)%s\n",
-              d.Origin(), label, addr, description ? description : "",
-              d.Default());
+  out->AppendF("  %sTaint value 0x%x (at %p) origin tracking (%s)%s\n",
+               d.Origin(), label, addr, description ? description : "",
+               d.Default());
 
   Origin o = Origin::FromRawId(origin);
   return PrintOriginTraceFramesToStr(o, out);
@@ -983,6 +1092,7 @@ extern "C" void dfsan_flush() {
     }
   }
   __dfsan::labels_in_signal_conditional = 0;
+  __dfsan::labels_in_signal_reaches_function = 0;
 }
 
 // TODO: CheckMemoryLayoutSanity is based on msan.
@@ -1020,11 +1130,12 @@ static void CheckMemoryLayoutSanity() {
 
 // TODO: CheckMemoryRangeAvailability is based on msan.
 // Consider refactoring these into a shared implementation.
-static bool CheckMemoryRangeAvailability(uptr beg, uptr size) {
+static bool CheckMemoryRangeAvailability(uptr beg, uptr size, bool verbose) {
   if (size > 0) {
     uptr end = beg + size - 1;
     if (!MemoryRangeIsAvailable(beg, end)) {
-      Printf("FATAL: Memory range %p - %p is not available.\n", beg, end);
+      if (verbose)
+        Printf("FATAL: Memory range %p - %p is not available.\n", beg, end);
       return false;
     }
   }
@@ -1056,7 +1167,7 @@ static bool ProtectMemoryRange(uptr beg, uptr size, const char *name) {
 
 // TODO: InitShadow is based on msan.
 // Consider refactoring these into a shared implementation.
-bool InitShadow(bool init_origins) {
+bool InitShadow(bool init_origins, bool dry_run) {
   // Let user know mapping parameters first.
   VPrintf(1, "dfsan_init %p\n", (void *)&__dfsan::dfsan_init);
   for (unsigned i = 0; i < kMemoryLayoutSize; ++i)
@@ -1066,8 +1177,9 @@ bool InitShadow(bool init_origins) {
   CheckMemoryLayoutSanity();
 
   if (!MEM_IS_APP(&__dfsan::dfsan_init)) {
-    Printf("FATAL: Code %p is out of application range. Non-PIE build?\n",
-           (uptr)&__dfsan::dfsan_init);
+    if (!dry_run)
+      Printf("FATAL: Code %p is out of application range. Non-PIE build?\n",
+             (uptr)&__dfsan::dfsan_init);
     return false;
   }
 
@@ -1088,25 +1200,60 @@ bool InitShadow(bool init_origins) {
     bool protect = type == MappingDesc::INVALID ||
                    (!init_origins && type == MappingDesc::ORIGIN);
     CHECK(!(map && protect));
-    if (!map && !protect)
-      CHECK(type == MappingDesc::APP);
+    if (!map && !protect) {
+      CHECK(type == MappingDesc::APP || type == MappingDesc::ALLOCATOR);
+
+      if (dry_run && type == MappingDesc::ALLOCATOR &&
+          !CheckMemoryRangeAvailability(start, size, !dry_run))
+        return false;
+    }
     if (map) {
-      if (!CheckMemoryRangeAvailability(start, size))
+      if (dry_run && !CheckMemoryRangeAvailability(start, size, !dry_run))
         return false;
-      if (!MmapFixedSuperNoReserve(start, size, kMemoryLayout[i].name))
+      if (!dry_run &&
+          !MmapFixedSuperNoReserve(start, size, kMemoryLayout[i].name))
         return false;
-      if (common_flags()->use_madv_dontdump)
+      if (!dry_run && common_flags()->use_madv_dontdump)
         DontDumpShadowMemory(start, size);
     }
     if (protect) {
-      if (!CheckMemoryRangeAvailability(start, size))
+      if (dry_run && !CheckMemoryRangeAvailability(start, size, !dry_run))
         return false;
-      if (!ProtectMemoryRange(start, size, kMemoryLayout[i].name))
+      if (!dry_run && !ProtectMemoryRange(start, size, kMemoryLayout[i].name))
         return false;
     }
   }
 
   return true;
+}
+
+bool InitShadowWithReExec(bool init_origins) {
+  // Start with dry run: check layout is ok, but don't print warnings because
+  // warning messages will cause tests to fail (even if we successfully re-exec
+  // after the warning).
+  bool success = InitShadow(init_origins, true);
+  if (!success) {
+#if SANITIZER_LINUX
+    // Perhaps ASLR entropy is too high. If ASLR is enabled, re-exec without it.
+    int old_personality = personality(0xffffffff);
+    bool aslr_on =
+        (old_personality != -1) && ((old_personality & ADDR_NO_RANDOMIZE) == 0);
+
+    if (aslr_on) {
+      VReport(1,
+              "WARNING: DataflowSanitizer: memory layout is incompatible, "
+              "possibly due to high-entropy ASLR.\n"
+              "Re-execing with fixed virtual address space.\n"
+              "N.B. reducing ASLR entropy is preferable.\n");
+      CHECK_NE(personality(old_personality | ADDR_NO_RANDOMIZE), -1);
+      ReExec();
+    }
+#endif
+  }
+
+  // The earlier dry run didn't actually map or protect anything. Run again in
+  // non-dry run mode.
+  return success && InitShadow(init_origins, false);
 }
 
 static void DFsanInit(int argc, char **argv, char **envp) {
@@ -1122,7 +1269,11 @@ static void DFsanInit(int argc, char **argv, char **envp) {
 
   CheckASLR();
 
-  InitShadow(dfsan_get_track_origins());
+  if (!InitShadowWithReExec(dfsan_get_track_origins())) {
+    Printf("FATAL: DataflowSanitizer can not mmap the shadow memory.\n");
+    DumpProcessMap();
+    Die();
+  }
 
   initialize_interceptors();
 

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 .PATH:		${.CURDIR}/../../contrib/lib9p

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005, David Xu <davidxu@freebsd.org>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include "namespace.h"
 #include <sys/param.h>
@@ -188,8 +185,7 @@ thr_remove_thr_signals(const sigset_t *set, sigset_t *newset)
 }
 
 static void
-sigcancel_handler(int sig __unused,
-	siginfo_t *info __unused, ucontext_t *ucp)
+sigcancel_handler(int sig __unused, siginfo_t *info __unused, ucontext_t *ucp)
 {
 	struct pthread *curthread = _get_curthread();
 	int err;
@@ -250,7 +246,6 @@ static void
 handle_signal(struct sigaction *actp, int sig, siginfo_t *info, ucontext_t *ucp)
 {
 	struct pthread *curthread = _get_curthread();
-	ucontext_t uc2;
 	__siginfohandler_t *sigfunc;
 	int cancel_point;
 	int cancel_async;
@@ -310,13 +305,11 @@ handle_signal(struct sigaction *actp, int sig, siginfo_t *info, ucontext_t *ucp)
 	curthread->cancel_point = cancel_point;
 	curthread->cancel_enable = cancel_enable;
 
-	memcpy(&uc2, ucp, sizeof(uc2));
-	SIGDELSET(uc2.uc_sigmask, SIGCANCEL);
+	SIGDELSET(ucp->uc_sigmask, SIGCANCEL);
 
 	/* reschedule cancellation */
-	check_cancel(curthread, &uc2);
+	check_cancel(curthread, ucp);
 	errno = err;
-	syscall(SYS_sigreturn, &uc2);
 }
 
 void
@@ -360,9 +353,11 @@ check_cancel(struct pthread *curthread, ucontext_t *ucp)
 	 *    on getting a signal before it agrees to return.
  	 */
 	if (curthread->cancel_point) {
-		if (curthread->in_sigsuspend && ucp) {
-			SIGADDSET(ucp->uc_sigmask, SIGCANCEL);
-			curthread->unblock_sigcancel = 1;
+		if (curthread->in_sigsuspend) {
+			if (ucp != NULL) {
+				SIGADDSET(ucp->uc_sigmask, SIGCANCEL);
+				curthread->unblock_sigcancel = 1;
+			}
 			_thr_send_sig(curthread, SIGCANCEL);
 		} else
 			thr_wake(curthread->tid);
@@ -371,8 +366,8 @@ check_cancel(struct pthread *curthread, ucontext_t *ucp)
 		 * asynchronous cancellation mode, act upon
 		 * immediately.
 		 */
-		_pthread_exit_mask(PTHREAD_CANCELED,
-		    ucp? &ucp->uc_sigmask : NULL);
+		_pthread_exit_mask(PTHREAD_CANCELED, ucp != NULL ?
+		    &ucp->uc_sigmask : NULL);
 	}
 }
 
@@ -403,6 +398,7 @@ check_deferred_signal(struct pthread *curthread)
 	/* remove signal */
 	curthread->deferred_siginfo.si_signo = 0;
 	handle_signal(&act, info.si_signo, &info, uc);
+	syscall(SYS_sigreturn, uc);
 }
 
 static void
@@ -410,9 +406,8 @@ check_suspend(struct pthread *curthread)
 {
 	uint32_t cycle;
 
-	if (__predict_true((curthread->flags &
-		(THR_FLAGS_NEED_SUSPEND | THR_FLAGS_SUSPENDED))
-		!= THR_FLAGS_NEED_SUSPEND))
+	if (__predict_true((curthread->flags & (THR_FLAGS_NEED_SUSPEND |
+	    THR_FLAGS_SUSPENDED)) != THR_FLAGS_NEED_SUSPEND))
 		return;
 	if (curthread == _single_thread)
 		return;
@@ -669,7 +664,7 @@ _thr_sigmask(int how, const sigset_t *set, sigset_t *oset)
 }
 
 int
-_sigsuspend(const sigset_t * set)
+_sigsuspend(const sigset_t *set)
 {
 	sigset_t newset;
 
@@ -677,7 +672,7 @@ _sigsuspend(const sigset_t * set)
 }
 
 int
-__thr_sigsuspend(const sigset_t * set)
+__thr_sigsuspend(const sigset_t *set)
 {
 	struct pthread *curthread;
 	sigset_t newset;
@@ -703,7 +698,7 @@ __thr_sigsuspend(const sigset_t * set)
 
 int
 _sigtimedwait(const sigset_t *set, siginfo_t *info,
-	const struct timespec * timeout)
+    const struct timespec *timeout)
 {
 	sigset_t newset;
 
@@ -718,7 +713,7 @@ _sigtimedwait(const sigset_t *set, siginfo_t *info,
  */
 int
 __thr_sigtimedwait(const sigset_t *set, siginfo_t *info,
-    const struct timespec * timeout)
+    const struct timespec *timeout)
 {
 	struct pthread	*curthread = _get_curthread();
 	sigset_t newset;

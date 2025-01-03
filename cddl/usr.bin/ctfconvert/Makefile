@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 .PATH: ${SRCTOP}/cddl/contrib/opensolaris/tools/ctf/common

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2011-2014 Matteo Landi, Luigi Rizzo
  * Copyright (C) 2013-2016 Universita` di Pisa
@@ -28,7 +28,6 @@
  */
 
 /*
- * $FreeBSD$
  *
  * The header contains the definitions of constants and function
  * prototypes used only in kernelspace.
@@ -82,6 +81,7 @@
 
 #if defined(__FreeBSD__)
 #include <sys/selinfo.h>
+#include <vm/vm.h>
 
 #define likely(x)	__builtin_expect((long)!!(x), 1L)
 #define unlikely(x)	__builtin_expect((long)!!(x), 0L)
@@ -103,6 +103,7 @@
 #define MBUF_TXQ(m)	((m)->m_pkthdr.flowid)
 #define MBUF_TRANSMIT(na, ifp, m)	((na)->if_transmit(ifp, m))
 #define	GEN_TX_MBUF_IFP(m)	((m)->m_pkthdr.rcvif)
+#define	GEN_TX_MBUF_NA(m)	((struct netmap_adapter *)(m)->m_ext.ext_arg1)
 
 #define NM_ATOMIC_T	volatile int /* required by atomic/bitops.h */
 /* atomic operations */
@@ -501,6 +502,9 @@ struct netmap_kring {
 	struct mbuf	**tx_pool;
 	struct mbuf	*tx_event;	/* TX event used as a notification */
 	NM_LOCK_T	tx_event_lock;	/* protects the tx_event mbuf */
+#ifdef __FreeBSD__
+	struct callout	tx_event_callout;
+#endif
 	struct mbq	rx_queue;       /* intercepted rx mbufs. */
 
 	uint32_t	users;		/* existing bindings for this ring */
@@ -1724,10 +1728,30 @@ extern int netmap_generic_txqdisc;
 #define NM_IS_NATIVE(ifp)	(NM_NA_VALID(ifp) && NA(ifp)->nm_dtor == netmap_hw_dtor)
 
 #if defined(__FreeBSD__)
+extern int netmap_port_numa_affinity;
 
-/* Assigns the device IOMMU domain to an allocator.
- * Returns -ENOMEM in case the domain is different */
-#define nm_iommu_group_id(dev) (-1)
+static inline int
+nm_iommu_group_id(struct netmap_adapter *na)
+{
+	return (-1);
+}
+
+static inline int
+nm_numa_domain(struct netmap_adapter *na)
+{
+	int domain;
+
+	/*
+	 * If the system has only one NUMA domain, don't bother distinguishing
+	 * between IF_NODOM and domain 0.
+	 */
+	if (vm_ndomains == 1 || netmap_port_numa_affinity == 0)
+		return (-1);
+	domain = if_getnumadomain(na->ifp);
+	if (domain == IF_NODOM)
+		domain = -1;
+	return (domain);
+}
 
 /* Callback invoked by the dma machinery after a successful dmamap_load */
 static void netmap_dmamap_cb(__unused void *arg,
@@ -2381,39 +2405,60 @@ ptnet_sync_tail(struct nm_csb_ktoa *ktoa, struct netmap_kring *kring)
  *
  * We allocate mbufs with m_gethdr(), since the mbuf header is needed
  * by the driver. We also attach a customly-provided external storage,
- * which in this case is a netmap buffer. When calling m_extadd(), however
- * we pass a NULL address, since the real address (and length) will be
- * filled in by nm_os_generic_xmit_frame() right before calling
- * if_transmit().
+ * which in this case is a netmap buffer.
  *
  * The dtor function does nothing, however we need it since mb_free_ext()
  * has a KASSERT(), checking that the mbuf dtor function is not NULL.
  */
 
-static void void_mbuf_dtor(struct mbuf *m) { }
+static inline void
+nm_generic_mbuf_dtor(struct mbuf *m)
+{
+	uma_zfree(zone_clust, m->m_ext.ext_buf);
+}
 
-#define SET_MBUF_DESTRUCTOR(m, fn)	do {		\
+#define SET_MBUF_DESTRUCTOR(m, fn, na)	do {		\
 	(m)->m_ext.ext_free = (fn != NULL) ?		\
-	    (void *)fn : (void *)void_mbuf_dtor;	\
+	    (void *)fn : (void *)nm_generic_mbuf_dtor;	\
+	(m)->m_ext.ext_arg1 = na;			\
 } while (0)
 
 static inline struct mbuf *
-nm_os_get_mbuf(if_t ifp, int len)
+nm_os_get_mbuf(if_t ifp __unused, int len)
 {
 	struct mbuf *m;
+	void *buf;
 
-	(void)ifp;
-	(void)len;
+	KASSERT(len <= MCLBYTES, ("%s: len %d", __func__, len));
 
 	m = m_gethdr(M_NOWAIT, MT_DATA);
-	if (m == NULL) {
-		return m;
+	if (__predict_false(m == NULL))
+		return (NULL);
+	buf = uma_zalloc(zone_clust, M_NOWAIT);
+	if (__predict_false(buf == NULL)) {
+		m_free(m);
+		return (NULL);
 	}
+	m_extadd(m, buf, MCLBYTES, nm_generic_mbuf_dtor, NULL, NULL, 0,
+	    EXT_NET_DRV);
+	return (m);
+}
 
-	m_extadd(m, NULL /* buf */, 0 /* size */, void_mbuf_dtor,
-		 NULL, NULL, 0, EXT_NET_DRV);
+static inline void
+nm_os_mbuf_reinit(struct mbuf *m)
+{
+	void *buf;
 
-	return m;
+	KASSERT((m->m_flags & M_EXT) != 0,
+	    ("%s: mbuf %p has no external storage", __func__, m));
+	KASSERT(m->m_ext.ext_size == MCLBYTES,
+	    ("%s: mbuf %p has wrong external storage size %u", __func__, m,
+	    m->m_ext.ext_size));
+
+	buf = m->m_ext.ext_buf;
+	m_init(m, M_NOWAIT, MT_DATA, M_PKTHDR);
+	m_extadd(m, buf, MCLBYTES, nm_generic_mbuf_dtor, NULL, NULL, 0,
+	    EXT_NET_DRV);
 }
 
 #endif /* __FreeBSD__ */
@@ -2428,8 +2473,19 @@ void netmap_uninit_bridges(void);
 #define CSB_READ(csb, field, r) (get_user(r, &csb->field))
 #define CSB_WRITE(csb, field, v) (put_user(v, &csb->field))
 #else  /* ! linux */
-#define CSB_READ(csb, field, r) (r = fuword32(&csb->field))
-#define CSB_WRITE(csb, field, v) (suword32(&csb->field, v))
+#define CSB_READ(csb, field, r) do {				\
+	int32_t v __diagused;					\
+								\
+	v = fuword32(&csb->field);				\
+	KASSERT(v != -1, ("%s: fuword32 failed", __func__));	\
+	r = v;							\
+} while (0)
+#define CSB_WRITE(csb, field, v) do {				\
+	int error __diagused;					\
+								\
+	error = suword32(&csb->field, v);			\
+	KASSERT(error == 0, ("%s: suword32 failed", __func__));	\
+} while (0)
 #endif /* ! linux */
 
 /* some macros that may not be defined */

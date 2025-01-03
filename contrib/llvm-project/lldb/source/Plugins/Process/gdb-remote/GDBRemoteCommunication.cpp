@@ -13,7 +13,6 @@
 #include <future>
 #include <sys/stat.h>
 
-#include "lldb/Core/StreamFile.h"
 #include "lldb/Host/Config.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/FileSystem.h"
@@ -30,7 +29,6 @@
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/RegularExpression.h"
-#include "lldb/Utility/Reproducer.h"
 #include "lldb/Utility/StreamString.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/ScopedPrinter.h"
@@ -58,9 +56,8 @@ using namespace lldb_private;
 using namespace lldb_private::process_gdb_remote;
 
 // GDBRemoteCommunication constructor
-GDBRemoteCommunication::GDBRemoteCommunication(const char *comm_name,
-                                               const char *listener_name)
-    : Communication(comm_name),
+GDBRemoteCommunication::GDBRemoteCommunication()
+    : Communication(),
 #ifdef LLDB_CONFIGURATION_DEBUG
       m_packet_timeout(1000),
 #else
@@ -218,23 +215,6 @@ GDBRemoteCommunication::PacketResult GDBRemoteCommunication::GetAck() {
       return PacketResult::Success;
     else
       return PacketResult::ErrorSendAck;
-  }
-  return result;
-}
-
-GDBRemoteCommunication::PacketResult
-GDBRemoteCommunication::ReadPacketWithOutputSupport(
-    StringExtractorGDBRemote &response, Timeout<std::micro> timeout,
-    bool sync_on_timeout,
-    llvm::function_ref<void(llvm::StringRef)> output_callback) {
-  auto result = ReadPacket(response, timeout, sync_on_timeout);
-  while (result == PacketResult::Success && response.IsNormalResponse() &&
-         response.PeekChar() == 'O') {
-    response.GetChar();
-    std::string output;
-    if (response.GetHexByteString(output))
-      output_callback(output);
-    result = ReadPacket(response, timeout, sync_on_timeout);
   }
   return result;
 }
@@ -559,9 +539,8 @@ bool GDBRemoteCommunication::DecompressPacket() {
       else if (m_compression_type == CompressionType::ZlibDeflate)
         scratchbuf_size = compression_decode_scratch_buffer_size (COMPRESSION_ZLIB);
       else if (m_compression_type == CompressionType::LZMA)
-        scratchbuf_size = compression_decode_scratch_buffer_size (COMPRESSION_LZMA);
-      else if (m_compression_type == CompressionType::LZFSE)
-        scratchbuf_size = compression_decode_scratch_buffer_size (COMPRESSION_LZFSE);
+        scratchbuf_size =
+            compression_decode_scratch_buffer_size(COMPRESSION_LZMA);
       if (scratchbuf_size > 0) {
         m_decompression_scratch = (void*) malloc (scratchbuf_size);
         m_decompression_scratch_type = m_compression_type;
@@ -679,7 +658,7 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
 
     case '%': // Async notify packet
       isNotifyPacket = true;
-      LLVM_FALLTHROUGH;
+      [[fallthrough]];
 
     case '$':
       // Look for a standard gdb packet?
@@ -1225,11 +1204,6 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
 
 void GDBRemoteCommunication::DumpHistory(Stream &strm) { m_history.Dump(strm); }
 
-void GDBRemoteCommunication::SetPacketRecorder(
-    repro::PacketRecorder *recorder) {
-  m_history.SetRecorder(recorder);
-}
-
 llvm::Error
 GDBRemoteCommunication::ConnectLocally(GDBRemoteCommunication &client,
                                        GDBRemoteCommunication &server) {
@@ -1240,7 +1214,7 @@ GDBRemoteCommunication::ConnectLocally(GDBRemoteCommunication &client,
           listen_socket.Listen("localhost:0", backlog).ToError())
     return error;
 
-  Socket *accept_socket;
+  Socket *accept_socket = nullptr;
   std::future<Status> accept_status = std::async(
       std::launch::async, [&] { return listen_socket.Accept(accept_socket); });
 

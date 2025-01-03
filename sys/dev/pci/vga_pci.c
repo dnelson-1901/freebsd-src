@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 John Baldwin <jhb@FreeBSD.org>
  *
@@ -26,8 +26,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Simple driver for PCI VGA display devices.  Drivers such as agp(4) and
  * drm(4) should attach as children of this device.
@@ -71,8 +69,8 @@ static struct vga_resource *lookup_res(struct vga_pci_softc *sc, int rid);
 static struct resource *vga_pci_alloc_resource(device_t dev, device_t child,
     int type, int *rid, rman_res_t start, rman_res_t end, rman_res_t count,
     u_int flags);
-static int	vga_pci_release_resource(device_t dev, device_t child, int type,
-    int rid, struct resource *r);
+static int	vga_pci_release_resource(device_t dev, device_t child,
+    struct resource *r);
 
 int vga_pci_default_unit = -1;
 SYSCTL_INT(_hw_pci, OID_AUTO, default_vgapci_unit, CTLFLAG_RDTUN,
@@ -243,8 +241,7 @@ vga_pci_map_bios(device_t dev, size_t *size)
 	rom_addr |= rman_get_start(res) | 0x1;
 	pci_write_config(dev, rid, rom_addr, 4);
 	vr = lookup_res(device_get_softc(dev), rid);
-	vga_pci_release_resource(dev, NULL, SYS_RES_MEMORY, rid,
-	    vr->vr_res);
+	vga_pci_release_resource(dev, NULL, vr->vr_res);
 
 	/*
 	 * re-allocate
@@ -267,8 +264,7 @@ vga_pci_map_bios(device_t dev, size_t *size)
 		return (__DEVOLATILE(void *, bios));
 	device_printf(dev, "ROM mapping failed\n");
 	vr = lookup_res(device_get_softc(dev), rid);
-	vga_pci_release_resource(dev, NULL, SYS_RES_MEMORY, rid,
-	    vr->vr_res);
+	vga_pci_release_resource(dev, NULL, vr->vr_res);
 	return (NULL);
 }
 
@@ -311,8 +307,7 @@ vga_pci_unmap_bios(device_t dev, void *bios)
 	KASSERT(vr->vr_res != NULL, ("vga_pci_unmap_bios: bios not mapped"));
 	KASSERT(rman_get_virtual(vr->vr_res) == bios,
 	    ("vga_pci_unmap_bios: mismatch"));
-	vga_pci_release_resource(dev, NULL, SYS_RES_MEMORY, rid,
-	    vr->vr_res);
+	vga_pci_release_resource(dev, NULL, vr->vr_res);
 }
 
 int
@@ -371,42 +366,16 @@ static int
 vga_pci_attach(device_t dev)
 {
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 
-	/* Always create a drm child for now to make it easier on drm. */
-	device_add_child(dev, "drm", -1);
-	device_add_child(dev, "drmn", -1);
-	bus_generic_attach(dev);
+	/* Always create a drmn child for now to make it easier on drm. */
+	device_add_child(dev, "drmn", DEVICE_UNIT_ANY);
+	bus_attach_children(dev);
 
 	if (vga_pci_is_boot_display(dev))
 		device_printf(dev, "Boot video device\n");
 
 	return (0);
-}
-
-static int
-vga_pci_suspend(device_t dev)
-{
-
-	return (bus_generic_suspend(dev));
-}
-
-static int
-vga_pci_detach(device_t dev)
-{
-	int error; 
-
-	error = bus_generic_detach(dev);
-	if (error == 0)
-		error = device_delete_children(dev);
-	return (error);
-}
-
-static int
-vga_pci_resume(device_t dev)
-{
-
-	return (bus_generic_resume(dev));
 }
 
 /* Bus interface. */
@@ -481,20 +450,19 @@ vga_pci_alloc_resource(device_t dev, device_t child, int type, int *rid,
 }
 
 static int
-vga_pci_release_resource(device_t dev, device_t child, int type, int rid,
-    struct resource *r)
+vga_pci_release_resource(device_t dev, device_t child, struct resource *r)
 {
 	struct vga_resource *vr;
 	int error;
 
-	switch (type) {
+	switch (rman_get_type(r)) {
 	case SYS_RES_MEMORY:
 	case SYS_RES_IOPORT:
 		/*
 		 * For BARs, we release the resource from the PCI bus
 		 * when the last child reference goes away.
 		 */
-		vr = lookup_res(device_get_softc(dev), rid);
+		vr = lookup_res(device_get_softc(dev), rman_get_rid(r));
 		if (vr == NULL)
 			return (EINVAL);
 		if (vr->vr_res == NULL)
@@ -506,7 +474,7 @@ vga_pci_release_resource(device_t dev, device_t child, int type, int rid,
 		}
 		KASSERT(vr->vr_refs > 0,
 		    ("vga_pci resource reference count underflow"));
-		error = bus_release_resource(dev, type, rid, r);
+		error = bus_release_resource(dev, r);
 		if (error == 0) {
 			vr->vr_res = NULL;
 			vr->vr_refs = 0;
@@ -514,7 +482,7 @@ vga_pci_release_resource(device_t dev, device_t child, int type, int rid,
 		return (error);
 	}
 
-	return (bus_release_resource(dev, type, rid, r));
+	return (bus_release_resource(dev, r));
 }
 
 /* PCI interface. */
@@ -739,9 +707,9 @@ static device_method_t vga_pci_methods[] = {
 	DEVMETHOD(device_probe,		vga_pci_probe),
 	DEVMETHOD(device_attach,	vga_pci_attach),
 	DEVMETHOD(device_shutdown,	bus_generic_shutdown),
-	DEVMETHOD(device_suspend,	vga_pci_suspend),
-	DEVMETHOD(device_detach,	vga_pci_detach),
-	DEVMETHOD(device_resume,	vga_pci_resume),
+	DEVMETHOD(device_suspend,	bus_generic_suspend),
+	DEVMETHOD(device_detach,	bus_generic_detach),
+	DEVMETHOD(device_resume,	bus_generic_resume),
 
 	/* Bus interface */
 	DEVMETHOD(bus_read_ivar,	vga_pci_read_ivar),

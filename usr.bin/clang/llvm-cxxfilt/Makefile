@@ -1,13 +1,10 @@
-# $FreeBSD$
-
 .include <src.opts.mk>
 
 PROG_CXX=	llvm-cxxfilt
 
 SRCDIR=		llvm/tools/llvm-cxxfilt
+SRCS+=		llvm-cxxfilt-driver.cpp
 SRCS+=		llvm-cxxfilt.cpp
-
-CFLAGS.llvm-cxxfilt.cpp+=	-Dllvm_cxxfilt_main=main
 
 .include "${SRCTOP}/lib/clang/llvm.pre.mk"
 
@@ -20,8 +17,6 @@ ${INCFILE}: ${TDFILE}
 	${LLVM_TBLGEN} ${GENOPT} -I ${LLVM_SRCS}/include -d ${.TARGET:C/$/.d/} \
 	    -o ${.TARGET} ${TDFILE}
 TGHDRS+=	${INCFILE}
-
-${TGHDRS}: ${LLVM_TBLGEN_BIN}
 
 DEPENDFILES+=	${TGHDRS:C/$/.d/}
 DPSRCS+=	${TGHDRS}

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 .PATH:	${SRCTOP}/sys/dev/hyperv/vmbus \
 	${SRCTOP}/sys/dev/hyperv/vmbus/${MACHINE_CPUARCH} \
 	${SRCTOP}/sys/dev/hyperv/vmbus/x86
@@ -15,8 +13,8 @@ SRCS=	hyperv.c \
 	vmbus_res.c \
 	vmbus_xact.c
 
-.if ${MACHINE_CPUARCH} != "i386" && ${MACHINE_CPUARCH} != "aarch64"
-SRCS+=	vmbus_vector.S
+.if ${MACHINE_CPUARCH} == "amd64"
+SRCS+=	vmbus_vector.S hyperv_mmu.c
 .endif
 .if ${MACHINE_CPUARCH} != "aarch64"
 SRCS+= vmbus_et.c hyperv_x86.c vmbus_x86.c

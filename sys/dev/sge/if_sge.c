@@ -36,8 +36,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * SiS 190/191 PCI Ethernet NIC driver.
  *
@@ -605,11 +603,6 @@ sge_attach(device_t dev)
 		goto fail;
 
 	ifp = sc->sge_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "cannot allocate ifnet structure.\n");
-		error = ENOSPC;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -682,8 +675,6 @@ sge_detach(device_t dev)
 		SGE_UNLOCK(sc);
 		callout_drain(&sc->sge_stat_ch);
 	}
-	if (sc->sge_miibus)
-		device_delete_child(dev, sc->sge_miibus);
 	bus_generic_detach(dev);
 
 	if (sc->sge_intrhand)

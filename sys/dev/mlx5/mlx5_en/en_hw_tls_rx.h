@@ -21,8 +21,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MLX5_TLS_RX_H_
@@ -63,7 +61,7 @@ struct mlx5e_tls_rx_tag {
 	uint32_t tirn;		/* HW TIR context number */
 	uint32_t dek_index;	/* HW TLS context number */
 	struct mlx5e_tls_rx *tls_rx; /* parent pointer */
-	struct mlx5_flow_rule *flow_rule;
+	struct mlx5_flow_handle *flow_rule;
 	struct mtx mtx;
 	struct completion progress_complete;
 	uint32_t state;	/* see MLX5E_TLS_RX_ST_XXX */

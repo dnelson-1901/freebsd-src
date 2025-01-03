@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (C) 2008-2009 Semihalf, Michal Hajduk and Bartlomiej Sieka
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <assert.h>
 #include <ctype.h>
 #include <err.h>
@@ -753,6 +751,7 @@ main(int argc, char** argv)
 
 	/* Default values */
 	i2c_opt.off = 0;
+	i2c_opt.addr = 0;
 	i2c_opt.verbose = 0;
 	i2c_opt.dir = 'r';	/* direction = read */
 	i2c_opt.width = "8";
@@ -877,12 +876,6 @@ main(int argc, char** argv)
 		return(EX_USAGE);
 	}
 
-	if (i2c_opt.verbose)
-		fprintf(stderr, "dev: %s, addr: 0x%x, r/w: %c, "
-		    "offset: 0x%02x, width: %s, count: %u\n", dev,
-		    i2c_opt.addr >> 1, i2c_opt.dir, i2c_opt.off,
-		    i2c_opt.width, i2c_opt.count);
-
 	fd = open(dev, O_RDWR);
 	if (fd == -1) {
 		fprintf(stderr, "Error opening I2C controller (%s): %s\n",
@@ -892,6 +885,11 @@ main(int argc, char** argv)
 
 	switch (do_what) {
 	case 'a':
+		if (i2c_opt.verbose)
+			fprintf(stderr, "dev: %s, addr: 0x%x, r/w: %c, "
+			    "offset: 0x%02x, width: %s, count: %u\n", dev,
+			    i2c_opt.addr >> 1, i2c_opt.dir, i2c_opt.off,
+			    i2c_opt.width, i2c_opt.count);
 		error = access_bus(fd, i2c_opt);
 		break;
 	case 's':

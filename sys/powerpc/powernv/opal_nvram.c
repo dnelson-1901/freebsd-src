@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Justin Hibbits
  *
@@ -23,8 +23,6 @@
  * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
  * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -169,8 +167,7 @@ opal_nvram_detach(device_t dev)
 
 	if (sc->sc_cdev != NULL)
 		destroy_dev(sc->sc_cdev);
-	if (sc->sc_buf != NULL)
-		contigfree(sc->sc_buf, NVRAM_BUFSIZE, M_DEVBUF);
+	free(sc->sc_buf, M_DEVBUF);
 
 	mtx_destroy(&sc->sc_mtx);
 

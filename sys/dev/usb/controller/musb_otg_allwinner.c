@@ -27,16 +27,11 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
  * Allwinner USB Dual-Role Device (DRD) controller
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -63,10 +58,10 @@ __FBSDID("$FreeBSD$");
 #include <dev/usb/usb_bus.h>
 #include <dev/usb/controller/musb_otg.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/phy/phy.h>
-#include <dev/extres/phy/phy_usb.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/phy/phy.h>
+#include <dev/phy/phy_usb.h>
 
 #ifdef __arm__
 #include <arm/allwinner/aw_machdep.h>
@@ -499,7 +494,7 @@ awusbdrd_attach(device_t dev)
 	sc->sc.sc_io_hdl = rman_get_bushandle(sc->res[0]);
 	sc->sc.sc_io_size = rman_get_size(sc->res[0]);
 
-	sc->sc.sc_bus.bdev = device_add_child(dev, "usbus", -1);
+	sc->sc.sc_bus.bdev = device_add_child(dev, "usbus", DEVICE_UNIT_ANY);
 	if (sc->sc.sc_bus.bdev == NULL) {
 		error = ENXIO;
 		goto fail;
@@ -566,16 +561,13 @@ static int
 awusbdrd_detach(device_t dev)
 {
 	struct awusbdrd_softc *sc;
-	device_t bdev;
 	int error;
 
-	sc = device_get_softc(dev);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
-	if (sc->sc.sc_bus.bdev != NULL) {
-		bdev = sc->sc.sc_bus.bdev;
-		device_detach(bdev);
-		device_delete_child(dev, bdev);
-	}
+	sc = device_get_softc(dev);
 
 	musbotg_uninit(&sc->sc);
 	error = bus_teardown_intr(dev, sc->res[1], sc->sc.sc_intr_hdl);
@@ -598,8 +590,6 @@ awusbdrd_detach(device_t dev)
 		clk_release(sc->clk);
 
 	bus_release_resources(dev, awusbdrd_spec, sc->res);
-
-	device_delete_children(dev);
 
 	return (0);
 }

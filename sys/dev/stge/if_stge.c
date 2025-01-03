@@ -1,7 +1,7 @@
 /*	$NetBSD: if_stge.c,v 1.32 2005/12/11 12:22:49 christos Exp $	*/
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -37,8 +37,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #ifdef HAVE_KERNEL_OPTION_HEADERS
 #include "opt_device_polling.h"
 #endif
@@ -562,12 +560,6 @@ stge_attach(device_t dev)
 	}
 
 	ifp = sc->sc_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(sc->sc_dev, "failed to if_alloc()\n");
-		error = ENXIO;
-		goto fail;
-	}
-
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -680,10 +672,6 @@ stge_detach(device_t dev)
 		ether_ifdetach(ifp);
 	}
 
-	if (sc->sc_miibus != NULL) {
-		device_delete_child(dev, sc->sc_miibus);
-		sc->sc_miibus = NULL;
-	}
 	bus_generic_detach(dev);
 	stge_dma_free(sc);
 

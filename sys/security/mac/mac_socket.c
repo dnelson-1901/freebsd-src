@@ -43,8 +43,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_mac.h"
 
 #include <sys/param.h>
@@ -172,7 +170,7 @@ mac_socket_label_free(struct label *label)
 	mac_labelzone_free(label);
 }
 
-static void
+void
 mac_socketpeer_label_free(struct label *label)
 {
 
@@ -187,8 +185,10 @@ mac_socket_destroy(struct socket *so)
 	if (so->so_label != NULL) {
 		mac_socket_label_free(so->so_label);
 		so->so_label = NULL;
-		mac_socketpeer_label_free(so->so_peerlabel);
-		so->so_peerlabel = NULL;
+		if (!SOLISTENING(so)) {
+			mac_socketpeer_label_free(so->so_peerlabel);
+			so->so_peerlabel = NULL;
+		}
 	}
 }
 
@@ -523,7 +523,8 @@ mac_socket_label_set(struct ucred *cred, struct socket *so,
 }
 
 int
-mac_setsockopt_label(struct ucred *cred, struct socket *so, struct mac *mac)
+mac_setsockopt_label(struct ucred *cred, struct socket *so,
+    const struct mac *mac)
 {
 	struct label *intlabel;
 	char *buffer;
@@ -556,7 +557,8 @@ out:
 }
 
 int
-mac_getsockopt_label(struct ucred *cred, struct socket *so, struct mac *mac)
+mac_getsockopt_label(struct ucred *cred, struct socket *so,
+    const struct mac *mac)
 {
 	char *buffer, *elements;
 	struct label *intlabel;
@@ -595,7 +597,7 @@ mac_getsockopt_label(struct ucred *cred, struct socket *so, struct mac *mac)
 
 int
 mac_getsockopt_peerlabel(struct ucred *cred, struct socket *so,
-    struct mac *mac)
+    const struct mac *mac)
 {
 	char *elements, *buffer;
 	struct label *intlabel;
@@ -618,10 +620,15 @@ mac_getsockopt_peerlabel(struct ucred *cred, struct socket *so,
 	buffer = malloc(mac->m_buflen, M_MACTEMP, M_WAITOK | M_ZERO);
 	intlabel = mac_socket_label_alloc(M_WAITOK);
 	SOCK_LOCK(so);
-	mac_socket_copy_label(so->so_peerlabel, intlabel);
+	if (SOLISTENING(so))
+		error = EINVAL;
+	else
+		mac_socket_copy_label(so->so_peerlabel, intlabel);
 	SOCK_UNLOCK(so);
-	error = mac_socketpeer_externalize_label(intlabel, elements, buffer,
-	    mac->m_buflen);
+	if (error == 0) {
+		error = mac_socketpeer_externalize_label(intlabel, elements, buffer,
+		    mac->m_buflen);
+	}
 	mac_socket_label_free(intlabel);
 	if (error == 0)
 		error = copyout(buffer, mac->m_string, strlen(buffer)+1);

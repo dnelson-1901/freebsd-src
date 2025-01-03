@@ -1,7 +1,5 @@
-# $FreeBSD$
-
 .include <bsd.own.mk>
 
-TAP_TESTS_SH=	legacy_test
+ATF_TESTS_SH=	mv_test
 
 .include <bsd.test.mk>

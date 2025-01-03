@@ -14,6 +14,7 @@
 #include <csignal>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <thread>
 
@@ -45,11 +46,13 @@ using namespace lldb_private;
 
 GDBRemoteCommunicationServerPlatform::PortMap::PortMap(uint16_t min_port,
                                                        uint16_t max_port) {
+  assert(min_port);
   for (; min_port < max_port; ++min_port)
     m_port_map[min_port] = LLDB_INVALID_PROCESS_ID;
 }
 
 void GDBRemoteCommunicationServerPlatform::PortMap::AllowPort(uint16_t port) {
+  assert(port);
   // Do not modify existing mappings
   m_port_map.insert({port, LLDB_INVALID_PROCESS_ID});
 }
@@ -109,8 +112,7 @@ bool GDBRemoteCommunicationServerPlatform::PortMap::empty() const {
 // GDBRemoteCommunicationServerPlatform constructor
 GDBRemoteCommunicationServerPlatform::GDBRemoteCommunicationServerPlatform(
     const Socket::SocketProtocol socket_protocol, const char *socket_scheme)
-    : GDBRemoteCommunicationServerCommon("gdb-remote.server",
-                                         "gdb-remote.server.rx_packet"),
+    : GDBRemoteCommunicationServerCommon(),
       m_socket_protocol(socket_protocol), m_socket_scheme(socket_scheme),
       m_spawned_pids_mutex(), m_port_map(), m_port_offset(0) {
   m_pending_gdb_server.pid = LLDB_INVALID_PROCESS_ID;
@@ -159,7 +161,7 @@ GDBRemoteCommunicationServerPlatform::~GDBRemoteCommunicationServerPlatform() =
 
 Status GDBRemoteCommunicationServerPlatform::LaunchGDBServer(
     const lldb_private::Args &args, std::string hostname, lldb::pid_t &pid,
-    llvm::Optional<uint16_t> &port, std::string &socket_name) {
+    std::optional<uint16_t> &port, std::string &socket_name) {
   if (!port) {
     llvm::Expected<uint16_t> available_port = m_port_map.GetNextAvailablePort();
     if (available_port)
@@ -195,10 +197,10 @@ Status GDBRemoteCommunicationServerPlatform::LaunchGDBServer(
 #if !defined(__APPLE__)
   url << m_socket_scheme << "://";
 #endif
-  uint16_t *port_ptr = port.getPointer();
+  uint16_t *port_ptr = &*port;
   if (m_socket_protocol == Socket::ProtocolTcp) {
     std::string platform_uri = GetConnection()->GetURI();
-    llvm::Optional<URI> parsed_uri = URI::Parse(platform_uri);
+    std::optional<URI> parsed_uri = URI::Parse(platform_uri);
     url << '[' << parsed_uri->hostname.str() << "]:" << *port;
   } else {
     socket_name = GetDomainSocketPath("gdbserver").GetPath();
@@ -237,11 +239,11 @@ GDBRemoteCommunicationServerPlatform::Handle_qLaunchGDBServer(
   packet.SetFilePos(::strlen("qLaunchGDBServer;"));
   llvm::StringRef name;
   llvm::StringRef value;
-  llvm::Optional<uint16_t> port;
+  std::optional<uint16_t> port;
   while (packet.GetNameColonValue(name, value)) {
-    if (name.equals("host"))
+    if (name == "host")
       hostname = std::string(value);
-    else if (name.equals("port")) {
+    else if (name == "port") {
       // Make the Optional valid so we can use its value
       port = 0;
       value.getAsInteger(0, *port);
@@ -500,7 +502,7 @@ GDBRemoteCommunicationServerPlatform::Handle_jSignalsInfo(
     auto dictionary = std::make_shared<StructuredData::Dictionary>();
 
     dictionary->AddIntegerItem("signo", signo);
-    dictionary->AddStringItem("name", signals->GetSignalAsCString(signo));
+    dictionary->AddStringItem("name", signals->GetSignalAsStringRef(signo));
 
     bool suppress, stop, notify;
     signals->GetSignalInfo(signo, suppress, stop, notify);
@@ -559,7 +561,7 @@ Status GDBRemoteCommunicationServerPlatform::LaunchProcess() {
 }
 
 void GDBRemoteCommunicationServerPlatform::SetPortMap(PortMap &&port_map) {
-  m_port_map = port_map;
+  m_port_map = std::move(port_map);
 }
 
 const FileSpec &GDBRemoteCommunicationServerPlatform::GetDomainSocketDir() {
@@ -587,7 +589,8 @@ GDBRemoteCommunicationServerPlatform::GetDomainSocketPath(const char *prefix) {
   FileSpec socket_path_spec(GetDomainSocketDir());
   socket_path_spec.AppendPathComponent(socket_name.c_str());
 
-  llvm::sys::fs::createUniqueFile(socket_path_spec.GetCString(), socket_path);
+  llvm::sys::fs::createUniqueFile(socket_path_spec.GetPath().c_str(),
+                                  socket_path);
   return FileSpec(socket_path.c_str());
 }
 

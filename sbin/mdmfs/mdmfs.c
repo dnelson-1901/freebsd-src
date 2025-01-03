@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Dima Dorfman.
  * All rights reserved.
@@ -31,9 +31,6 @@
  * newfs(8), and mount(8) that mimics the command line option set of
  * the deprecated mount_mfs(8).
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/linker.h>
@@ -107,7 +104,7 @@ main(int argc, char **argv)
 	bool detach, softdep, autounit, newfs;
 	const char *mtpoint, *size_arg, *skel, *unitstr;
 	char *p;
-	int ch, idx;
+	int ch, idx, rv;
 	void *set;
 	unsigned long ul;
 
@@ -360,6 +357,13 @@ main(int argc, char **argv)
 			do_mdconfig_attach(mdconfig_arg, mdtype);
 		if (newfs)
 			do_newfs(newfs_arg);
+		if (!softdep) {
+			rv = run(NULL, "%s %s /dev/%s%d", _PATH_TUNEFS,
+			    "-n disable", mdname, unit);
+			if (rv)
+				errx(1, "tunefs exited %s %d", run_exitstr(rv),
+				    run_exitnumber(rv));
+		}
 		do_mount_md(mount_arg, mtpoint);
 	}
 

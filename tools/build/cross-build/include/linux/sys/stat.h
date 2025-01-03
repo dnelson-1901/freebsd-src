@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #pragma once
 /*
@@ -58,6 +56,14 @@
 
 #ifndef S_ISTXT
 #define S_ISTXT S_ISVTX
+#endif
+
+#ifndef DEFFILEMODE
+#define DEFFILEMODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+#endif
+
+#ifndef ALLPERMS
+#define ALLPERMS (S_ISUID | S_ISGID | S_ISTXT | S_IRWXU | S_IRWXG | S_IRWXO)
 #endif
 
 /* This include is needed for OpenZFS bootstrap */

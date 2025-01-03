@@ -15,7 +15,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
  * $OpenBSD: if_urtwnreg.h,v 1.3 2010/11/16 18:02:59 damien Exp $
- * $FreeBSD$
  */
 
 #ifndef IF_RTWNREG_H
@@ -158,6 +157,9 @@ static __inline int
 rtwn_chan2centieee(const struct ieee80211_channel *c)
 {
 	int chan;
+
+	if (IEEE80211_IS_CHAN_VHT(c))
+		return c->ic_vht_ch_freq1;
 
 	chan = c->ic_ieee;
 	if (c->ic_extieee != 0)

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 David Schultz <das@FreeBSD.org>
  * All rights reserved.
@@ -31,9 +31,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "namespace.h"
 #include <errno.h>
 #include <limits.h>
@@ -49,6 +46,7 @@ vdprintf(int fd, const char * __restrict fmt, va_list ap)
 {
 	FILE f = FAKE_FILE;
 	unsigned char buf[BUFSIZ];
+	int serrno = errno;
 	int ret;
 
 	if (fd > SHRT_MAX) {
@@ -65,7 +63,7 @@ vdprintf(int fd, const char * __restrict fmt, va_list ap)
 	f._bf._base = buf;
 	f._bf._size = sizeof(buf);
 
-	if ((ret = __vfprintf(&f, __get_locale(), fmt, ap)) < 0)
+	if ((ret = __vfprintf(&f, __get_locale(), serrno, fmt, ap)) < 0)
 		return (ret);
 
 	return (__fflush(&f) ? EOF : ret);

@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -42,8 +39,8 @@ __FBSDID("$FreeBSD$");
 #include <machine/bus.h>
 #include <machine/resource.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
@@ -484,7 +481,8 @@ tegra_efuse_attach(device_t dev)
 
 	if (bootverbose)
 		tegra_efuse_dump_sku();
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail:
 	dev_sc = NULL;
@@ -502,6 +500,11 @@ static int
 tegra_efuse_detach(device_t dev)
 {
 	struct tegra_efuse_softc *sc;
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 	dev_sc = NULL;
@@ -512,7 +515,7 @@ tegra_efuse_detach(device_t dev)
 	if (sc->mem_res != NULL)
 		bus_release_resource(dev, SYS_RES_MEMORY, 0, sc->mem_res);
 
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 static device_method_t tegra_efuse_methods[] = {

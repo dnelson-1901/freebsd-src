@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Antoine Brodin
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/lock.h>
@@ -94,8 +91,6 @@ stack_save_td(struct stack *st, struct thread *td)
 	vm_offset_t frame;
 
 	THREAD_LOCK_ASSERT(td, MA_OWNED);
-	KASSERT(!TD_IS_SWAPPED(td),
-	    ("stack_save_td: thread %p is swapped", td));
 
 	if (TD_IS_RUNNING(td))
 		return (EOPNOTSUPP);

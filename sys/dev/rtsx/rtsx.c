@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
  * Copyright (c) 2012 Stefan Sperling <stsp@openbsd.org>
@@ -33,9 +33,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/module.h>
@@ -174,22 +171,20 @@ struct rtsx_softc {
 
 #define	RTSX_VERSION		"2.1g"
 
-static const struct rtsx_device {
-	uint16_t	vendor_id;
+static const struct rtsx_pciids {
 	uint16_t	device_id;
 	const char	*desc;
-} rtsx_devices[] = {
-	{ RTSX_REALTEK,	RTSX_RTS5209,	RTSX_VERSION " Realtek RTS5209 PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTS5227,	RTSX_VERSION " Realtek RTS5227 PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTS5229,	RTSX_VERSION " Realtek RTS5229 PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTS522A,	RTSX_VERSION " Realtek RTS522A PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTS525A,	RTSX_VERSION " Realtek RTS525A PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTS5249,	RTSX_VERSION " Realtek RTS5249 PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTS5260,	RTSX_VERSION " Realtek RTS5260 PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTL8402,	RTSX_VERSION " Realtek RTL8402 PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTL8411,	RTSX_VERSION " Realtek RTL8411 PCIe SD Card Reader"},
-	{ RTSX_REALTEK,	RTSX_RTL8411B,	RTSX_VERSION " Realtek RTL8411B PCIe SD Card Reader"},
-	{ 0, 		0,		NULL}
+} rtsx_ids[] = {
+	{ RTSX_RTS5209, RTSX_VERSION " Realtek RTS5209 PCIe SD Card Reader" },
+	{ RTSX_RTS5227, RTSX_VERSION " Realtek RTS5227 PCIe SD Card Reader" },
+	{ RTSX_RTS5229, RTSX_VERSION " Realtek RTS5229 PCIe SD Card Reader" },
+	{ RTSX_RTS522A, RTSX_VERSION " Realtek RTS522A PCIe SD Card Reader" },
+	{ RTSX_RTS525A, RTSX_VERSION " Realtek RTS525A PCIe SD Card Reader" },
+	{ RTSX_RTS5249, RTSX_VERSION " Realtek RTS5249 PCIe SD Card Reader" },
+	{ RTSX_RTS5260, RTSX_VERSION " Realtek RTS5260 PCIe SD Card Reader" },
+	{ RTSX_RTL8402, RTSX_VERSION " Realtek RTL8402 PCIe SD Card Reader" },
+	{ RTSX_RTL8411, RTSX_VERSION " Realtek RTL8411 PCIe SD Card Reader" },
+	{ RTSX_RTL8411B, RTSX_VERSION " Realtek RTL8411B PCIe SD Card Reader" },
 };
 
 /* See `kenv | grep smbios.system` */
@@ -199,6 +194,7 @@ static const struct rtsx_inversion_model {
 	char	*product;
 } rtsx_inversion_models[] = {
 	{ "LENOVO",		"ThinkPad T470p",	"20J7S0PM00"},
+	{ "LENOVO",		"ThinkPad X13 Gen 1",	"20UF000QRT"},
 	{ NULL,			NULL,			NULL}
 };
 
@@ -315,7 +311,7 @@ static int	rtsx_resume(device_t dev);
 #define	RTSX_DMA_ALIGN		4
 #define	RTSX_HOSTCMD_MAX	256
 #define	RTSX_DMA_CMD_BIFSIZE	(sizeof(uint32_t) * RTSX_HOSTCMD_MAX)
-#define	RTSX_DMA_DATA_BUFSIZE	MAXPHYS
+#define	RTSX_DMA_DATA_BUFSIZE	maxphys
 
 #define	ISSET(t, f) ((t) & (f))
 
@@ -669,7 +665,7 @@ rtsx_card_task(void *arg, int pending __unused)
 			mmc_cam_sim_discover(&sc->rtsx_mmc_sim);
 #else  /* !MMCCAM */
 			RTSX_LOCK(sc);
-			sc->rtsx_mmc_dev = device_add_child(sc->rtsx_dev, "mmc", -1);
+			sc->rtsx_mmc_dev = device_add_child(sc->rtsx_dev, "mmc", DEVICE_UNIT_ANY);
 			RTSX_UNLOCK(sc);
 			if (sc->rtsx_mmc_dev == NULL) {
 				device_printf(sc->rtsx_dev, "Adding MMC bus failed\n");
@@ -2766,7 +2762,7 @@ rtsx_xfer(struct rtsx_softc *sc, struct mmc_command *cmd)
 			      (unsigned long)cmd->data->len, (unsigned long)cmd->data->xfer_len);
 
 	if (cmd->data->len > RTSX_DMA_DATA_BUFSIZE) {
-		device_printf(sc->rtsx_dev, "rtsx_xfer() length too large: %ld > %d\n",
+		device_printf(sc->rtsx_dev, "rtsx_xfer() length too large: %ld > %ld\n",
 			      (unsigned long)cmd->data->len, RTSX_DMA_DATA_BUFSIZE);
 		cmd->error = MMC_ERR_INVALID;
 		return (MMC_ERR_INVALID);
@@ -3571,22 +3567,19 @@ rtsx_probe(device_t dev)
 	uint16_t vendor_id;
 	uint16_t device_id;
 	int	 i;
-	int	 result;
 
 	vendor_id = pci_get_vendor(dev);
 	device_id = pci_get_device(dev);
 
-	result = ENXIO;
-	for (i = 0; rtsx_devices[i].vendor_id != 0; i++) {
-		if (rtsx_devices[i].vendor_id == vendor_id &&
-		    rtsx_devices[i].device_id == device_id) {
-			device_set_desc(dev, rtsx_devices[i].desc);
-			result = BUS_PROBE_DEFAULT;
-			break;
+	if (vendor_id != RTSX_REALTEK)
+		return (ENXIO);
+	for (i = 0; i < nitems(rtsx_ids); i++) {
+		if (rtsx_ids[i].device_id == device_id) {
+			device_set_desc(dev, rtsx_ids[i].desc);
+			return (BUS_PROBE_DEFAULT);
 		}
 	}
-
-	return (result);
+	return (ENXIO);
 }
 
 /*
@@ -3637,6 +3630,7 @@ rtsx_attach(device_t dev)
 			device_printf(dev, "If a card is detected without an SD card present,"
 				      " add dev.rtsx.0.inversion=0 in loader.conf(5)\n");
 			sc->rtsx_inversion = 1;
+			break;
 		}
 	}
 
@@ -3790,10 +3784,10 @@ rtsx_detach(device_t dev)
 	WRITE4(sc, RTSX_BIER, sc->rtsx_intr_enabled);
 
 	/* Stop device. */
-	error = device_delete_children(sc->rtsx_dev);
-	sc->rtsx_mmc_dev = NULL;
+	error = bus_generic_detach(sc->rtsx_dev);
 	if (error)
 		return (error);
+	sc->rtsx_mmc_dev = NULL;
 
 	taskqueue_drain_timeout(taskqueue_swi_giant, &sc->rtsx_card_insert_task);
 	taskqueue_drain(taskqueue_swi_giant, &sc->rtsx_card_remove_task);
@@ -3907,6 +3901,11 @@ static device_method_t rtsx_methods[] = {
 
 DEFINE_CLASS_0(rtsx, rtsx_driver, rtsx_methods, sizeof(struct rtsx_softc));
 DRIVER_MODULE(rtsx, pci, rtsx_driver, NULL, NULL);
+
+/* For Plug and Play */
+MODULE_PNP_INFO("U16:device;D:#;T:vendor=0x10ec", pci, rtsx,
+		rtsx_ids, nitems(rtsx_ids));
+
 #ifndef MMCCAM
 MMC_DECLARE_BRIDGE(rtsx);
 #endif /* !MMCCAM */

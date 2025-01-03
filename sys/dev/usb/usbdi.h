@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009 Andrew Thompson
  *
@@ -22,8 +22,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef _USB_USBDI_H_
 #define _USB_USBDI_H_
@@ -526,6 +524,8 @@ struct usb_proc_msg {
 	usb_proc_callback_t *pm_callback;
 	usb_size_t pm_num;
 };
+
+#define	USB_PROC_MSG_ENQUEUED(msg)	((msg)->pm_qentry.tqe_prev != NULL)
 
 #define	USB_FIFO_TX 0
 #define	USB_FIFO_RX 1

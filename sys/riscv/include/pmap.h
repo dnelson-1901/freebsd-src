@@ -29,8 +29,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MACHINE_PMAP_H_
@@ -57,6 +55,7 @@
 #define	pmap_page_get_memattr(m)	((m)->md.pv_memattr)
 #define	pmap_page_is_write_mapped(m)	(((m)->a.flags & PGA_WRITEABLE) != 0)
 void pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma);
+#define	pmap_map_delete(pmap, sva, eva)	pmap_remove(pmap, sva, eva)
 
 /*
  * Pmap stuff
@@ -68,14 +67,10 @@ struct md_page {
 	vm_memattr_t		pv_memattr;
 };
 
-/*
- * This structure is used to hold a virtual<->physical address
- * association and is used mostly by bootstrap code
- */
-struct pv_addr {
-	SLIST_ENTRY(pv_addr) pv_list;
-	vm_offset_t	pv_va;
-	vm_paddr_t	pv_pa;
+enum pmap_stage {
+	PM_INVALID,
+	PM_STAGE1,
+	PM_STAGE2,
 };
 
 struct pmap {
@@ -87,6 +82,7 @@ struct pmap {
 	TAILQ_HEAD(,pv_chunk)	pm_pvchunk;	/* list of mappings in pmap */
 	LIST_ENTRY(pmap)	pm_list;	/* List of all pmaps */
 	struct vm_radix		pm_root;
+	enum pmap_stage		pm_stage;
 };
 
 typedef struct pmap *pmap_t;
@@ -137,7 +133,7 @@ struct thread;
 
 void	pmap_activate_boot(pmap_t);
 void	pmap_activate_sw(struct thread *);
-void	pmap_bootstrap(vm_offset_t, vm_paddr_t, vm_size_t);
+void	pmap_bootstrap(vm_paddr_t, vm_size_t);
 int	pmap_change_attr(vm_offset_t va, vm_size_t size, int mode);
 void	pmap_kenter(vm_offset_t sva, vm_size_t size, vm_paddr_t pa, int mode);
 void	pmap_kenter_device(vm_offset_t, vm_size_t, vm_paddr_t);
@@ -145,6 +141,7 @@ vm_paddr_t pmap_kextract(vm_offset_t va);
 void	pmap_kremove(vm_offset_t);
 void	pmap_kremove_device(vm_offset_t, vm_size_t);
 void	*pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, vm_memattr_t ma);
+int	pmap_pinit_stage(pmap_t, enum pmap_stage);
 bool	pmap_page_is_mapped(vm_page_t m);
 bool	pmap_ps_enabled(pmap_t);
 
@@ -153,8 +150,8 @@ void	*pmap_mapbios(vm_paddr_t, vm_size_t);
 void	pmap_unmapdev(void *, vm_size_t);
 void	pmap_unmapbios(void *, vm_size_t);
 
-boolean_t pmap_map_io_transient(vm_page_t *, vm_offset_t *, int, boolean_t);
-void	pmap_unmap_io_transient(vm_page_t *, vm_offset_t *, int, boolean_t);
+bool	pmap_map_io_transient(vm_page_t *, vm_offset_t *, int, bool);
+void	pmap_unmap_io_transient(vm_page_t *, vm_offset_t *, int, bool);
 
 bool	pmap_get_tables(pmap_t, vm_offset_t, pd_entry_t **, pd_entry_t **,
     pt_entry_t **);

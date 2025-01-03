@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_RBTREE_H_
 #define	_LINUXKPI_LINUX_RBTREE_H_
@@ -175,6 +173,30 @@ rb_replace_node_cached(struct rb_node *old, struct rb_node *new,
 	rb_replace_node(old, new, &root->rb_root);
 	if (root->rb_leftmost == old)
 		root->rb_leftmost = new;
+}
+
+static inline struct rb_node *
+rb_add_cached(struct rb_node *node, struct rb_root_cached *tree,
+    bool (*less)(struct rb_node *, const struct rb_node *))
+{
+	struct rb_node **link = &tree->rb_root.rb_node;
+	struct rb_node *parent = NULL;
+	bool leftmost = true;
+
+	while (*link != NULL) {
+		parent = *link;
+		if (less(node, parent)) {
+			link = &RB_LEFT(parent, __entry);
+		} else {
+			link = &RB_RIGHT(parent, __entry);
+			leftmost = false;
+		}
+	}
+
+	rb_link_node(node, parent, link);
+	rb_insert_color_cached(node, tree, leftmost);
+
+	return (leftmost ? node : NULL);
 }
 
 #undef RB_ROOT

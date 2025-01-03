@@ -33,13 +33,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)kern_sysctl.c	8.4 (Berkeley) 4/14/94
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_capsicum.h"
 #include "opt_ddb.h"
 #include "opt_ktrace.h"
@@ -129,6 +125,7 @@ static int	sysctl_remove_oid_locked(struct sysctl_oid *oidp, int del,
 		    int recurse);
 static int	sysctl_old_kernel(struct sysctl_req *, const void *, size_t);
 static int	sysctl_new_kernel(struct sysctl_req *, void *, size_t);
+static int	name2oid(const char *, int *, int *, struct sysctl_oid **);
 
 static struct sysctl_oid *
 sysctl_find_oidname(const char *name, struct sysctl_oid_list *list)
@@ -140,6 +137,21 @@ sysctl_find_oidname(const char *name, struct sysctl_oid_list *list)
 		if (strcmp(oidp->oid_name, name) == 0) {
 			return (oidp);
 		}
+	}
+	return (NULL);
+}
+
+static struct sysctl_oid *
+sysctl_find_oidnamelen(const char *name, size_t len,
+    struct sysctl_oid_list *list)
+{
+	struct sysctl_oid *oidp;
+
+	SYSCTL_ASSERT_LOCKED();
+	SYSCTL_FOREACH(oidp, list) {
+		if (strncmp(oidp->oid_name, name, len) == 0 &&
+		    oidp->oid_name[len] == '\0')
+			return (oidp);
 	}
 	return (NULL);
 }
@@ -407,9 +419,9 @@ sysctl_warn_reuse(const char *func, struct sysctl_oid *leaf)
 			sbuf_printf(&sb, "%s%.*s", nodes[i]->oid_name,
 			    i != (rc - 1), ".");
 	} else {
-		sbuf_printf(&sb, "%s", leaf->oid_name);
+		sbuf_cat(&sb, leaf->oid_name);
 	}
-	sbuf_printf(&sb, ")!\n");
+	sbuf_cat(&sb, ")!\n");
 
 	(void)sbuf_finish(&sb);
 }
@@ -512,13 +524,16 @@ sysctl_register_oid(struct sysctl_oid *oidp)
 	RB_INSERT(sysctl_oid_list, parent, oidp);
 
 	if ((oidp->oid_kind & CTLTYPE) != CTLTYPE_NODE &&
-#ifdef VIMAGE
-	    (oidp->oid_kind & CTLFLAG_VNET) == 0 &&
-#endif
 	    (oidp->oid_kind & CTLFLAG_TUN) != 0 &&
 	    (oidp->oid_kind & CTLFLAG_NOFETCH) == 0) {
-		/* only fetch value once */
-		oidp->oid_kind |= CTLFLAG_NOFETCH;
+#ifdef VIMAGE
+		/*
+		 * Can fetch value multiple times for VNET loader tunables.
+		 * Only fetch once for non-VNET loader tunables.
+		 */
+		if ((oidp->oid_kind & CTLFLAG_VNET) == 0)
+#endif
+			oidp->oid_kind |= CTLFLAG_NOFETCH;
 		/* try to fetch value from kernel environment */
 		sysctl_load_tunable_by_oid_locked(oidp);
 	}
@@ -636,17 +651,15 @@ sysctl_ctx_free(struct sysctl_ctx_list *clist)
 		return(EBUSY);
 	}
 	/* Now really delete the entries */
-	e = TAILQ_FIRST(clist);
-	while (e != NULL) {
-		e1 = TAILQ_NEXT(e, link);
+	TAILQ_FOREACH_SAFE(e, clist, link, e1) {
 		error = sysctl_remove_oid_locked(e->entry, 1, 0);
 		if (error)
 			panic("sysctl_remove_oid: corrupt tree, entry: %s",
 			    e->entry->oid_name);
 		free(e, M_SYSCTLOID);
-		e = e1;
 	}
 	SYSCTL_WUNLOCK();
+	TAILQ_INIT(clist);
 	return (error);
 }
 
@@ -973,6 +986,102 @@ sysctl_register_all(void *arg)
 	SYSCTL_WUNLOCK();
 }
 SYSINIT(sysctl, SI_SUB_KMEM, SI_ORDER_FIRST, sysctl_register_all, NULL);
+
+#ifdef VIMAGE
+static void
+sysctl_setenv_vnet(void *arg __unused, const char *name)
+{
+	struct sysctl_oid *oidp;
+	int oid[CTL_MAXNAME];
+	int error, nlen;
+
+	SYSCTL_WLOCK();
+	error = name2oid(name, oid, &nlen, &oidp);
+	if (error)
+		goto out;
+
+	if ((oidp->oid_kind & CTLTYPE) != CTLTYPE_NODE &&
+	    (oidp->oid_kind & CTLFLAG_VNET) != 0 &&
+	    (oidp->oid_kind & CTLFLAG_TUN) != 0 &&
+	    (oidp->oid_kind & CTLFLAG_NOFETCH) == 0) {
+		/* Update value from kernel environment */
+		sysctl_load_tunable_by_oid_locked(oidp);
+	}
+out:
+	SYSCTL_WUNLOCK();
+}
+
+static void
+sysctl_unsetenv_vnet(void *arg __unused, const char *name)
+{
+	struct sysctl_oid *oidp;
+	int oid[CTL_MAXNAME];
+	int error, nlen;
+
+	SYSCTL_WLOCK();
+	/*
+	 * The setenv / unsetenv event handlers are invoked by kern_setenv() /
+	 * kern_unsetenv() without exclusive locks. It is rare but still possible
+	 * that the invoke order of event handlers is different from that of
+	 * kern_setenv() and kern_unsetenv().
+	 * Re-check environment variable string to make sure it is unset.
+	 */
+	if (testenv(name))
+		goto out;
+	error = name2oid(name, oid, &nlen, &oidp);
+	if (error)
+		goto out;
+
+	if ((oidp->oid_kind & CTLTYPE) != CTLTYPE_NODE &&
+	    (oidp->oid_kind & CTLFLAG_VNET) != 0 &&
+	    (oidp->oid_kind & CTLFLAG_TUN) != 0 &&
+	    (oidp->oid_kind & CTLFLAG_NOFETCH) == 0) {
+		size_t size;
+
+		switch (oidp->oid_kind & CTLTYPE) {
+		case CTLTYPE_INT:
+		case CTLTYPE_UINT:
+			size = sizeof(int);
+			break;
+		case CTLTYPE_LONG:
+		case CTLTYPE_ULONG:
+			size = sizeof(long);
+			break;
+		case CTLTYPE_S8:
+		case CTLTYPE_U8:
+			size = sizeof(int8_t);
+			break;
+		case CTLTYPE_S16:
+		case CTLTYPE_U16:
+			size = sizeof(int16_t);
+			break;
+		case CTLTYPE_S32:
+		case CTLTYPE_U32:
+			size = sizeof(int32_t);
+			break;
+		case CTLTYPE_S64:
+		case CTLTYPE_U64:
+			size = sizeof(int64_t);
+			break;
+		case CTLTYPE_STRING:
+			MPASS(oidp->oid_arg2 > 0);
+			size = oidp->oid_arg2;
+			break;
+		default:
+			goto out;
+		}
+		vnet_restore_init(oidp->oid_arg1, size);
+	}
+out:
+	SYSCTL_WUNLOCK();
+}
+
+/*
+ * Register the kernel's setenv / unsetenv events.
+ */
+EVENTHANDLER_DEFINE(setenv, sysctl_setenv_vnet, NULL, EVENTHANDLER_PRI_ANY);
+EVENTHANDLER_DEFINE(unsetenv, sysctl_unsetenv_vnet, NULL, EVENTHANDLER_PRI_ANY);
+#endif
 
 /*
  * "Staff-functions"
@@ -1321,21 +1430,26 @@ static SYSCTL_NODE(_sysctl, CTL_SYSCTL_NEXTNOSKIP, nextnoskip, CTLFLAG_RD |
     CTLFLAG_MPSAFE | CTLFLAG_CAPRD, sysctl_sysctl_next, "");
 
 static int
-name2oid(char *name, int *oid, int *len, struct sysctl_oid **oidpp)
+name2oid(const char *name, int *oid, int *len, struct sysctl_oid **oidpp)
 {
 	struct sysctl_oid *oidp;
 	struct sysctl_oid_list *lsp = &sysctl__children;
+	const char *n;
 
 	SYSCTL_ASSERT_LOCKED();
 
 	for (*len = 0; *len < CTL_MAXNAME;) {
-		oidp = sysctl_find_oidname(strsep(&name, "."), lsp);
+		n = strchrnul(name, '.');
+		oidp = sysctl_find_oidnamelen(name, n - name, lsp);
 		if (oidp == NULL)
 			return (ENOENT);
 		*oid++ = oidp->oid_number;
 		(*len)++;
 
-		if (name == NULL || *name == '\0') {
+		name = n;
+		if (*name == '.')
+			name++;
+		if (*name == '\0') {
 			if (oidpp)
 				*oidpp = oidp;
 			return (0);
@@ -1658,7 +1772,7 @@ sysctl_handle_int(SYSCTL_HANDLER_ARGS)
 }
 
 /*
- * Based on on sysctl_handle_int() convert milliseconds into ticks.
+ * Based on sysctl_handle_int() convert milliseconds into ticks.
  * Note: this is used by TCP.
  */
 
@@ -1889,7 +2003,7 @@ retry:
 }
 
 /*
- * Based on on sysctl_handle_64() convert microseconds to a sbintime.
+ * Based on sysctl_handle_64() convert microseconds to a sbintime.
  */
 int
 sysctl_usec_to_sbintime(SYSCTL_HANDLER_ARGS)
@@ -1909,7 +2023,7 @@ sysctl_usec_to_sbintime(SYSCTL_HANDLER_ARGS)
 }
 
 /*
- * Based on on sysctl_handle_64() convert milliseconds to a sbintime.
+ * Based on sysctl_handle_64() convert milliseconds to a sbintime.
  */
 int
 sysctl_msec_to_sbintime(SYSCTL_HANDLER_ARGS)
@@ -2402,8 +2516,9 @@ userland_sysctl(struct thread *td, int *name, u_int namelen, void *old,
     size_t *oldlenp, int inkernel, const void *new, size_t newlen,
     size_t *retval, int flags)
 {
-	int error = 0, memlocked;
 	struct sysctl_req req;
+	int error = 0;
+	bool memlocked;
 
 	bzero(&req, sizeof req);
 
@@ -2435,9 +2550,10 @@ userland_sysctl(struct thread *td, int *name, u_int namelen, void *old,
 	if (KTRPOINT(curthread, KTR_SYSCTL))
 		ktrsysctl(name, namelen);
 #endif
-	memlocked = 0;
-	if (req.oldptr && req.oldlen > 4 * PAGE_SIZE) {
-		memlocked = 1;
+	memlocked = false;
+	if (priv_check(td, PRIV_SYSCTL_MEMLOCK) != 0 &&
+	    req.oldptr != NULL && req.oldlen > 4 * PAGE_SIZE) {
+		memlocked = true;
 		sx_xlock(&sysctlmemlock);
 	}
 	CURVNET_SET(TD_TO_VNET(td));
@@ -2901,7 +3017,7 @@ db_show_sysctl_all(int *oid, size_t len, int flags)
  * Show a sysctl by its user facing string
  */
 static int
-db_sysctlbyname(char *name, int flags)
+db_sysctlbyname(const char *name, int flags)
 {
 	struct sysctl_oid *oidp;
 	int oid[CTL_MAXNAME];

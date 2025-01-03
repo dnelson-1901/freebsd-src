@@ -24,7 +24,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <machine/specialreg.h>
 #include <machine/cpufunc.h>
@@ -33,7 +32,7 @@ static uint32_t cpu_feature, cpu_feature2;
 static uint32_t cpu_stdext_feature, cpu_stdext_feature2;
 
 static void
-init_cpu_features(void)
+ifunc_init(const Elf_Auxinfo *aux __unused)
 {
 	u_int p[4];
 

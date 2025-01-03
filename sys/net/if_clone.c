@@ -28,9 +28,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)if.c	8.5 (Berkeley) 1/9/95
- * $FreeBSD$
  */
 
 #include <sys/param.h>
@@ -51,6 +48,11 @@
 #include <net/radix.h>
 #include <net/route.h>
 #include <net/vnet.h>
+
+#include <netlink/netlink.h>
+#include <netlink/netlink_ctl.h>
+#include <netlink/netlink_route.h>
+#include <netlink/route/route_var.h>
 
 /* Current IF_MAXUNIT expands maximum to 5 characters. */
 #define	IFCLOSIZ	(IFNAMSIZ - 5)
@@ -76,6 +78,10 @@ struct if_clone {
 	ifc_match_f *ifc_match;		/* (c) Matcher function */
 	ifc_create_f *ifc_create;	/* (c) Creates new interface */
 	ifc_destroy_f *ifc_destroy;	/* (c) Destroys cloned interface */
+
+	ifc_create_nl_f	*create_nl;	/* (c) Netlink creation handler */
+	ifc_modify_nl_f	*modify_nl;	/* (c) Netlink modification handler */
+	ifc_dump_nl_f	*dump_nl;	/* (c) Netlink dump handler */
 
 #ifdef CLONE_COMPAT_13
 	/* (c) Driver specific cloning functions.  Called with no locks held. */
@@ -104,8 +110,8 @@ struct if_clone {
 
 
 static void	if_clone_free(struct if_clone *ifc);
-static int	if_clone_createif(struct if_clone *ifc, char *name, size_t len,
-		    struct ifc_data *ifd, struct ifnet **ifpp);
+static int	if_clone_createif_nl(struct if_clone *ifc, const char *name,
+		    struct ifc_data_nl *ifd);
 
 static int ifc_simple_match(struct if_clone *ifc, const char *name);
 static int ifc_handle_unit(struct if_clone *ifc, char *name, size_t len, int *punit);
@@ -188,25 +194,39 @@ vnet_if_clone_init(void)
  * Lookup and create a clone network interface.
  */
 int
-ifc_create_ifp(const char *name, struct ifc_data *ifd,
-    struct ifnet **ifpp)
+ifc_create_ifp(const char *name, struct ifc_data *ifd, struct ifnet **ifpp)
 {
-	struct if_clone *ifc;
-	char ifname[IFNAMSIZ];
-	struct ifnet *ifp = NULL;
-	int error;
+	struct if_clone *ifc = ifc_find_cloner_match(name);
 
-	/* Try to find an applicable cloner for this request */
-	ifc = ifc_find_cloner_match(name);
 	if (ifc == NULL)
 		return (EINVAL);
 
-	strlcpy(ifname, name, IFNAMSIZ);
-	error = if_clone_createif(ifc, ifname, IFNAMSIZ, ifd, &ifp);
+	struct ifc_data_nl ifd_new = {
+		.flags = ifd->flags,
+		.unit = ifd->unit,
+		.params = ifd->params,
+	};
+
+	int error = if_clone_createif_nl(ifc, name, &ifd_new);
+
 	if (ifpp != NULL)
-		*ifpp = ifp;
+		*ifpp = ifd_new.ifp;
 
 	return (error);
+}
+
+bool
+ifc_create_ifp_nl(const char *name, struct ifc_data_nl *ifd)
+{
+	struct if_clone *ifc = ifc_find_cloner_match(name);
+	if (ifc == NULL) {
+		ifd->error = EINVAL;
+		return (false);
+	}
+
+	ifd->error = if_clone_createif_nl(ifc, name, ifd);
+
+	return (true);
 }
 
 int
@@ -223,12 +243,67 @@ if_clone_create(char *name, size_t len, caddr_t params)
 	return (error);
 }
 
+bool
+ifc_modify_ifp_nl(struct ifnet *ifp, struct ifc_data_nl *ifd)
+{
+	struct if_clone *ifc = ifc_find_cloner(ifp->if_dname);
+	if (ifc == NULL) {
+		ifd->error = EINVAL;
+		return (false);
+	}
+
+	ifd->error = (*ifc->modify_nl)(ifp, ifd);
+	return (true);
+}
+
+bool
+ifc_dump_ifp_nl(struct ifnet *ifp, struct nl_writer *nw)
+{
+	struct if_clone *ifc = ifc_find_cloner(ifp->if_dname);
+	if (ifc == NULL)
+		return (false);
+
+	(*ifc->dump_nl)(ifp, nw);
+	return (true);
+}
+
+static int
+ifc_create_ifp_nl_default(struct if_clone *ifc, char *name, size_t len,
+    struct ifc_data_nl *ifd)
+{
+	struct ifc_data ifd_new = {
+		.flags = ifd->flags,
+		.unit = ifd->unit,
+		.params = ifd->params,
+	};
+
+	return ((*ifc->ifc_create)(ifc, name, len, &ifd_new, &ifd->ifp));
+}
+
+static int
+ifc_modify_ifp_nl_default(struct ifnet *ifp, struct ifc_data_nl *ifd)
+{
+	if (ifd->lattrs != NULL)
+		return (nl_modify_ifp_generic(ifp, ifd->lattrs, ifd->bm, ifd->npt));
+	return (0);
+}
+
+static void
+ifc_dump_ifp_nl_default(struct ifnet *ifp, struct nl_writer *nw)
+{
+	int off = nlattr_add_nested(nw, IFLA_LINKINFO);
+
+	if (off != 0) {
+		nlattr_add_string(nw, IFLA_INFO_KIND, ifp->if_dname);
+		nlattr_set_len(nw, off);
+	}
+}
+
 void
 ifc_link_ifp(struct if_clone *ifc, struct ifnet *ifp)
 {
 
-	if ((ifc->ifc_flags & IFC_NOGROUP) == 0)
-		if_addgroup(ifp, ifc->ifc_name);
+	if_addgroup(ifp, ifc->ifc_name);
 
 	IF_CLONE_LOCK(ifc);
 	IFC_IFLIST_INSERT(ifc, ifp);
@@ -255,7 +330,7 @@ ifc_unlink_ifp(struct if_clone *ifc, struct ifnet *ifp)
 	}
 	IF_CLONE_UNLOCK(ifc);
 
-	if (ifcifp != NULL && (ifc->ifc_flags & IFC_F_NOGROUP) == 0)
+	if (ifcifp != NULL)
 		if_delgroup(ifp, ifc->ifc_name);
 
 	return (ifcifp != NULL);
@@ -306,29 +381,38 @@ ifc_find_cloner_in_vnet(const char *name, struct vnet *vnet)
  * Create a clone network interface.
  */
 static int
-if_clone_createif(struct if_clone *ifc, char *name, size_t len,
-    struct ifc_data *ifd, struct ifnet **ifpp)
+if_clone_createif_nl(struct if_clone *ifc, const char *ifname, struct ifc_data_nl *ifd)
 {
-	int err, unit = 0;
+	char name[IFNAMSIZ];
+	int error;
+
+	strlcpy(name, ifname, sizeof(name));
 
 	if (ifunit(name) != NULL)
 		return (EEXIST);
 
 	if (ifc->ifc_flags & IFC_F_AUTOUNIT) {
-		if ((err = ifc_handle_unit(ifc, name, len, &unit)) != 0)
-			return (err);
-		ifd->unit = unit;
+		if ((error = ifc_handle_unit(ifc, name, sizeof(name), &ifd->unit)) != 0)
+			return (error);
 	}
-	*ifpp = NULL;
-	err = (*ifc->ifc_create)(ifc, name, len, ifd, ifpp);
 
-	if (err == 0) {
-		MPASS(*ifpp != NULL);
-		if_clone_addif(ifc, *ifpp);
-	} else if (ifc->ifc_flags & IFC_F_AUTOUNIT)
-		ifc_free_unit(ifc, unit);
+	if (ifd->lattrs != NULL)
+		error = (*ifc->create_nl)(ifc, name, sizeof(name), ifd);
+	else
+		error = ifc_create_ifp_nl_default(ifc, name, sizeof(name), ifd);
+	if (error != 0) {
+		if (ifc->ifc_flags & IFC_F_AUTOUNIT)
+			ifc_free_unit(ifc, ifd->unit);
+		return (error);
+	}
 
-	return (err);
+	MPASS(ifd->ifp != NULL);
+	if_clone_addif(ifc, ifd->ifp);
+
+	if (ifd->lattrs != NULL)
+		error = (*ifc->modify_nl)(ifd->ifp, ifd);
+
+	return (error);
 }
 
 /*
@@ -399,14 +483,19 @@ if_clone_alloc(const char *name, int maxunit)
 	struct if_clone *ifc;
 
 	KASSERT(name != NULL, ("%s: no name\n", __func__));
+	MPASS(maxunit >= 0);
 
 	ifc = malloc(sizeof(struct if_clone), M_CLONE, M_WAITOK | M_ZERO);
 	strncpy(ifc->ifc_name, name, IFCLOSIZ-1);
 	IF_CLONE_LOCK_INIT(ifc);
 	IF_CLONE_ADDREF(ifc);
-	ifc->ifc_maxunit = maxunit ? maxunit : IF_MAXUNIT;
+	ifc->ifc_maxunit = maxunit;
 	ifc->ifc_unrhdr = new_unrhdr(0, ifc->ifc_maxunit, &ifc->ifc_mtx);
 	LIST_INIT(&ifc->ifc_iflist);
+
+	ifc->create_nl = ifc_create_ifp_nl_default;
+	ifc->modify_nl = ifc_modify_ifp_nl_default;
+	ifc->dump_nl = ifc_dump_ifp_nl_default;
 
 	return (ifc);
 }
@@ -433,16 +522,30 @@ if_clone_attach(struct if_clone *ifc)
 struct if_clone *
 ifc_attach_cloner(const char *name, struct if_clone_addreq *req)
 {
+	int maxunit;
+	struct if_clone *ifc;
+
 	if (req->create_f == NULL || req->destroy_f == NULL)
 		return (NULL);
 	if (strnlen(name, IFCLOSIZ) >= (IFCLOSIZ - 1))
 		return (NULL);
 
-	struct if_clone *ifc = if_clone_alloc(name, req->maxunit);
+	maxunit = (req->flags & IFC_F_LIMITUNIT) ? req->maxunit : IF_MAXUNIT;
+	ifc = if_clone_alloc(name, maxunit);
 	ifc->ifc_match = req->match_f != NULL ? req->match_f : ifc_simple_match;
 	ifc->ifc_create = req->create_f;
 	ifc->ifc_destroy = req->destroy_f;
-	ifc->ifc_flags = (req->flags & (IFC_F_AUTOUNIT | IFC_F_NOGROUP));
+	ifc->ifc_flags = (req->flags & IFC_F_AUTOUNIT);
+
+	if (req->version == 2) {
+		struct if_clone_addreq_v2 *req2 = (struct if_clone_addreq_v2 *)req;
+
+		ifc->create_nl = req2->create_nl_f;
+		ifc->modify_nl = req2->modify_nl_f;
+		ifc->dump_nl = req2->dump_nl_f;
+	}
+
+	ifc->dump_nl = ifc_dump_ifp_nl_default;
 
 	if (if_clone_attach(ifc) != 0)
 		return (NULL);
@@ -486,7 +589,7 @@ if_clone_advanced(const char *name, u_int maxunit, ifc_match_t match,
 {
 	struct if_clone *ifc;
 
-	ifc = if_clone_alloc(name, maxunit);
+	ifc = if_clone_alloc(name, maxunit ? maxunit : IF_MAXUNIT);
 	ifc->ifc_match = match;
 	ifc->ifc_create = ifc_advanced_create_wrapper;
 	ifc->ifc_destroy = ifc_advanced_destroy_wrapper;
@@ -531,7 +634,7 @@ if_clone_simple(const char *name, ifcs_create_t create, ifcs_destroy_t destroy,
 	struct if_clone *ifc;
 	u_int unit;
 
-	ifc = if_clone_alloc(name, 0);
+	ifc = if_clone_alloc(name, IF_MAXUNIT);
 	ifc->ifc_match = ifc_simple_match;
 	ifc->ifc_create = ifc_simple_create_wrapper;
 	ifc->ifc_destroy = ifc_simple_destroy_wrapper;
@@ -546,11 +649,10 @@ if_clone_simple(const char *name, ifcs_create_t create, ifcs_destroy_t destroy,
 	for (unit = 0; unit < minifs; unit++) {
 		char name[IFNAMSIZ];
 		int error __unused;
-		struct ifc_data ifd = {};
-		struct ifnet *ifp;
+		struct ifc_data_nl ifd = {};
 
 		snprintf(name, IFNAMSIZ, "%s%d", ifc->ifc_name, unit);
-		error = if_clone_createif(ifc, name, IFNAMSIZ, &ifd, &ifp);
+		error = if_clone_createif_nl(ifc, name, &ifd);
 		KASSERT(error == 0,
 		    ("%s: failed to create required interface %s",
 		    __func__, name));
@@ -679,8 +781,7 @@ if_clone_restoregroup(struct ifnet *ifp)
 	}
 	CURVNET_RESTORE();
 	LIST_FOREACH(ifc, &V_if_cloners, ifc_list)
-		if (strcmp(ifc->ifc_name, ifc_name) == 0 &&
-		    ((ifc->ifc_flags & IFC_NOGROUP) == 0))
+		if (strcmp(ifc->ifc_name, ifc_name) == 0)
 			break;
 	IF_CLONERS_UNLOCK();
 
@@ -853,22 +954,4 @@ ifc_copyin(const struct ifc_data *ifd, void *target, size_t len)
 		return (0);
 	} else
 		return (copyin(ifd->params, target, len));
-}
-
-const char *
-ifc_name(struct if_clone *ifc)
-{
-	return (ifc->ifc_name);
-}
-
-void
-ifc_flags_set(struct if_clone *ifc, int flags)
-{
-	ifc->ifc_flags = flags;
-}
-
-int
-ifc_flags_get(struct if_clone *ifc)
-{
-	return (ifc->ifc_flags);
 }

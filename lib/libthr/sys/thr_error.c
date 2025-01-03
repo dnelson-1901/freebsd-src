@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <pthread.h>
@@ -41,8 +39,7 @@
 #include "libc_private.h"
 #include "thr_private.h"
 
-#undef errno
-extern	int	errno;
+extern int __libsys_errno;
 
 __weak_reference(__error_threaded, __error);
 int *
@@ -55,5 +52,5 @@ __error_threaded(void)
 		if (curthread != NULL && curthread != _thr_initial)
 			return (&curthread->error);
 	}
-	return (&errno);
+	return (&__libsys_errno);
 }

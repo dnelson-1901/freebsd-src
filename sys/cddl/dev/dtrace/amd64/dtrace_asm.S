@@ -20,8 +20,6 @@
  *
  * Portions Copyright 2008 John Birrell <jb@freebsd.org>
  *
- * $FreeBSD$
- *
  */
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
@@ -58,10 +56,9 @@
 	swapgs;					\
 1:	addq	$TF_RIP,%rsp;
 
-.globl dtrace_invop_callsite
-.type dtrace_invop_callsite,@function
-
 	ENTRY(dtrace_invop_start)
+
+	KMSAN_ENTER
 
 	/*
 	 * #BP traps with %rip set to the next address. We need to decrement
@@ -80,8 +77,13 @@
 	movq	%rsp, %rdx
 
 	call	dtrace_invop
-dtrace_invop_callsite:
 	addq	$16, %rsp
+
+#ifdef KMSAN
+	movq	%rax, %r12
+	KMSAN_LEAVE
+	movq	%r12, %rax
+#endif
 
 	cmpl	$DTRACE_INVOP_PUSHL_EBP, %eax
 	je	bp_push

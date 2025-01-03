@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Broadcom BCM57xx(x)/BCM590x NetXtreme and NetLink family Ethernet driver
  *
@@ -703,7 +701,7 @@ bge_ape_read_fw_ver(struct bge_softc *sc)
 
 	sc->bge_mfw_flags |= BGE_MFW_ON_APE;
 
-	/* Fetch the APE firwmare type and version. */
+	/* Fetch the APE firmware type and version. */
 	apedata = APE_READ_4(sc, BGE_APE_FW_VERSION);
 	features = APE_READ_4(sc, BGE_APE_FW_FEATURES);
 	if ((features & BGE_APE_FW_FEATURE_NCSI) != 0) {
@@ -2161,7 +2159,7 @@ bge_blockinit(struct bge_softc *sc)
 	 * The BD ring replenish thresholds control how often the
 	 * hardware fetches new BD's from the producer rings in host
 	 * memory.  Setting the value too low on a busy system can
-	 * starve the hardware and recue the throughpout.
+	 * starve the hardware and reduce the throughput.
 	 *
 	 * Set the BD ring replentish thresholds. The recommended
 	 * values are 1/8th the number of descriptors allocated to
@@ -2297,7 +2295,7 @@ bge_blockinit(struct bge_softc *sc)
 	 */
 	CSR_WRITE_4(sc, BGE_RXLP_CFG, 0x181);
 
-	/* Inialize RX list placement stats mask. */
+	/* Initialize RX list placement stats mask. */
 	CSR_WRITE_4(sc, BGE_RXLP_STATS_ENABLE_MASK, 0x007FFFFF);
 	CSR_WRITE_4(sc, BGE_RXLP_STATS_CTL, 0x1);
 
@@ -2701,7 +2699,6 @@ bge_chipid(device_t dev)
 static int
 bge_probe(device_t dev)
 {
-	char buf[96];
 	char model[64];
 	const struct bge_revision *br;
 	const char *pname;
@@ -2729,9 +2726,8 @@ bge_probe(device_t dev)
 				    br != NULL ? br->br_name :
 				    "NetXtreme/NetLink Ethernet Controller");
 			}
-			snprintf(buf, sizeof(buf), "%s, %sASIC rev. %#08x",
+			device_set_descf(dev, "%s, %sASIC rev. %#08x",
 			    model, br != NULL ? "" : "unknown ", id);
-			device_set_desc_copy(dev, buf);
 			return (BUS_PROBE_DEFAULT);
 		}
 		t++;
@@ -3538,7 +3534,7 @@ bge_attach(device_t dev)
 	 * known bug which can't handle TSO if Ethernet header + IP/TCP
 	 * header is greater than 80 bytes. A workaround for the TSO
 	 * bug exist but it seems it's too expensive than not using
-	 * TSO at all. Some hardwares also have the TSO bug so limit
+	 * TSO at all. Some hardware also have the TSO bug so limit
 	 * the TSO to the controllers that are not affected TSO issues
 	 * (e.g. 5755 or higher).
 	 */
@@ -3716,11 +3712,6 @@ bge_attach(device_t dev)
 
 	/* Set up ifnet structure */
 	ifp = sc->bge_ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(sc->bge_dev, "failed to if_alloc()\n");
-		error = ENXIO;
-		goto fail;
-	}
 	if_setsoftc(ifp, sc);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
@@ -3899,12 +3890,6 @@ again:
 		    ~BGE_MSIMODE_ONE_SHOT_DISABLE);
 		sc->bge_tq = taskqueue_create_fast("bge_taskq", M_WAITOK,
 		    taskqueue_thread_enqueue, &sc->bge_tq);
-		if (sc->bge_tq == NULL) {
-			device_printf(dev, "could not create taskqueue.\n");
-			ether_ifdetach(ifp);
-			error = ENOMEM;
-			goto fail;
-		}
 		error = taskqueue_start_threads(&sc->bge_tq, 1, PI_NET,
 		    "%s taskq", device_get_nameunit(sc->bge_dev));
 		if (error != 0) {
@@ -3964,7 +3949,6 @@ bge_detach(device_t dev)
 		ifmedia_removeall(&sc->bge_ifmedia);
 	else if (sc->bge_miibus != NULL) {
 		bus_generic_detach(dev);
-		device_delete_child(dev, sc->bge_miibus);
 	}
 
 	bge_release_resources(sc);
@@ -5370,7 +5354,7 @@ bge_start_locked(if_t ifp)
 		 * If there's a BPF listener, bounce a copy of this frame
 		 * to him.
 		 */
-		if_bpfmtap(ifp, m_head);
+		bpf_mtap_if(ifp, m_head);
 	}
 
 	if (count > 0)

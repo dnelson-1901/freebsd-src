@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -43,8 +40,8 @@ __FBSDID("$FreeBSD$");
 #include <machine/bus.h>
 #include <machine/resource.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
 #include <dev/drm2/drmP.h>
 #include <dev/drm2/drm_crtc_helper.h>
 #include <dev/drm2/drm_fb_helper.h>
@@ -451,7 +448,7 @@ host1x_new_pass(device_t dev)
 	 * but some of our FDT resources are not ready until BUS_PASS_DEFAULT
 	 */
 	sc = device_get_softc(dev);
-	if (sc->attach_done || bus_current_pass < BUS_PASS_DEFAULT) {
+	if (sc->attach_done || bus_get_pass() < BUS_PASS_DEFAULT) {
 		bus_generic_new_pass(dev);
 		return;
 	}
@@ -574,7 +571,8 @@ host1x_attach(device_t dev)
 		goto fail;
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail:
 	if (sc->tegra_drm != NULL)
@@ -589,6 +587,11 @@ static int
 host1x_detach(device_t dev)
 {
 	struct host1x_softc *sc;
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 
@@ -611,7 +614,7 @@ host1x_detach(device_t dev)
 	if (sc->mem_res != NULL)
 		bus_release_resource(dev, SYS_RES_MEMORY, 0, sc->mem_res);
 	LOCK_DESTROY(sc);
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 static device_method_t host1x_methods[] = {

@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -39,9 +36,9 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/regulator/regulator.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/regulator/regulator.h>
 #include <dev/drm2/drmP.h>
 #include <dev/drm2/drm_crtc.h>
 #include <dev/drm2/drm_crtc_helper.h>
@@ -1245,7 +1242,8 @@ hdmi_attach(device_t dev)
 		device_printf(dev, "Cannot register DRM device\n");
 		goto fail;
 	}
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 
 fail:
 	TEGRA_DRM_DEREGISTER_CLIENT(device_get_parent(sc->dev), sc->dev);
@@ -1275,6 +1273,12 @@ static int
 hdmi_detach(device_t dev)
 {
 	struct hdmi_softc *sc;
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
+
 	sc = device_get_softc(dev);
 
 	TEGRA_DRM_DEREGISTER_CLIENT(device_get_parent(sc->dev), sc->dev);
@@ -1297,7 +1301,7 @@ hdmi_detach(device_t dev)
 		bus_release_resource(dev, SYS_RES_IRQ, 0, sc->irq_res);
 	if (sc->mem_res != NULL)
 		bus_release_resource(dev, SYS_RES_MEMORY, 0, sc->mem_res);
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 static device_method_t tegra_hdmi_methods[] = {

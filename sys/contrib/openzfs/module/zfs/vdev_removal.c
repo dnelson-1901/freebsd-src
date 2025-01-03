@@ -2414,7 +2414,7 @@ spa_vdev_remove(spa_t *spa, uint64_t guid, boolean_t unspare)
 		 * in this pool.
 		 */
 		if (vd == NULL || unspare) {
-			char *type;
+			const char *type;
 			boolean_t draid_spare = B_FALSE;
 
 			if (nvlist_lookup_string(nv, ZPOOL_CONFIG_TYPE, &type)
@@ -2551,11 +2551,9 @@ ZFS_MODULE_PARAM(zfs_vdev, zfs_, remove_max_segment, UINT, ZMOD_RW,
 ZFS_MODULE_PARAM(zfs_vdev, vdev_, removal_max_span, UINT, ZMOD_RW,
 	"Largest span of free chunks a remap segment can span");
 
-/* BEGIN CSTYLED */
 ZFS_MODULE_PARAM(zfs_vdev, zfs_, removal_suspend_progress, UINT, ZMOD_RW,
 	"Pause device removal after this many bytes are copied "
 	"(debug use only - causes removal to hang)");
-/* END CSTYLED */
 
 EXPORT_SYMBOL(free_from_removing_vdev);
 EXPORT_SYMBOL(spa_removal_get_stats);

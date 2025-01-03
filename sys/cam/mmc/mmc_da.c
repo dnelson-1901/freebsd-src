@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 Bernd Walter <tisco@FreeBSD.org> All rights reserved.
  * Copyright (c) 2009 Alexander Motin <mav@FreeBSD.org> All rights reserved.
@@ -31,9 +31,6 @@
  * Thanks to Warner Losh <imp@FreeBSD.org>, Alexander Motin <mav@FreeBSD.org>
  * Bernd Walter <tisco@FreeBSD.org>, and other authors.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 //#include "opt_sdda.h"
 
@@ -91,9 +88,11 @@ typedef enum {
 	SDDA_STATE_PART_SWITCH,
 } sdda_state;
 
-#define	SDDA_FMT_BOOT		"sdda%dboot"
-#define	SDDA_FMT_GP		"sdda%dgp"
-#define	SDDA_FMT_RPMB		"sdda%drpmb"
+/* Purposefully ignore a '%d' argument to snprintf in SDDA_FMT! */
+#define	SDDA_FMT		"%s"
+#define	SDDA_FMT_BOOT		"%s%dboot"
+#define	SDDA_FMT_GP		"%s%dgp"
+#define	SDDA_FMT_RPMB		"%s%drpmb"
 #define	SDDA_LABEL_ENH		"enh"
 
 #define	SDDA_PART_NAMELEN	(16 + 1)
@@ -166,7 +165,7 @@ static const char *mmc_errmsg[] =
 static	disk_strategy_t	sddastrategy;
 static	dumper_t	sddadump;
 static	periph_init_t	sddainit;
-static	void		sddaasync(void *callback_arg, u_int32_t code,
+static	void		sddaasync(void *callback_arg, uint32_t code,
 				struct cam_path *path, void *arg);
 static	periph_ctor_t	sddaregister;
 static	periph_dtor_t	sddacleanup;
@@ -174,8 +173,8 @@ static	periph_start_t	sddastart;
 static	periph_oninv_t	sddaoninvalidate;
 static	void		sddadone(struct cam_periph *periph,
 			       union ccb *done_ccb);
-static  int		sddaerror(union ccb *ccb, u_int32_t cam_flags,
-				u_int32_t sense_flags);
+static  int		sddaerror(union ccb *ccb, uint32_t cam_flags,
+				uint32_t sense_flags);
 
 static int mmc_handle_reply(union ccb *ccb);
 static uint16_t get_rca(struct cam_periph *periph);
@@ -646,7 +645,7 @@ sddacleanup(struct cam_periph *periph)
 }
 
 static void
-sddaasync(void *callback_arg, u_int32_t code,
+sddaasync(void *callback_arg, uint32_t code,
 	struct cam_path *path, void *arg)
 {
 	struct ccb_getdev cgd;
@@ -1285,12 +1284,12 @@ sdda_start_init(void *context, union ccb *start_ccb)
 
 	/* Update info for CAM */
 	device->serial_num_len = strlen(softc->card_sn_string);
-	device->serial_num = (u_int8_t *)malloc((device->serial_num_len + 1),
+	device->serial_num = (uint8_t *)malloc((device->serial_num_len + 1),
 	    M_CAMXPT, M_NOWAIT);
 	strlcpy(device->serial_num, softc->card_sn_string, device->serial_num_len + 1);
 
 	device->device_id_len = strlen(softc->card_id_string);
-	device->device_id = (u_int8_t *)malloc((device->device_id_len + 1),
+	device->device_id = (uint8_t *)malloc((device->device_id_len + 1),
 	    M_CAMXPT, M_NOWAIT);
 	strlcpy(device->device_id, softc->card_id_string, device->device_id_len + 1);
 
@@ -1483,7 +1482,7 @@ finish_hs_tests:
 		sdda_process_mmc_partitions(periph, start_ccb);
 	} else if (mmcp->card_features & CARD_FEATURE_MEMORY) {
 		/* For SD[HC] cards, just add one partition that is the whole card */
-		if (sdda_add_part(periph, 0, "sdda",
+		if (sdda_add_part(periph, 0, SDDA_FMT,
 		    periph->unit_number,
 		    mmc_get_media_size(periph),
 		    sdda_get_read_only(periph, start_ccb)) == false)
@@ -1528,7 +1527,7 @@ sdda_add_part(struct cam_periph *periph, u_int type, const char *name,
 	part->type = type;
 	part->ro = ro;
 	part->sc = sc;
-	snprintf(part->name, sizeof(part->name), name, periph->unit_number);
+	snprintf(part->name, sizeof(part->name), name, "sdda", periph->unit_number);
 
 	/*
 	 * Due to the nature of RPMB partition it doesn't make much sense
@@ -1595,8 +1594,11 @@ sdda_add_part(struct cam_periph *periph, u_int type, const char *name,
 	part->disk->d_fwsectors = 0;
 	part->disk->d_fwheads = 0;
 
-	if (sdda_mmcsd_compat)
-		disk_add_alias(part->disk, "mmcsd");
+	if (sdda_mmcsd_compat) {
+		char cname[SDDA_PART_NAMELEN];	/* This equals the mmcsd namelen. */
+		snprintf(cname, sizeof(cname), name, "mmcsd", periph->unit_number);
+		disk_add_alias(part->disk, cname);
+	}
 
 	/*
 	 * Acquire a reference to the periph before we register with GEOM.
@@ -1685,7 +1687,7 @@ sdda_process_mmc_partitions(struct cam_periph *periph, union ccb *ccb)
 	 * data area in case partitions are supported.
 	 */
 	ro = sdda_get_read_only(periph, ccb);
-	sdda_add_part(periph, EXT_CSD_PART_CONFIG_ACC_DEFAULT, "sdda",
+	sdda_add_part(periph, EXT_CSD_PART_CONFIG_ACC_DEFAULT, SDDA_FMT,
 	    periph->unit_number, mmc_get_media_size(periph), ro);
 	sc->part_curr = EXT_CSD_PART_CONFIG_ACC_DEFAULT;
 
@@ -2000,7 +2002,7 @@ sddadone(struct cam_periph *periph, union ccb *done_ccb)
 }
 
 static int
-sddaerror(union ccb *ccb, u_int32_t cam_flags, u_int32_t sense_flags)
+sddaerror(union ccb *ccb, uint32_t cam_flags, uint32_t sense_flags)
 {
 	return(cam_periph_error(ccb, cam_flags, sense_flags));
 }

@@ -34,8 +34,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_platform.h"
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -428,7 +426,7 @@ excise_msi_region(struct mem_region *avail, int asz)
 static int
 excise_fdt_reserved(struct mem_region *avail, int asz)
 {
-	struct mem_region fdtmap[32];
+	struct mem_region fdtmap[64];
 	ssize_t fdtmapsize;
 	phandle_t chosen;
 	int j, fdtentries;
@@ -597,10 +595,10 @@ OF_initial_setup(void *fdt_ptr, void *junk, int (*openfirm)(void *))
 	fdt = fdt_ptr;
 }
 
-boolean_t
+bool
 OF_bootstrap(void)
 {
-	boolean_t status = FALSE;
+	bool status = false;
 	int err = 0;
 
 #ifdef AIM
@@ -615,8 +613,8 @@ OF_bootstrap(void)
 			#endif
 		}
 
-		if (status != TRUE)
-			return status;
+		if (!status)
+			return (status);
 
 		err = OF_init(openfirmware);
 	} else
@@ -631,8 +629,8 @@ OF_bootstrap(void)
 #endif
 
 		status = OF_install(OFW_FDT, 0);
-		if (status != TRUE)
-			return status;
+		if (!status)
+			return (status);
 
 #ifdef AIM /* AIM-only for now -- Book-E does this remapping in early init */
 		/* Get the FDT size for mapping if we can */
@@ -670,15 +668,15 @@ OF_bootstrap(void)
 	 */
 	else {
 		status = OF_install(OFW_FDT, 0);
-		if (status != TRUE)
-			return status;
+		if (!status)
+			return (status);
 		err = OF_init(&fdt_static_dtb);
 	}
 	#endif
 
 	if (err != 0) {
 		OF_install(NULL, 0);
-		status = FALSE;
+		status = false;
 	}
 
 	return (status);

@@ -1904,10 +1904,13 @@ test_ktls_receive_bad_size(const atf_tc_t *tc, struct tls_enable *en,
 	/*
 	 * The other end may notice the error and drop the connection
 	 * before this executes resulting in shutdown() failing with
-	 * ENOTCONN.  Ignore this error if it occurs.
+	 * either ENOTCONN or ECONNRESET.  Ignore this error if it
+	 * occurs.
 	 */
-	if (shutdown(sockets[1], SHUT_WR) != 0)
-		ATF_REQUIRE_ERRNO(ENOTCONN, true);
+	if (shutdown(sockets[1], SHUT_WR) != 0) {
+		ATF_REQUIRE_MSG(errno == ENOTCONN || errno == ECONNRESET,
+		    "shutdown() failed: %s", strerror(errno));
+	}
 
 	ktls_receive_tls_error(sockets[0], EMSGSIZE);
 
@@ -2801,13 +2804,15 @@ ATF_TC_BODY(ktls_listening_socket, tc)
 	s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	ATF_REQUIRE(s >= 0);
 	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	ATF_REQUIRE(bind(s, (struct sockaddr *)&sin, sizeof(sin)) == 0);
 	ATF_REQUIRE(listen(s, 1) == 0);
 	build_tls_enable(tc, CRYPTO_AES_NIST_GCM_16, 128 / 8, 0,
 	    TLS_MINOR_VER_THREE, (uint64_t)random(), &en);
 	ATF_REQUIRE_ERRNO(ENOTCONN,
 	    setsockopt(s, IPPROTO_TCP, TCP_TXTLS_ENABLE, &en, sizeof(en)) != 0);
-	ATF_REQUIRE_ERRNO(EINVAL,
+	ATF_REQUIRE_ERRNO(ENOTCONN,
 	    setsockopt(s, IPPROTO_TCP, TCP_RXTLS_ENABLE, &en, sizeof(en)) != 0);
 	ATF_REQUIRE(close(s) == 0);
 }

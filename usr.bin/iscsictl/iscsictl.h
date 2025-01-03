@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 The FreeBSD Foundation
  *
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef ISCSICTL_H
@@ -39,6 +37,8 @@
 
 #define	DEFAULT_CONFIG_PATH		"/etc/iscsi.conf"
 #define	DEFAULT_IQN			"iqn.1994-09.org.freebsd:"
+
+#define	ISCSICTL_XO_VERSION		"1"
 
 #define	MAX_NAME_LEN			223
 

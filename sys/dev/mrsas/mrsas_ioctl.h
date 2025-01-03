@@ -38,8 +38,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #ifndef MRSAS_IOCTL_H
 #define	MRSAS_IOCTL_H
 
@@ -120,5 +118,14 @@ struct mrsas_iocpacket32 {
 
 #pragma pack()
 #endif					/* COMPAT_FREEBSD32 */
+
+struct mfi_ioc_passthru {
+	struct mrsas_dcmd_frame ioc_frame;
+	uint32_t pad_skinny_flag;
+	uint32_t buf_size;
+	uint8_t *buf;
+} __packed;
+
+#define MFIIO_PASSTHRU  _IOWR('C', 102, struct mfi_ioc_passthru)
 
 #endif					/* MRSAS_IOCTL_H */

@@ -24,9 +24,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -53,43 +50,15 @@ spibus_probe(device_t dev)
 	return (BUS_PROBE_DEFAULT);
 }
 
-static int
+int
 spibus_attach(device_t dev)
 {
 	struct spibus_softc *sc = SPIBUS_SOFTC(dev);
 
 	sc->dev = dev;
 	bus_enumerate_hinted_children(dev);
-	return (bus_generic_attach(dev));
-}
-
-/*
- * Since this is not a self-enumerating bus, and since we always add
- * children in attach, we have to always delete children here.
- */
-static int
-spibus_detach(device_t dev)
-{
-	int err;
-
-	if ((err = bus_generic_detach(dev)) != 0)
-		return (err);
-	device_delete_children(dev);
-
+	bus_attach_children(dev);
 	return (0);
-}
-
-static int
-spibus_suspend(device_t dev)
-{
-	return (bus_generic_suspend(dev));
-}
-
-static
-int
-spibus_resume(device_t dev)
-{
-	return (bus_generic_resume(dev));
 }
 
 static int
@@ -108,7 +77,7 @@ spibus_print_child(device_t dev, device_t child)
 	return (retval);
 }
 
-static void
+void
 spibus_probe_nomatch(device_t bus, device_t child)
 {
 	struct spibus_ivar *devi = SPIBUS_IVAR(child);
@@ -118,7 +87,7 @@ spibus_probe_nomatch(device_t bus, device_t child)
 	return;
 }
 
-static int
+int
 spibus_child_location(device_t bus, device_t child, struct sbuf *sb)
 {
 	struct spibus_ivar *devi = SPIBUS_IVAR(child);
@@ -129,7 +98,7 @@ spibus_child_location(device_t bus, device_t child, struct sbuf *sb)
 	return (0);
 }
 
-static int
+int
 spibus_read_ivar(device_t bus, device_t child, int which, uintptr_t *result)
 {
 	struct spibus_ivar *devi = SPIBUS_IVAR(child);
@@ -146,11 +115,14 @@ spibus_read_ivar(device_t bus, device_t child, int which, uintptr_t *result)
 	case SPIBUS_IVAR_CLOCK:
 		*(uint32_t *)result = devi->clock;
 		break;
+	case SPIBUS_IVAR_CS_DELAY:
+		*(uint32_t *)result = devi->cs_delay;
+		break;
 	}
 	return (0);
 }
 
-static int
+int
 spibus_write_ivar(device_t bus, device_t child, int which, uintptr_t value)
 {
 	struct spibus_ivar *devi = SPIBUS_IVAR(child);
@@ -174,6 +146,9 @@ spibus_write_ivar(device_t bus, device_t child, int which, uintptr_t value)
 			return (EINVAL);
 		devi->mode = (uint32_t)value;
 		break;
+	case SPIBUS_IVAR_CS_DELAY:
+		devi->cs_delay = (uint32_t)value;
+		break;
 	default:
 		return (EINVAL);
 	}
@@ -181,8 +156,9 @@ spibus_write_ivar(device_t bus, device_t child, int which, uintptr_t value)
 	return (0);
 }
 
-static device_t
-spibus_add_child(device_t dev, u_int order, const char *name, int unit)
+device_t
+spibus_add_child_common(device_t dev, u_int order, const char *name, int unit,
+    size_t ivars_size)
 {
 	device_t child;
 	struct spibus_ivar *devi;
@@ -190,7 +166,7 @@ spibus_add_child(device_t dev, u_int order, const char *name, int unit)
 	child = device_add_child_ordered(dev, order, name, unit);
 	if (child == NULL) 
 		return (child);
-	devi = malloc(sizeof(struct spibus_ivar), M_DEVBUF, M_NOWAIT | M_ZERO);
+	devi = malloc(ivars_size, M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (devi == NULL) {
 		device_delete_child(dev, child);
 		return (0);
@@ -198,6 +174,25 @@ spibus_add_child(device_t dev, u_int order, const char *name, int unit)
 	resource_list_init(&devi->rl);
 	device_set_ivars(child, devi);
 	return (child);
+}
+
+void
+spibus_child_deleted(device_t dev, device_t child)
+{
+	struct spibus_ivar *devi;
+
+	devi = device_get_ivars(child);
+	if (devi == NULL)
+		return;
+	resource_list_free(&devi->rl);
+	free(devi, M_DEVBUF);
+}
+
+static device_t
+spibus_add_child(device_t dev, u_int order, const char *name, int unit)
+{
+	return (spibus_add_child_common(
+	    dev, order, name, unit, sizeof(struct spibus_ivar)));
 }
 
 static void
@@ -239,24 +234,25 @@ static device_method_t spibus_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		spibus_probe),
 	DEVMETHOD(device_attach,	spibus_attach),
-	DEVMETHOD(device_detach,	spibus_detach),
+	DEVMETHOD(device_detach,	bus_generic_detach),
 	DEVMETHOD(device_shutdown,	bus_generic_shutdown),
-	DEVMETHOD(device_suspend,	spibus_suspend),
-	DEVMETHOD(device_resume,	spibus_resume),
+	DEVMETHOD(device_suspend,	bus_generic_suspend),
+	DEVMETHOD(device_resume,	bus_generic_resume),
 
 	/* Bus interface */
 	DEVMETHOD(bus_setup_intr,	bus_generic_setup_intr),
 	DEVMETHOD(bus_teardown_intr,	bus_generic_teardown_intr),
-	DEVMETHOD(bus_release_resource,	bus_generic_release_resource),
 	DEVMETHOD(bus_activate_resource, bus_generic_activate_resource),
 	DEVMETHOD(bus_deactivate_resource, bus_generic_deactivate_resource),
 	DEVMETHOD(bus_adjust_resource,	bus_generic_adjust_resource),
 	DEVMETHOD(bus_alloc_resource,	bus_generic_rl_alloc_resource),
+	DEVMETHOD(bus_release_resource,	bus_generic_rl_release_resource),
 	DEVMETHOD(bus_get_resource,	bus_generic_rl_get_resource),
 	DEVMETHOD(bus_set_resource,	bus_generic_rl_set_resource),
 	DEVMETHOD(bus_get_resource_list, spibus_get_resource_list),
 
 	DEVMETHOD(bus_add_child,	spibus_add_child),
+	DEVMETHOD(bus_child_deleted,	spibus_child_deleted),
 	DEVMETHOD(bus_print_child,	spibus_print_child),
 	DEVMETHOD(bus_probe_nomatch,	spibus_probe_nomatch),
 	DEVMETHOD(bus_read_ivar,	spibus_read_ivar),

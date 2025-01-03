@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014, Neel Natu (neel@freebsd.org)
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bhyve_snapshot.h"
 
 #include <sys/param.h>
@@ -61,7 +59,7 @@ static uint64_t host_msrs[HOST_MSR_NUM];
 void
 svm_msr_init(void)
 {
-	/* 
+	/*
 	 * It is safe to cache the values of the following MSRs because they
 	 * don't change based on curcpu, curproc or curthread.
 	 */

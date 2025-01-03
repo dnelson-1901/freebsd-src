@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1996, Nickolay Dudorov
  * All rights reserved.
@@ -57,11 +57,6 @@
  *
  */
 
-#ifndef lint
-static const char rcsid[] =
-  "$FreeBSD$";
-#endif /* not lint */
-
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/signal.h>
@@ -89,7 +84,7 @@ static struct ifreq ifrq;
 int net;                          /* socket descriptor */
 int tun;                          /* tunnel descriptor */
 
-static void usage(void);
+static void usage(void) __dead2;
 
 static int
 Set_address(char *addr, struct sockaddr_in *sin)
@@ -146,7 +141,7 @@ tun_open(char *dev_name, struct sockaddr *ouraddr, char *theiraddr)
    *  when tunN have no addresses, so - log and ignore it.
    *
    */
-  if (ioctl(s, SIOCDIFADDR, &ifra) < 0) {
+  if (ioctl(s, SIOCDIFADDR, &ifrq) < 0) {
     syslog(LOG_ERR,"SIOCDIFADDR - %m");
   }
 
@@ -225,10 +220,8 @@ Finish(int signum)
   /*
    *  Delete addresses for interface
    */
-  bzero(&ifra.ifra_addr, sizeof(ifra.ifra_addr));
-  bzero(&ifra.ifra_broadaddr, sizeof(ifra.ifra_addr));
-  bzero(&ifra.ifra_mask, sizeof(ifra.ifra_addr));
-  if (ioctl(s, SIOCDIFADDR, &ifra) < 0) {
+  bzero(&ifrq.ifr_addr, sizeof(ifrq.ifr_addr));
+  if (ioctl(s, SIOCDIFADDR, &ifrq) < 0) {
     syslog(LOG_ERR,"can't delete interface's addresses - %m");
   }
 closing_fds:

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 FreeBSD Foundation
  *
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _SYS_CAPRIGHTS_H_
@@ -68,6 +66,7 @@ extern cap_rights_t cap_fchdir_rights;
 extern cap_rights_t cap_fchflags_rights;
 extern cap_rights_t cap_fchmod_rights;
 extern cap_rights_t cap_fchown_rights;
+extern cap_rights_t cap_fchroot_rights;
 extern cap_rights_t cap_fcntl_rights;
 extern cap_rights_t cap_fexecve_rights;
 extern cap_rights_t cap_flock_rights;

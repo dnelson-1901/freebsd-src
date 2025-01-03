@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1999 Doug Rabson
  * Copyright (c) 2000 Mitsuru IWASAKI <iwasaki@FreeBSD.org>
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	$FreeBSD$
  */
 
 #include <sys/param.h>
@@ -44,7 +42,7 @@
 
 #include "acpidump.h"
 
-static char	hint_acpi_0_rsdp[] = "hint.acpi.0.rsdp";
+static char	acpi_rsdp[] = "acpi.rsdp";
 static char	machdep_acpi_root[] = "machdep.acpi_root";
 static int      acpi_mem_fd = -1;
 
@@ -174,7 +172,7 @@ acpi_find_rsd_ptr(void)
 	addr = 0;
 
 	/* Attempt to use kenv or sysctl to find RSD PTR record. */
-	if (kenv(KENV_GET, hint_acpi_0_rsdp, buf, 20) > 0)
+	if (kenv(KENV_GET, acpi_rsdp, buf, 20) > 0)
 		addr = strtoul(buf, NULL, 0);
 	if (addr == 0) {
 		len = sizeof(addr);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1998 - 2008 Søren Schmidt <sos@FreeBSD.org>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/module.h>
@@ -75,7 +72,6 @@ ata_jmicron_probe(device_t dev)
      { ATA_JMB368, 0, 0, 1, ATA_UDMA6, "JMB368" },
      { ATA_JMB368_2, 0, 0, 1, ATA_UDMA6, "JMB368" },
      { 0, 0, 0, 0, 0, 0}};
-    char buffer[64];
 
     if (pci_get_vendor(dev) != ATA_JMICRON_ID)
 	return ENXIO;
@@ -83,9 +79,8 @@ ata_jmicron_probe(device_t dev)
     if (!(idx = ata_match_chip(dev, ids)))
         return ENXIO;
 
-    sprintf(buffer, "JMicron %s %s controller",
+    device_set_descf(dev, "JMicron %s %s controller",
 	idx->text, ata_mode2str(idx->max_dma));
-    device_set_desc_copy(dev, buffer);
     ctlr->chip = idx;
     ctlr->chipinit = ata_jmicron_chipinit;
     return (BUS_PROBE_LOW_PRIORITY);
@@ -115,10 +110,10 @@ ata_jmicron_chipinit(device_t dev)
 	pci_write_config(dev, 0x80, 0x01200000, 4);
 	/* Create AHCI subdevice if AHCI part present. */
 	if (ctlr->chip->cfg1) {
-	    	child = device_add_child(dev, NULL, -1);
+		child = device_add_child(dev, NULL, DEVICE_UNIT_ANY);
 		if (child != NULL) {
 		    device_set_ivars(child, (void *)(intptr_t)-1);
-		    bus_generic_attach(dev);
+		    bus_attach_children(dev);
 		}
 	}
 	ctlr->ch_attach = ata_jmicron_ch_attach;

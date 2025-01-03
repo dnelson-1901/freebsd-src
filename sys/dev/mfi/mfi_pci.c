@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD AND BSD-2-Clause
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 IronPort Systems
  * All rights reserved.
@@ -53,8 +53,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /* PCI/PCI-X/PCIe bus interface for the LSI MegaSAS controllers */
 
 #include "opt_mfi.h"
@@ -114,7 +112,7 @@ SYSCTL_INT(_hw_mfi, OID_AUTO, msi, CTLFLAG_RDTUN, &mfi_msi, 0,
 
 static int	mfi_mrsas_enable;
 SYSCTL_INT(_hw_mfi, OID_AUTO, mrsas_enable, CTLFLAG_RDTUN, &mfi_mrsas_enable,
-     0, "Allow mrasas to take newer cards");
+     0, "Allow mrsas to take newer cards");
 
 struct mfi_ident {
 	uint16_t	vendor;
@@ -281,8 +279,7 @@ static int
 mfi_pci_detach(device_t dev)
 {
 	struct mfi_softc *sc;
-	int error, devcount, i;
-	device_t *devlist;
+	int error;
 
 	sc = device_get_softc(dev);
 
@@ -296,13 +293,11 @@ mfi_pci_detach(device_t dev)
 	sc->mfi_detaching = 1;
 	mtx_unlock(&sc->mfi_io_lock);
 
-	if ((error = device_get_children(sc->mfi_dev, &devlist, &devcount)) != 0) {
+	error = bus_generic_detach(sc->mfi_dev);
+	if (error != 0) {
 		sx_xunlock(&sc->mfi_config_lock);
 		return error;
 	}
-	for (i = 0; i < devcount; i++)
-		device_delete_child(sc->mfi_dev, devlist[i]);
-	free(devlist, M_TEMP);
 	sx_xunlock(&sc->mfi_config_lock);
 
 	EVENTHANDLER_DEREGISTER(shutdown_final, sc->mfi_eh);

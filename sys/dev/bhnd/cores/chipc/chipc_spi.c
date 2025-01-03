@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Michael Zhilin <mizhka@gmail.com>
  * Copyright (c) 2016 Landon Fuller <landonf@FreeBSD.org>
@@ -29,9 +29,6 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGES.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -118,14 +115,13 @@ chipc_spi_attach(device_t dev)
 
 	/* Let spibus perform full attach before we try to call
 	 * BUS_ADD_CHILD() */
-	if ((error = bus_generic_attach(dev)))
-		goto failed;
+	bus_attach_children(dev);
 
 	/* Determine flash type and add the flash child */
 	ccaps = BHND_CHIPC_GET_CAPS(device_get_parent(dev));
 	flash_name = chipc_sflash_device_name(ccaps->flash_type);
 	if (flash_name != NULL) {
-		flash_dev = BUS_ADD_CHILD(spibus, 0, flash_name, -1);
+		flash_dev = BUS_ADD_CHILD(spibus, 0, flash_name, DEVICE_UNIT_ANY);
 		if (flash_dev == NULL) {
 			device_printf(dev, "failed to add %s\n", flash_name);
 			error = ENXIO;

@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -339,8 +336,6 @@ al_attach(device_t dev)
 
 	adapter->netdev = ifp = if_alloc(IFT_ETHER);
 
-	adapter->netdev->if_link_state = LINK_STATE_DOWN;
-
 	if_setsoftc(ifp, adapter);
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setdrvflagbits(ifp, 0, IFF_DRV_OACTIVE);
@@ -391,7 +386,7 @@ al_attach(device_t dev)
 	adapter->link_poll_interval = AL_ETH_DEFAULT_LINK_POLL_INTERVAL;
 	adapter->max_rx_buff_alloc_size = AL_ETH_DEFAULT_MAX_RX_BUFF_ALLOC_SIZE;
 
-	al_eth_req_rx_buff_size(adapter, adapter->netdev->if_mtu);
+	al_eth_req_rx_buff_size(adapter, if_getmtu(adapter->netdev));
 
 	adapter->link_config.force_1000_base_x = AL_ETH_DEFAULT_FORCE_1000_BASEX;
 
@@ -666,7 +661,7 @@ al_eth_mac_table_broadcast_add(struct al_eth_adapter *adapter,
 
 static void
 al_eth_mac_table_promiscuous_set(struct al_eth_adapter *adapter,
-    boolean_t promiscuous)
+    bool promiscuous)
 {
 	struct al_eth_fwd_mac_table_entry entry = { { 0 } };
 
@@ -858,7 +853,7 @@ al_eth_board_params_init(struct al_eth_adapter *adapter)
 			return (-1);
 		}
 
-		adapter->phy_exist = params.phy_exist == TRUE;
+		adapter->phy_exist = params.phy_exist == true;
 		adapter->phy_addr = params.phy_mdio_addr;
 		adapter->an_en = params.autoneg_enable;
 		adapter->lt_en = params.kr_lt_enable;
@@ -906,7 +901,7 @@ al_eth_board_params_init(struct al_eth_adapter *adapter)
 
 		switch (params.media_type) {
 		case AL_ETH_BOARD_MEDIA_TYPE_RGMII:
-			if (params.sfp_plus_module_exist == TRUE)
+			if (params.sfp_plus_module_exist == true)
 				/* Backward compatibility */
 				adapter->mac_mode = AL_ETH_MAC_MODE_SGMII;
 			else
@@ -923,12 +918,12 @@ al_eth_board_params_init(struct al_eth_adapter *adapter)
 			adapter->use_lm = true;
 			break;
 		case AL_ETH_BOARD_MEDIA_TYPE_AUTO_DETECT:
-			adapter->sfp_detection_needed = TRUE;
+			adapter->sfp_detection_needed = true;
 			adapter->auto_speed = false;
 			adapter->use_lm = true;
 			break;
 		case AL_ETH_BOARD_MEDIA_TYPE_AUTO_DETECT_AUTO_SPEED:
-			adapter->sfp_detection_needed = TRUE;
+			adapter->sfp_detection_needed = true;
 			adapter->auto_speed = true;
 			adapter->mac_mode_set = false;
 			adapter->use_lm = true;
@@ -945,9 +940,9 @@ al_eth_board_params_init(struct al_eth_adapter *adapter)
 		device_printf(adapter->dev,
 		    "Board info: phy exist %s. phy addr %d. mdio freq %u Khz. "
 		    "SFP connected %s. media %d\n",
-		    params.phy_exist == TRUE ? "Yes" : "No",
+		    params.phy_exist ? "Yes" : "No",
 		    params.phy_mdio_addr, adapter->mdio_freq,
-		    params.sfp_plus_module_exist == TRUE ? "Yes" : "No",
+		    params.sfp_plus_module_exist ? "Yes" : "No",
 		    params.media_type);
 	}
 
@@ -1301,7 +1296,7 @@ al_eth_xmit_mbuf(struct al_eth_ring *tx_ring, struct mbuf *m)
 	bus_dma_segment_t segs[AL_ETH_PKT_MAX_BUFS + 1];
 	struct al_eth_pkt *hal_pkt;
 	struct al_buf *al_buf;
-	boolean_t remap;
+	bool remap;
 
 	/* Check if queue is ready */
 	if (unlikely(tx_ring->stall) != 0) {
@@ -1335,7 +1330,7 @@ al_eth_xmit_mbuf(struct al_eth_ring *tx_ring, struct mbuf *m)
 		return;
 	}
 
-	remap = TRUE;
+	remap = true;
 	/* Map packets for DMA */
 retry:
 	error = bus_dmamap_load_mbuf_sg(tx_ring->dma_buf_tag, tx_info->dma_map,
@@ -1345,8 +1340,8 @@ retry:
 
 		if (error == EFBIG) {
 			/* Try it again? - one try */
-			if (remap == TRUE) {
-				remap = FALSE;
+			if (remap == true) {
+				remap = false;
 				m_new = m_defrag(m, M_NOWAIT);
 				if (m_new == NULL) {
 					device_printf(tx_ring->dev,
@@ -1483,7 +1478,7 @@ al_eth_rx_checksum(struct al_eth_adapter *adapter,
 {
 
 	/* if IPv4 and error */
-	if (unlikely((adapter->netdev->if_capenable & IFCAP_RXCSUM) &&
+	if (unlikely((if_getcapenable(adapter->netdev) & IFCAP_RXCSUM) &&
 	    (hal_pkt->l3_proto_idx == AL_ETH_PROTO_ID_IPv4) &&
 	    (hal_pkt->flags & AL_ETH_RX_FLAGS_L3_CSUM_ERR))) {
 		device_printf(adapter->dev,"rx ipv4 header checksum error\n");
@@ -1491,7 +1486,7 @@ al_eth_rx_checksum(struct al_eth_adapter *adapter,
 	}
 
 	/* if IPv6 and error */
-	if (unlikely((adapter->netdev->if_capenable & IFCAP_RXCSUM_IPV6) &&
+	if (unlikely((if_getcapenable(adapter->netdev) & IFCAP_RXCSUM_IPV6) &&
 	    (hal_pkt->l3_proto_idx == AL_ETH_PROTO_ID_IPv6) &&
 	    (hal_pkt->flags & AL_ETH_RX_FLAGS_L3_CSUM_ERR))) {
 		device_printf(adapter->dev,"rx ipv6 header checksum error\n");
@@ -1585,7 +1580,6 @@ al_eth_rx_recv_work(void *arg, int pending)
 {
 	struct al_eth_ring *rx_ring = arg;
 	struct mbuf *mbuf;
-	struct lro_entry *queued;
 	unsigned int qid = rx_ring->ring_id;
 	struct al_eth_pkt *hal_pkt = &rx_ring->hal_pkt;
 	uint16_t next_to_clean = rx_ring->next_to_clean;
@@ -1632,8 +1626,8 @@ al_eth_rx_recv_work(void *arg, int pending)
 			break;
 		}
 
-		if (__predict_true(rx_ring->netdev->if_capenable & IFCAP_RXCSUM ||
-		    rx_ring->netdev->if_capenable & IFCAP_RXCSUM_IPV6)) {
+		if (__predict_true(if_getcapenable(rx_ring->netdev) & IFCAP_RXCSUM ||
+		    if_getcapenable(rx_ring->netdev) & IFCAP_RXCSUM_IPV6)) {
 			al_eth_rx_checksum(rx_ring->adapter, hal_pkt, mbuf);
 		}
 
@@ -1661,7 +1655,7 @@ al_eth_rx_recv_work(void *arg, int pending)
 		}
 
 		if (do_if_input)
-			(*rx_ring->netdev->if_input)(rx_ring->netdev, mbuf);
+			if_input(rx_ring->netdev, mbuf);
 
 	} while (1);
 
@@ -1676,10 +1670,7 @@ al_eth_rx_recv_work(void *arg, int pending)
 		    "%s: not filling rx queue %d\n", __func__, qid);
 	}
 
-	while (((queued = LIST_FIRST(&rx_ring->lro.lro_active)) != NULL)) {
-		LIST_REMOVE(queued, next);
-		tcp_lro_flush(&rx_ring->lro, queued);
-	}
+	tcp_lro_flush_all(&rx_ring->lro);
 
 	if (napi != 0) {
 		rx_ring->enqueue_is_running = 0;
@@ -1848,7 +1839,7 @@ al_eth_hw_init(struct al_eth_adapter *adapter)
 
 	if ((adapter->mac_mode == AL_ETH_MAC_MODE_SGMII) ||
 	    (adapter->mac_mode == AL_ETH_MAC_MODE_RGMII &&
-	     adapter->phy_exist == FALSE)) {
+	     adapter->phy_exist == false)) {
 		rc = al_eth_mac_link_config(&adapter->hal_adapter,
 		    adapter->link_config.force_1000_base_x,
 		    adapter->link_config.autoneg,
@@ -1863,7 +1854,7 @@ al_eth_hw_init(struct al_eth_adapter *adapter)
 	}
 
 	rc = al_eth_mdio_config(&adapter->hal_adapter,
-	    AL_ETH_MDIO_TYPE_CLAUSE_22, TRUE /* shared_mdio_if */,
+	    AL_ETH_MDIO_TYPE_CLAUSE_22, AL_TRUE /* shared_mdio_if */,
 	    adapter->ref_clk_freq, adapter->mdio_freq);
 	if (rc != 0) {
 		device_printf(adapter->dev, "%s failed at mdio config!\n",
@@ -2009,14 +2000,6 @@ al_eth_enable_msix(struct al_eth_adapter *adapter)
 
 	adapter->msix_entries = malloc(msix_vecs*sizeof(*adapter->msix_entries),
 	    M_IFAL, M_ZERO | M_WAITOK);
-
-	if (adapter->msix_entries == NULL) {
-		device_printf_dbg(adapter->dev, "failed to allocate"
-		    " msix_entries %d\n", msix_vecs);
-		rc = ENOMEM;
-		goto exit;
-	}
-
 	/* management vector (GROUP_A) @2*/
 	adapter->msix_entries[AL_ETH_MGMT_IRQ_IDX].entry = 2;
 	adapter->msix_entries[AL_ETH_MGMT_IRQ_IDX].vector = 0;
@@ -2304,9 +2287,6 @@ al_eth_setup_tx_resources(struct al_eth_adapter *adapter, int qid)
 	size = sizeof(struct al_eth_tx_buffer) * tx_ring->sw_count;
 
 	tx_ring->tx_buffer_info = malloc(size, M_IFAL, M_ZERO | M_WAITOK);
-	if (tx_ring->tx_buffer_info == NULL)
-		return (ENOMEM);
-
 	tx_ring->descs_size = tx_ring->hw_count * sizeof(union al_udma_desc);
 	q_params->size = tx_ring->hw_count;
 
@@ -2329,10 +2309,6 @@ al_eth_setup_tx_resources(struct al_eth_adapter *adapter, int qid)
 	mtx_init(&tx_ring->br_mtx, "AlRingMtx", NULL, MTX_DEF);
 	tx_ring->br = buf_ring_alloc(AL_BR_SIZE, M_DEVBUF, M_WAITOK,
 	    &tx_ring->br_mtx);
-	if (tx_ring->br == NULL) {
-		device_printf(dev, "Critical Failure setting up buf ring\n");
-		return (ENOMEM);
-	}
 
 	/* Allocate taskqueues */
 	TASK_INIT(&tx_ring->enqueue_task, 0, al_eth_start_xmit, tx_ring);
@@ -2481,9 +2457,6 @@ al_eth_setup_rx_resources(struct al_eth_adapter *adapter, unsigned int qid)
 	size += 1;
 
 	rx_ring->rx_buffer_info = malloc(size, M_IFAL, M_ZERO | M_WAITOK);
-	if (rx_ring->rx_buffer_info == NULL)
-		return (ENOMEM);
-
 	rx_ring->descs_size = rx_ring->hw_count * sizeof(union al_udma_desc);
 	q_params->size = rx_ring->hw_count;
 
@@ -2545,7 +2518,7 @@ al_eth_setup_rx_resources(struct al_eth_adapter *adapter, unsigned int qid)
 	memset(q_params->cdesc_base, 0, rx_ring->cdescs_size);
 
 	/* Create LRO for the ring */
-	if ((adapter->netdev->if_capenable & IFCAP_LRO) != 0) {
+	if ((if_getcapenable(adapter->netdev) & IFCAP_LRO) != 0) {
 		int err = tcp_lro_init(&rx_ring->lro);
 		if (err != 0) {
 			device_printf(adapter->dev,
@@ -2553,7 +2526,7 @@ al_eth_setup_rx_resources(struct al_eth_adapter *adapter, unsigned int qid)
 		} else {
 			device_printf_dbg(adapter->dev,
 			    "RX Soft LRO[%d] Initialized\n", qid);
-			rx_ring->lro_enabled = TRUE;
+			rx_ring->lro_enabled = true;
 			rx_ring->lro.ifp = adapter->netdev;
 		}
 	}
@@ -2973,9 +2946,9 @@ al_eth_config_rx_fwd(struct al_eth_adapter *adapter)
 	entry.queue_sel_1 = AL_ETH_CTRL_TABLE_QUEUE_SEL_1_THASH_TABLE;
 	entry.queue_sel_2 = AL_ETH_CTRL_TABLE_QUEUE_SEL_2_NO_PRIO;
 	entry.udma_sel = AL_ETH_CTRL_TABLE_UDMA_SEL_MAC_TABLE;
-	entry.filter = FALSE;
+	entry.filter = false;
 
-	al_eth_ctrl_table_def_set(&adapter->hal_adapter, FALSE, &entry);
+	al_eth_ctrl_table_def_set(&adapter->hal_adapter, AL_FALSE, &entry);
 
 	/*
 	 * By default set the mac table to forward all unicast packets to our
@@ -3106,7 +3079,7 @@ al_eth_up_complete(struct al_eth_adapter *adapter)
 
 	al_eth_configure_int_mode(adapter);
 	al_eth_config_rx_fwd(adapter);
-	al_eth_change_mtu(adapter, adapter->netdev->if_mtu);
+	al_eth_change_mtu(adapter, if_getmtu(adapter->netdev));
 	al_eth_udma_queues_enable_all(adapter);
 	al_eth_refill_all_rx_bufs(adapter);
 	al_eth_interrupts_unmask(adapter);
@@ -3233,7 +3206,7 @@ al_eth_up(struct al_eth_adapter *adapter)
 	adapter->up = true;
 
 	if (adapter->mac_mode == AL_ETH_MAC_MODE_10GbE_Serial)
-		adapter->netdev->if_link_state = LINK_STATE_UP;
+		if_link_state_change(adapter->netdev, LINK_STATE_UP);
 
 	if (adapter->mac_mode == AL_ETH_MAC_MODE_RGMII) {
 		mii_mediachg(adapter->mii);
@@ -3310,12 +3283,12 @@ al_ioctl(if_t ifp, u_long command, caddr_t data)
 		error = al_eth_check_mtu(adapter, ifr->ifr_mtu);
 		if (error != 0) {
 			device_printf(adapter->dev, "ioctl wrong mtu %u\n",
-			    adapter->netdev->if_mtu);
+			    if_getmtu(adapter->netdev));
 			break;
 		}
 
 		if_setdrvflagbits(ifp, 0, IFF_DRV_RUNNING);
-		adapter->netdev->if_mtu = ifr->ifr_mtu;
+		if_setmtu(adapter->netdev, ifr->ifr_mtu);
 		al_init(adapter);
 		break;
 	}
@@ -3515,10 +3488,10 @@ al_miibus_statchg(device_t dev)
 	if ((adapter->mii->mii_media_status & IFM_AVALID) != 0) {
 		if (adapter->mii->mii_media_status & IFM_ACTIVE) {
 			device_printf(adapter->dev, "link is UP\n");
-			adapter->netdev->if_link_state = LINK_STATE_UP;
+			if_link_state_change(adapter->netdev, LINK_STATE_UP);
 		} else {
 			device_printf(adapter->dev, "link is DOWN\n");
-			adapter->netdev->if_link_state = LINK_STATE_DOWN;
+			if_link_state_change(adapter->netdev, LINK_STATE_DOWN);
 		}
 	}
 }
@@ -3533,7 +3506,7 @@ al_miibus_linkchg(device_t dev)
 	if (adapter->mii == NULL)
 		return;
 
-	if ((adapter->netdev->if_flags & IFF_UP) == 0)
+	if ((if_getflags(adapter->netdev) & IFF_UP) == 0)
 		return;
 
 	/* Ignore link changes when link is not ready */

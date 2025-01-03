@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 The FreeBSD Foundation
  *
@@ -32,9 +32,6 @@
 /*
  * Software implementation of iSCSI Common Layer kobj(9) interface.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bio.h>
@@ -1142,7 +1139,7 @@ icl_soft_conn_pdu_append_bio(struct icl_conn *ic, struct icl_pdu *request,
 		while (len > 0) {
 			if (m == NULL) {
 				m = mb_alloc_ext_pgs(flags & ~ICL_NOCOPY,
-				    icl_soft_free_mext_pg);
+				    icl_soft_free_mext_pg, 0);
 				if (__predict_false(m == NULL))
 					return (ENOMEM);
 				atomic_add_int(&isp->ref_cnt, 1);

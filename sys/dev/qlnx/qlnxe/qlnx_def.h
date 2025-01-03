@@ -24,8 +24,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  *
- * $FreeBSD$
- *
  */
 
 /*
@@ -393,7 +391,7 @@ struct qlnx_host {
 
 	int			msix_count;
 
-	struct mtx		hw_lock;
+	struct sx		hw_lock;
 
 	/* debug */
 

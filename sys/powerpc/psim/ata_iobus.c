@@ -28,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * PSIM local bus ATA controller
  */
@@ -63,8 +61,7 @@ static  int  ata_iobus_print_child(device_t dev, device_t child);
 struct resource *ata_iobus_alloc_resource(device_t, device_t, int, int *,
 					  rman_res_t, rman_res_t, rman_res_t,
 					  u_int);
-static int ata_iobus_release_resource(device_t, device_t, int, int,
-				      struct resource *);
+static int ata_iobus_release_resource(device_t, device_t, struct resource *);
 
 static device_method_t ata_iobus_methods[] = {
         /* Device interface */
@@ -114,8 +111,9 @@ ata_iobus_attach(device_t dev)
 	 * Add a single child per controller. Should be able
 	 * to add two
 	 */
-	device_add_child(dev, "ata", -1);
-	return (bus_generic_attach(dev));
+	device_add_child(dev, "ata", DEVICE_UNIT_ANY);
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int
@@ -194,8 +192,7 @@ ata_iobus_alloc_resource(device_t dev, device_t child, int type, int *rid,
 }
 
 static int
-ata_iobus_release_resource(device_t dev, device_t child, int type, int rid,
-			   struct resource *r)
+ata_iobus_release_resource(device_t dev, device_t child, struct resource *r)
 {
 	/* no hotplug... */
 	return (0);

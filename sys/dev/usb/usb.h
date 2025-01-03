@@ -1,6 +1,5 @@
-/* $FreeBSD$ */
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008 Hans Petter Selasky. All rights reserved.
  * Copyright (c) 1998 The NetBSD Foundation, Inc. All rights reserved.
@@ -115,7 +114,7 @@ MALLOC_DECLARE(M_USBDEV);
 /* Allow for marginal and non-conforming devices. */
 #define	USB_PORT_RESET_DELAY		50	/* ms */
 #define	USB_PORT_ROOT_RESET_DELAY	200	/* ms */
-#define	USB_PORT_RESET_RECOVERY		10	/* ms */
+#define	USB_PORT_RESET_RECOVERY		20	/* ms */
 #define	USB_PORT_POWERUP_DELAY		300	/* ms */
 #define	USB_PORT_RESUME_DELAY		(20*2)	/* ms */
 #define	USB_SET_ADDRESS_SETTLE		10	/* ms */

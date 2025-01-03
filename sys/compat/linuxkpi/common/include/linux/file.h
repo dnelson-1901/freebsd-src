@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_FILE_H_
 #define	_LINUXKPI_LINUX_FILE_H_
@@ -45,7 +43,7 @@ struct linux_file;
 
 #undef file
 
-extern struct fileops linuxfileops;
+extern const struct fileops linuxfileops;
 
 static inline struct linux_file *
 linux_fget(unsigned int fd)

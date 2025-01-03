@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Ariff Abdullah <ariff@FreeBSD.org>
  * All rights reserved.
@@ -68,8 +68,6 @@
 #include <sys/endian.h>
 
 #include <dev/sound/pci/atiixp.h>
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 #define ATI_IXP_DMA_RETRY_MAX	100
 
@@ -1086,8 +1084,7 @@ atiixp_chip_post_init(void *arg)
 
 	mixer_init(sc->dev, ac97_getmixerclass(), sc->codec);
 
-	if (pcm_register(sc->dev, sc, ATI_IXP_NPCHAN, ATI_IXP_NRCHAN))
-		goto postinitbad;
+	pcm_init(sc->dev, sc);
 
 	for (i = 0; i < ATI_IXP_NPCHAN; i++)
 		pcm_addchan(sc->dev, PCMDIR_PLAY, &atiixp_chan_class, sc);
@@ -1099,11 +1096,12 @@ atiixp_chip_post_init(void *arg)
 	    "polling", CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE, sc->dev,
 	    sizeof(sc->dev), sysctl_atiixp_polling, "I", "Enable polling mode");
 
-	snprintf(status, SND_STATUSLEN, "at memory 0x%jx irq %jd %s",
+	snprintf(status, SND_STATUSLEN, "mem 0x%jx irq %jd on %s",
 	    rman_get_start(sc->reg), rman_get_start(sc->irq),
-	    PCM_KLDSTRING(snd_atiixp));
+	    device_get_nameunit(device_get_parent(sc->dev)));
 
-	pcm_setstatus(sc->dev, status);
+	if (pcm_register(sc->dev, status))
+		goto postinitbad;
 
 	atiixp_lock(sc);
 	if (sc->polling == 0)
@@ -1170,12 +1168,12 @@ atiixp_release_resource(struct atiixp_info *sc)
 static int
 atiixp_pci_probe(device_t dev)
 {
-	int i;
+	size_t i;
 	uint16_t devid, vendor;
 
 	vendor = pci_get_vendor(dev);
 	devid = pci_get_device(dev);
-	for (i = 0; i < sizeof(atiixp_hw) / sizeof(atiixp_hw[0]); i++) {
+	for (i = 0; i < nitems(atiixp_hw); i++) {
 		if (vendor == atiixp_hw[i].vendor &&
 		    devid == atiixp_hw[i].devid) {
 			device_set_desc(dev, atiixp_hw[i].desc);

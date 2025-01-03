@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014 Dmitry Chagin <dchagin@FreeBSD.org>
  *
@@ -24,9 +24,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -66,7 +63,7 @@ static fo_stat_t	eventfd_stat;
 static fo_close_t	eventfd_close;
 static fo_fill_kinfo_t	eventfd_fill_kinfo;
 
-static struct fileops eventfdops = {
+static const struct fileops eventfdops = {
 	.fo_read = eventfd_read,
 	.fo_write = eventfd_write,
 	.fo_truncate = invfo_truncate,
@@ -79,6 +76,7 @@ static struct fileops eventfdops = {
 	.fo_chown = invfo_chown,
 	.fo_sendfile = invfo_sendfile,
 	.fo_fill_kinfo = eventfd_fill_kinfo,
+	.fo_cmp = file_kcmp_generic,
 	.fo_flags = DFLAG_PASSABLE
 };
 
@@ -86,13 +84,13 @@ static void	filt_eventfddetach(struct knote *kn);
 static int	filt_eventfdread(struct knote *kn, long hint);
 static int	filt_eventfdwrite(struct knote *kn, long hint);
 
-static struct filterops eventfd_rfiltops = {
+static const struct filterops eventfd_rfiltops = {
 	.f_isfd = 1,
 	.f_detach = filt_eventfddetach,
 	.f_event = filt_eventfdread
 };
 
-static struct filterops eventfd_wfiltops = {
+static const struct filterops eventfd_wfiltops = {
 	.f_isfd = 1,
 	.f_detach = filt_eventfddetach,
 	.f_event = filt_eventfdwrite

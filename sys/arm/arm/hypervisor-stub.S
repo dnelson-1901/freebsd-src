@@ -29,10 +29,7 @@
 #include <machine/asm.h>
 #include <machine/asmacros.h>
 #include <machine/armreg.h>
-
-__FBSDID("$FreeBSD$");
-
-#if __ARM_ARCH >= 7
+#include <machine/sysreg.h>
 #if defined(__ARM_ARCH_7VE__) || defined(__clang__)
 .arch_extension virt
 #endif
@@ -83,5 +80,4 @@ _C_LABEL(hypervisor_stub_vect):
 	b	hypervisor_stub_trap /* HYP-Mode */
 	.word 0 /* FIQ */
 	.word 0 /* IRQ */
-#endif /* __ARM_ARCH >= 7 */
 

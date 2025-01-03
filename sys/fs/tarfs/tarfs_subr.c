@@ -79,13 +79,13 @@ tarfs_sysctl_handle_ioshift(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_vfs_tarfs, OID_AUTO, ioshift,
-    CTLTYPE_UINT | CTLFLAG_MPSAFE | CTLFLAG_RW | CTLFLAG_TUN,
+    CTLTYPE_UINT | CTLFLAG_MPSAFE | CTLFLAG_RWTUN,
     &tarfs_ioshift, 0, tarfs_sysctl_handle_ioshift, "IU",
     "Tar filesystem preferred I/O size (log 2)");
 
 #ifdef TARFS_DEBUG
 int tarfs_debug;
-SYSCTL_INT(_vfs_tarfs, OID_AUTO, debug, CTLFLAG_RW | CTLFLAG_TUN,
+SYSCTL_INT(_vfs_tarfs, OID_AUTO, debug, CTLFLAG_RWTUN,
     &tarfs_debug, 0, "Tar filesystem debug mask");
 #endif	/* TARFS_DEBUG */
 
@@ -163,7 +163,7 @@ tarfs_lookup_dir(struct tarfs_node *tnp, off_t cookie)
 
 int
 tarfs_alloc_node(struct tarfs_mount *tmp, const char *name, size_t namelen,
-    enum vtype type, off_t off, size_t sz, time_t mtime, uid_t uid, gid_t gid,
+    __enum_uint8(vtype) type, off_t off, size_t sz, time_t mtime, uid_t uid, gid_t gid,
     mode_t mode, unsigned int flags, const char *linkname, dev_t rdev,
     struct tarfs_node *parent, struct tarfs_node **retnode)
 {

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009-2013, 2016 Chelsio, Inc. All rights reserved.
  *
@@ -29,8 +29,6 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- *
- * $FreeBSD$
  */
 #ifndef __IW_CXGB4_H__
 #define __IW_CXGB4_H__
@@ -118,7 +116,7 @@ struct c4iw_dev_ucontext {
 };
 
 enum c4iw_rdev_flags {
-	T4_FATAL_ERROR = (1<<0),
+	T4_IW_STOPPED = (1<<0),
 	T4_STATUS_PAGE_DISABLED = (1<<1),
 };
 
@@ -169,9 +167,9 @@ struct c4iw_rdev {
 	struct workqueue_struct *free_workq;
 };
 
-static inline int c4iw_fatal_error(struct c4iw_rdev *rdev)
+static inline int c4iw_stopped(struct c4iw_rdev *rdev)
 {
-	return rdev->flags & T4_FATAL_ERROR;
+	return rdev->flags & T4_IW_STOPPED;
 }
 
 static inline int c4iw_num_stags(struct c4iw_rdev *rdev)
@@ -216,7 +214,7 @@ c4iw_wait_for_reply(struct c4iw_rdev *rdev, struct c4iw_wr_wait *wr_waitp,
 	int timedout = 0;
 	struct timeval t1, t2;
 
-	if (c4iw_fatal_error(rdev)) {
+	if (c4iw_stopped(rdev)) {
 		wr_waitp->ret = -EIO;
 		goto out;
 	}
@@ -242,7 +240,7 @@ c4iw_wait_for_reply(struct c4iw_rdev *rdev, struct c4iw_wr_wait *wr_waitp,
 			    "seconds - tid %u qpid %u\n", func,
 			    device_get_nameunit(sc->dev), t2.tv_sec, t2.tv_usec,
 			    hwtid, qpid);
-			if (c4iw_fatal_error(rdev)) {
+			if (c4iw_stopped(rdev)) {
 				wr_waitp->ret = -EIO;
 				break;
 			}
@@ -982,4 +980,6 @@ u32 c4iw_get_qpid(struct c4iw_rdev *rdev, struct c4iw_dev_ucontext *uctx);
 void c4iw_put_qpid(struct c4iw_rdev *rdev, u32 qid,
 		struct c4iw_dev_ucontext *uctx);
 void c4iw_ev_dispatch(struct c4iw_dev *dev, struct t4_cqe *err_cqe);
+void t4_dump_stag(struct adapter *sc, const u32 stag);
+void t4_dump_all_stag(struct adapter *sc);
 #endif

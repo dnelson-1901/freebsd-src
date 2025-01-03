@@ -21,6 +21,7 @@
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/StreamString.h"
 #include "llvm/ADT/StringExtras.h"
+#include <optional>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -215,10 +216,11 @@ CompUnitSP SymbolFileBreakpad::ParseCompileUnitAtIndex(uint32_t index) {
       spec = (*m_files)[record->FileNum];
   }
 
-  auto cu_sp = std::make_shared<CompileUnit>(m_objfile_sp->GetModule(),
-                                             /*user_data*/ nullptr, spec, index,
-                                             eLanguageTypeUnknown,
-                                             /*is_optimized*/ eLazyBoolNo);
+  auto cu_sp = std::make_shared<CompileUnit>(
+      m_objfile_sp->GetModule(),
+      /*user_data*/ nullptr, std::make_shared<SupportFile>(spec), index,
+      eLanguageTypeUnknown,
+      /*is_optimized*/ eLazyBoolNo);
 
   SetCompileUnitAtIndex(index, cu_sp);
   return cu_sp;
@@ -245,7 +247,7 @@ FunctionSP SymbolFileBreakpad::GetOrCreateFunction(CompileUnit &comp_unit) {
 
   if (auto record = FuncRecord::parse(*It)) {
     Mangled func_name;
-    func_name.SetValue(ConstString(record->Name), false);
+    func_name.SetValue(ConstString(record->Name));
     addr_t address = record->Address + base;
     SectionSP section_sp = list->FindSectionContainingFileAddress(address);
     if (section_sp) {
@@ -277,13 +279,14 @@ bool SymbolFileBreakpad::ParseLineTable(CompileUnit &comp_unit) {
 }
 
 bool SymbolFileBreakpad::ParseSupportFiles(CompileUnit &comp_unit,
-                                           FileSpecList &support_files) {
+                                           SupportFileList &support_files) {
   std::lock_guard<std::recursive_mutex> guard(GetModuleMutex());
   CompUnitData &data = m_cu_data->GetEntryRef(comp_unit.GetID()).data;
   if (!data.support_files)
     ParseLineTableAndSupportFiles(comp_unit, data);
 
-  support_files = std::move(*data.support_files);
+  for (auto &fs : *data.support_files)
+    support_files.Append(fs);
   return true;
 }
 
@@ -294,7 +297,7 @@ size_t SymbolFileBreakpad::ParseBlocksRecursive(Function &func) {
   ParseInlineOriginRecords();
   // A vector of current each level's parent block. For example, when parsing
   // "INLINE 0 ...", the current level is 0 and its parent block is the
-  // funciton block at index 0.
+  // function block at index 0.
   std::vector<Block *> blocks;
   Block &block = func.GetBlock(false);
   block.AddRange(Block::Range(0, func.GetAddressRange().GetByteSize()));
@@ -421,12 +424,13 @@ uint32_t SymbolFileBreakpad::ResolveSymbolContext(
 }
 
 void SymbolFileBreakpad::FindFunctions(
-    ConstString name, const CompilerDeclContext &parent_decl_ctx,
-    FunctionNameType name_type_mask, bool include_inlines,
+    const Module::LookupInfo &lookup_info,
+    const CompilerDeclContext &parent_decl_ctx, bool include_inlines,
     SymbolContextList &sc_list) {
   std::lock_guard<std::recursive_mutex> guard(GetModuleMutex());
   // TODO: Implement this with supported FunctionNameType.
 
+  ConstString name = lookup_info.GetLookupName();
   for (uint32_t i = 0; i < GetNumCompileUnits(); ++i) {
     CompUnitSP cu_sp = GetCompileUnitAtIndex(i);
     FunctionSP func_sp = GetOrCreateFunction(*cu_sp);
@@ -446,15 +450,6 @@ void SymbolFileBreakpad::FindFunctions(const RegularExpression &regex,
   // TODO
 }
 
-void SymbolFileBreakpad::FindTypes(
-    ConstString name, const CompilerDeclContext &parent_decl_ctx,
-    uint32_t max_matches, llvm::DenseSet<SymbolFile *> &searched_symbol_files,
-    TypeMap &types) {}
-
-void SymbolFileBreakpad::FindTypes(
-    llvm::ArrayRef<CompilerContext> pattern, LanguageSet languages,
-    llvm::DenseSet<SymbolFile *> &searched_symbol_files, TypeMap &types) {}
-
 void SymbolFileBreakpad::AddSymbols(Symtab &symtab) {
   Log *log = GetLog(LLDBLog::Symbols);
   Module &module = *m_objfile_sp->GetModule();
@@ -468,7 +463,7 @@ void SymbolFileBreakpad::AddSymbols(Symtab &symtab) {
   const SectionList &list = *module.GetSectionList();
   llvm::DenseSet<addr_t> found_symbol_addresses;
   std::vector<Symbol> symbols;
-  auto add_symbol = [&](addr_t address, llvm::Optional<addr_t> size,
+  auto add_symbol = [&](addr_t address, std::optional<addr_t> size,
                         llvm::StringRef name) {
     address += base;
     SectionSP section_sp = list.FindSectionContainingFileAddress(address);
@@ -494,7 +489,7 @@ void SymbolFileBreakpad::AddSymbols(Symtab &symtab) {
 
   for (llvm::StringRef line : lines(Record::Public)) {
     if (auto record = PublicRecord::parse(line))
-      add_symbol(record->Address, llvm::None, record->Name);
+      add_symbol(record->Address, std::nullopt, record->Name);
     else
       LLDB_LOG(log, "Failed to parse: {0}. Skipping record.", line);
   }
@@ -518,7 +513,7 @@ SymbolFileBreakpad::GetParameterStackSize(Symbol &symbol) {
                                  "Parameter size unknown.");
 }
 
-static llvm::Optional<std::pair<llvm::StringRef, llvm::StringRef>>
+static std::optional<std::pair<llvm::StringRef, llvm::StringRef>>
 GetRule(llvm::StringRef &unwind_rules) {
   // Unwind rules are of the form
   //   register1: expression1 register2: expression2 ...
@@ -527,7 +522,7 @@ GetRule(llvm::StringRef &unwind_rules) {
   llvm::StringRef lhs, rest;
   std::tie(lhs, rest) = getToken(unwind_rules);
   if (!lhs.consume_back(":"))
-    return llvm::None;
+    return std::nullopt;
 
   // Seek forward to the next register: expression pair
   llvm::StringRef::size_type pos = rest.find(": ");
@@ -540,7 +535,7 @@ GetRule(llvm::StringRef &unwind_rules) {
   // Go back one token to find the end of the current rule.
   pos = rest.rfind(' ', pos);
   if (pos == llvm::StringRef::npos)
-    return llvm::None;
+    return std::nullopt;
 
   llvm::StringRef rhs = rest.take_front(pos);
   unwind_rules = rest.drop_front(pos);
@@ -654,7 +649,7 @@ SymbolFileBreakpad::ParseCFIUnwindPlan(const Bookmark &bookmark,
 
   LineIterator It(*m_objfile_sp, Record::StackCFI, bookmark),
       End(*m_objfile_sp);
-  llvm::Optional<StackCFIRecord> init_record = StackCFIRecord::parse(*It);
+  std::optional<StackCFIRecord> init_record = StackCFIRecord::parse(*It);
   assert(init_record && init_record->Size &&
          "Record already parsed successfully in ParseUnwindData!");
 
@@ -673,7 +668,7 @@ SymbolFileBreakpad::ParseCFIUnwindPlan(const Bookmark &bookmark,
     return nullptr;
   plan_sp->AppendRow(row_sp);
   for (++It; It != End; ++It) {
-    llvm::Optional<StackCFIRecord> record = StackCFIRecord::parse(*It);
+    std::optional<StackCFIRecord> record = StackCFIRecord::parse(*It);
     if (!record)
       return nullptr;
     if (record->Size)
@@ -697,7 +692,7 @@ SymbolFileBreakpad::ParseWinUnwindPlan(const Bookmark &bookmark,
     return nullptr;
 
   LineIterator It(*m_objfile_sp, Record::StackWin, bookmark);
-  llvm::Optional<StackWinRecord> record = StackWinRecord::parse(*It);
+  std::optional<StackWinRecord> record = StackWinRecord::parse(*It);
   assert(record && "Record already parsed successfully in ParseUnwindData!");
 
   auto plan_sp = std::make_shared<UnwindPlan>(lldb::eRegisterKindLLDB);
@@ -847,7 +842,7 @@ void SymbolFileBreakpad::ParseLineTableAndSupportFiles(CompileUnit &cu,
   std::vector<std::unique_ptr<LineSequence>> sequences;
   std::unique_ptr<LineSequence> line_seq_up =
       LineTable::CreateLineSequenceContainer();
-  llvm::Optional<addr_t> next_addr;
+  std::optional<addr_t> next_addr;
   auto finish_sequence = [&]() {
     LineTable::AppendLineEntryToSequence(
         line_seq_up.get(), *next_addr, /*line=*/0, /*column=*/0,
@@ -923,7 +918,7 @@ void SymbolFileBreakpad::ParseUnwindData() {
   m_unwind_data->win.Sort();
 }
 
-uint64_t SymbolFileBreakpad::GetDebugInfoSize() {
+uint64_t SymbolFileBreakpad::GetDebugInfoSize(bool load_all_debug_info) {
   // Breakpad files are all debug info.
   return m_objfile_sp->GetByteSize();
 }

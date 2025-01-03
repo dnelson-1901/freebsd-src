@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009-2013 Chelsio, Inc. All rights reserved.
  *
@@ -32,8 +32,6 @@
  * SOFTWARE.
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 
 #ifdef TCP_OFFLOAD
@@ -258,7 +256,7 @@ static int write_tpt_entry(struct c4iw_rdev *rdev, u32 reset_tpt_entry,
 	u32 stag_idx;
 	static atomic_t key;
 
-	if (c4iw_fatal_error(rdev))
+	if (c4iw_stopped(rdev))
 		return -EIO;
 
 	stag_state = stag_state > 0;
@@ -622,6 +620,9 @@ struct ib_mr *c4iw_alloc_mr(struct ib_pd *pd,
 
 	php = to_c4iw_pd(pd);
 	rhp = php->rhp;
+
+	if (__predict_false(c4iw_stopped(&rhp->rdev)))
+		return ERR_PTR(-EIO);
 
 	if (mr_type != IB_MR_TYPE_MEM_REG ||
 	    max_num_sg > t4_max_fr_depth(&rhp->rdev, use_dsgl))

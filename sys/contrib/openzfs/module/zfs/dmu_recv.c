@@ -25,7 +25,7 @@
  * Copyright (c) 2014, Joyent, Inc. All rights reserved.
  * Copyright 2014 HybridCluster. All rights reserved.
  * Copyright (c) 2018, loli10K <ezomori.nozomu@gmail.com>. All rights reserved.
- * Copyright (c) 2019, Klara Inc.
+ * Copyright (c) 2019, 2024, Klara, Inc.
  * Copyright (c) 2019, Allan Jude
  * Copyright (c) 2019 Datto Inc.
  * Copyright (c) 2022 Axcient.
@@ -593,6 +593,9 @@ recv_begin_check_feature_flags_impl(uint64_t featureflags, spa_t *spa)
 	if ((featureflags & DMU_BACKUP_FEATURE_LARGE_DNODE) &&
 	    !spa_feature_is_enabled(spa, SPA_FEATURE_LARGE_DNODE))
 		return (SET_ERROR(ENOTSUP));
+	if ((featureflags & DMU_BACKUP_FEATURE_LARGE_MICROZAP) &&
+	    !spa_feature_is_enabled(spa, SPA_FEATURE_LARGE_MICROZAP))
+		return (SET_ERROR(ENOTSUP));
 
 	/*
 	 * Receiving redacted streams requires that redacted datasets are
@@ -600,6 +603,13 @@ recv_begin_check_feature_flags_impl(uint64_t featureflags, spa_t *spa)
 	 */
 	if ((featureflags & DMU_BACKUP_FEATURE_REDACTED) &&
 	    !spa_feature_is_enabled(spa, SPA_FEATURE_REDACTED_DATASETS))
+		return (SET_ERROR(ENOTSUP));
+
+	/*
+	 * If the LONGNAME is not enabled on the target, fail that request.
+	 */
+	if ((featureflags & DMU_BACKUP_FEATURE_LONGNAME) &&
+	    !spa_feature_is_enabled(spa, SPA_FEATURE_LONGNAME))
 		return (SET_ERROR(ENOTSUP));
 
 	return (0);
@@ -987,8 +997,36 @@ dmu_recv_begin_sync(void *arg, dmu_tx_t *tx)
 		    numredactsnaps, tx);
 	}
 
+	if (featureflags & DMU_BACKUP_FEATURE_LARGE_MICROZAP) {
+		/*
+		 * The source has seen a large microzap at least once in its
+		 * life, so we activate the feature here to match. It's not
+		 * strictly necessary since a large microzap is usable without
+		 * the feature active, but if that object is sent on from here,
+		 * we need this info to know to add the stream feature.
+		 *
+		 * There may be no large microzap in the incoming stream, or
+		 * ever again, but this is a very niche feature and its very
+		 * difficult to spot a large microzap in the stream, so its
+		 * not worth the effort of trying harder to activate the
+		 * feature at first use.
+		 */
+		dsl_dataset_activate_feature(dsobj, SPA_FEATURE_LARGE_MICROZAP,
+		    (void *)B_TRUE, tx);
+	}
+
 	dmu_buf_will_dirty(newds->ds_dbuf, tx);
 	dsl_dataset_phys(newds)->ds_flags |= DS_FLAG_INCONSISTENT;
+
+	/*
+	 * Activate longname feature if received
+	 */
+	if (featureflags & DMU_BACKUP_FEATURE_LONGNAME &&
+	    !dsl_dataset_feature_is_active(newds, SPA_FEATURE_LONGNAME)) {
+		dsl_dataset_activate_feature(newds->ds_object,
+		    SPA_FEATURE_LONGNAME, (void *)B_TRUE, tx);
+		newds->ds_feature[SPA_FEATURE_LONGNAME] = (void *)B_TRUE;
+	}
 
 	/*
 	 * If we actually created a non-clone, we need to create the objset
@@ -1217,13 +1255,14 @@ dmu_recv_resume_begin_sync(void *arg, dmu_tx_t *tx)
  * succeeds; otherwise we will leak the holds on the datasets.
  */
 int
-dmu_recv_begin(char *tofs, char *tosnap, dmu_replay_record_t *drr_begin,
-    boolean_t force, boolean_t heal, boolean_t resumable, nvlist_t *localprops,
-    nvlist_t *hidden_args, char *origin, dmu_recv_cookie_t *drc,
-    zfs_file_t *fp, offset_t *voffp)
+dmu_recv_begin(const char *tofs, const char *tosnap,
+    dmu_replay_record_t *drr_begin, boolean_t force, boolean_t heal,
+    boolean_t resumable, nvlist_t *localprops, nvlist_t *hidden_args,
+    const char *origin, dmu_recv_cookie_t *drc, zfs_file_t *fp,
+    offset_t *voffp)
 {
 	dmu_recv_begin_arg_t drba = { 0 };
-	int err;
+	int err = 0;
 
 	memset(drc, 0, sizeof (dmu_recv_cookie_t));
 	drc->drc_drr_begin = drr_begin;
@@ -1255,7 +1294,6 @@ dmu_recv_begin(char *tofs, char *tosnap, dmu_replay_record_t *drr_begin,
 	    DMU_GET_FEATUREFLAGS(drc->drc_drrb->drr_versioninfo);
 
 	uint32_t payloadlen = drc->drc_drr_begin->drr_payloadlen;
-	void *payload = NULL;
 
 	/*
 	 * Since OpenZFS 2.0.0, we have enforced a 64MB limit in userspace
@@ -1266,16 +1304,23 @@ dmu_recv_begin(char *tofs, char *tosnap, dmu_replay_record_t *drr_begin,
 	if (payloadlen > (MIN((1U << 28), arc_all_memory() / 4)))
 		return (E2BIG);
 
-	if (payloadlen != 0)
-		payload = vmem_alloc(payloadlen, KM_SLEEP);
 
-	err = receive_read_payload_and_next_header(drc, payloadlen,
-	    payload);
-	if (err != 0) {
-		vmem_free(payload, payloadlen);
-		return (err);
-	}
 	if (payloadlen != 0) {
+		void *payload = vmem_alloc(payloadlen, KM_SLEEP);
+		/*
+		 * For compatibility with recursive send streams, we don't do
+		 * this here if the stream could be part of a package. Instead,
+		 * we'll do it in dmu_recv_stream. If we pull the next header
+		 * too early, and it's the END record, we break the `recv_skip`
+		 * logic.
+		 */
+
+		err = receive_read_payload_and_next_header(drc, payloadlen,
+		    payload);
+		if (err != 0) {
+			vmem_free(payload, payloadlen);
+			return (err);
+		}
 		err = nvlist_unpack(payload, payloadlen, &drc->drc_begin_nvl,
 		    KM_SLEEP);
 		vmem_free(payload, payloadlen);
@@ -1345,8 +1390,10 @@ corrective_read_done(zio_t *zio)
 {
 	cr_cb_data_t *data = zio->io_private;
 	/* Corruption corrected; update error log if needed */
-	if (zio->io_error == 0)
-		spa_remove_error(data->spa, &data->zb);
+	if (zio->io_error == 0) {
+		spa_remove_error(data->spa, &data->zb,
+		    BP_GET_LOGICAL_BIRTH(zio->io_bp));
+	}
 	kmem_free(data, sizeof (cr_cb_data_t));
 	abd_free(zio->io_abd);
 }
@@ -1364,8 +1411,8 @@ do_corrective_recv(struct receive_writer_arg *rwa, struct drr_write *drrw,
 	dnode_t *dn;
 	abd_t *abd = rrd->abd;
 	zio_cksum_t bp_cksum = bp->blk_cksum;
-	zio_flag_t flags = ZIO_FLAG_SPECULATIVE |
-	    ZIO_FLAG_DONT_CACHE | ZIO_FLAG_DONT_RETRY | ZIO_FLAG_CANFAIL;
+	zio_flag_t flags = ZIO_FLAG_SPECULATIVE | ZIO_FLAG_DONT_RETRY |
+	    ZIO_FLAG_CANFAIL;
 
 	if (rwa->raw)
 		flags |= ZIO_FLAG_RAW;
@@ -1382,7 +1429,7 @@ do_corrective_recv(struct receive_writer_arg *rwa, struct drr_write *drrw,
 		abd_t *dabd = abd_alloc_linear(
 		    drrw->drr_logical_size, B_FALSE);
 		err = zio_decompress_data(drrw->drr_compressiontype,
-		    abd, abd_to_buf(dabd), abd_get_size(abd),
+		    abd, dabd, abd_get_size(abd),
 		    abd_get_size(dabd), NULL);
 
 		if (err != 0) {
@@ -1399,7 +1446,7 @@ do_corrective_recv(struct receive_writer_arg *rwa, struct drr_write *drrw,
 		abd_t *cabd = abd_alloc_linear(BP_GET_PSIZE(bp),
 		    B_FALSE);
 		uint64_t csize = zio_compress_data(BP_GET_COMPRESS(bp),
-		    abd, abd_to_buf(cabd), abd_get_size(abd),
+		    abd, &cabd, abd_get_size(abd), BP_GET_PSIZE(bp),
 		    rwa->os->os_complevel);
 		abd_zero_off(cabd, csize, BP_GET_PSIZE(bp) - csize);
 		/* Swap in newly compressed data into the abd */
@@ -1472,8 +1519,9 @@ do_corrective_recv(struct receive_writer_arg *rwa, struct drr_write *drrw,
 	}
 	rrd->abd = abd;
 
-	io = zio_rewrite(NULL, rwa->os->os_spa, bp->blk_birth, bp, abd,
-	    BP_GET_PSIZE(bp), NULL, NULL, ZIO_PRIORITY_SYNC_WRITE, flags, &zb);
+	io = zio_rewrite(NULL, rwa->os->os_spa, BP_GET_LOGICAL_BIRTH(bp), bp,
+	    abd, BP_GET_PSIZE(bp), NULL, NULL, ZIO_PRIORITY_SYNC_WRITE, flags,
+	    &zb);
 
 	ASSERT(abd_get_size(abd) == BP_GET_LSIZE(bp) ||
 	    abd_get_size(abd) == BP_GET_PSIZE(bp));
@@ -1787,17 +1835,19 @@ receive_handle_existing_object(const struct receive_writer_arg *rwa,
 	}
 
 	/*
-	 * The dmu does not currently support decreasing nlevels
-	 * or changing the number of dnode slots on an object. For
-	 * non-raw sends, this does not matter and the new object
-	 * can just use the previous one's nlevels. For raw sends,
-	 * however, the structure of the received dnode (including
-	 * nlevels and dnode slots) must match that of the send
-	 * side. Therefore, instead of using dmu_object_reclaim(),
-	 * we must free the object completely and call
-	 * dmu_object_claim_dnsize() instead.
+	 * The dmu does not currently support decreasing nlevels or changing
+	 * indirect block size if there is already one, same as changing the
+	 * number of of dnode slots on an object.  For non-raw sends this
+	 * does not matter and the new object can just use the previous one's
+	 * parameters.  For raw sends, however, the structure of the received
+	 * dnode (including indirects and dnode slots) must match that of the
+	 * send side.  Therefore, instead of using dmu_object_reclaim(), we
+	 * must free the object completely and call dmu_object_claim_dnsize()
+	 * instead.
 	 */
-	if ((rwa->raw && drro->drr_nlevels < doi->doi_indirection) ||
+	if ((rwa->raw && ((doi->doi_indirection > 1 &&
+	    indblksz != doi->doi_metadata_block_size) ||
+	    drro->drr_nlevels < doi->doi_indirection)) ||
 	    dn_slots != doi->doi_dnodesize >> DNODE_SHIFT) {
 		err = dmu_free_long_object(rwa->os, drro->drr_object);
 		if (err != 0)
@@ -2100,6 +2150,16 @@ receive_object(struct receive_writer_arg *rwa, struct drr_object *drro,
 		dmu_buf_rele(db, FTAG);
 		dnode_rele(dn, FTAG);
 	}
+
+	/*
+	 * If the receive fails, we want the resume stream to start with the
+	 * same record that we last successfully received. There is no way to
+	 * request resume from the object record, but we can benefit from the
+	 * fact that sender always sends object record before anything else,
+	 * after which it will "resend" data at offset 0 and resume normally.
+	 */
+	save_resume_state(rwa, drro->drr_object, 0, tx);
+
 	dmu_tx_commit(tx);
 
 	return (0);
@@ -2198,7 +2258,7 @@ flush_write_batch_impl(struct receive_writer_arg *rwa)
 
 				err = zio_decompress_data(
 				    drrw->drr_compressiontype,
-				    abd, abd_to_buf(decomp_abd),
+				    abd, decomp_abd,
 				    abd_get_size(abd),
 				    abd_get_size(decomp_abd), NULL);
 
@@ -2218,7 +2278,7 @@ flush_write_batch_impl(struct receive_writer_arg *rwa)
 			if (err == 0)
 				abd_free(abd);
 		} else {
-			zio_prop_t zp;
+			zio_prop_t zp = {0};
 			dmu_write_policy(rwa->os, dn, 0, 0, &zp);
 
 			zio_flag_t zio_flags = 0;
@@ -2333,7 +2393,6 @@ receive_process_write_record(struct receive_writer_arg *rwa,
 	if (rwa->heal) {
 		blkptr_t *bp;
 		dmu_buf_t *dbp;
-		dnode_t *dn;
 		int flags = DB_RF_CANFAIL;
 
 		if (rwa->raw)
@@ -2365,19 +2424,15 @@ receive_process_write_record(struct receive_writer_arg *rwa,
 			dmu_buf_rele(dbp, FTAG);
 			return (err);
 		}
-		dn = dmu_buf_dnode_enter(dbp);
 		/* Make sure the on-disk block and recv record sizes match */
-		if (drrw->drr_logical_size !=
-		    dn->dn_datablkszsec << SPA_MINBLOCKSHIFT) {
+		if (drrw->drr_logical_size != dbp->db_size) {
 			err = ENOTSUP;
-			dmu_buf_dnode_exit(dbp);
 			dmu_buf_rele(dbp, FTAG);
 			return (err);
 		}
 		/* Get the block pointer for the corrupted block */
 		bp = dmu_buf_get_blkptr(dbp);
 		err = do_corrective_recv(rwa, drrw, rrd, bp);
-		dmu_buf_dnode_exit(dbp);
 		dmu_buf_rele(dbp, FTAG);
 		return (err);
 	}
@@ -2522,7 +2577,7 @@ receive_spill(struct receive_writer_arg *rwa, struct drr_spill *drrs,
 	 * size of the provided arc_buf_t.
 	 */
 	if (db_spill->db_size != drrs->drr_length) {
-		dmu_buf_will_fill(db_spill, tx);
+		dmu_buf_will_fill(db_spill, tx, B_FALSE);
 		VERIFY0(dbuf_spill_set_blksz(db_spill,
 		    drrs->drr_length, tx));
 	}
@@ -3315,6 +3370,17 @@ dmu_recv_stream(dmu_recv_cookie_t *drc, offset_t *voffp)
 	}
 
 	/*
+	 * For compatibility with recursive send streams, we do this here,
+	 * rather than in dmu_recv_begin. If we pull the next header too
+	 * early, and it's the END record, we break the `recv_skip` logic.
+	 */
+	if (drc->drc_drr_begin->drr_payloadlen == 0) {
+		err = receive_read_payload_and_next_header(drc, 0, NULL);
+		if (err != 0)
+			goto out;
+	}
+
+	/*
 	 * If we failed before this point we will clean up any new resume
 	 * state that was created. Now that we've gotten past the initial
 	 * checks we are ok to retain that resume state.
@@ -3360,7 +3426,7 @@ dmu_recv_stream(dmu_recv_cookie_t *drc, offset_t *voffp)
 	 * stream, then we free drc->drc_rrd and exit.
 	 */
 	while (rwa->err == 0) {
-		if (issig(JUSTLOOKING) && issig(FORREAL)) {
+		if (issig()) {
 			err = SET_ERROR(EINTR);
 			break;
 		}
@@ -3777,4 +3843,3 @@ ZFS_MODULE_PARAM(zfs_recv, zfs_recv_, write_batch_size, UINT, ZMOD_RW,
 
 ZFS_MODULE_PARAM(zfs_recv, zfs_recv_, best_effort_corrective, INT, ZMOD_RW,
 	"Ignore errors during corrective receive");
-/* END CSTYLED */

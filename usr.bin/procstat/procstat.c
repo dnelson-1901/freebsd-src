@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007, 2011 Robert N. M. Watson
  * Copyright (c) 2015 Allan Jude <allanjude@freebsd.org>
@@ -27,9 +27,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/sysctl.h>
@@ -118,6 +115,8 @@ static const struct procstat_cmd cmd_table[] = {
 	    PS_CMP_NORMAL },
 	{ "rlimit", "rlimit", NULL, &procstat_rlimit, &cmdopt_none,
 	    PS_CMP_NORMAL },
+	{ "rlimitusage", "rlimitusage", NULL, &procstat_rlimitusage,
+	    &cmdopt_none, PS_CMP_NORMAL },
 	{ "rusage", "rusage", "[-Ht]", &procstat_rusage, &cmdopt_rusage,
 	    PS_CMP_NORMAL },
 	{ "sigfastblock", "sigfastblock", NULL, &procstat_sigfastblock,

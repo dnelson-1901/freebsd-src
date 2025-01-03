@@ -1,8 +1,7 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010 The FreeBSD Foundation
- * All rights reserved.
  *
  * This software was developed by Rui Paulo under sponsorship from the
  * FreeBSD Foundation.
@@ -29,11 +28,7 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
-#define	_WANT_MIPS_REGNUM
 #include <sys/ptrace.h>
 
 #include <err.h>

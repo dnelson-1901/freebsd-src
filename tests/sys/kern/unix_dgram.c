@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2022 Gleb Smirnoff <glebius@FreeBSD.org>
  *
@@ -25,17 +25,20 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/time.h>
 #include <sys/event.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/sysctl.h>
+#include <sys/time.h>
 #include <sys/un.h>
+
 #include <aio.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include <atf-c.h>
@@ -363,12 +366,76 @@ ATF_TC_BODY(event, tc)
 	test42(fd[0]);
 }
 
+ATF_TC_WITHOUT_HEAD(selfgetpeername);
+ATF_TC_BODY(selfgetpeername, tc)
+{
+	struct sockaddr_un sun;
+	const char *name;
+	socklen_t len;
+	int sd;
+
+	name = "selfgetpeername";
+
+	sd = socket(PF_UNIX, SOCK_DGRAM, 0);
+	ATF_REQUIRE(sd != -1);
+
+	memset(&sun, 0, sizeof(sun));
+	sun.sun_len = sizeof(sun);
+	sun.sun_family = AF_UNIX;
+	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", name);
+	ATF_REQUIRE(bind(sd, (struct sockaddr *)&sun, sizeof(sun)) == 0);
+	ATF_REQUIRE(connect(sd, (struct sockaddr *)&sun, sizeof(sun)) == 0);
+
+	len = sizeof(sun);
+	ATF_REQUIRE(getpeername(sd, (struct sockaddr *)&sun, &len) == 0);
+	ATF_REQUIRE(strcmp(sun.sun_path, name) == 0);
+
+	ATF_REQUIRE(close(sd) == 0);
+}
+
+ATF_TC_WITHOUT_HEAD(fchmod);
+ATF_TC_BODY(fchmod, tc)
+{
+	struct stat sb;
+	struct sockaddr_un sun;
+	int error, sd;
+
+	memset(&sun, 0, sizeof(sun));
+	sun.sun_len = sizeof(sun);
+	sun.sun_family = AF_UNIX;
+	strlcpy(sun.sun_path, "sock", sizeof(sun.sun_path));
+
+	sd = socket(PF_UNIX, SOCK_DGRAM, 0);
+	ATF_REQUIRE(sd != -1);
+
+	error = fchmod(sd, 0600 | S_ISUID);
+	ATF_REQUIRE_ERRNO(EINVAL, error == -1);
+
+	umask(0022);
+	error = fchmod(sd, 0766);
+	ATF_REQUIRE(error == 0);
+
+	error = bind(sd, (struct sockaddr *)&sun, sizeof(sun));
+	ATF_REQUIRE(error == 0);
+
+	error = stat(sun.sun_path, &sb);
+	ATF_REQUIRE(error == 0);
+	ATF_REQUIRE_MSG((sb.st_mode & 0777) == 0744,
+	    "sb.st_mode = %o", sb.st_mode);
+
+	error = fchmod(sd, 0666);
+	ATF_REQUIRE_ERRNO(EINVAL, error == -1);
+
+	ATF_REQUIRE(close(sd) == 0);
+}
+
 ATF_TP_ADD_TCS(tp)
 {
-
 	ATF_TP_ADD_TC(tp, basic);
 	ATF_TP_ADD_TC(tp, one2many);
 	ATF_TP_ADD_TC(tp, event);
+	ATF_TP_ADD_TC(tp, selfgetpeername);
+	ATF_TP_ADD_TC(tp, fchmod);
 
 	return (atf_no_error());
 }

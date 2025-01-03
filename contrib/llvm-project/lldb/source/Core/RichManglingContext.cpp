@@ -24,7 +24,7 @@ RichManglingContext::~RichManglingContext() {
 void RichManglingContext::ResetCxxMethodParser() {
   // If we want to support parsers for other languages some day, we need a
   // switch here to delete the correct parser type.
-  if (m_cxx_method_parser.hasValue()) {
+  if (m_cxx_method_parser.has_value()) {
     assert(m_provider == PluginCxxLanguage);
     delete get<CPlusPlusLanguage::MethodName>(m_cxx_method_parser);
     m_cxx_method_parser.reset();
@@ -72,7 +72,7 @@ bool RichManglingContext::IsCtorOrDtor() const {
     // We can only check for destructors here.
     auto base_name =
         get<CPlusPlusLanguage::MethodName>(m_cxx_method_parser)->GetBasename();
-    return base_name.startswith("~");
+    return base_name.starts_with("~");
   }
   case None:
     return false;

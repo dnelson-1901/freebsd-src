@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2016 Alex Teaca <iateaca@FreeBSD.org>
  * All rights reserved.
@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  *
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <time.h>
@@ -324,7 +321,7 @@ hda_init(nvlist_t *nvl)
 	int err;
 
 #if DEBUG_HDA == 1
-	dbg = fopen("/tmp/bhyve_hda.log", "w+");
+	dbg = fopen(DEBUG_HDA_FILE, "w+");
 #endif
 
 	sc = calloc(1, sizeof(*sc));
@@ -726,17 +723,19 @@ hda_write(struct hda_softc *sc, uint32_t offset, uint8_t size, uint32_t value)
 	return (0);
 }
 
+#if DEBUG_HDA == 1
 static inline void
 hda_print_cmd_ctl_data(struct hda_codec_cmd_ctl *p)
 {
-#if DEBUG_HDA == 1
-	const char *name = p->name;
-#endif
-	DPRINTF("%s size: %d", name, p->size);
-	DPRINTF("%s dma_vaddr: %p", name, p->dma_vaddr);
-	DPRINTF("%s wp: 0x%x", name, p->wp);
-	DPRINTF("%s rp: 0x%x", name, p->rp);
+	DPRINTF("%s size: %d", p->name, p->size);
+	DPRINTF("%s dma_vaddr: %p", p->name, p->dma_vaddr);
+	DPRINTF("%s wp: 0x%x", p->name, p->wp);
+	DPRINTF("%s rp: 0x%x", p->name, p->rp);
 }
+#else
+static inline void
+hda_print_cmd_ctl_data(struct hda_codec_cmd_ctl *p __unused) {}
+#endif
 
 static int
 hda_corb_start(struct hda_softc *sc)
@@ -789,6 +788,11 @@ hda_corb_run(struct hda_softc *sc)
 	int err;
 
 	corb->wp = hda_get_reg_by_offset(sc, HDAC_CORBWP);
+	if (corb->wp >= corb->size) {
+		DPRINTF("Invalid HDAC_CORBWP %u >= size %u", corb->wp,
+		    corb->size);
+		return (-1);
+	}
 
 	while (corb->rp != corb->wp && corb->run) {
 		corb->rp++;

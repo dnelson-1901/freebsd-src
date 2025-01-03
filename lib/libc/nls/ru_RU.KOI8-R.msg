@@ -1,4 +1,3 @@
-$ $FreeBSD$
 $
 $ Message catalog for ru_RU.KOI8-R locale
 $
@@ -68,7 +67,6 @@ $ EROFS
 $ EMLINK
 31 Слишком много ссылок
 $ EPIPE
-$ XXX???
 32 Канал разрушен
 $ EDOM
 33 Недопустимое значение числового аргумента
@@ -79,7 +77,6 @@ $ EAGAIN, EWOULDBLOCK
 $ EINPROGRESS
 36 Операция в процессе выполнения
 $ EALREADY
-$ XXX???
 37 Операция уже выполняется
 $ ENOTSOCK
 38 Операция с сокетом применена не к сокету

@@ -30,9 +30,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -97,7 +94,7 @@ dwgpiobus_attach(device_t dev)
 	/*
 	 * Allow devices to identify.
 	 */
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 
 	/*
 	 * Now walk the OFW tree and attach top-level devices.
@@ -105,7 +102,8 @@ dwgpiobus_attach(device_t dev)
 	for (node = OF_child(node); node > 0; node = OF_peer(node))
 		simplebus_add_device(dev, node, 0, NULL, -1, NULL);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static int

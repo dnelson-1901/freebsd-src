@@ -21,8 +21,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef _LINUXKPI_LINUX_ETHERDEVICE_H_
 #define	_LINUXKPI_LINUX_ETHERDEVICE_H_
@@ -55,7 +53,8 @@ struct ethtool_modinfo {
 static inline bool
 is_zero_ether_addr(const u8 * addr)
 {
-	return ((addr[0] + addr[1] + addr[2] + addr[3] + addr[4] + addr[5]) == 0x00);
+	return ((addr[0] | addr[1] | addr[2] | addr[3] | addr[4] | addr[5]) ==
+	    0x00);
 }
 
 static inline bool
@@ -67,7 +66,8 @@ is_multicast_ether_addr(const u8 * addr)
 static inline bool
 is_broadcast_ether_addr(const u8 * addr)
 {
-	return ((addr[0] + addr[1] + addr[2] + addr[3] + addr[4] + addr[5]) == (6 * 0xff));
+	return ((addr[0] & addr[1] & addr[2] & addr[3] & addr[4] & addr[5]) ==
+	    0xff);
 }
 
 static inline bool

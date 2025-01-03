@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -520,8 +517,9 @@ am335x_ehrpwm_attach(device_t dev)
 		// This driver can still do things even without the bus child.
 	}
 
-	bus_generic_probe(dev);
-	return (bus_generic_attach(dev));
+	bus_identify_children(dev);
+	bus_attach_children(dev);
+	return (0);
 fail:
 	PWM_LOCK_DESTROY(sc);
 	if (sc->sc_mem_res)
@@ -543,9 +541,6 @@ am335x_ehrpwm_detach(device_t dev)
 		return (error);
 
 	PWM_LOCK(sc);
-
-	if (sc->sc_busdev != NULL)
-		device_delete_child(dev, sc->sc_busdev);
 
 	if (sc->sc_mem_res)
 		bus_release_resource(dev, SYS_RES_MEMORY,

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Atsushi Onoe
  * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef _NET80211_IEEE80211_NODE_H_
 #define _NET80211_IEEE80211_NODE_H_
@@ -109,6 +107,25 @@ enum ieee80211_mesh_mlstate {
 };
 #define	IEEE80211_MESH_MLSTATE_BITS \
 	"\20\1IDLE\2OPENSNT\2OPENRCV\3CONFIRMRCV\4ESTABLISHED\5HOLDING"
+
+/*
+ * This structure is shared with LinuxKPI 802.11 code describing up-to
+ * which channel width the station can receive.
+ * Rather than using hardcoded MHz values for the channel width use an enum with
+ * flags. This allows us to keep the uint8_t slot for ni_chw in
+ * struct ieee80211_node and means we do not have to sync to the value for
+ * LinuxKPI.
+ */
+enum ieee80211_sta_rx_bw {
+	IEEE80211_STA_RX_BW_20		= 0x01,
+	IEEE80211_STA_RX_BW_40		= 0x02,
+	IEEE80211_STA_RX_BW_80		= 0x04,
+	IEEE80211_STA_RX_BW_160		= 0x08,
+	IEEE80211_STA_RX_BW_320		= 0x10,
+} __packed;
+
+#define	IEEE80211_NI_CHW_BITS \
+	"\20\1BW_20\2BW_40\3BW_80\4BW_160\5BW_320"
 
 /*
  * Node specific information.  Note that drivers are expected
@@ -224,7 +241,7 @@ struct ieee80211_node {
 	uint8_t			ni_ht2ndchan;	/* HT 2nd channel */
 	uint8_t			ni_htopmode;	/* HT operating mode */
 	uint8_t			ni_htstbc;	/* HT */
-	uint8_t			ni_chw;		/* negotiated channel width */
+	enum ieee80211_sta_rx_bw ni_chw;	/* negotiated channel width */
 	struct ieee80211_htrateset ni_htrates;	/* negotiated ht rate set */
 	struct ieee80211_tx_ampdu ni_tx_ampdu[WME_NUM_TID];
 	struct ieee80211_rx_ampdu ni_rx_ampdu[WME_NUM_TID];
@@ -321,20 +338,6 @@ MALLOC_DECLARE(M_80211_NODE_IE);
 #define	IEEE80211_RSSI_GET(x) \
 	IEEE80211_RSSI_EP_RND(x, IEEE80211_RSSI_EP_MULTIPLIER)
 
-static __inline struct ieee80211_node *
-ieee80211_ref_node(struct ieee80211_node *ni)
-{
-	ieee80211_node_incref(ni);
-	return ni;
-}
-
-static __inline void
-ieee80211_unref_node(struct ieee80211_node **ni)
-{
-	ieee80211_node_decref(*ni);
-	*ni = NULL;			/* guard against use */
-}
-
 void	ieee80211_node_attach(struct ieee80211com *);
 void	ieee80211_node_lateattach(struct ieee80211com *);
 void	ieee80211_node_detach(struct ieee80211com *);
@@ -397,9 +400,6 @@ struct ieee80211_node_table {
 	int			nt_inact_init;	/* initial node inact setting */
 };
 
-struct ieee80211_node *ieee80211_alloc_node(struct ieee80211_node_table *,
-		struct ieee80211vap *,
-		const uint8_t macaddr[IEEE80211_ADDR_LEN]);
 struct ieee80211_node *ieee80211_tmp_node(struct ieee80211vap *,
 		const uint8_t macaddr[IEEE80211_ADDR_LEN]);
 struct ieee80211_node *ieee80211_dup_bss(struct ieee80211vap *,
@@ -409,6 +409,8 @@ struct ieee80211_node *ieee80211_node_create_wds(struct ieee80211vap *,
 		struct ieee80211_channel *);
 
 /* These functions are taking __func__, __LINE__ for IEEE80211_DEBUG_REFCNT */
+struct ieee80211_node *_ieee80211_ref_node(struct ieee80211_node *,
+		const char *func, int line);
 void	_ieee80211_free_node(struct ieee80211_node *,
 		const char *func, int line);
 struct ieee80211_node *_ieee80211_find_node_locked(
@@ -438,6 +440,8 @@ struct ieee80211_node *_ieee80211_find_rxnode_withkey(
 struct ieee80211_node *_ieee80211_find_txnode(struct ieee80211vap *,
 		const uint8_t macaddr[IEEE80211_ADDR_LEN],
 		const char *func, int line);
+#define	ieee80211_ref_node(ni) \
+	_ieee80211_ref_node(ni, __func__, __LINE__)
 #define	ieee80211_free_node(ni) \
 	_ieee80211_free_node(ni, __func__, __LINE__)
 #define	ieee80211_find_node_locked(nt, mac) \

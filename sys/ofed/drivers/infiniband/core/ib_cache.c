@@ -36,8 +36,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <linux/module.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
@@ -467,7 +465,7 @@ static int _ib_cache_gid_table_find(struct ib_device *ib_dev,
 	struct ib_gid_table *table;
 	u8 p;
 	int local_index;
-	unsigned long flags;
+	unsigned long flags __writeonly;
 
 	for (p = 0; p < ib_dev->phys_port_cnt; p++) {
 		table = ports_table[p];
@@ -516,7 +514,7 @@ int ib_find_cached_gid_by_port(struct ib_device *ib_dev,
 	unsigned long mask = GID_ATTR_FIND_MASK_GID |
 			     GID_ATTR_FIND_MASK_GID_TYPE;
 	struct ib_gid_attr val = {.ndev = ndev, .gid_type = gid_type};
-	unsigned long flags;
+	unsigned long flags __writeonly;
 
 	if (!rdma_is_port_valid(ib_dev, port))
 		return -ENOENT;
@@ -572,7 +570,7 @@ static int ib_cache_gid_find_by_filter(struct ib_device *ib_dev,
 	struct ib_gid_table **ports_table = ib_dev->cache.gid_cache;
 	struct ib_gid_table *table;
 	unsigned int i;
-	unsigned long flags;
+	unsigned long flags __writeonly;
 	bool found = false;
 
 	if (!ports_table)
@@ -881,7 +879,7 @@ int ib_get_cached_gid(struct ib_device *device,
 		      struct ib_gid_attr *gid_attr)
 {
 	int res;
-	unsigned long flags;
+	unsigned long flags __writeonly;
 	struct ib_gid_table **ports_table = device->cache.gid_cache;
 	struct ib_gid_table *table = ports_table[port_num - rdma_start_port(device)];
 
@@ -931,7 +929,7 @@ int ib_get_cached_pkey(struct ib_device *device,
 		       u16              *pkey)
 {
 	struct ib_pkey_cache *cache;
-	unsigned long flags;
+	unsigned long flags __writeonly;
 	int ret = 0;
 
 	if (!rdma_is_port_valid(device, port_num))
@@ -958,7 +956,7 @@ int ib_find_cached_pkey(struct ib_device *device,
 			u16              *index)
 {
 	struct ib_pkey_cache *cache;
-	unsigned long flags;
+	unsigned long flags __writeonly;
 	int i;
 	int ret = -ENOENT;
 	int partial_ix = -1;
@@ -999,7 +997,7 @@ int ib_find_exact_cached_pkey(struct ib_device *device,
 			      u16              *index)
 {
 	struct ib_pkey_cache *cache;
-	unsigned long flags;
+	unsigned long flags __writeonly;
 	int i;
 	int ret = -ENOENT;
 
@@ -1029,7 +1027,7 @@ int ib_get_cached_lmc(struct ib_device *device,
 		      u8                port_num,
 		      u8                *lmc)
 {
-	unsigned long flags;
+	unsigned long flags __writeonly;
 	int ret = 0;
 
 	if (!rdma_is_port_valid(device, port_num))

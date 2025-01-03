@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021 Adrian Chadd <adrian@FreeBSD.Org>
  *
@@ -29,9 +29,6 @@
  * Qualcomm DWC3 glue
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -48,10 +45,10 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus_subr.h>
 #include <dev/ofw/ofw_subr.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#include <dev/extres/phy/phy_usb.h>
-#include <dev/extres/syscon/syscon.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
+#include <dev/phy/phy_usb.h>
+#include <dev/syscon/syscon.h>
 
 static struct ofw_compat_data compat_data[] = {
 	{ "qcom,dwc3",			1},
@@ -159,7 +156,8 @@ qcom_dwc3_attach(device_t dev)
 			device_probe_and_attach(cdev);
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static device_method_t qcom_dwc3_methods[] = {

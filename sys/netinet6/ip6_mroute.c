@@ -62,8 +62,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ip_mroute.c	8.2 (Berkeley) 11/15/93
  *	BSDI ip_mroute.c,v 2.10 1996/11/14 00:29:52 jch Exp
  */
 
@@ -81,8 +79,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet6.h"
 
 #include <sys/param.h>
@@ -1077,6 +1073,7 @@ X_ip6_mforward(struct ip6_hdr *ip6, struct ifnet *ifp, struct mbuf *m)
 	GET_TIME(tp);
 #endif /* UPCALL_TIMING */
 
+	M_ASSERTMAPPED(m);
 	MRT6_DLOG(DEBUG_FORWARD, "src %s, dst %s, ifindex %d",
 	    ip6_sprintf(ip6bufs, &ip6->ip6_src),
 	    ip6_sprintf(ip6bufd, &ip6->ip6_dst), ifp->if_index);
@@ -1368,6 +1365,8 @@ ip6_mdq(struct mbuf *m, struct ifnet *ifp, struct mf6c *rt)
 	u_int32_t iszone, idzone, oszone, odzone;
 	int error = 0;
 
+	M_ASSERTMAPPED(m);
+
 	/*
 	 * Don't forward if it didn't arrive from the parent mif
 	 * for its origin.
@@ -1530,6 +1529,8 @@ phyint_send(struct ip6_hdr *ip6, struct mif6 *mifp, struct mbuf *m)
 	struct ifnet *ifp = mifp->m6_ifp;
 	int error __unused = 0;
 	u_long linkmtu;
+
+	M_ASSERTMAPPED(m);
 
 	/*
 	 * Make a new reference to the packet; make sure that

@@ -18,6 +18,7 @@
 #include "lld/Common/Memory.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Object/ELF.h"
+#include "llvm/Support/Compiler.h"
 #include <tuple>
 
 namespace lld {
@@ -36,8 +37,24 @@ class InputSectionBase;
 class SharedSymbol;
 class Symbol;
 class Undefined;
-class LazyObject;
+class LazySymbol;
 class InputFile;
+
+void printTraceSymbol(const Symbol &sym, StringRef name);
+
+enum {
+  NEEDS_GOT = 1 << 0,
+  NEEDS_PLT = 1 << 1,
+  HAS_DIRECT_RELOC = 1 << 2,
+  // True if this symbol needs a canonical PLT entry, or (during
+  // postScanRelocations) a copy relocation.
+  NEEDS_COPY = 1 << 3,
+  NEEDS_TLSDESC = 1 << 4,
+  NEEDS_TLSGD = 1 << 5,
+  NEEDS_TLSGD_TO_IE = 1 << 6,
+  NEEDS_GOT_DTPREL = 1 << 7,
+  NEEDS_TLSIE = 1 << 8,
+};
 
 // Some index properties of a symbol are stored separately in this auxiliary
 // struct to decrease sizeof(SymbolUnion) in the majority of cases.
@@ -48,7 +65,7 @@ struct SymbolAux {
   uint32_t tlsGdIdx = -1;
 };
 
-extern SmallVector<SymbolAux, 0> symAux;
+LLVM_LIBRARY_VISIBILITY extern SmallVector<SymbolAux, 0> symAux;
 
 // The base class for real symbol classes.
 class Symbol {
@@ -59,13 +76,17 @@ public:
     CommonKind,
     SharedKind,
     UndefinedKind,
-    LazyObjectKind,
+    LazyKind,
   };
 
   Kind kind() const { return static_cast<Kind>(symbolKind); }
 
   // The file from which this symbol was created.
   InputFile *file;
+
+  // The default copy constructor is deleted due to atomic flags. Define one for
+  // places where no atomic is needed.
+  Symbol(const Symbol &o) { memcpy(this, &o, sizeof(o)); }
 
 protected:
   const char *nameData;
@@ -91,25 +112,24 @@ public:
   uint8_t symbolKind;
 
   // The partition whose dynamic symbol table contains this symbol's definition.
-  uint8_t partition = 1;
-
-  // Symbol visibility. This is the computed minimum visibility of all
-  // observed non-DSO symbols.
-  uint8_t visibility : 2;
+  uint8_t partition;
 
   // True if this symbol is preemptible at load time.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t isPreemptible : 1;
 
   // True if the symbol was used for linking and thus need to be added to the
   // output file's symbol table. This is true for all symbols except for
   // unreferenced DSO symbols, lazy (archive) symbols, and bitcode symbols that
   // are unreferenced except by other bitcode objects.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t isUsedInRegularObj : 1;
 
   // True if an undefined or shared symbol is used from a live section.
   //
   // NOTE: In Writer.cpp the field is used to mark local defined symbols
   // which are referenced by relocations when -r or --emit-relocs is given.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t used : 1;
 
   // Used by a Defined symbol with protected or default visibility, to record
@@ -121,30 +141,41 @@ public:
   // - If -shared or --export-dynamic is specified, any symbol in an object
   //   file/bitcode sets this property, unless suppressed by LTO
   //   canBeOmittedFromSymbolTable().
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t exportDynamic : 1;
 
   // True if the symbol is in the --dynamic-list file. A Defined symbol with
   // protected or default visibility with this property is required to be
   // exported into .dynsym.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t inDynamicList : 1;
 
   // Used to track if there has been at least one undefined reference to the
   // symbol. For Undefined and SharedSymbol, the binding may change to STB_WEAK
   // if the first undefined reference from a non-shared object is weak.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t referenced : 1;
 
   // Used to track if this symbol will be referenced after wrapping is performed
   // (i.e. this will be true for foo if __real_foo is referenced, and will be
   // true for __wrap_foo if foo is referenced).
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t referencedAfterWrap : 1;
 
   // True if this symbol is specified by --trace-symbol option.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t traced : 1;
 
   // True if the name contains '@'.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t hasVersionSuffix : 1;
 
-  inline void replace(const Symbol &other);
+  // Symbol visibility. This is the computed minimum visibility of all
+  // observed non-DSO symbols.
+  uint8_t visibility() const { return stOther & 3; }
+  void setVisibility(uint8_t visibility) {
+    stOther = (stOther & ~3) | visibility;
+  }
 
   bool includeInDynsym() const;
   uint8_t computeBinding() const;
@@ -159,7 +190,7 @@ public:
 
   bool isLocal() const { return binding == llvm::ELF::STB_LOCAL; }
 
-  bool isLazy() const { return symbolKind == LazyObjectKind; }
+  bool isLazy() const { return symbolKind == LazyKind; }
 
   // True if this is an undefined weak symbol. This only works once
   // all input files have been added.
@@ -180,18 +211,10 @@ public:
   // truncated by Symbol::parseSymbolVersion().
   const char *getVersionSuffix() const { return nameData + nameSize; }
 
-  uint32_t getGotIdx() const {
-    return auxIdx == uint32_t(-1) ? uint32_t(-1) : symAux[auxIdx].gotIdx;
-  }
-  uint32_t getPltIdx() const {
-    return auxIdx == uint32_t(-1) ? uint32_t(-1) : symAux[auxIdx].pltIdx;
-  }
-  uint32_t getTlsDescIdx() const {
-    return auxIdx == uint32_t(-1) ? uint32_t(-1) : symAux[auxIdx].tlsDescIdx;
-  }
-  uint32_t getTlsGdIdx() const {
-    return auxIdx == uint32_t(-1) ? uint32_t(-1) : symAux[auxIdx].tlsGdIdx;
-  }
+  uint32_t getGotIdx() const { return symAux[auxIdx].gotIdx; }
+  uint32_t getPltIdx() const { return symAux[auxIdx].pltIdx; }
+  uint32_t getTlsDescIdx() const { return symAux[auxIdx].tlsDescIdx; }
+  uint32_t getTlsGdIdx() const { return symAux[auxIdx].tlsGdIdx; }
 
   bool isInGot() const { return getGotIdx() != uint32_t(-1); }
   bool isInPlt() const { return getPltIdx() != uint32_t(-1); }
@@ -220,7 +243,11 @@ public:
   // For example, if "this" is an undefined symbol and a new symbol is
   // a defined symbol, "this" is replaced with the new symbol.
   void mergeProperties(const Symbol &other);
-  void resolve(const Symbol &other);
+  void resolve(const Undefined &other);
+  void resolve(const CommonSymbol &other);
+  void resolve(const Defined &other);
+  void resolve(const LazySymbol &other);
+  void resolve(const SharedSymbol &other);
 
   // If this is a lazy symbol, extract an input file and add the symbol
   // in the file to the symbol table. Calling this function on
@@ -230,85 +257,106 @@ public:
   void checkDuplicate(const Defined &other) const;
 
 private:
-  void resolveUndefined(const Undefined &other);
-  void resolveCommon(const CommonSymbol &other);
-  void resolveDefined(const Defined &other);
-  void resolveLazy(const LazyObject &other);
-  void resolveShared(const SharedSymbol &other);
-
   bool shouldReplace(const Defined &other) const;
-
-  inline size_t getSymbolSize() const;
 
 protected:
   Symbol(Kind k, InputFile *file, StringRef name, uint8_t binding,
          uint8_t stOther, uint8_t type)
       : file(file), nameData(name.data()), nameSize(name.size()), type(type),
-        binding(binding), stOther(stOther), symbolKind(k),
-        visibility(stOther & 3), isPreemptible(false),
-        isUsedInRegularObj(false), used(false), exportDynamic(false),
-        inDynamicList(false), referenced(false), referencedAfterWrap(false),
-        traced(false), hasVersionSuffix(false), isInIplt(false),
-        gotInIgot(false), folded(false), needsTocRestore(false),
-        scriptDefined(false), needsCopy(false), needsGot(false),
-        needsPlt(false), needsTlsDesc(false), needsTlsGd(false),
-        needsTlsGdToIe(false), needsGotDtprel(false), needsTlsIe(false),
-        hasDirectReloc(false) {}
+        binding(binding), stOther(stOther), symbolKind(k), exportDynamic(false),
+        archSpecificBit(false) {}
+
+  void overwrite(Symbol &sym, Kind k) const {
+    if (sym.traced)
+      printTraceSymbol(*this, sym.getName());
+    sym.file = file;
+    sym.type = type;
+    sym.binding = binding;
+    sym.stOther = (stOther & ~3) | sym.visibility();
+    sym.symbolKind = k;
+  }
 
 public:
   // True if this symbol is in the Iplt sub-section of the Plt and the Igot
   // sub-section of the .got.plt or .got.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t isInIplt : 1;
 
   // True if this symbol needs a GOT entry and its GOT entry is actually in
   // Igot. This will be true only for certain non-preemptible ifuncs.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t gotInIgot : 1;
 
   // True if defined relative to a section discarded by ICF.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t folded : 1;
 
-  // True if a call to this symbol needs to be followed by a restore of the
-  // PPC64 toc pointer.
-  uint8_t needsTocRestore : 1;
+  // Allow reuse of a bit between architecture-exclusive symbol flags.
+  // - needsTocRestore(): On PPC64, true if a call to this symbol needs to be
+  //   followed by a restore of the toc pointer.
+  // - isTagged(): On AArch64, true if the symbol needs special relocation and
+  //   metadata semantics because it's tagged, under the AArch64 MemtagABI.
+  LLVM_PREFERRED_TYPE(bool)
+  uint8_t archSpecificBit : 1;
+  bool needsTocRestore() const { return archSpecificBit; }
+  bool isTagged() const { return archSpecificBit; }
+  void setNeedsTocRestore(bool v) { archSpecificBit = v; }
+  void setIsTagged(bool v) {
+    archSpecificBit = v;
+  }
 
   // True if this symbol is defined by a symbol assignment or wrapped by --wrap.
   //
   // LTO shouldn't inline the symbol because it doesn't know the final content
   // of the symbol.
+  LLVM_PREFERRED_TYPE(bool)
   uint8_t scriptDefined : 1;
 
-  // True if this symbol needs a canonical PLT entry, or (during
-  // postScanRelocations) a copy relocation.
-  uint8_t needsCopy : 1;
+  // True if defined in a DSO. There may also be a definition in a relocatable
+  // object file.
+  LLVM_PREFERRED_TYPE(bool)
+  uint8_t dsoDefined : 1;
+
+  // True if defined in a DSO as protected visibility.
+  LLVM_PREFERRED_TYPE(bool)
+  uint8_t dsoProtected : 1;
 
   // Temporary flags used to communicate which symbol entries need PLT and GOT
   // entries during postScanRelocations();
-  uint8_t needsGot : 1;
-  uint8_t needsPlt : 1;
-  uint8_t needsTlsDesc : 1;
-  uint8_t needsTlsGd : 1;
-  uint8_t needsTlsGdToIe : 1;
-  uint8_t needsGotDtprel : 1;
-  uint8_t needsTlsIe : 1;
-  uint8_t hasDirectReloc : 1;
+  std::atomic<uint16_t> flags;
 
   // A symAux index used to access GOT/PLT entry indexes. This is allocated in
   // postScanRelocations().
-  uint32_t auxIdx = -1;
-  uint32_t dynsymIndex = 0;
+  uint32_t auxIdx;
+  uint32_t dynsymIndex;
 
-  // This field is a index to the symbol's version definition.
-  uint16_t verdefIndex = -1;
-
-  // Version definition index.
+  // If `file` is SharedFile (for SharedSymbol or copy-relocated Defined), this
+  // represents the Verdef index within the input DSO, which will be converted
+  // to a Verneed index in the output. Otherwise, this represents the Verdef
+  // index (VER_NDX_LOCAL, VER_NDX_GLOBAL, or a named version).
   uint16_t versionId;
+  LLVM_PREFERRED_TYPE(bool)
+  uint8_t versionScriptAssigned : 1;
+
+  // True if targeted by a range extension thunk.
+  LLVM_PREFERRED_TYPE(bool)
+  uint8_t thunkAccessed : 1;
+
+  void setFlags(uint16_t bits) {
+    flags.fetch_or(bits, std::memory_order_relaxed);
+  }
+  bool hasFlag(uint16_t bit) const {
+    assert(bit && (bit & (bit - 1)) == 0 && "bit must be a power of 2");
+    return flags.load(std::memory_order_relaxed) & bit;
+  }
 
   bool needsDynReloc() const {
-    return needsCopy || needsGot || needsPlt || needsTlsDesc || needsTlsGd ||
-           needsTlsGdToIe || needsGotDtprel || needsTlsIe;
+    return flags.load(std::memory_order_relaxed) &
+           (NEEDS_COPY | NEEDS_GOT | NEEDS_PLT | NEEDS_TLSDESC | NEEDS_TLSGD |
+            NEEDS_TLSGD_TO_IE | NEEDS_GOT_DTPREL | NEEDS_TLSIE);
   }
   void allocateAux() {
-    assert(auxIdx == uint32_t(-1));
+    assert(auxIdx == 0);
     auxIdx = symAux.size();
     symAux.emplace_back();
   }
@@ -330,6 +378,7 @@ public:
         size(size), section(section) {
     exportDynamic = config->exportDynamic;
   }
+  void overwrite(Symbol &sym) const;
 
   static bool classof(const Symbol *s) { return s->isDefined(); }
 
@@ -367,6 +416,12 @@ public:
         alignment(alignment), size(size) {
     exportDynamic = config->exportDynamic;
   }
+  void overwrite(Symbol &sym) const {
+    Symbol::overwrite(sym, CommonKind);
+    auto &s = static_cast<CommonSymbol &>(sym);
+    s.alignment = alignment;
+    s.size = size;
+  }
 
   static bool classof(const Symbol *s) { return s->isCommon(); }
 
@@ -380,6 +435,12 @@ public:
             uint8_t type, uint32_t discardedSecIdx = 0)
       : Symbol(UndefinedKind, file, name, binding, stOther, type),
         discardedSecIdx(discardedSecIdx) {}
+  void overwrite(Symbol &sym) const {
+    Symbol::overwrite(sym, UndefinedKind);
+    auto &s = static_cast<Undefined &>(sym);
+    s.discardedSecIdx = discardedSecIdx;
+    s.nonPrevailing = nonPrevailing;
+  }
 
   static bool classof(const Symbol *s) { return s->kind() == UndefinedKind; }
 
@@ -398,6 +459,7 @@ public:
       : Symbol(SharedKind, &file, name, binding, stOther, type), value(value),
         size(size), alignment(alignment) {
     exportDynamic = true;
+    dsoProtected = visibility() == llvm::ELF::STV_PROTECTED;
     // GNU ifunc is a mechanism to allow user-supplied functions to
     // resolve PLT slot values at load-time. This is contrary to the
     // regular symbol resolution scheme in which symbols are resolved just
@@ -417,13 +479,21 @@ public:
     if (this->type == llvm::ELF::STT_GNU_IFUNC)
       this->type = llvm::ELF::STT_FUNC;
   }
+  void overwrite(Symbol &sym) const {
+    Symbol::overwrite(sym, SharedKind);
+    auto &s = static_cast<SharedSymbol &>(sym);
+    s.dsoProtected = dsoProtected;
+    s.value = value;
+    s.size = size;
+    s.alignment = alignment;
+  }
 
   uint64_t value; // st_value
   uint64_t size;  // st_size
   uint32_t alignment;
 };
 
-// LazyObject symbols represent symbols in object files between --start-lib and
+// LazySymbol symbols represent symbols in object files between --start-lib and
 // --end-lib options. LLD also handles traditional archives as if all the files
 // in the archive are surrounded by --start-lib and --end-lib.
 //
@@ -432,13 +502,14 @@ public:
 // and the lazy. We represent that with a lazy symbol with a weak binding. This
 // means that code looking for undefined symbols normally also has to take lazy
 // symbols into consideration.
-class LazyObject : public Symbol {
+class LazySymbol : public Symbol {
 public:
-  LazyObject(InputFile &file)
-      : Symbol(LazyObjectKind, &file, {}, llvm::ELF::STB_GLOBAL,
+  LazySymbol(InputFile &file)
+      : Symbol(LazyKind, &file, {}, llvm::ELF::STB_GLOBAL,
                llvm::ELF::STV_DEFAULT, llvm::ELF::STT_NOTYPE) {}
+  void overwrite(Symbol &sym) const { Symbol::overwrite(sym, LazyKind); }
 
-  static bool classof(const Symbol *s) { return s->kind() == LazyObjectKind; }
+  static bool classof(const Symbol *s) { return s->kind() == LazyKind; }
 };
 
 // Some linker-generated symbols need to be created as
@@ -469,12 +540,12 @@ struct ElfSym {
   static Defined *mipsGpDisp;
   static Defined *mipsLocalGp;
 
+  // __global_pointer$ for RISC-V.
+  static Defined *riscvGlobalPointer;
+
   // __rel{,a}_iplt_{start,end} symbols.
   static Defined *relaIpltStart;
   static Defined *relaIpltEnd;
-
-  // __global_pointer$ for RISC-V.
-  static Defined *riscvGlobalPointer;
 
   // _TLS_MODULE_BASE_ on targets that support TLSDESC.
   static Defined *tlsModuleBase;
@@ -492,62 +563,14 @@ union SymbolUnion {
   alignas(CommonSymbol) char b[sizeof(CommonSymbol)];
   alignas(Undefined) char c[sizeof(Undefined)];
   alignas(SharedSymbol) char d[sizeof(SharedSymbol)];
-  alignas(LazyObject) char e[sizeof(LazyObject)];
+  alignas(LazySymbol) char e[sizeof(LazySymbol)];
 };
 
-void printTraceSymbol(const Symbol &sym, StringRef name);
-
-size_t Symbol::getSymbolSize() const {
-  switch (kind()) {
-  case CommonKind:
-    return sizeof(CommonSymbol);
-  case DefinedKind:
-    return sizeof(Defined);
-  case LazyObjectKind:
-    return sizeof(LazyObject);
-  case SharedKind:
-    return sizeof(SharedSymbol);
-  case UndefinedKind:
-    return sizeof(Undefined);
-  case PlaceholderKind:
-    return sizeof(Symbol);
-  }
-  llvm_unreachable("unknown symbol kind");
-}
-
-// replace() replaces "this" object with a given symbol by memcpy'ing
-// it over to "this". This function is called as a result of name
-// resolution, e.g. to replace an undefind symbol with a defined symbol.
-void Symbol::replace(const Symbol &other) {
-  Symbol old = *this;
-  memcpy(this, &other, other.getSymbolSize());
-
-  // old may be a placeholder. The referenced fields must be initialized in
-  // SymbolTable::insert.
-  nameData = old.nameData;
-  nameSize = old.nameSize;
-  partition = old.partition;
-  visibility = old.visibility;
-  isPreemptible = old.isPreemptible;
-  isUsedInRegularObj = old.isUsedInRegularObj;
-  exportDynamic = old.exportDynamic;
-  inDynamicList = old.inDynamicList;
-  referenced = old.referenced;
-  traced = old.traced;
-  hasVersionSuffix = old.hasVersionSuffix;
-  scriptDefined = old.scriptDefined;
-  versionId = old.versionId;
-
-  // Print out a log message if --trace-symbol was specified.
-  // This is for debugging.
-  if (traced)
-    printTraceSymbol(*this, getName());
-}
-
 template <typename... T> Defined *makeDefined(T &&...args) {
-  return new (reinterpret_cast<Defined *>(
-      getSpecificAllocSingleton<SymbolUnion>().Allocate()))
-      Defined(std::forward<T>(args)...);
+  auto *sym = getSpecificAllocSingleton<SymbolUnion>().Allocate();
+  memset(sym, 0, sizeof(Symbol));
+  auto &s = *new (reinterpret_cast<Defined *>(sym)) Defined(std::forward<T>(args)...);
+  return &s;
 }
 
 void reportDuplicate(const Symbol &sym, const InputFile *newFile,

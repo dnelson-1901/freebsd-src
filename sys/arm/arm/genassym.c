@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004 Olivier Houchard
  * All rights reserved.
@@ -27,8 +27,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/cpuset.h>
 #include <sys/systm.h>
@@ -37,7 +35,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/mbuf.h>
 #include <sys/vmmeter.h>
-#include <sys/bus.h>
 #include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/pmap.h>
@@ -50,7 +47,6 @@ __FBSDID("$FreeBSD$");
 #include <machine/proc.h>
 #include <machine/cpufunc.h>
 #include <machine/cpuinfo.h>
-#include <machine/intr.h>
 #include <machine/sysarch.h>
 #include <machine/vmparam.h>	/* For KERNVIRTADDR */
 

@@ -1,5 +1,5 @@
 /******************************************************************************
-SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+SPDX-License-Identifier: BSD-2-Clause
 
 Copyright (c) 2006-2013, Myricom Inc.
 All rights reserved.
@@ -27,9 +27,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
 ***************************************************************************/
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -4618,10 +4615,6 @@ mxge_attach(device_t dev)
 	TASK_INIT(&sc->watchdog_task, 1, mxge_watchdog_task, sc);
 	sc->tq = taskqueue_create("mxge_taskq", M_WAITOK,
 				  taskqueue_thread_enqueue, &sc->tq);
-	if (sc->tq == NULL) {
-		err = ENOMEM;
-		goto abort_with_nothing;
-	}
 
 	err = bus_dma_tag_create(bus_get_dma_tag(dev),	/* parent */
 				 1,			/* alignment */
@@ -4643,11 +4636,6 @@ mxge_attach(device_t dev)
 	}
 
 	ifp = sc->ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		err = ENOSPC;
-		goto abort_with_parent_dmat;
-	}
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 
 	snprintf(sc->cmd_mtx_name, sizeof(sc->cmd_mtx_name), "%s:cmd",
@@ -4816,7 +4804,6 @@ abort_with_lock:
 	mtx_destroy(&sc->cmd_mtx);
 	mtx_destroy(&sc->driver_mtx);
 	if_free(ifp);
-abort_with_parent_dmat:
 	bus_dma_tag_destroy(sc->parent_dmat);
 abort_with_tq:
 	if (sc->tq != NULL) {
@@ -4824,7 +4811,6 @@ abort_with_tq:
 		taskqueue_free(sc->tq);
 		sc->tq = NULL;
 	}
-abort_with_nothing:
 	return err;
 }
 

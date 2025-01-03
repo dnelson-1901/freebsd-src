@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2018 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
@@ -32,9 +32,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -52,6 +49,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
+#include <dt-bindings/interrupt-controller/irq.h>
+
 #include "pic_if.h"
 
 #define	PLIC_MAX_IRQS		1024
@@ -66,13 +65,13 @@ __FBSDID("$FreeBSD$");
 #define	PLIC_CONTEXT_THRESHOLD	0x0U
 #define	PLIC_CONTEXT_CLAIM	0x4U
 
-#define	PLIC_PRIORITY(n)	(PLIC_PRIORITY_BASE + (n) * sizeof(uint32_t))
-#define	PLIC_ENABLE(sc, n, h)						\
-    (sc->contexts[h].enable_offset + ((n) / 32) * sizeof(uint32_t))
-#define	PLIC_THRESHOLD(sc, h)						\
-    (sc->contexts[h].context_offset + PLIC_CONTEXT_THRESHOLD)
-#define	PLIC_CLAIM(sc, h)						\
-    (sc->contexts[h].context_offset + PLIC_CONTEXT_CLAIM)
+#define	PLIC_PRIORITY(_irq)	(PLIC_PRIORITY_BASE + (_irq) * sizeof(uint32_t))
+#define	PLIC_ENABLE(_sc, _irq, _cpu)					\
+    (_sc->contexts[_cpu].enable_offset + ((_irq) / 32) * sizeof(uint32_t))
+#define	PLIC_THRESHOLD(_sc, _cpu)					\
+    (_sc->contexts[_cpu].context_offset + PLIC_CONTEXT_THRESHOLD)
+#define	PLIC_CLAIM(_sc, _cpu)						\
+    (_sc->contexts[_cpu].context_offset + PLIC_CONTEXT_CLAIM)
 
 static pic_disable_intr_t	plic_disable_intr;
 static pic_enable_intr_t	plic_enable_intr;
@@ -85,6 +84,7 @@ static pic_bind_intr_t		plic_bind_intr;
 struct plic_irqsrc {
 	struct intr_irqsrc	isrc;
 	u_int			irq;
+	u_int			trigtype;
 };
 
 struct plic_context {
@@ -94,16 +94,25 @@ struct plic_context {
 
 struct plic_softc {
 	device_t		dev;
-	struct resource *	intc_res;
+	struct resource		*mem_res;
+	struct resource		*irq_res;
+	void			*ih;
 	struct plic_irqsrc	isrcs[PLIC_MAX_IRQS];
 	struct plic_context	contexts[MAXCPU];
 	int			ndev;
 };
 
+static struct ofw_compat_data compat_data[] = {
+	{ "riscv,plic0",	1 },
+	{ "sifive,plic-1.0.0",	1 },
+	{ "thead,c900-plic",	1 },
+	{ NULL,			0 }
+};
+
 #define	RD4(sc, reg)				\
-    bus_read_4(sc->intc_res, (reg))
+    bus_read_4(sc->mem_res, (reg))
 #define	WR4(sc, reg, val)			\
-    bus_write_4(sc->intc_res, (reg), (val))
+    bus_write_4(sc->mem_res, (reg), (val))
 
 static u_int plic_irq_cpu;
 
@@ -169,9 +178,8 @@ plic_intr(void *arg)
 	sc = arg;
 	cpu = PCPU_GET(cpuid);
 
-	/* Claim any pending interrupt. */
-	pending = RD4(sc, PLIC_CLAIM(sc, cpu));
-	if (pending) {
+	/* Claim all pending interrupts. */
+	while ((pending = RD4(sc, PLIC_CLAIM(sc, cpu))) != 0) {
 		tf = curthread->td_intr_frame;
 		plic_irq_dispatch(sc, pending, tf);
 	}
@@ -209,6 +217,7 @@ plic_map_intr(device_t dev, struct intr_map_data *data,
 {
 	struct intr_map_data_fdt *daf;
 	struct plic_softc *sc;
+	u_int irq, type;
 
 	sc = device_get_softc(dev);
 
@@ -216,10 +225,47 @@ plic_map_intr(device_t dev, struct intr_map_data *data,
 		return (ENOTSUP);
 
 	daf = (struct intr_map_data_fdt *)data;
-	if (daf->ncells != 1 || daf->cells[0] > sc->ndev)
+	if (daf->ncells != 1 && daf->ncells != 2) {
+		device_printf(dev, "invalid ncells value: %u\n", daf->ncells);
 		return (EINVAL);
+	}
 
-	*isrcp = &sc->isrcs[daf->cells[0]].isrc;
+	irq = daf->cells[0];
+	type = daf->ncells == 2 ? daf->cells[1] : IRQ_TYPE_LEVEL_HIGH;
+
+	if (irq > sc->ndev) {
+		device_printf(dev, "irq (%u) > sc->ndev (%u)",
+		    daf->cells[0], sc->ndev);
+		return (EINVAL);
+	}
+
+	/*
+	 * TODO: handling of edge-triggered interrupts.
+	 *
+	 * From sifive,plic-1.0.0.yaml:
+	 *
+	 * "The PLIC supports both edge-triggered and level-triggered
+	 * interrupts. For edge-triggered interrupts, the RISC-V PLIC spec
+	 * allows two responses to edges seen while an interrupt handler is
+	 * active; the PLIC may either queue them or ignore them. In the first
+	 * case, handlers are oblivious to the trigger type, so it is not
+	 * included in the interrupt specifier. In the second case, software
+	 * needs to know the trigger type, so it can reorder the interrupt flow
+	 * to avoid missing interrupts. This special handling is needed by at
+	 * least the Renesas RZ/Five SoC (AX45MP AndesCore with a NCEPLIC100)
+	 * and the T-HEAD C900 PLIC."
+	 *
+	 * For now, prevent interrupts with type IRQ_TYPE_EDGE_RISING from
+	 * allocation. Emit a message so that when the relevant driver fails to
+	 * attach, it will at least be clear why.
+	 */
+	if (type != IRQ_TYPE_LEVEL_HIGH) {
+		device_printf(dev, "edge-triggered interrupts not supported\n");
+		return (EINVAL);
+	}
+
+	sc->isrcs[irq].trigtype = type;
+	*isrcp = &sc->isrcs[irq].isrc;
 
 	return (0);
 }
@@ -231,8 +277,7 @@ plic_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (!ofw_bus_is_compatible(dev, "riscv,plic0") &&
-	    !ofw_bus_is_compatible(dev, "sifive,plic-1.0.0"))
+	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
 
 	device_set_desc(dev, "RISC-V PLIC");
@@ -279,9 +324,9 @@ plic_attach(device_t dev)
 
 	/* Request memory resources */
 	rid = 0;
-	sc->intc_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid,
+	sc->mem_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid,
 	    RF_ACTIVE);
-	if (sc->intc_res == NULL) {
+	if (sc->mem_res == NULL) {
 		device_printf(dev,
 		    "Error: could not allocate memory resources\n");
 		return (ENXIO);
@@ -305,7 +350,7 @@ plic_attach(device_t dev)
 	 *
 	 * This is tricky for a few reasons. The PLIC divides the interrupt
 	 * enable, threshold, and claim bits by "context", where each context
-	 * routes to a Core-Local Interrupt Controller (CLIC).
+	 * routes to a core's local interrupt controller.
 	 *
 	 * The tricky part is that the PLIC spec imposes no restrictions on how
 	 * these contexts are laid out. So for example, there is no guarantee
@@ -319,10 +364,15 @@ plic_attach(device_t dev)
 	 *    entries that are not for supervisor external interrupts.
 	 *
 	 * 2. Walk up the device tree to find the corresponding CPU, and grab
-	 *    it's hart ID.
+	 *    its hart ID.
 	 *
 	 * 3. Convert the hart to a cpuid, and calculate the register offsets
 	 *    based on the context number.
+	 *
+	 * 4. Save the index for the boot hart's S-mode external interrupt in
+	 *    order to allocate and setup the corresponding resource, since the
+	 *    local interrupt controller newbus device is associated with that
+	 *    specific node.
 	 */
 	nintr = OF_getencprop_alloc_multi(node, "interrupts-extended",
 	    sizeof(uint32_t), (void **)&cells);
@@ -332,12 +382,16 @@ plic_attach(device_t dev)
 	}
 
 	/* interrupts-extended is a list of phandles and interrupt types. */
+	rid = -1;
 	for (i = 0, context = 0; i < nintr; i += 2, context++) {
 		/* Skip M-mode external interrupts */
 		if (cells[i + 1] != IRQ_EXTERNAL_SUPERVISOR)
 			continue;
 
-		/* Get the hart ID from the CLIC's phandle. */
+		/*
+		 * Get the hart ID from the core's interrupt controller
+		 * phandle.
+		 */
 		hart = plic_get_hartid(dev, OF_node_from_xref(cells[i]));
 		if (hart < 0) {
 			OF_prop_free(cells);
@@ -352,6 +406,9 @@ plic_attach(device_t dev)
 			return (ENXIO);
 		}
 
+		if (cpu == 0)
+			rid = i / 2;
+
 		/* Set the enable and context register offsets for the CPU. */
 		sc->contexts[cpu].enable_offset = PLIC_ENABLE_BASE +
 		    context * PLIC_ENABLE_STRIDE;
@@ -359,6 +416,20 @@ plic_attach(device_t dev)
 		    context * PLIC_CONTEXT_STRIDE;
 	}
 	OF_prop_free(cells);
+
+	if (rid == -1) {
+		device_printf(dev,
+		    "Could not find local interrupt controller\n");
+		return (ENXIO);
+	}
+
+	sc->irq_res = bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid,
+	    RF_ACTIVE);
+	if (sc->irq_res == NULL) {
+		device_printf(dev,
+		    "Error: could not allocate IRQ resources\n");
+		return (ENXIO);
+	}
 
 	/* Set the threshold for each CPU to accept all priorities. */
 	CPU_FOREACH(cpu)
@@ -369,9 +440,8 @@ plic_attach(device_t dev)
 	if (pic == NULL)
 		return (ENXIO);
 
-	csr_set(sie, SIE_SEIE);
-
-	return (intr_pic_claim_root(sc->dev, xref, plic_intr, sc, 0));
+	return (bus_setup_intr(dev, sc->irq_res, INTR_TYPE_CLK | INTR_MPSAFE,
+	    plic_intr, NULL, sc, &sc->ih));
 }
 
 static void

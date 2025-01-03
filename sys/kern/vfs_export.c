@@ -32,18 +32,15 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)vfs_subr.c	8.31 (Berkeley) 5/26/95
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_inet.h"
 #include "opt_inet6.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/conf.h>
 #include <sys/dirent.h>
 #include <sys/jail.h>
 #include <sys/kernel.h>
@@ -137,8 +134,8 @@ vfs_hang_addrlist(struct mount *mp, struct netexport *nep,
 		np->netc_exflags = argp->ex_flags;
 		np->netc_anon = crget();
 		np->netc_anon->cr_uid = argp->ex_uid;
-		crsetgroups(np->netc_anon, argp->ex_ngroups,
-		    argp->ex_groups);
+		crsetgroups_fallback(np->netc_anon, argp->ex_ngroups,
+		    argp->ex_groups, GID_NOGROUP);
 		np->netc_anon->cr_prison = &prison0;
 		prison_hold(np->netc_anon->cr_prison);
 		np->netc_numsecflavors = argp->ex_numsecflavors;
@@ -216,8 +213,8 @@ vfs_hang_addrlist(struct mount *mp, struct netexport *nep,
 	np->netc_exflags = argp->ex_flags;
 	np->netc_anon = crget();
 	np->netc_anon->cr_uid = argp->ex_uid;
-	crsetgroups(np->netc_anon, argp->ex_ngroups,
-	    argp->ex_groups);
+	crsetgroups_fallback(np->netc_anon, argp->ex_ngroups, argp->ex_groups,
+	    GID_NOGROUP);
 	np->netc_anon->cr_prison = &prison0;
 	prison_hold(np->netc_anon->cr_prison);
 	np->netc_numsecflavors = argp->ex_numsecflavors;

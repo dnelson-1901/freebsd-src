@@ -32,13 +32,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)vfs_syscalls.c	8.13 (Berkeley) 4/15/94
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_capsicum.h"
 #include "opt_ktrace.h"
 
@@ -87,6 +83,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm.h>
 #include <vm/vm_object.h>
 #include <vm/vm_page.h>
+#include <vm/vnode_pager.h>
 #include <vm/uma.h>
 
 #include <fs/devfs/devfs.h>
@@ -110,7 +107,7 @@ static int kern_readlink_vp(struct vnode *vp, char *buf, enum uio_seg bufseg,
 static int kern_linkat_vp(struct thread *td, struct vnode *vp, int fd,
     const char *path, enum uio_seg segflag);
 
-static uint64_t
+uint64_t
 at2cnpflags(u_int at_flags, u_int mask)
 {
 	uint64_t res;
@@ -970,6 +967,45 @@ static int unprivileged_chroot = 0;
 SYSCTL_INT(_security_bsd, OID_AUTO, unprivileged_chroot, CTLFLAG_RW,
     &unprivileged_chroot, 0,
     "Unprivileged processes can use chroot(2)");
+
+/*
+ * Takes locked vnode, unlocks it before returning.
+ */
+static int
+kern_chroot(struct thread *td, struct vnode *vp)
+{
+	struct proc *p;
+	int error;
+
+	error = priv_check(td, PRIV_VFS_CHROOT);
+	if (error != 0) {
+		p = td->td_proc;
+		PROC_LOCK(p);
+		if (unprivileged_chroot == 0 ||
+		    (p->p_flag2 & P2_NO_NEW_PRIVS) == 0) {
+			PROC_UNLOCK(p);
+			goto e_vunlock;
+		}
+		PROC_UNLOCK(p);
+	}
+
+	error = change_dir(vp, td);
+	if (error != 0)
+		goto e_vunlock;
+#ifdef MAC
+	error = mac_vnode_check_chroot(td->td_ucred, vp);
+	if (error != 0)
+		goto e_vunlock;
+#endif
+	VOP_UNLOCK(vp);
+	error = pwd_chroot(td, vp);
+	vrele(vp);
+	return (error);
+e_vunlock:
+	vput(vp);
+	return (error);
+}
+
 /*
  * Change notion of root (``/'') directory.
  */
@@ -982,40 +1018,41 @@ int
 sys_chroot(struct thread *td, struct chroot_args *uap)
 {
 	struct nameidata nd;
-	struct proc *p;
 	int error;
 
-	error = priv_check(td, PRIV_VFS_CHROOT);
-	if (error != 0) {
-		p = td->td_proc;
-		PROC_LOCK(p);
-		if (unprivileged_chroot == 0 ||
-		    (p->p_flag2 & P2_NO_NEW_PRIVS) == 0) {
-			PROC_UNLOCK(p);
-			return (error);
-		}
-		PROC_UNLOCK(p);
-	}
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKSHARED | LOCKLEAF | AUDITVNODE1,
 	    UIO_USERSPACE, uap->path);
 	error = namei(&nd);
 	if (error != 0)
 		return (error);
 	NDFREE_PNBUF(&nd);
-	error = change_dir(nd.ni_vp, td);
-	if (error != 0)
-		goto e_vunlock;
-#ifdef MAC
-	error = mac_vnode_check_chroot(td->td_ucred, nd.ni_vp);
-	if (error != 0)
-		goto e_vunlock;
-#endif
-	VOP_UNLOCK(nd.ni_vp);
-	error = pwd_chroot(td, nd.ni_vp);
-	vrele(nd.ni_vp);
+	error = kern_chroot(td, nd.ni_vp);
 	return (error);
-e_vunlock:
-	vput(nd.ni_vp);
+}
+
+/*
+ * Change notion of root directory to a given file descriptor.
+ */
+#ifndef _SYS_SYSPROTO_H_
+struct fchroot_args {
+	int	fd;
+};
+#endif
+int
+sys_fchroot(struct thread *td, struct fchroot_args *uap)
+{
+	struct vnode *vp;
+	struct file *fp;
+	int error;
+
+	error = getvnode_path(td, uap->fd, &cap_fchroot_rights, &fp);
+	if (error != 0)
+		return (error);
+	vp = fp->f_vnode;
+	vrefact(vp);
+	fdrop(fp, td);
+	vn_lock(vp, LK_SHARED | LK_RETRY);
+	error = kern_chroot(td, vp);
 	return (error);
 }
 
@@ -1113,20 +1150,27 @@ sys_openat(struct thread *td, struct openat_args *uap)
 	    uap->mode));
 }
 
-int
-kern_openat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
-    int flags, int mode)
+/*
+ * If fpp != NULL, opened file is not installed into the file
+ * descriptor table, instead it is returned in *fpp.  This is
+ * incompatible with fdopen(), in which case we return EINVAL.
+ */
+static int
+openatfp(struct thread *td, int dirfd, const char *path,
+    enum uio_seg pathseg, int flags, int mode, struct file **fpp)
 {
-	struct proc *p = td->td_proc;
+	struct proc *p;
 	struct filedesc *fdp;
 	struct pwddesc *pdp;
 	struct file *fp;
 	struct vnode *vp;
+	struct filecaps *fcaps;
 	struct nameidata nd;
 	cap_rights_t rights;
 	int cmode, error, indx;
 
 	indx = -1;
+	p = td->td_proc;
 	fdp = p->p_fd;
 	pdp = p->p_pd;
 
@@ -1162,7 +1206,7 @@ kern_openat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
 	fp->f_flag = flags & FMASK;
 	cmode = ((mode & ~pdp->pd_cmask) & ALLPERMS) & ~S_ISTXT;
 	NDINIT_ATRIGHTS(&nd, LOOKUP, FOLLOW | AUDITVNODE1 | WANTIOCTLCAPS,
-	    pathseg, path, fd, &rights);
+	    pathseg, path, dirfd, &rights);
 	td->td_dupfd = -1;		/* XXX check for fdopen */
 	error = vn_open_cred(&nd, &flags, cmode, VN_OPEN_WANTIOCTLCAPS,
 	    td->td_ucred, fp);
@@ -1187,6 +1231,7 @@ kern_openat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
 		if ((nd.ni_resflags & NIRES_STRICTREL) == 0 &&
 		    (error == ENODEV || error == ENXIO) &&
 		    td->td_dupfd >= 0) {
+			MPASS(fpp == NULL);
 			error = dupfdopen(td, fdp, td->td_dupfd, flags, error,
 			    &indx);
 			if (error == 0)
@@ -1228,12 +1273,17 @@ kern_openat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
 			goto bad;
 	}
 success:
+	if (fpp != NULL) {
+		MPASS(error == 0);
+		NDFREE_IOCTLCAPS(&nd);
+		*fpp = fp;
+		return (0);
+	}
+
 	/*
 	 * If we haven't already installed the FD (for dupfdopen), do so now.
 	 */
 	if (indx == -1) {
-		struct filecaps *fcaps;
-
 #ifdef CAPABILITIES
 		if ((nd.ni_resflags & NIRES_STRICTREL) != 0)
 			fcaps = &nd.ni_filecaps;
@@ -1256,6 +1306,26 @@ bad:
 	KASSERT(indx == -1, ("indx=%d, should be -1", indx));
 	NDFREE_IOCTLCAPS(&nd);
 	falloc_abort(td, fp);
+	return (error);
+}
+
+int
+kern_openat(struct thread *td, int dirfd, const char *path,
+    enum uio_seg pathseg, int flags, int mode)
+{
+	return (openatfp(td, dirfd, path, pathseg, flags, mode, NULL));
+}
+
+int
+kern_openatfp(struct thread *td, int dirfd, const char *path,
+    enum uio_seg pathseg, int flags, int mode, struct file **fpp)
+{
+	int error, old_dupfd;
+
+	old_dupfd = td->td_dupfd;
+	td->td_dupfd = -1;
+	error = openatfp(td, dirfd, path, pathseg, flags, mode, fpp);
+	td->td_dupfd = old_dupfd;
 	return (error);
 }
 
@@ -2121,7 +2191,8 @@ kern_accessat(struct thread *td, int fd, const char *path,
 	struct nameidata nd;
 	int error;
 
-	if ((flag & ~(AT_EACCESS | AT_RESOLVE_BENEATH | AT_EMPTY_PATH)) != 0)
+	if ((flag & ~(AT_EACCESS | AT_RESOLVE_BENEATH | AT_EMPTY_PATH |
+	    AT_SYMLINK_NOFOLLOW)) != 0)
 		return (EINVAL);
 	if (amode != F_OK && (amode & ~(R_OK | W_OK | X_OK)) != 0)
 		return (EINVAL);
@@ -2141,8 +2212,8 @@ kern_accessat(struct thread *td, int fd, const char *path,
 	} else
 		usecred = cred;
 	AUDIT_ARG_VALUE(amode);
-	NDINIT_ATRIGHTS(&nd, LOOKUP, FOLLOW | LOCKSHARED | LOCKLEAF |
-	    AUDITVNODE1 | at2cnpflags(flag, AT_RESOLVE_BENEATH |
+	NDINIT_ATRIGHTS(&nd, LOOKUP, LOCKSHARED | LOCKLEAF |
+	    AUDITVNODE1 | at2cnpflags(flag, AT_RESOLVE_BENEATH | AT_SYMLINK_NOFOLLOW |
 	    AT_EMPTY_PATH), pathseg, path, fd, &cap_fstat_rights);
 	if ((error = namei(&nd)) != 0)
 		goto out;
@@ -2193,8 +2264,7 @@ ostat(struct thread *td, struct ostat_args *uap)
 	struct ostat osb;
 	int error;
 
-	error = kern_statat(td, 0, AT_FDCWD, uap->path, UIO_USERSPACE,
-	    &sb, NULL);
+	error = kern_statat(td, 0, AT_FDCWD, uap->path, UIO_USERSPACE, &sb);
 	if (error != 0)
 		return (error);
 	cvtstat(&sb, &osb);
@@ -2218,7 +2288,7 @@ olstat(struct thread *td, struct olstat_args *uap)
 	int error;
 
 	error = kern_statat(td, AT_SYMLINK_NOFOLLOW, AT_FDCWD, uap->path,
-	    UIO_USERSPACE, &sb, NULL);
+	    UIO_USERSPACE, &sb);
 	if (error != 0)
 		return (error);
 	cvtstat(&sb, &osb);
@@ -2336,8 +2406,7 @@ freebsd11_stat(struct thread *td, struct freebsd11_stat_args* uap)
 	struct freebsd11_stat osb;
 	int error;
 
-	error = kern_statat(td, 0, AT_FDCWD, uap->path, UIO_USERSPACE,
-	    &sb, NULL);
+	error = kern_statat(td, 0, AT_FDCWD, uap->path, UIO_USERSPACE, &sb);
 	if (error != 0)
 		return (error);
 	error = freebsd11_cvtstat(&sb, &osb);
@@ -2354,7 +2423,7 @@ freebsd11_lstat(struct thread *td, struct freebsd11_lstat_args* uap)
 	int error;
 
 	error = kern_statat(td, AT_SYMLINK_NOFOLLOW, AT_FDCWD, uap->path,
-	    UIO_USERSPACE, &sb, NULL);
+	    UIO_USERSPACE, &sb);
 	if (error != 0)
 		return (error);
 	error = freebsd11_cvtstat(&sb, &osb);
@@ -2391,7 +2460,7 @@ freebsd11_fstatat(struct thread *td, struct freebsd11_fstatat_args* uap)
 	int error;
 
 	error = kern_statat(td, uap->flag, uap->fd, uap->path,
-	    UIO_USERSPACE, &sb, NULL);
+	    UIO_USERSPACE, &sb);
 	if (error != 0)
 		return (error);
 	error = freebsd11_cvtstat(&sb, &osb);
@@ -2419,7 +2488,7 @@ sys_fstatat(struct thread *td, struct fstatat_args *uap)
 	int error;
 
 	error = kern_statat(td, uap->flag, uap->fd, uap->path,
-	    UIO_USERSPACE, &sb, NULL);
+	    UIO_USERSPACE, &sb);
 	if (error == 0)
 		error = copyout(&sb, uap->buf, sizeof (sb));
 	return (error);
@@ -2427,8 +2496,7 @@ sys_fstatat(struct thread *td, struct fstatat_args *uap)
 
 int
 kern_statat(struct thread *td, int flag, int fd, const char *path,
-    enum uio_seg pathseg, struct stat *sbp,
-    void (*hook)(struct vnode *vp, struct stat *sbp))
+    enum uio_seg pathseg, struct stat *sbp)
 {
 	struct nameidata nd;
 	int error;
@@ -2448,11 +2516,6 @@ kern_statat(struct thread *td, int flag, int fd, const char *path,
 		return (error);
 	}
 	error = VOP_STAT(nd.ni_vp, sbp, td->td_ucred, NOCRED);
-	if (__predict_false(hook != NULL)) {
-		if (error == 0) {
-			hook(nd.ni_vp, sbp);
-		}
-	}
 	NDFREE_PNBUF(&nd);
 	vput(nd.ni_vp);
 #ifdef __STAT_TIME_T_EXT
@@ -2515,8 +2578,7 @@ freebsd11_nstat(struct thread *td, struct freebsd11_nstat_args *uap)
 	struct nstat nsb;
 	int error;
 
-	error = kern_statat(td, 0, AT_FDCWD, uap->path, UIO_USERSPACE,
-	    &sb, NULL);
+	error = kern_statat(td, 0, AT_FDCWD, uap->path, UIO_USERSPACE, &sb);
 	if (error != 0)
 		return (error);
 	error = freebsd11_cvtnstat(&sb, &nsb);
@@ -2542,7 +2604,7 @@ freebsd11_nlstat(struct thread *td, struct freebsd11_nlstat_args *uap)
 	int error;
 
 	error = kern_statat(td, AT_SYMLINK_NOFOLLOW, AT_FDCWD, uap->path,
-	    UIO_USERSPACE, &sb, NULL);
+	    UIO_USERSPACE, &sb);
 	if (error != 0)
 		return (error);
 	error = freebsd11_cvtnstat(&sb, &nsb);
@@ -3559,11 +3621,7 @@ retry:
 		goto drop;
 	vn_lock(vp, vn_lktype_write(mp, vp) | LK_RETRY);
 	AUDIT_ARG_VNODE1(vp);
-	if (vp->v_object != NULL) {
-		VM_OBJECT_WLOCK(vp->v_object);
-		vm_object_page_clean(vp->v_object, 0, 0, 0);
-		VM_OBJECT_WUNLOCK(vp->v_object);
-	}
+	vnode_pager_clean_async(vp);
 	error = fullsync ? VOP_FSYNC(vp, MNT_WAIT, td) : VOP_FDATASYNC(vp, td);
 	VOP_UNLOCK(vp);
 	vn_finished_write(mp);
@@ -4910,7 +4968,8 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 		len = SSIZE_MAX;
 
 	/* Get the file structures for the file descriptors. */
-	error = fget_read(td, infd, &cap_read_rights, &infp);
+	error = fget_read(td, infd,
+	    inoffp != NULL ? &cap_pread_rights : &cap_read_rights, &infp);
 	if (error != 0)
 		goto out;
 	if (infp->f_ops == &badfileops) {
@@ -4921,7 +4980,8 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 		error = EINVAL;
 		goto out;
 	}
-	error = fget_write(td, outfd, &cap_write_rights, &outfp);
+	error = fget_write(td, outfd,
+	    outoffp != NULL ? &cap_pwrite_rights : &cap_write_rights, &outfp);
 	if (error != 0)
 		goto out;
 	if (outfp->f_ops == &badfileops) {
@@ -4958,11 +5018,13 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 	 * If infp and outfp refer to the same file, the byte ranges cannot
 	 * overlap.
 	 */
-	if (invp == outvp && ((savinoff <= savoutoff && savinoff + len >
-	    savoutoff) || (savinoff > savoutoff && savoutoff + len >
-	    savinoff))) {
-		error = EINVAL;
-		goto out;
+	if (invp == outvp) {
+		if ((savinoff <= savoutoff && savinoff + len > savoutoff) ||
+		    (savinoff > savoutoff && savoutoff + len > savinoff)) {
+			error = EINVAL;
+			goto out;
+		}
+		rangelock_may_recurse(&invp->v_rl);
 	}
 
 	/* Range lock the byte ranges for both invp and outvp. */

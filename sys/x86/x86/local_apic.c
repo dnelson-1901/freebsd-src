@@ -34,10 +34,7 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_atpic.h"
-#include "opt_hwpmc_hooks.h"
 
 #include "opt_ddb.h"
 
@@ -52,6 +49,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/mutex.h>
 #include <sys/pcpu.h>
 #include <sys/proc.h>
+#include <sys/refcount.h>
 #include <sys/sched.h>
 #include <sys/smp.h>
 #include <sys/sysctl.h>
@@ -208,6 +206,7 @@ static uint64_t lapic_ipi_wait_mult;
 static int __read_mostly lapic_ds_idle_timeout = 1000000;
 #endif
 unsigned int max_apic_id;
+static int pcint_refcnt = 0;
 
 SYSCTL_NODE(_hw, OID_AUTO, apic, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
     "APIC options");
@@ -495,7 +494,7 @@ lapic_init(vm_paddr_t addr)
 		    (cpu_feature2 & CPUID2_TSCDLT) != 0 &&
 		    tsc_is_invariant && tsc_freq != 0) {
 			lapic_timer_tsc_deadline = 1;
-			TUNABLE_INT_FETCH("hw.lapic_tsc_deadline",
+			TUNABLE_INT_FETCH("hw.apic.timer_tsc_deadline",
 			    &lapic_timer_tsc_deadline);
 		}
 
@@ -528,7 +527,7 @@ lapic_init(vm_paddr_t addr)
 		       "KVM -- disabling lapic eoi suppression\n");
 			lapic_eoi_suppression = 0;
 		}
-		TUNABLE_INT_FETCH("hw.lapic_eoi_suppression",
+		TUNABLE_INT_FETCH("hw.apic.eoi_suppression",
 		    &lapic_eoi_suppression);
 	}
 
@@ -811,20 +810,19 @@ lapic_intrcnt(void *dummy __unused)
 SYSINIT(lapic_intrcnt, SI_SUB_INTR, SI_ORDER_MIDDLE, lapic_intrcnt, NULL);
 
 void
-lapic_reenable_pmc(void)
+lapic_reenable_pcint(void)
 {
-#ifdef HWPMC_HOOKS
 	uint32_t value;
 
+	if (refcount_load(&pcint_refcnt) == 0)
+		return;
 	value = lapic_read32(LAPIC_LVT_PCINT);
 	value &= ~APIC_LVT_M;
 	lapic_write32(LAPIC_LVT_PCINT, value);
-#endif
 }
 
-#ifdef HWPMC_HOOKS
 static void
-lapic_update_pmc(void *dummy)
+lapic_update_pcint(void *dummy)
 {
 	struct lapic *la;
 
@@ -832,7 +830,6 @@ lapic_update_pmc(void *dummy)
 	lapic_write32(LAPIC_LVT_PCINT, lvt_mode(la, APIC_LVT_PMC,
 	    lapic_read32(LAPIC_LVT_PCINT)));
 }
-#endif
 
 void
 lapic_calibrate_timer(void)
@@ -860,9 +857,8 @@ lapic_calibrate_timer(void)
 }
 
 int
-lapic_enable_pmc(void)
+lapic_enable_pcint(void)
 {
-#ifdef HWPMC_HOOKS
 	u_int32_t maxlvt;
 
 #ifdef DEV_ATPIC
@@ -875,35 +871,18 @@ lapic_enable_pmc(void)
 	maxlvt = (lapic_read32(LAPIC_VERSION) & APIC_VER_MAXLVT) >> MAXLVTSHIFT;
 	if (maxlvt < APIC_LVT_PMC)
 		return (0);
-
+	if (refcount_acquire(&pcint_refcnt) > 0)
+		return (1);
 	lvts[APIC_LVT_PMC].lvt_masked = 0;
 
-#ifdef EARLY_AP_STARTUP
 	MPASS(mp_ncpus == 1 || smp_started);
-	smp_rendezvous(NULL, lapic_update_pmc, NULL, NULL);
-#else
-#ifdef SMP
-	/*
-	 * If hwpmc was loaded at boot time then the APs may not be
-	 * started yet.  In that case, don't forward the request to
-	 * them as they will program the lvt when they start.
-	 */
-	if (smp_started)
-		smp_rendezvous(NULL, lapic_update_pmc, NULL, NULL);
-	else
-#endif
-		lapic_update_pmc(NULL);
-#endif
+	smp_rendezvous(NULL, lapic_update_pcint, NULL, NULL);
 	return (1);
-#else
-	return (0);
-#endif
 }
 
 void
-lapic_disable_pmc(void)
+lapic_disable_pcint(void)
 {
-#ifdef HWPMC_HOOKS
 	u_int32_t maxlvt;
 
 #ifdef DEV_ATPIC
@@ -916,15 +895,15 @@ lapic_disable_pmc(void)
 	maxlvt = (lapic_read32(LAPIC_VERSION) & APIC_VER_MAXLVT) >> MAXLVTSHIFT;
 	if (maxlvt < APIC_LVT_PMC)
 		return;
-
+	if (refcount_release(&pcint_refcnt))
+		return;
 	lvts[APIC_LVT_PMC].lvt_masked = 1;
 
 #ifdef SMP
 	/* The APs should always be started when hwpmc is unloaded. */
 	KASSERT(mp_ncpus == 1 || smp_started, ("hwpmc unloaded too early"));
 #endif
-	smp_rendezvous(NULL, lapic_update_pmc, NULL, NULL);
-#endif
+	smp_rendezvous(NULL, lapic_update_pcint, NULL, NULL);
 }
 
 static int
@@ -1584,7 +1563,7 @@ apic_alloc_vectors(u_int apic_id, u_int *irqs, u_int count, u_int align)
 
 		/* Start a new run if run == 0 and vector is aligned. */
 		if (run == 0) {
-			if ((vector & (align - 1)) != 0)
+			if (((vector + APIC_IO_INTS) & (align - 1)) != 0)
 				continue;
 			first = vector;
 		}

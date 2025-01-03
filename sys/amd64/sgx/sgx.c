@@ -71,7 +71,7 @@
  *   User   .-- EENTER   -- Go to entry point of enclave
  *    space |   EEXIT    -- Exit back to main application
  *    ENCLU '-- ERESUME  -- Resume enclave execution (e.g. after exception)
- *  
+ *
  * Enclave lifecycle from driver point of view:
  *  1) User calls mmap() on /dev/sgx: we allocate a VM object
  *  2) User calls ioctl SGX_IOC_ENCLAVE_CREATE: we look for the VM object
@@ -116,9 +116,6 @@
  * Intel® 64 and IA-32 Architectures Software Developer's Manual
  * https://software.intel.com/en-us/articles/intel-sdm
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>

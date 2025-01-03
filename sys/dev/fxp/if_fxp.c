@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1995, David Greenman
  * Copyright (c) 2001 Jonathan Lemon <jlemon@freebsd.org>
@@ -30,8 +30,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Intel EtherExpress Pro/100B PCI Fast Ethernet driver
  */
@@ -445,11 +443,6 @@ fxp_attach(device_t dev)
 	    fxp_serial_ifmedia_sts);
 
 	ifp = sc->ifp = if_gethandle(IFT_ETHER);
-	if (ifp == (void *)NULL) {
-		device_printf(dev, "can not if_alloc()\n");
-		error = ENOSPC;
-		goto fail;
-	}
 
 	/*
 	 * Enable bus mastering.
@@ -940,8 +933,6 @@ fxp_release(struct fxp_softc *sc)
 	FXP_LOCK_ASSERT(sc, MA_NOTOWNED);
 	KASSERT(sc->ih == NULL,
 	    ("fxp_release() called with intr handle still active"));
-	if (sc->miibus)
-		device_delete_child(sc->dev, sc->miibus);
 	bus_generic_detach(sc->dev);
 	ifmedia_removeall(&sc->sc_media);
 	if (sc->fxp_desc.cbl_list) {
@@ -1379,7 +1370,7 @@ fxp_start_body(if_t ifp)
 		/*
 		 * Pass packet to bpf if there is a listener.
 		 */
-		if_bpfmtap(ifp, mb_head);
+		bpf_mtap_if(ifp, mb_head);
 	}
 
 	/*

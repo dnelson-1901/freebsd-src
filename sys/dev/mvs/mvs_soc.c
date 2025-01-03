@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2010 Alexander Motin <mav@FreeBSD.org>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/module.h>
@@ -77,7 +74,6 @@ static struct {
 static int
 mvs_probe(device_t dev)
 {
-	char buf[64];
 	int i;
 	uint32_t devid, revid;
 
@@ -91,9 +87,8 @@ mvs_probe(device_t dev)
 	for (i = 0; mvs_ids[i].id != 0; i++) {
 		if (mvs_ids[i].id == devid &&
 		    mvs_ids[i].rev <= revid) {
-			snprintf(buf, sizeof(buf), "%s SATA controller",
+			device_set_descf(dev, "%s SATA controller",
 			    mvs_ids[i].name);
-			device_set_desc_copy(dev, buf);
 			return (BUS_PROBE_DEFAULT);
 		}
 	}
@@ -171,13 +166,13 @@ mvs_attach(device_t dev)
 	}
 	/* Attach all channels on this controller */
 	for (unit = 0; unit < ctlr->channels; unit++) {
-		child = device_add_child(dev, "mvsch", -1);
+		child = device_add_child(dev, "mvsch", DEVICE_UNIT_ANY);
 		if (child == NULL)
 			device_printf(dev, "failed to add channel device\n");
 		else
 			device_set_ivars(child, (void *)(intptr_t)unit);
 	}
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 	return 0;
 }
 
@@ -185,9 +180,12 @@ static int
 mvs_detach(device_t dev)
 {
 	struct mvs_controller *ctlr = device_get_softc(dev);
+	int error;
 
 	/* Detach & delete all children */
-	device_delete_children(dev);
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	/* Free interrupt. */
 	if (ctlr->irq.r_irq) {
@@ -208,7 +206,7 @@ static int
 mvs_ctlr_setup(device_t dev)
 {
 	struct mvs_controller *ctlr = device_get_softc(dev);
-	int ccc = ctlr->ccc, cccc = ctlr->cccc, ccim = 0;
+	int ccc = ctlr->ccc, cccc = ctlr->cccc;
 
 	/* Mask chip interrupts */
 	ATA_OUTL(ctlr->r_mem, CHIP_SOC_MIM, 0x00000000);
@@ -225,8 +223,6 @@ mvs_ctlr_setup(device_t dev)
 	ccc *= 150;
 	ATA_OUTL(ctlr->r_mem, HC_ICT, cccc);
 	ATA_OUTL(ctlr->r_mem, HC_ITT, ccc);
-	if (ccc)
-		ccim |= IC_HC0_COAL_DONE;
 	/* Enable chip interrupts */
 	ctlr->gmim = ((ccc ? IC_HC0_COAL_DONE :
 	    (IC_DONE_HC0 & CHIP_SOC_HC0_MASK(ctlr->channels))) |
@@ -371,16 +367,15 @@ mvs_alloc_resource(device_t dev, device_t child, int type, int *rid,
 }
 
 static int
-mvs_release_resource(device_t dev, device_t child, int type, int rid,
-			 struct resource *r)
+mvs_release_resource(device_t dev, device_t child, struct resource *r)
 {
 
-	switch (type) {
+	switch (rman_get_type(r)) {
 	case SYS_RES_MEMORY:
 		rman_release_resource(r);
 		return (0);
 	case SYS_RES_IRQ:
-		if (rid != ATA_IRQ_RID)
+		if (rman_get_rid(r) != ATA_IRQ_RID)
 			return ENOENT;
 		return (0);
 	}

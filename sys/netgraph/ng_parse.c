@@ -38,7 +38,6 @@
  * Author: Archie Cobbs <archie@freebsd.org>
  *
  * $Whistle: ng_parse.c,v 1.3 1999/11/29 01:43:48 archie Exp $
- * $FreeBSD$
  */
 
 #include <sys/types.h>
@@ -1208,6 +1207,8 @@ ng_parse_composite(const struct ng_parse_type *type, const char *s,
 	int align, len, blen, error = 0;
 
 	/* Initialize */
+	if (num < 0)
+		return (EINVAL);
 	foff = malloc(num * sizeof(*foff), M_NETGRAPH_PARSE, M_NOWAIT | M_ZERO);
 	if (foff == NULL) {
 		error = ENOMEM;

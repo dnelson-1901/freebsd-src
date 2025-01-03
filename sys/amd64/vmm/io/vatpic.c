@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2014 Tycho Nightingale <tycho.nightingale@pluribusnetworks.com>
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bhyve_snapshot.h"
 
 #include <sys/param.h>
@@ -41,12 +39,12 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 
 #include <x86/apicreg.h>
-#include <dev/ic/i8259.h>
-
 #include <machine/vmm.h>
 #include <machine/vmm_snapshot.h>
 
-#include "vmm_ktr.h"
+#include <dev/ic/i8259.h>
+#include <dev/vmm/vmm_ktr.h>
+
 #include "vmm_lapic.h"
 #include "vioapic.h"
 #include "vatpic.h"

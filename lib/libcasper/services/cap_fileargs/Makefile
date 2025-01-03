@@ -1,6 +1,4 @@
-# $FreeBSD$
-
-SHLIBDIR?=	/lib/casper
+SHLIBDIR?=	/lib
 
 .include <src.opts.mk>
 
@@ -10,6 +8,7 @@ SHLIB_MAJOR=	1
 INCSDIR?=	${INCLUDEDIR}/casper
 
 .if ${MK_CASPER} != "no"
+LIB=	cap_fileargs
 SHLIB=	cap_fileargs
 
 SRCS=	cap_fileargs.c

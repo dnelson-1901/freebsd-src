@@ -22,8 +22,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /* Driver for ptnet paravirtualized network device. */
@@ -401,12 +399,6 @@ ptnet_attach(device_t dev)
 
 	/* Setup Ethernet interface. */
 	sc->ifp = ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "Failed to allocate ifnet\n");
-		err = ENOMEM;
-		goto err_path;
-	}
-
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	if_setbaudrate(ifp, IF_Gbps(10));
 	if_setsoftc(ifp, sc);
@@ -548,7 +540,7 @@ ptnet_detach(device_t dev)
 	ptnet_irqs_fini(sc);
 
 	if (sc->csb_gh) {
-		contigfree(sc->csb_gh, 2*PAGE_SIZE, M_DEVBUF);
+		free(sc->csb_gh, M_DEVBUF);
 		sc->csb_gh = NULL;
 		sc->csb_hg = NULL;
 	}

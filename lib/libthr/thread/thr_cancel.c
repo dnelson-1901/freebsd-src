@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005, David Xu <davidxu@freebsd.org>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include "namespace.h"
 #include <pthread.h>
@@ -86,25 +83,25 @@ int
 _thr_setcancelstate(int state, int *oldstate)
 {
 	struct pthread *curthread = _get_curthread();
-	int oldval;
+	int oldval, val;
 
-	oldval = curthread->cancel_enable;
 	switch (state) {
 	case PTHREAD_CANCEL_DISABLE:
-		curthread->cancel_enable = 0;
+		val = 0;
 		break;
 	case PTHREAD_CANCEL_ENABLE:
-		curthread->cancel_enable = 1;
-		if (curthread->cancel_async)
-			testcancel(curthread);
+		val = 1;
 		break;
 	default:
 		return (EINVAL);
 	}
 
-	if (oldstate) {
+	oldval = atomic_swap_int(&curthread->cancel_enable, val);
+	if (state == PTHREAD_CANCEL_ENABLE && curthread->cancel_async)
+		testcancel(curthread);
+	if (oldstate != NULL) {
 		*oldstate = oldval ? PTHREAD_CANCEL_ENABLE :
-			PTHREAD_CANCEL_DISABLE;
+		    PTHREAD_CANCEL_DISABLE;
 	}
 	return (0);
 }
@@ -128,9 +125,9 @@ _thr_setcanceltype(int type, int *oldtype)
 		return (EINVAL);
 	}
 
-	if (oldtype) {
+	if (oldtype != NULL) {
 		*oldtype = oldval ? PTHREAD_CANCEL_ASYNCHRONOUS :
-		 	PTHREAD_CANCEL_DEFERRED;
+		    PTHREAD_CANCEL_DEFERRED;
 	}
 	return (0);
 }
@@ -169,9 +166,8 @@ void
 _thr_cancel_leave(struct pthread *curthread, int maycancel)
 {
 	curthread->cancel_point = 0;
-	if (__predict_false(SHOULD_CANCEL(curthread) &&
-	    !THR_IN_CRITICAL(curthread) && maycancel))
-		_pthread_exit(PTHREAD_CANCELED);
+	if (maycancel)
+		testcancel(curthread);
 }
 
 void

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD AND BSD-3-Clause
+ * SPDX-License-Identifier: BSD-2-Clause AND BSD-3-Clause
  *
  * Copyright 2008 by Marco Trillo. All rights reserved.
  *
@@ -23,8 +23,6 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 /*-
  * Copyright (c) 2002, 2003 Tsubai Masanari.  All rights reserved.
@@ -243,10 +241,8 @@ i2s_attach(device_t self)
 	 * Register a hook for delayed attach in order to allow
 	 * the I2C controller to attach.
 	 */
-	if ((i2s_delayed_attach = malloc(sizeof(struct intr_config_hook), 
-	    M_TEMP, M_WAITOK | M_ZERO)) == NULL)
-		return (ENOMEM);
-
+	i2s_delayed_attach = malloc(sizeof(struct intr_config_hook),
+	    M_TEMP, M_WAITOK | M_ZERO);
 	i2s_delayed_attach->ich_func = i2s_postattach;
 	i2s_delayed_attach->ich_arg = sc;
 

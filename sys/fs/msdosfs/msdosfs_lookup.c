@@ -1,4 +1,3 @@
-/* $FreeBSD$ */
 /*	$NetBSD: msdosfs_lookup.c,v 1.37 1997/11/17 15:36:54 ws Exp $	*/
 
 /*-
@@ -199,7 +198,9 @@ msdosfs_lookup_ino(struct vnode *vdp, struct vnode **vpp, struct componentname
 	switch (unix2dosfn((const u_char *)cnp->cn_nameptr, dosfilename,
 	    cnp->cn_namelen, 0, pmp)) {
 	case 0:
-		return (EINVAL);
+		if (nameiop == CREATE || nameiop == RENAME)
+			return (EINVAL);
+		return (ENOENT);
 	case 1:
 		break;
 	case 2:
@@ -587,7 +588,7 @@ foundroot:
 		}
 		if (FAT32(pmp) && scn == MSDOSFSROOT)
 			scn = pmp->pm_rootdirblk;
-		inode1 = scn * pmp->pm_bpcluster + blkoff;
+		inode1 = DETOI(pmp, scn, blkoff);
 		if (VTODE(*vpp)->de_inode != inode1) {
 			vput(*vpp);
 			goto restart;
@@ -684,6 +685,7 @@ createde(struct denode *dep, struct denode *ddep, struct denode **depp,
 		return error;
 	}
 	ndep = bptoep(pmp, bp, ddep->de_fndoffset);
+	rootde_alloced(ddep);
 
 	DE_EXTERNALIZE(ndep, dep);
 
@@ -721,6 +723,7 @@ createde(struct denode *dep, struct denode *ddep, struct denode **depp,
 				ndep--;
 				ddep->de_fndoffset -= sizeof(struct direntry);
 			}
+			rootde_alloced(ddep);
 			if (!unix2winfn(un, unlen, (struct winentry *)ndep,
 					cnt++, chksum, pmp))
 				break;
@@ -1015,6 +1018,7 @@ removede(struct denode *pdep, struct denode *dep)
 			 */
 			offset -= sizeof(struct direntry);
 			ep--->deName[0] = SLOT_DELETED;
+			rootde_freed(pdep);
 			if ((pmp->pm_flags & MSDOSFSMNT_NOWIN95)
 			    || !(offset & pmp->pm_crbomask)
 			    || ep->deAttributes != ATTR_WIN95)

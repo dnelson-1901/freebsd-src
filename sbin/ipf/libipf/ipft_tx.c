@@ -1,4 +1,3 @@
-/*	$FreeBSD$	*/
 
 /*
  * Copyright (C) 2012 by Darren Reed.
@@ -7,10 +6,6 @@
  *
  * $Id$
  */
-#if !defined(lint)
-static const char sccsid[] = "@(#)ipft_tx.c	1.7 6/5/96 (C) 1993 Darren Reed";
-static const char rcsid[] = "@(#)$Id$";
-#endif
 
 #include <ctype.h>
 
@@ -25,9 +20,9 @@ static	int	text_open(char *), text_close(void);
 static	int	text_readip(mb_t *, char **, int *);
 static	int	parseline(char *, ip_t *, char **, int *);
 
-static	char	myflagset[] = "FSRPAUEC";
-static	u_char	myflags[] = { TH_FIN, TH_SYN, TH_RST, TH_PUSH,
-				TH_ACK, TH_URG, TH_ECN, TH_CWR };
+static	char	myflagset[] = "FSRPAUEWe";
+static	uint16_t myflags[] = { TH_FIN, TH_SYN, TH_RST, TH_PUSH,
+				TH_ACK, TH_URG, TH_ECN, TH_CWR, TH_AE };
 
 struct	ipread	iptext = { text_open, text_close, text_readip, R_DO_CKSUM };
 static	FILE	*tfp = NULL;
@@ -270,15 +265,16 @@ parseline(char *line, ip_t *ip, char **ifn, int *out)
 		if (*cpp != NULL) {
 			char	*s, *t;
 
-			tcp->th_flags = 0;
+			__tcp_set_flags(tcp, 0);
 			for (s = *cpp; *s; s++)
-				if ((t  = strchr(myflagset, *s)))
-					tcp->th_flags |= myflags[t-myflagset];
-			if (tcp->th_flags)
+				if ((t = strchr(myflagset, *s)))
+					__tcp_set_flags(tcp, __tcp_get_flags(tcp) |
+							myflags[t-myflagset]);
+			if (__tcp_get_flags(tcp))
 				cpp++;
 		}
 
-		if (tcp->th_flags & TH_URG)
+		if (__tcp_get_flags(tcp) & TH_URG)
 			tcp->th_urp = htons(1);
 
 		if (*cpp && !strncasecmp(*cpp, "seq=", 4)) {
@@ -441,15 +437,16 @@ parseipv6(char **cpp, ip6_t *ip6, char **ifn, int *out)
 		if (*cpp != NULL) {
 			char *s, *t;
 
-			tcp->th_flags = 0;
+			__tcp_set_flags(tcp, 0);
 			for (s = *cpp; *s; s++)
-				if ((t  = strchr(myflagset, *s)))
-					tcp->th_flags |= myflags[t-myflagset];
-			if (tcp->th_flags)
+				if ((t = strchr(myflagset, *s)))
+					__tcp_set_flags(tcp, __tcp_get_flags(tcp) |
+							myflags[t-myflagset]);
+			if (__tcp_get_flags(tcp))
 				cpp++;
 		}
 
-		if (tcp->th_flags & TH_URG)
+		if (__tcp_get_flags(tcp) & TH_URG)
 			tcp->th_urp = htons(1);
 
 		if (*cpp && !strncasecmp(*cpp, "seq=", 4)) {

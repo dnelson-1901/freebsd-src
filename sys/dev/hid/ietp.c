@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2020, 2022 Vladimir Kondratyev <wulf@FreeBSD.org>
  *
@@ -29,9 +29,6 @@
  * Elan I2C Touchpad driver. Based on Linux driver.
  * https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/drivers/input/mouse/elan_i2c_core.c
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -220,13 +217,13 @@ static const struct evdev_methods ietp_evdev_methods = {
 static int
 ietp_ev_open(struct evdev_dev *evdev)
 {
-	return (hidbus_intr_start(evdev_get_softc(evdev)));
+	return (hid_intr_start(evdev_get_softc(evdev)));
 }
 
 static int
 ietp_ev_close(struct evdev_dev *evdev)
 {
-	return (hidbus_intr_stop(evdev_get_softc(evdev)));
+	return (hid_intr_stop(evdev_get_softc(evdev)));
 }
 
 static int
@@ -595,7 +592,7 @@ ietp_iic_set_absolute_mode(device_t dev, bool enable)
 		}
 	}
 
-	if (require_wakeup && hidbus_intr_start(dev) != 0) {
+	if (require_wakeup && hid_intr_start(dev) != 0) {
 		device_printf(dev, "failed writing poweron command\n");
 		return (EIO);
 	}
@@ -606,7 +603,7 @@ ietp_iic_set_absolute_mode(device_t dev, bool enable)
 		error = EIO;
 	}
 
-	if (require_wakeup && hidbus_intr_stop(dev) != 0) {
+	if (require_wakeup && hid_intr_stop(dev) != 0) {
 		device_printf(dev, "failed writing poweroff command\n");
 		error = EIO;
 	}

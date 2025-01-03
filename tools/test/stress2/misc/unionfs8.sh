@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+# SPDX-License-Identifier: BSD-2-Clause
 #
 # Copyright (c) 2021 Peter Holm
 #
@@ -27,7 +27,7 @@
 # SUCH DAMAGE.
 #
 
-# unionfs(8) test with a cd9660 file system
+# unionfs(4) test with a cd9660(4) file system
 
 # "panic: unionfs_noderem: vnode 0xfffffe014f9259c8 locked recursively" seen
 # https://people.freebsd.org/~pho/stress/log/log0233.txt

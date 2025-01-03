@@ -10,20 +10,22 @@
 #define LLD_ELF_LINKER_SCRIPT_H
 
 #include "Config.h"
+#include "InputSection.h"
 #include "Writer.h"
 #include "lld/Common/LLVM.h"
 #include "lld/Common/Strings.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Compiler.h"
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 
-namespace lld {
-namespace elf {
+namespace lld::elf {
 
 class Defined;
 class InputFile;
@@ -86,9 +88,9 @@ struct SectionCommand {
 
 // This represents ". = <expr>" or "<symbol> = <expr>".
 struct SymbolAssignment : SectionCommand {
-  SymbolAssignment(StringRef name, Expr e, std::string loc)
+  SymbolAssignment(StringRef name, Expr e, unsigned symOrder, std::string loc)
       : SectionCommand(AssignmentKind), name(name), expression(e),
-        location(loc) {}
+        symOrder(symOrder), location(loc) {}
 
   static bool classof(const SectionCommand *c) {
     return c->kind == AssignmentKind;
@@ -104,6 +106,11 @@ struct SymbolAssignment : SectionCommand {
   // Command attributes for PROVIDE, HIDDEN and PROVIDE_HIDDEN.
   bool provide = false;
   bool hidden = false;
+
+  // This assignment references DATA_SEGMENT_RELRO_END.
+  bool dataSegmentRelroEnd = false;
+
+  unsigned symOrder;
 
   // Holds file name and line number for error reporting.
   std::string location;
@@ -151,6 +158,9 @@ struct MemoryRegion {
   uint32_t negInvFlags;
   uint64_t curPos = 0;
 
+  uint64_t getOrigin() const { return origin().getValue(); }
+  uint64_t getLength() const { return length().getValue(); }
+
   bool compatibleWith(uint32_t secFlags) const {
     if ((secFlags & negFlags) || (~secFlags & negInvFlags))
       return false;
@@ -165,7 +175,7 @@ class SectionPattern {
   StringMatcher excludedFilePat;
 
   // Cache of the most recent input argument and result of excludesFile().
-  mutable llvm::Optional<std::pair<const InputFile *, bool>> excludesFileCache;
+  mutable std::optional<std::pair<const InputFile *, bool>> excludesFileCache;
 
 public:
   SectionPattern(StringMatcher &&pat1, StringMatcher &&pat2)
@@ -184,7 +194,7 @@ class InputSectionDescription : public SectionCommand {
   SingleStringMatcher filePat;
 
   // Cache of the most recent input argument and result of matchesFile().
-  mutable llvm::Optional<std::pair<const InputFile *, bool>> matchesFileCache;
+  mutable std::optional<std::pair<const InputFile *, bool>> matchesFileCache;
 
 public:
   InputSectionDescription(StringRef filePattern, uint64_t withFlags = 0,
@@ -246,12 +256,22 @@ struct InsertCommand {
   StringRef where;
 };
 
+// A NOCROSSREFS/NOCROSSREFS_TO command that prohibits references between
+// certain output sections.
+struct NoCrossRefCommand {
+  SmallVector<StringRef, 0> outputSections;
+
+  // When true, this describes a NOCROSSREFS_TO command that probits references
+  // to the first output section from any of the other sections.
+  bool toFirst = false;
+};
+
 struct PhdrsCommand {
   StringRef name;
   unsigned type = llvm::ELF::PT_NULL;
   bool hasFilehdr = false;
   bool hasPhdrs = false;
-  llvm::Optional<unsigned> flags;
+  std::optional<unsigned> flags;
   Expr lmaExpr = nullptr;
 };
 
@@ -278,7 +298,8 @@ class LinkerScript final {
 
   SmallVector<InputSectionBase *, 0>
   computeInputSections(const InputSectionDescription *,
-                       ArrayRef<InputSectionBase *>);
+                       ArrayRef<InputSectionBase *>,
+                       const OutputSection &outCmd);
 
   SmallVector<InputSectionBase *, 0> createInputSectionList(OutputSection &cmd);
 
@@ -289,15 +310,15 @@ class LinkerScript final {
   std::pair<MemoryRegion *, MemoryRegion *>
   findMemoryRegion(OutputSection *sec, MemoryRegion *hint);
 
-  void assignOffsets(OutputSection *sec);
+  bool assignOffsets(OutputSection *sec);
 
-  // Ctx captures the local AddressState and makes it accessible
+  // This captures the local AddressState and makes it accessible
   // deliberately. This is needed as there are some cases where we cannot just
   // thread the current state through to a lambda function created by the
   // script parser.
   // This should remain a plain pointer as its lifetime is smaller than
   // LinkerScript.
-  AddressState *ctx = nullptr;
+  AddressState *state = nullptr;
 
   OutputSection *aether;
 
@@ -315,6 +336,7 @@ public:
 
   void addOrphanSections();
   void diagnoseOrphanHandling() const;
+  void diagnoseMissingSGSectionAddress() const;
   void adjustOutputSections();
   void adjustSectionsAfterSorting();
 
@@ -322,16 +344,39 @@ public:
   bool needsInterpSection();
 
   bool shouldKeep(InputSectionBase *s);
-  const Defined *assignAddresses();
+  std::pair<const OutputSection *, const Defined *> assignAddresses();
+  bool spillSections();
+  void erasePotentialSpillSections();
   void allocateHeaders(SmallVector<PhdrEntry *, 0> &phdrs);
   void processSectionCommands();
   void processSymbolAssignments();
   void declareSymbols();
 
-  bool isDiscarded(const OutputSection *sec) const;
-
   // Used to handle INSERT AFTER statements.
   void processInsertCommands();
+
+  // Describe memory region usage.
+  void printMemoryUsage(raw_ostream &os);
+
+  // Record a pending error during an assignAddresses invocation.
+  // assignAddresses is executed more than once. Therefore, lld::error should be
+  // avoided to not report duplicate errors.
+  void recordError(const Twine &msg);
+
+  // Check backward location counter assignment and memory region/LMA overflows.
+  void checkFinalScriptConditions() const;
+
+  // Add symbols that are referenced in the linker script to the symbol table.
+  // Symbols referenced in a PROVIDE command are only added to the symbol table
+  // if the PROVIDE command actually provides the symbol.
+  // It also adds the symbols referenced by the used PROVIDE symbols to the
+  // linker script referenced symbols list.
+  void addScriptReferencedSymbolsToSymTable();
+
+  // Returns true if the PROVIDE symbol should be added to the link.
+  // A PROVIDE symbol is added to the link only if it satisfies an
+  // undefined reference.
+  static bool shouldAddProvideSym(StringRef symName);
 
   // SECTIONS command list.
   SmallVector<SectionCommand *, 0> sectionCommands;
@@ -340,7 +385,10 @@ public:
   SmallVector<PhdrsCommand, 0> phdrsCommands;
 
   bool hasSectionsCommand = false;
+  bool seenDataAlign = false;
+  bool seenRelroEnd = false;
   bool errorOnMissingSection = false;
+  SmallVector<SmallString<0>, 0> recordedErrors;
 
   // List of section patterns specified with KEEP commands. They will
   // be kept even if they are unused and --gc-sections is specified.
@@ -359,13 +407,37 @@ public:
   // OutputSections specified by OVERWRITE_SECTIONS.
   SmallVector<OutputDesc *, 0> overwriteSections;
 
+  // NOCROSSREFS(_TO) commands.
+  SmallVector<NoCrossRefCommand, 0> noCrossRefs;
+
   // Sections that will be warned/errored by --orphan-handling.
   SmallVector<const InputSectionBase *, 0> orphanSections;
+
+  // Stores the mapping: PROVIDE symbol -> symbols referred in the PROVIDE
+  // expression. For example, if the PROVIDE command is:
+  //
+  // PROVIDE(v = a + b + c);
+  //
+  // then provideMap should contain the mapping: 'v' -> ['a', 'b', 'c']
+  llvm::MapVector<StringRef, SmallVector<StringRef, 0>> provideMap;
+
+  // List of potential spill locations (PotentialSpillSection) for an input
+  // section.
+  struct PotentialSpillList {
+    // Never nullptr.
+    PotentialSpillSection *head;
+    PotentialSpillSection *tail;
+  };
+  llvm::DenseMap<InputSectionBase *, PotentialSpillList> potentialSpillLists;
 };
 
-extern std::unique_ptr<LinkerScript> script;
+struct ScriptWrapper {
+  LinkerScript s;
+  LinkerScript *operator->() { return &s; }
+};
 
-} // end namespace elf
-} // end namespace lld
+LLVM_LIBRARY_VISIBILITY extern ScriptWrapper script;
+
+} // end namespace lld::elf
 
 #endif // LLD_ELF_LINKER_SCRIPT_H

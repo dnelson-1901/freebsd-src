@@ -23,9 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -423,6 +420,7 @@ static device_method_t sdhci_methods[] = {
 	/* Bus interface */
 	DEVMETHOD(bus_read_ivar,	sdhci_generic_read_ivar),
 	DEVMETHOD(bus_write_ivar,	sdhci_generic_write_ivar),
+	DEVMETHOD(bus_add_child,	bus_generic_add_child),
 
 	/* mmcbr_if */
 	DEVMETHOD(mmcbr_update_ios,	sdhci_generic_update_ios),

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Anish Gupta (akgupt3@gmail.com)
  * All rights reserved.
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _VMCB_H_
@@ -169,7 +167,7 @@
 #define	VMCB_NPF_INFO1_GPT		BIT(33) /* Guest page table. */
 
 /*
- * EXITINTINFO, Interrupt exit info for all intrecepts.
+ * EXITINTINFO, Interrupt exit info for all intercepts.
  * Section 15.7.2, Intercepts during IDT Interrupt Delivery.
  */
 #define VMCB_EXITINTINFO_VECTOR(x)	((x) & 0xFF)

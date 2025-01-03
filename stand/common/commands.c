@@ -24,9 +24,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <stand.h>
 #include <string.h>
 
@@ -264,9 +261,9 @@ static int
 command_commandlist(int argc __unused, char *argv[] __unused)
 {
 	static struct bootblk_command	**sorted_list;
-	struct bootblk_command		**cmdp;
+	struct bootblk_command	**cmdp;
 	int	i, res;
-	char	*line;
+	char	name[23];
 
 	if (sorted_list == NULL)
 		sorted_list = sort_commandset();
@@ -279,10 +276,12 @@ command_commandlist(int argc __unused, char *argv[] __unused)
 		if (res)
 			break;
 		if ((*cmdp)->c_name != NULL && (*cmdp)->c_desc != NULL) {
-			asprintf(&line, "  %-15s  %s\n",
-			    (*cmdp)->c_name, (*cmdp)->c_desc);
-			res = pager_output(line);
-			free(line);
+			snprintf(name, sizeof(name), "  %-20s",
+			    (*cmdp)->c_name);
+			pager_output(name);
+			pager_output("  ");
+			pager_output((*cmdp)->c_desc);
+			res = pager_output("\n");
 		}
 	}
 	pager_close();

@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 PACKAGE=	games
 
 PROG=	grdc

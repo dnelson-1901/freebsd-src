@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -199,7 +197,7 @@ ksz8995ma_probe(device_t dev)
 		return (ENXIO);
 	}
 
-	device_set_desc_copy(dev, "Micrel KSZ8995MA SPI switch driver");
+	device_set_desc(dev, "Micrel KSZ8995MA SPI switch driver");
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -221,22 +219,12 @@ ksz8995ma_attach_phys(struct ksz8995ma_softc *sc)
 		sc->ifpport[phy] = port;
 		sc->portphy[port] = phy;
 		sc->ifp[port] = if_alloc(IFT_ETHER);
-		if (sc->ifp[port] == NULL) {
-			device_printf(sc->sc_dev, "couldn't allocate ifnet structure\n");
-			err = ENOMEM;
-			break;
-		}
-
 		sc->ifp[port]->if_softc = sc;
 		sc->ifp[port]->if_flags |= IFF_UP | IFF_BROADCAST |
 		    IFF_DRV_RUNNING | IFF_SIMPLEX;
 		if_initname(sc->ifp[port], name, port);
 		sc->miibus[port] = malloc(sizeof(device_t), M_KSZ8995MA,
 		    M_WAITOK | M_ZERO);
-		if (sc->miibus[port] == NULL) {
-			err = ENOMEM;
-			goto failed;
-		}
 		err = mii_attach(sc->sc_dev, sc->miibus[port], sc->ifp[port],
 		    ksz8995ma_ifmedia_upd, ksz8995ma_ifmedia_sts, \
 		    BMSR_DEFCAPMASK, phy, MII_OFFSET_ANY, 0);
@@ -313,12 +301,6 @@ ksz8995ma_attach(device_t dev)
 	sc->portphy = malloc(sizeof(int) * sc->numports, M_KSZ8995MA,
 	    M_WAITOK | M_ZERO);
 
-	if (sc->ifp == NULL || sc->ifname == NULL || sc->miibus == NULL ||
-	    sc->portphy == NULL) {
-		err = ENOMEM;
-		goto failed;
-	}
-
 	/*
 	 * Attach the PHYs and complete the bus enumeration.
 	 */
@@ -326,11 +308,9 @@ ksz8995ma_attach(device_t dev)
 	if (err != 0)
 		goto failed;
 
-	bus_generic_probe(dev);
+	bus_identify_children(dev);
 	bus_enumerate_hinted_children(dev);
-	err = bus_generic_attach(dev);
-	if (err != 0)
-		goto failed;
+	bus_attach_children(dev);
 	
 	callout_init(&sc->callout_tick, 0);
 
@@ -347,14 +327,10 @@ ksz8995ma_attach(device_t dev)
 	return (0);
 
 failed:
-	if (sc->portphy != NULL)
-		free(sc->portphy, M_KSZ8995MA);
-	if (sc->miibus != NULL)
-		free(sc->miibus, M_KSZ8995MA);
-	if (sc->ifname != NULL)
-		free(sc->ifname, M_KSZ8995MA);
-	if (sc->ifp != NULL)
-		free(sc->ifp, M_KSZ8995MA);
+	free(sc->portphy, M_KSZ8995MA);
+	free(sc->miibus, M_KSZ8995MA);
+	free(sc->ifname, M_KSZ8995MA);
+	free(sc->ifp, M_KSZ8995MA);
 
 	return (err);
 }
@@ -363,7 +339,11 @@ static int
 ksz8995ma_detach(device_t dev)
 {
 	struct ksz8995ma_softc	*sc;
-	int			 i, port;
+	int			 error, i, port;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	sc = device_get_softc(dev);
 
@@ -373,8 +353,6 @@ ksz8995ma_detach(device_t dev)
 		if (((1 << i) & sc->phymask) == 0)
 			continue;
 		port = ksz8995ma_portforphy(sc, i);
-		if (sc->miibus[port] != NULL)
-			device_delete_child(dev, (*sc->miibus[port]));
 		if (sc->ifp[port] != NULL)
 			if_free(sc->ifp[port]);
 		free(sc->ifname[port], M_KSZ8995MA);
@@ -386,7 +364,6 @@ ksz8995ma_detach(device_t dev)
 	free(sc->ifname, M_KSZ8995MA);
 	free(sc->ifp, M_KSZ8995MA);
 
-	bus_generic_detach(dev);
 	mtx_destroy(&sc->sc_mtx);
 
 	return (0);

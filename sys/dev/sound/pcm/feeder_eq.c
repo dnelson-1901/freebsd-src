@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008-2009 Ariff Abdullah <ariff@FreeBSD.org>
  * All rights reserved.
@@ -45,8 +45,6 @@
 
 #define SND_USE_FXDIV
 #include "snd_fxdiv_gen.h"
-
-SND_DECLARE_FILE("$FreeBSD$");
 #endif
 
 #include "feeder_eq_gen.h"
@@ -586,7 +584,7 @@ sysctl_dev_pcm_eq(SYSCTL_HANDLER_ARGS)
 
 		CHN_FOREACH(c, d, channels.pcm.busy) {
 			CHN_LOCK(c);
-			f = chn_findfeeder(c, FEEDER_EQ);
+			f = feeder_find(c, FEEDER_EQ);
 			if (f != NULL)
 				(void)FEEDER_SET(f, FEEDEQ_STATE, val);
 			CHN_UNLOCK(c);
@@ -645,7 +643,7 @@ sysctl_dev_pcm_eq_preamp(SYSCTL_HANDLER_ARGS)
 
 			CHN_FOREACH(c, d, channels.pcm.busy) {
 				CHN_LOCK(c);
-				f = chn_findfeeder(c, FEEDER_EQ);
+				f = feeder_find(c, FEEDER_EQ);
 				if (f != NULL)
 					(void)FEEDER_SET(f, FEEDEQ_PREAMP, val);
 				CHN_UNLOCK(c);

@@ -7,7 +7,7 @@ autogen definitions options;
 #include autogen-version.def
 
 prog-name      = "ntpq";
-prog-title     = "standard NTP query program";
+prog-title     = "query Network Time Protocol servers";
 argument       = '[ host ...]';
 
 flag = {
@@ -108,6 +108,16 @@ flag = {
     arg-default = ipv4;
     doc = <<-  _EndOfDoc_
 	Set the default display format for S2+ refids.
+	_EndOfDoc_;
+};
+
+flag = {
+    name      = unconnected;
+    value     = u;
+    descrip   = "Use unconnected UDP to communicate with ntpd (default on Windows)";
+    doc = <<-  _EndOfDoc_
+	Open an unconnected UDP association to ntpd (the default
+	on Windows).
 	_EndOfDoc_;
 };
 

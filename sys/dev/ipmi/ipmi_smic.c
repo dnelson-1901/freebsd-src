@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 IronPort Systems Inc. <ambrisko@ironport.com>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -391,7 +388,7 @@ smic_startup(struct ipmi_softc *sc)
 }
 
 static int
-smic_driver_request(struct ipmi_softc *sc, struct ipmi_request *req, int timo)
+smic_driver_request(struct ipmi_softc *sc, struct ipmi_request *req)
 {
 	int i, ok;
 

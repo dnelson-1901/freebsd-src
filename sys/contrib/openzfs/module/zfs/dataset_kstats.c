@@ -40,6 +40,9 @@ static dataset_kstat_values_t empty_dataset_kstats = {
 	{
 	{ "zil_commit_count",			KSTAT_DATA_UINT64 },
 	{ "zil_commit_writer_count",		KSTAT_DATA_UINT64 },
+	{ "zil_commit_error_count",		KSTAT_DATA_UINT64 },
+	{ "zil_commit_stall_count",		KSTAT_DATA_UINT64 },
+	{ "zil_commit_suspend_count",		KSTAT_DATA_UINT64 },
 	{ "zil_itx_count",			KSTAT_DATA_UINT64 },
 	{ "zil_itx_indirect_count",		KSTAT_DATA_UINT64 },
 	{ "zil_itx_indirect_bytes",		KSTAT_DATA_UINT64 },
@@ -49,8 +52,12 @@ static dataset_kstat_values_t empty_dataset_kstats = {
 	{ "zil_itx_needcopy_bytes",		KSTAT_DATA_UINT64 },
 	{ "zil_itx_metaslab_normal_count",	KSTAT_DATA_UINT64 },
 	{ "zil_itx_metaslab_normal_bytes",	KSTAT_DATA_UINT64 },
+	{ "zil_itx_metaslab_normal_write",	KSTAT_DATA_UINT64 },
+	{ "zil_itx_metaslab_normal_alloc",	KSTAT_DATA_UINT64 },
 	{ "zil_itx_metaslab_slog_count",	KSTAT_DATA_UINT64 },
-	{ "zil_itx_metaslab_slog_bytes",	KSTAT_DATA_UINT64 }
+	{ "zil_itx_metaslab_slog_bytes",	KSTAT_DATA_UINT64 },
+	{ "zil_itx_metaslab_slog_write",	KSTAT_DATA_UINT64 },
+	{ "zil_itx_metaslab_slog_alloc",	KSTAT_DATA_UINT64 }
 	}
 };
 
@@ -195,8 +202,22 @@ dataset_kstats_destroy(dataset_kstats_t *dk)
 }
 
 void
-dataset_kstats_update_write_kstats(dataset_kstats_t *dk,
-    int64_t nwritten)
+dataset_kstats_rename(dataset_kstats_t *dk, const char *name)
+{
+	if (dk->dk_kstats == NULL)
+		return;
+
+	dataset_kstat_values_t *dkv = dk->dk_kstats->ks_data;
+	char *ds_name;
+
+	ds_name = KSTAT_NAMED_STR_PTR(&dkv->dkv_ds_name);
+	ASSERT3S(ds_name, !=, NULL);
+	(void) strlcpy(ds_name, name,
+	    KSTAT_NAMED_STR_BUFLEN(&dkv->dkv_ds_name));
+}
+
+void
+dataset_kstats_update_write_kstats(dataset_kstats_t *dk, int64_t nwritten)
 {
 	ASSERT3S(nwritten, >=, 0);
 
@@ -208,8 +229,7 @@ dataset_kstats_update_write_kstats(dataset_kstats_t *dk,
 }
 
 void
-dataset_kstats_update_read_kstats(dataset_kstats_t *dk,
-    int64_t nread)
+dataset_kstats_update_read_kstats(dataset_kstats_t *dk, int64_t nread)
 {
 	ASSERT3S(nread, >=, 0);
 

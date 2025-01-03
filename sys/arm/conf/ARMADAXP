@@ -16,7 +16,6 @@
 # If you are in doubt as to the purpose or necessity of a line, check first
 # in NOTES.
 #
-# $FreeBSD$
 
 #NO_UNIVERSE
 
@@ -41,7 +40,6 @@ options 	ROOTDEVNAME=\"ufs:/dev/da0p1\"
 options 	MUTEX_NOINLINE
 options 	RWLOCK_NOINLINE
 options 	NO_FFS_SNAPSHOT
-options 	NO_SWAPPING
 
 # Pseudo devices
 device		pty

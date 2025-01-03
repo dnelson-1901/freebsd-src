@@ -33,9 +33,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -47,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/icmp6.h>
+#include <netinet/tcp.h>
 #include <net/pfvar.h>
 #include <arpa/inet.h>
 
@@ -61,6 +59,7 @@ __FBSDID("$FreeBSD$");
 #include <errno.h>
 #include <err.h>
 #include <ifaddrs.h>
+#include <inttypes.h>
 #include <unistd.h>
 
 #include "pfctl_parser.h"
@@ -69,9 +68,9 @@ __FBSDID("$FreeBSD$");
 void		 print_op (u_int8_t, const char *, const char *);
 void		 print_port (u_int8_t, u_int16_t, u_int16_t, const char *, int);
 void		 print_ugid (u_int8_t, unsigned, unsigned, const char *, unsigned);
-void		 print_flags (u_int8_t);
+void		 print_flags (uint16_t);
 void		 print_fromto(struct pf_rule_addr *, pf_osfp_t,
-		    struct pf_rule_addr *, u_int8_t, u_int8_t, int, int);
+		    struct pf_rule_addr *, sa_family_t, u_int8_t, int, int);
 int		 ifa_skip_if(const char *filter, struct node_host *p);
 
 struct node_host	*host_if(const char *, int, int *);
@@ -79,7 +78,7 @@ struct node_host	*host_v4(const char *, int);
 struct node_host	*host_v6(const char *, int);
 struct node_host	*host_dns(const char *, int, int);
 
-const char * const tcpflags = "FSRPAUEW";
+const char * const tcpflags = "FSRPAUEWe";
 
 static const struct icmptypeent icmp_type[] = {
 	{ "echoreq",	ICMP_ECHO },
@@ -194,6 +193,11 @@ const struct pf_timeout pf_timeouts[] = {
 	{ "tcp.finwait",	PFTM_TCP_FIN_WAIT },
 	{ "tcp.closed",		PFTM_TCP_CLOSED },
 	{ "tcp.tsdiff",		PFTM_TS_DIFF },
+	{ "sctp.first",		PFTM_SCTP_FIRST_PACKET },
+	{ "sctp.opening",	PFTM_SCTP_OPENING },
+	{ "sctp.established",	PFTM_SCTP_ESTABLISHED },
+	{ "sctp.closing",	PFTM_SCTP_CLOSING },
+	{ "sctp.closed",	PFTM_SCTP_CLOSED },
 	{ "udp.first",		PFTM_UDP_FIRST_PACKET },
 	{ "udp.single",		PFTM_UDP_SINGLE },
 	{ "udp.multiple",	PFTM_UDP_MULTIPLE },
@@ -362,7 +366,7 @@ print_ugid(u_int8_t op, unsigned u1, unsigned u2, const char *t, unsigned umax)
 }
 
 void
-print_flags(u_int8_t f)
+print_flags(uint16_t f)
 {
 	int	i;
 
@@ -429,6 +433,7 @@ print_pool(struct pfctl_pool *pool, u_int16_t p1, u_int16_t p2,
 			print_addr(&pooladdr->addr, af, 0);
 			break;
 		case PF_PASS:
+		case PF_MATCH:
 			if (PF_AZERO(&pooladdr->addr.v.a.addr, af))
 				printf("%s", pooladdr->ifname);
 			else {
@@ -485,6 +490,8 @@ print_pool(struct pfctl_pool *pool, u_int16_t p1, u_int16_t p2,
 	}
 	if (pool->opts & PF_POOL_STICKYADDR)
 		printf(" sticky-address");
+	if (pool->opts & PF_POOL_ENDPI)
+		printf(" endpoint-independent");
 	if (id == PF_NAT && p1 == 0 && p2 == 0)
 		printf(" static-port");
 	if (pool->mape.offset > 0)
@@ -624,6 +631,15 @@ print_status(struct pfctl_status *s, struct pfctl_syncookies *cookies, int opts)
 		    PFCTL_SYNCOOKIES_MODE_NAMES[cookies->mode]);
 		printf("  %-25s %s\n", "active",
 		    s->syncookies_active ? "active" : "inactive");
+		if (opts & PF_OPT_VERBOSE2) {
+			printf("  %-25s %d %%\n", "highwater", cookies->highwater);
+			printf("  %-25s %d %%\n", "lowwater", cookies->lowwater);
+			printf("  %-25s %d\n", "halfopen states", cookies->halfopen_states);
+		}
+		printf("Reassemble %24s %s\n",
+		    s->reass & PF_REASS_ENABLED ? "yes" : "no",
+		    s->reass & PF_REASS_NODF ? "no-df" : ""
+		);
 	}
 }
 
@@ -634,10 +650,10 @@ print_running(struct pfctl_status *status)
 }
 
 void
-print_src_node(struct pf_src_node *sn, int opts)
+print_src_node(struct pfctl_src_node *sn, int opts)
 {
 	struct pf_addr_wrap aw;
-	int min, sec;
+	uint64_t min, sec;
 
 	memset(&aw, 0, sizeof(aw));
 	if (sn->af == AF_INET)
@@ -649,7 +665,7 @@ print_src_node(struct pf_src_node *sn, int opts)
 	print_addr(&aw, sn->af, opts & PF_OPT_VERBOSE2);
 	printf(" -> ");
 	aw.v.a.addr = sn->raddr;
-	print_addr(&aw, sn->af, opts & PF_OPT_VERBOSE2);
+	print_addr(&aw, sn->naf ? sn->naf : sn->af, opts & PF_OPT_VERBOSE2);
 	printf(" ( states %u, connections %u, rate %u.%u/%us )\n", sn->states,
 	    sn->conn, sn->conn_rate.count / 1000,
 	    (sn->conn_rate.count % 1000) / 100, sn->conn_rate.seconds);
@@ -658,35 +674,32 @@ print_src_node(struct pf_src_node *sn, int opts)
 		sn->creation /= 60;
 		min = sn->creation % 60;
 		sn->creation /= 60;
-		printf("   age %.2u:%.2u:%.2u", sn->creation, min, sec);
+		printf("   age %.2" PRIu64 ":%.2" PRIu64 ":%.2" PRIu64,
+		    sn->creation, min, sec);
 		if (sn->states == 0) {
 			sec = sn->expire % 60;
 			sn->expire /= 60;
 			min = sn->expire % 60;
 			sn->expire /= 60;
-			printf(", expires in %.2u:%.2u:%.2u",
+			printf(", expires in %.2" PRIu64 ":%.2" PRIu64 ":%.2" PRIu64,
 			    sn->expire, min, sec);
 		}
-		printf(", %llu pkts, %llu bytes",
-#ifdef __FreeBSD__
-		    (unsigned long long)(sn->packets[0] + sn->packets[1]),
-		    (unsigned long long)(sn->bytes[0] + sn->bytes[1]));
-#else
+		printf(", %" PRIu64 " pkts, %" PRIu64 " bytes",
 		    sn->packets[0] + sn->packets[1],
 		    sn->bytes[0] + sn->bytes[1]);
-#endif
 		switch (sn->ruletype) {
 		case PF_NAT:
-			if (sn->rule.nr != -1)
-				printf(", nat rule %u", sn->rule.nr);
+			if (sn->rule != -1)
+				printf(", nat rule %u", sn->rule);
 			break;
 		case PF_RDR:
-			if (sn->rule.nr != -1)
-				printf(", rdr rule %u", sn->rule.nr);
+			if (sn->rule != -1)
+				printf(", rdr rule %u", sn->rule);
 			break;
 		case PF_PASS:
-			if (sn->rule.nr != -1)
-				printf(", filter rule %u", sn->rule.nr);
+		case PF_MATCH:
+			if (sn->rule != -1)
+				printf(", filter rule %u", sn->rule);
 			break;
 		}
 		printf("\n");
@@ -749,6 +762,8 @@ print_eth_rule(struct pfctl_eth_rule *r, const char *anchor_call,
 	static const char *actiontypes[] = { "pass", "block", "", "", "", "",
 	    "", "", "", "", "", "", "match" };
 
+	int i;
+
 	if (rule_numbers)
 		printf("@%u ", r->nr);
 
@@ -791,6 +806,13 @@ print_eth_rule(struct pfctl_eth_rule *r, const char *anchor_call,
 	print_fromto(&r->ipsrc, PF_OSFP_ANY, &r->ipdst,
 	    r->proto == ETHERTYPE_IP ? AF_INET : AF_INET6, 0,
 	    0, 0);
+
+	i = 0;
+	while (r->label[i][0])
+		printf(" label \"%s\"", r->label[i++]);
+	if (r->ridentifier)
+		printf(" ridentifier %u", r->ridentifier);
+
 	if (r->qname[0])
 		printf(" queue %s", r->qname);
 	if (r->tagname[0])
@@ -810,11 +832,12 @@ void
 print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numeric)
 {
 	static const char *actiontypes[] = { "pass", "block", "scrub",
-	    "no scrub", "nat", "no nat", "binat", "no binat", "rdr", "no rdr" };
+	    "no scrub", "nat", "no nat", "binat", "no binat", "rdr", "no rdr",
+	    "", "", "match"};
 	static const char *anchortypes[] = { "anchor", "anchor", "anchor",
 	    "anchor", "nat-anchor", "nat-anchor", "binat-anchor",
 	    "binat-anchor", "rdr-anchor", "rdr-anchor" };
-	int	i, opts;
+	int	i, ropts;
 	char	*p;
 
 	if (verbose)
@@ -893,6 +916,8 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 			printf(" (");
 			if (r->log & PF_LOG_ALL)
 				printf("%sall", count++ ? ", " : "");
+			if (r->log & PF_LOG_MATCHES)
+				printf("%smatches", count++ ? ", " : "");
 			if (r->log & PF_LOG_SOCKET_LOOKUP)
 				printf("%suser", count++ ? ", " : "");
 			if (r->logif)
@@ -935,6 +960,8 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 	}
 	print_fromto(&r->src, r->os_fingerprint, &r->dst, r->af, r->proto,
 	    verbose, numeric);
+	if (r->rcv_ifname[0])
+		printf(" received-on %s", r->rcv_ifname);
 	if (r->uid.op)
 		print_ugid(r->uid.op, r->uid.uid[0], r->uid.uid[1], "user",
 		    UID_MAX);
@@ -946,7 +973,7 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 		print_flags(r->flags);
 		printf("/");
 		print_flags(r->flagset);
-	} else if (r->action == PF_PASS &&
+	} else if ((r->action == PF_PASS || r->action == PF_MATCH) &&
 	    (!r->proto || r->proto == IPPROTO_TCP) &&
 	    !(r->rule_flag & PFRULE_FRAGMENT) &&
 	    !anchor_call[0] && r->keep_state)
@@ -988,6 +1015,10 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 				    r->set_prio[1]);
 			comma = ",";
 		}
+		if (r->scrub_flags & PFSTATE_SETTOS) {
+			printf("%s tos 0x%2.2x", comma, r->set_tos);
+			comma = ",";
+		}
 		printf(" )");
 	}
 	if (!r->keep_state && r->action == PF_PASS && !anchor_call[0])
@@ -1013,70 +1044,72 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 		}
 		printf(" probability %s%%", buf);
 	}
-	opts = 0;
+	ropts = 0;
 	if (r->max_states || r->max_src_nodes || r->max_src_states)
-		opts = 1;
+		ropts = 1;
 	if (r->rule_flag & PFRULE_NOSYNC)
-		opts = 1;
+		ropts = 1;
 	if (r->rule_flag & PFRULE_SRCTRACK)
-		opts = 1;
+		ropts = 1;
 	if (r->rule_flag & PFRULE_IFBOUND)
-		opts = 1;
+		ropts = 1;
 	if (r->rule_flag & PFRULE_STATESLOPPY)
-		opts = 1;
-	for (i = 0; !opts && i < PFTM_MAX; ++i)
+		ropts = 1;
+	if (r->rule_flag & PFRULE_PFLOW)
+		ropts = 1;
+	for (i = 0; !ropts && i < PFTM_MAX; ++i)
 		if (r->timeout[i])
-			opts = 1;
-	if (opts) {
+			ropts = 1;
+	if (ropts) {
 		printf(" (");
 		if (r->max_states) {
 			printf("max %u", r->max_states);
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->rule_flag & PFRULE_NOSYNC) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("no-sync");
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->rule_flag & PFRULE_SRCTRACK) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("source-track");
 			if (r->rule_flag & PFRULE_RULESRCTRACK)
 				printf(" rule");
 			else
 				printf(" global");
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->max_src_states) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("max-src-states %u", r->max_src_states);
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->max_src_conn) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("max-src-conn %u", r->max_src_conn);
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->max_src_conn_rate.limit) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("max-src-conn-rate %u/%u",
 			    r->max_src_conn_rate.limit,
 			    r->max_src_conn_rate.seconds);
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->max_src_nodes) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("max-src-nodes %u", r->max_src_nodes);
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->overload_tblname[0]) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("overload <%s>", r->overload_tblname);
 			if (r->flush)
@@ -1085,24 +1118,30 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 				printf(" global");
 		}
 		if (r->rule_flag & PFRULE_IFBOUND) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("if-bound");
-			opts = 0;
+			ropts = 0;
 		}
 		if (r->rule_flag & PFRULE_STATESLOPPY) {
-			if (!opts)
+			if (!ropts)
 				printf(", ");
 			printf("sloppy");
-			opts = 0;
+			ropts = 0;
+		}
+		if (r->rule_flag & PFRULE_PFLOW) {
+			if (!ropts)
+				printf(", ");
+			printf("pflow");
+			ropts = 0;
 		}
 		for (i = 0; i < PFTM_MAX; ++i)
 			if (r->timeout[i]) {
 				int j;
 
-				if (!opts)
+				if (!ropts)
 					printf(", ");
-				opts = 0;
+				ropts = 0;
 				for (j = 0; pf_timeouts[j].name != NULL;
 				    ++j)
 					if (pf_timeouts[j].timeout == i)
@@ -1113,26 +1152,43 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 			}
 		printf(")");
 	}
-	if (r->rule_flag & PFRULE_FRAGMENT)
-		printf(" fragment");
-	if (r->rule_flag & PFRULE_NODF)
-		printf(" no-df");
-	if (r->rule_flag & PFRULE_RANDOMID)
-		printf(" random-id");
-	if (r->min_ttl)
-		printf(" min-ttl %d", r->min_ttl);
-	if (r->max_mss)
-		printf(" max-mss %d", r->max_mss);
-	if (r->rule_flag & PFRULE_SET_TOS)
-		printf(" set-tos 0x%2.2x", r->set_tos);
 	if (r->allow_opts)
 		printf(" allow-opts");
+	if (r->rule_flag & PFRULE_FRAGMENT)
+		printf(" fragment");
 	if (r->action == PF_SCRUB) {
+		/* Scrub flags for old-style scrub. */
+		if (r->rule_flag & PFRULE_NODF)
+			printf(" no-df");
+		if (r->rule_flag & PFRULE_RANDOMID)
+			printf(" random-id");
+		if (r->min_ttl)
+			printf(" min-ttl %d", r->min_ttl);
+		if (r->max_mss)
+			printf(" max-mss %d", r->max_mss);
+		if (r->rule_flag & PFRULE_SET_TOS)
+			printf(" set-tos 0x%2.2x", r->set_tos);
 		if (r->rule_flag & PFRULE_REASSEMBLE_TCP)
 			printf(" reassemble tcp");
-
+		/* The PFRULE_FRAGMENT_NOREASS is set on all rules by default! */
 		printf(" fragment %sreassemble",
 		    r->rule_flag & PFRULE_FRAGMENT_NOREASS ? "no " : "");
+	} else if (r->scrub_flags & PFSTATE_SCRUBMASK || r->min_ttl || r->max_mss) {
+		/* Scrub actions on normal rules. */
+		printf(" scrub(");
+		if (r->scrub_flags & PFSTATE_NODF)
+			printf(" no-df");
+		if (r->scrub_flags & PFSTATE_RANDOMID)
+			printf(" random-id");
+		if (r->min_ttl)
+			printf(" min-ttl %d", r->min_ttl);
+		if (r->scrub_flags & PFSTATE_SETTOS)
+			printf(" set-tos 0x%2.2x", r->set_tos);
+		if (r->scrub_flags & PFSTATE_SCRUB_TCP)
+			printf(" reassemble tcp");
+		if (r->max_mss)
+			printf(" max-mss %d", r->max_mss);
+		printf(")");
 	}
 	i = 0;
 	while (r->label[i][0])
@@ -1181,8 +1237,21 @@ print_rule(struct pfctl_rule *r, const char *anchor_call, int verbose, int numer
 		}
 #endif
 	}
-	if (!anchor_call[0] && (r->action == PF_NAT ||
-	    r->action == PF_BINAT || r->action == PF_RDR)) {
+	if (!anchor_call[0] && ! TAILQ_EMPTY(&r->nat.list) &&
+	    r->naf != r->af) {
+		printf(" af-to %s from ", r->naf == AF_INET ? "inet" : "inet6");
+		print_pool(&r->nat, r->nat.proxy_port[0], r->nat.proxy_port[1],
+		    r->naf ? r->naf : r->af, PF_NAT);
+		if (r->rdr.cur != NULL && !TAILQ_EMPTY(&r->rdr.list)) {
+			printf(" to ");
+			print_pool(&r->rdr, r->rdr.proxy_port[0],
+			    r->rdr.proxy_port[1], r->naf ? r->naf : r->af,
+			    PF_RDR);
+		}
+	}
+	if (!anchor_call[0] &&
+	    (r->action == PF_NAT || r->action == PF_BINAT ||
+		r->action == PF_RDR)) {
 		printf(" -> ");
 		print_pool(&r->rpool, r->rpool.proxy_port[0],
 		    r->rpool.proxy_port[1], r->af, r->action);
@@ -1231,7 +1300,7 @@ int
 parse_flags(char *s)
 {
 	char		*p, *q;
-	u_int8_t	 f = 0;
+	uint16_t	 f = 0;
 
 	for (p = s; *p; p++) {
 		if ((q = strchr(tcpflags, *p)) == NULL)
@@ -1239,7 +1308,7 @@ parse_flags(char *s)
 		else
 			f |= 1 << (q - tcpflags);
 	}
-	return (f ? f : PF_TH_ALL);
+	return (f ? f : TH_FLAGS);
 }
 
 void
@@ -1271,16 +1340,12 @@ int
 check_netmask(struct node_host *h, sa_family_t af)
 {
 	struct node_host	*n = NULL;
-	struct pf_addr	*m;
+	struct pf_addr		*m;
 
 	for (n = h; n != NULL; n = n->next) {
 		if (h->addr.type == PF_ADDR_TABLE)
 			continue;
 		m = &h->addr.v.a.mask;
-		/* fix up netmask for dynaddr */
-		if (af == AF_INET && h->addr.type == PF_ADDR_DYNIFTL &&
-		    unmask(m, AF_INET6) > 32)
-			set_ipmask(n, 32);
 		/* netmasks > 32 bit are invalid on v4 */
 		if (af == AF_INET &&
 		    (m->addr32[1] || m->addr32[2] || m->addr32[3])) {
@@ -1290,6 +1355,30 @@ check_netmask(struct node_host *h, sa_family_t af)
 		}
 	}
 	return (0);
+}
+
+struct node_host *
+gen_dynnode(struct node_host *h, sa_family_t af)
+{
+	struct node_host	*n;
+	struct pf_addr		*m;
+
+	if (h->addr.type != PF_ADDR_DYNIFTL)
+		return (NULL);
+
+	if ((n = calloc(1, sizeof(*n))) == NULL)
+		return (NULL);
+	bcopy(h, n, sizeof(*n));
+	n->ifname = NULL;
+	n->next = NULL;
+	n->tail = NULL;
+
+	/* fix up netmask */
+	m = &n->addr.v.a.mask;
+	if (af == AF_INET && unmask(m, AF_INET6) > 32)
+		set_ipmask(n, 32);
+
+	return (n);
 }
 
 /* interface lookup routines */

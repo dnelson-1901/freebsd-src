@@ -1,6 +1,5 @@
 #!/bin/sh
 #
-# $FreeBSD$
 #
 
 # PROVIDE: dnctl
@@ -16,6 +15,9 @@ load_rc_config $name
 start_cmd="${name}_start"
 required_files="$dnctl_rules"
 required_modules="dummynet"
+
+# doesn't make sense to run in a svcj: config setting
+dnctl_svcj="NO"
 
 dnctl_start()
 {

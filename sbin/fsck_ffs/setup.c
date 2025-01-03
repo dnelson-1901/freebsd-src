@@ -29,14 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#if 0
-#ifndef lint
-static const char sccsid[] = "@(#)setup.c	8.10 (Berkeley) 5/9/95";
-#endif /* not lint */
-#endif
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/disk.h>
 #include <sys/stat.h>
@@ -54,7 +46,6 @@ __FBSDID("$FreeBSD$");
 #include <limits.h>
 #include <stdint.h>
 #include <string.h>
-#include <libufs.h>
 
 #include "fsck.h"
 
@@ -88,8 +79,12 @@ setup(char *dev)
 	 * We are expected to have an open file descriptor and a superblock.
 	 */
 	if (fsreadfd < 0 || havesb == 0) {
-		if (debug)
-			printf("setup: bad fsreadfd or missing superblock\n");
+		if (debug) {
+			if (fsreadfd < 0)
+				printf("setup: missing fsreadfd\n");
+			else
+				printf("setup: missing superblock\n");
+		}
 		return (0);
 	}
 	if (preen == 0)
@@ -212,7 +207,7 @@ setup(char *dev)
 		sbdirty();
 	}
 	if (snapcnt > 0 && copybuf == NULL) {
-		copybuf = Malloc(sblock.fs_bsize);
+		copybuf = Balloc(sblock.fs_bsize);
 		if (copybuf == NULL)
 			errx(EEXIT, "cannot allocate space for snapshot "
 			    "copy buffer");
@@ -297,6 +292,8 @@ checksnapinfo(struct inode *snapip)
 	size = fragroundup(fs,
 	    DIP(snapip->i_dp, di_size) - lblktosize(fs, lbn));
 	bp = getdatablk(idesc.id_parent, size, BT_DATA);
+	if (bp->b_errs != 0)
+		return (0);
 	snapblklist = (daddr_t *)bp->b_un.b_buf;
 	/*
 	 * snapblklist[0] is the size of the list
@@ -376,14 +373,14 @@ openfilesys(char *dev)
 	if ((statb.st_mode & S_IFMT) != S_IFCHR &&
 	    (statb.st_mode & S_IFMT) != S_IFBLK) {
 		if (bkgrdflag != 0 && (statb.st_flags & SF_SNAPSHOT) == 0) {
-			pfatal("BACKGROUND FSCK LACKS A SNAPSHOT\n");
-			exit(EEXIT);
+			pwarn("BACKGROUND FSCK LACKS A SNAPSHOT\n");
+			return (0);
 		}
 		if (bkgrdflag != 0) {
 			cursnapshot = statb.st_ino;
 		} else {
-			pfatal("%s IS NOT A DISK DEVICE\n", dev);
-			if (reply("CONTINUE") == 0)
+			pwarn("%s IS NOT A DISK DEVICE\n", dev);
+			if (preen || reply("CONTINUE") == 0)
 				return (0);
 		}
 	}
@@ -497,7 +494,7 @@ sblock_init(void)
 	fsmodified = 0;
 	lfdir = 0;
 	initbarea(&sblk, BT_SUPERBLK);
-	sblk.b_un.b_buf = Malloc(SBLOCKSIZE);
+	sblk.b_un.b_buf = Balloc(SBLOCKSIZE);
 	if (sblk.b_un.b_buf == NULL)
 		errx(EEXIT, "cannot allocate space for superblock");
 	dev_bsize = secsize = DEV_BSIZE;
@@ -526,7 +523,7 @@ calcsb(char *dev, int devfd, struct fs *fs)
 	 */
 	if (ioctl(devfd, DIOCGSECTORSIZE, &secsize) == -1)
 		return (0);
-	fsrbuf = Malloc(secsize);
+	fsrbuf = Balloc(secsize);
 	if (fsrbuf == NULL)
 		errx(EEXIT, "calcsb: cannot allocate recovery buffer");
 	if (blread(devfd, fsrbuf,
@@ -569,7 +566,7 @@ chkrecovery(int devfd)
 	rdsize = sblock.fs_fsize;
 	if (ioctl(devfd, DIOCGSECTORSIZE, &secsize) == -1 ||
 	    rdsize % secsize != 0 ||
-	    (fsrbuf = Malloc(rdsize)) == NULL ||
+	    (fsrbuf = Balloc(rdsize)) == NULL ||
 	    blread(devfd, fsrbuf, (SBLOCK_UFS2 - rdsize) / dev_bsize,
 	      rdsize) != 0) {
 		free(fsrbuf);
@@ -608,7 +605,7 @@ saverecovery(int readfd, int writefd)
 	if (sblock.fs_magic != FS_UFS2_MAGIC ||
 	    ioctl(readfd, DIOCGSECTORSIZE, &secsize) == -1 ||
 	    rdsize % secsize != 0 ||
-	    (fsrbuf = Malloc(rdsize)) == NULL ||
+	    (fsrbuf = Balloc(rdsize)) == NULL ||
 	    blread(readfd, fsrbuf, (SBLOCK_UFS2 - rdsize) / dev_bsize,
 	      rdsize) != 0) {
 		printf("RECOVERY DATA COULD NOT BE CREATED\n");

@@ -24,7 +24,6 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #
-# $FreeBSD$
 #
 
 set -e
@@ -155,10 +154,6 @@ set_defaults_and_export
 if [ ! -d "${NANO_TOOLS}" ]; then
 	echo "NANO_TOOLS directory does not exist" 1>&2
 	exit 1
-fi
-
-if ! $do_clean; then
-	NANO_PMAKE="${NANO_PMAKE} -DNO_CLEAN"
 fi
 
 pprint 1 "NanoBSD image ${NANO_NAME} build starting"

@@ -36,9 +36,6 @@
  *   https://www.silabs.com/documents/public/errata/cp2112-errata.pdf
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/condvar.h>
@@ -255,7 +252,6 @@ struct cp2112iic_softc {
 	}		io;
 };
 
-static int cp2112_detach(device_t dev);
 static int cp2112gpio_detach(device_t dev);
 static int cp2112iic_detach(device_t dev);
 
@@ -331,7 +327,7 @@ cp2112_attach(device_t dev)
 		goto detach;
 	}
 	sc->sc_version = vdata.version;
-	sc->sc_gpio_dev = device_add_child(dev, "gpio", -1);
+	sc->sc_gpio_dev = device_add_child(dev, "gpio", DEVICE_UNIT_ANY);
 	if (sc->sc_gpio_dev != NULL) {
 		err = device_probe_and_attach(sc->sc_gpio_dev);
 		if (err != 0) {
@@ -341,7 +337,7 @@ cp2112_attach(device_t dev)
 		device_printf(dev, "failed to create gpio child\n");
 	}
 
-	sc->sc_iic_dev = device_add_child(dev, "iichb", -1);
+	sc->sc_iic_dev = device_add_child(dev, "iichb", DEVICE_UNIT_ANY);
 	if (sc->sc_iic_dev != NULL) {
 		err = device_probe_and_attach(sc->sc_iic_dev);
 		if (err != 0) {
@@ -354,20 +350,8 @@ cp2112_attach(device_t dev)
 	return (0);
 
 detach:
-	cp2112_detach(dev);
+	bus_generic_detach(dev);
 	return (ENXIO);
-}
-
-static int
-cp2112_detach(device_t dev)
-{
-	int err;
-
-	err = bus_generic_detach(dev);
-	if (err != 0)
-		return (err);
-	device_delete_children(dev);
-	return (0);
 }
 
 static int
@@ -1337,13 +1321,13 @@ cp2112iic_attach(device_t dev)
 	usbd_transfer_start(sc->xfers[CP2112_INTR_IN]);
 	mtx_unlock(&sc->io.lock);
 
-	sc->iicbus_dev = device_add_child(dev, "iicbus", -1);
+	sc->iicbus_dev = device_add_child(dev, "iicbus", DEVICE_UNIT_ANY);
 	if (sc->iicbus_dev == NULL) {
 		device_printf(dev, "iicbus creation failed\n");
 		err = ENXIO;
 		goto detach;
 	}
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 	return (0);
 
 detach:
@@ -1361,7 +1345,6 @@ cp2112iic_detach(device_t dev)
 	err = bus_generic_detach(dev);
 	if (err != 0)
 		return (err);
-	device_delete_children(dev);
 
 	mtx_lock(&sc->io.lock);
 	usbd_transfer_stop(sc->xfers[CP2112_INTR_IN]);
@@ -1377,7 +1360,7 @@ cp2112iic_detach(device_t dev)
 static device_method_t cp2112hid_methods[] = {
 	DEVMETHOD(device_probe,		cp2112_probe),
 	DEVMETHOD(device_attach,	cp2112_attach),
-	DEVMETHOD(device_detach,	cp2112_detach),
+	DEVMETHOD(device_detach,	bus_generic_detach),
 
 	DEVMETHOD_END
 };

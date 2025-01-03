@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1994-1996 Søren Schmidt
  * All rights reserved.
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _AMD64_LINUX_H_
@@ -54,7 +52,6 @@ typedef uint16_t	l_ushort;
 typedef l_ulong		l_uintptr_t;
 typedef l_long		l_clock_t;
 typedef l_int		l_daddr_t;
-typedef l_ulong		l_dev_t;
 typedef l_uint		l_gid_t;
 typedef l_ushort	l_gid16_t;
 typedef l_uint		l_uid_t;
@@ -90,7 +87,10 @@ typedef struct {
 /*
  * Miscellaneous
  */
-#define LINUX_AT_COUNT		20	/* Count of used aux entry types. */
+#define LINUX_AT_COUNT		21	/* Count of used aux entry types.
+					 * Keep this synchronized with
+					 * linux_copyout_auxargs() code.
+					 */
 
 struct l___sysctl_args
 {
@@ -131,14 +131,14 @@ struct l_timespec {
 };
 
 struct l_newstat {
-	l_dev_t		st_dev;
+	l_ulong		st_dev;
 	l_ino_t		st_ino;
 	l_ulong		st_nlink;
 	l_uint		st_mode;
 	l_uid_t		st_uid;
 	l_gid_t		st_gid;
-	l_uint		__st_pad1;
-	l_dev_t		st_rdev;
+	l_uint		__st_pad0;
+	l_ulong		st_rdev;
 	l_off_t		st_size;
 	l_long		st_blksize;
 	l_long		st_blocks;
@@ -187,34 +187,6 @@ typedef struct {
 #define	LINUX_MS_NODEV		0x0004
 #define	LINUX_MS_NOEXEC		0x0008
 #define	LINUX_MS_REMOUNT	0x0020
-
-/*
- * SystemV IPC defines
- */
-#define	LINUX_IPC_RMID		0
-#define	LINUX_IPC_SET		1
-#define	LINUX_IPC_STAT		2
-#define	LINUX_IPC_INFO		3
-
-#define	LINUX_SHM_LOCK		11
-#define	LINUX_SHM_UNLOCK	12
-#define	LINUX_SHM_STAT		13
-#define	LINUX_SHM_INFO		14
-
-#define	LINUX_SHM_RDONLY	0x1000
-#define	LINUX_SHM_RND		0x2000
-#define	LINUX_SHM_REMAP		0x4000
-
-/* semctl commands */
-#define	LINUX_GETPID		11
-#define	LINUX_GETVAL		12
-#define	LINUX_GETALL		13
-#define	LINUX_GETNCNT		14
-#define	LINUX_GETZCNT		15
-#define	LINUX_SETVAL		16
-#define	LINUX_SETALL		17
-#define	LINUX_SEM_STAT		18
-#define	LINUX_SEM_INFO		19
 
 union l_semun {
 	l_int		val;
@@ -275,6 +247,10 @@ void	linux_ptrace_get_syscall_info_machdep(const struct reg *reg,
 	    struct syscall_info *si);
 int	linux_ptrace_getregs_machdep(struct thread *td, pid_t pid,
 	    struct linux_pt_regset *l_regset);
+int	linux_ptrace_peekuser(struct thread *td, pid_t pid,
+	    void *addr, void *data);
+int	linux_ptrace_pokeuser(struct thread *td, pid_t pid,
+	    void *addr, void *data);
 #endif /* _KERNEL */
 
 #endif /* !_AMD64_LINUX_H_ */

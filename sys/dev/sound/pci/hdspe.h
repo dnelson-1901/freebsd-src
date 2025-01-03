@@ -1,7 +1,8 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012-2016 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2023-2024 Florian Walpen <dev@submerge.ch>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,18 +25,17 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #define	PCI_VENDOR_XILINX		0x10ee
+#define	PCI_VENDOR_RME			0x1d18 /* Newer firmware versions. */
 #define	PCI_DEVICE_XILINX_HDSPE		0x3fc6 /* AIO, MADI, AES, RayDAT */
 #define	PCI_CLASS_REVISION		0x08
 #define	PCI_REVISION_AIO		212
 #define	PCI_REVISION_RAYDAT		211
 
-#define	AIO				0
-#define	RAYDAT				1
+#define	HDSPE_AIO			0
+#define	HDSPE_RAYDAT			1
 
 /* Hardware mixer */
 #define	HDSPE_OUT_ENABLE_BASE		512
@@ -74,38 +74,44 @@
 #define	HDSPE_LAT_BYTES_MIN		(32 * 4)
 #define	hdspe_encode_latency(x)		(((x)<<1) & HDSPE_LAT_MASK)
 
-/* Gain */
-#define	HDSP_ADGain0			(1 << 25)
-#define	HDSP_ADGain1			(1 << 26)
-#define	HDSP_DAGain0			(1 << 27)
-#define	HDSP_DAGain1			(1 << 28)
-#define	HDSP_PhoneGain0			(1 << 29)
-#define	HDSP_PhoneGain1			(1 << 30)
-
-#define	HDSP_ADGainMask			(HDSP_ADGain0 | HDSP_ADGain1)
-#define	HDSP_ADGainMinus10dBV		(HDSP_ADGainMask)
-#define	HDSP_ADGainPlus4dBu		(HDSP_ADGain0)
-#define	HDSP_ADGainLowGain		0
-
-#define	HDSP_DAGainMask			(HDSP_DAGain0 | HDSP_DAGain1)
-#define	HDSP_DAGainHighGain		(HDSP_DAGainMask)
-#define	HDSP_DAGainPlus4dBu		(HDSP_DAGain0)
-#define	HDSP_DAGainMinus10dBV		0
-
-#define	HDSP_PhoneGainMask		(HDSP_PhoneGain0|HDSP_PhoneGain1)
-#define	HDSP_PhoneGain0dB		HDSP_PhoneGainMask
-#define	HDSP_PhoneGainMinus6dB		(HDSP_PhoneGain0)
-#define	HDSP_PhoneGainMinus12dB		0
-
-#define	HDSPM_statusRegister		0
-#define	HDSPM_statusRegister2		192
-
-/* Settings */
+/* Register addresses */
 #define	HDSPE_SETTINGS_REG		0
 #define	HDSPE_CONTROL_REG		64
 #define	HDSPE_STATUS_REG		0
+#define	HDSPE_STATUS1_REG		64
+#define	HDSPE_STATUS2_REG		192
+
+/* Settings register flags */
+#define	HDSPE_SETTINGS_INPUT_GAIN0	(1 << 20)
+#define	HDSPE_SETTINGS_INPUT_GAIN1	(1 << 21)
+#define	HDSPE_SETTINGS_OUTPUT_GAIN0	(1 << 22)
+#define	HDSPE_SETTINGS_OUTPUT_GAIN1	(1 << 23)
+#define	HDSPE_SETTINGS_PHONES_GAIN0	(1 << 24)
+#define	HDSPE_SETTINGS_PHONES_GAIN1	(1 << 25)
+
+/* Analog input gain level */
+#define	HDSPE_INPUT_LEVEL_MASK		(HDSPE_SETTINGS_INPUT_GAIN0 | \
+					HDSPE_SETTINGS_INPUT_GAIN1)
+#define	HDSPE_INPUT_LEVEL_LOWGAIN	0
+#define	HDSPE_INPUT_LEVEL_PLUS4DBU	(HDSPE_SETTINGS_INPUT_GAIN0)
+#define	HDSPE_INPUT_LEVEL_MINUS10DBV	(HDSPE_SETTINGS_INPUT_GAIN1)
+
+/* Analog output gain level */
+#define	HDSPE_OUTPUT_LEVEL_MASK		(HDSPE_SETTINGS_OUTPUT_GAIN0 | \
+					HDSPE_SETTINGS_OUTPUT_GAIN1)
+#define	HDSPE_OUTPUT_LEVEL_HIGHGAIN	0
+#define	HDSPE_OUTPUT_LEVEL_PLUS4DBU	(HDSPE_SETTINGS_OUTPUT_GAIN0)
+#define	HDSPE_OUTPUT_LEVEL_MINUS10DBV	(HDSPE_SETTINGS_OUTPUT_GAIN1)
+
+/* Phones output gain level */
+#define	HDSPE_PHONES_LEVEL_MASK		(HDSPE_SETTINGS_PHONES_GAIN0 | \
+					HDSPE_SETTINGS_PHONES_GAIN1)
+#define	HDSPE_PHONES_LEVEL_HIGHGAIN	0
+#define	HDSPE_PHONES_LEVEL_PLUS4DBU	(HDSPE_SETTINGS_PHONES_GAIN0)
+#define	HDSPE_PHONES_LEVEL_MINUS10DBV	(HDSPE_SETTINGS_PHONES_GAIN1)
+
+/* Control register flags */
 #define	HDSPE_ENABLE			(1 << 0)
-#define	HDSPM_CLOCK_MODE_MASTER		(1 << 4)
 
 /* Interrupts */
 #define	HDSPE_AUDIO_IRQ_PENDING		(1 << 0)
@@ -120,12 +126,53 @@
 #define	HDSPE_CHANBUF_SIZE		(4 * HDSPE_CHANBUF_SAMPLES)
 #define	HDSPE_DMASEGSIZE		(HDSPE_CHANBUF_SIZE * HDSPE_MAX_SLOTS)
 
+#define	HDSPE_CHAN_AIO_LINE		(1 << 0)
+#define	HDSPE_CHAN_AIO_EXT		(1 << 1)
+#define	HDSPE_CHAN_AIO_PHONE		(1 << 2)
+#define	HDSPE_CHAN_AIO_AES		(1 << 3)
+#define	HDSPE_CHAN_AIO_SPDIF		(1 << 4)
+#define	HDSPE_CHAN_AIO_ADAT		(1 << 5)
+#define	HDSPE_CHAN_AIO_ALL_REC		(HDSPE_CHAN_AIO_LINE | \
+					HDSPE_CHAN_AIO_EXT | \
+					HDSPE_CHAN_AIO_AES | \
+					HDSPE_CHAN_AIO_SPDIF | \
+					HDSPE_CHAN_AIO_ADAT)
+#define	HDSPE_CHAN_AIO_ALL		(HDSPE_CHAN_AIO_ALL_REC | \
+					HDSPE_CHAN_AIO_PHONE) \
+
+#define	HDSPE_CHAN_RAY_AES		(1 << 6)
+#define	HDSPE_CHAN_RAY_SPDIF		(1 << 7)
+#define	HDSPE_CHAN_RAY_ADAT1		(1 << 8)
+#define	HDSPE_CHAN_RAY_ADAT2		(1 << 9)
+#define	HDSPE_CHAN_RAY_ADAT3		(1 << 10)
+#define	HDSPE_CHAN_RAY_ADAT4		(1 << 11)
+#define	HDSPE_CHAN_RAY_ALL		(HDSPE_CHAN_RAY_AES | \
+					HDSPE_CHAN_RAY_SPDIF | \
+					HDSPE_CHAN_RAY_ADAT1 | \
+					HDSPE_CHAN_RAY_ADAT2 | \
+					HDSPE_CHAN_RAY_ADAT3 | \
+					HDSPE_CHAN_RAY_ADAT4)
+
 struct hdspe_channel {
-	uint32_t	left;
-	uint32_t	right;
+	uint32_t	ports;
 	char		*descr;
-	uint32_t	play;
-	uint32_t	rec;
+};
+
+/* Clock sources */
+#define	HDSPE_SETTING_MASTER		(1 << 0)
+#define	HDSPE_SETTING_CLOCK_MASK	0x1f
+
+#define	HDSPE_STATUS1_CLOCK_SHIFT	28
+#define	HDSPE_STATUS1_CLOCK_MASK	(0x0f << HDSPE_STATUS1_CLOCK_SHIFT)
+#define	HDSPE_STATUS1_CLOCK(n)		(((n) << HDSPE_STATUS1_CLOCK_SHIFT) & \
+					HDSPE_STATUS1_CLOCK_MASK)
+
+struct hdspe_clock_source {
+	char		*name;
+	uint32_t	setting;
+	uint32_t	status;
+	uint32_t	lock_bit;
+	uint32_t	sync_bit;
 };
 
 static MALLOC_DEFINE(M_HDSPE, "hdspe", "hdspe audio");
@@ -137,16 +184,18 @@ struct sc_chinfo {
 	struct sc_pcminfo	*parent;
 
 	/* Channel information */
+	struct pcmchan_caps	*caps;
+	uint32_t	cap_fmts[4];
 	uint32_t	dir;
 	uint32_t	format;
-	uint32_t	lslot;
-	uint32_t	rslot;
+	uint32_t	ports;
 	uint32_t	lvol;
 	uint32_t	rvol;
 
 	/* Buffer */
 	uint32_t	*data;
 	uint32_t	size;
+	uint32_t	position;
 
 	/* Flags */
 	uint32_t	run;
@@ -190,6 +239,8 @@ struct sc_info {
 	bus_dmamap_t		rmap;
 	uint32_t		period;
 	uint32_t		speed;
+	uint32_t		force_period;
+	uint32_t		force_speed;
 };
 
 #define	hdspe_read_1(sc, regno)						\

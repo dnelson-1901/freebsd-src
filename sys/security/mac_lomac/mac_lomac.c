@@ -34,8 +34,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -90,8 +88,6 @@ struct mac_lomac_proc {
 	struct mac_lomac mac_lomac;
 	struct mtx mtx;
 };
-
-SYSCTL_DECL(_security_mac);
 
 static SYSCTL_NODE(_security_mac, OID_AUTO, lomac,
     CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
@@ -1704,6 +1700,7 @@ lomac_priv_check(struct ucred *cred, int priv)
 	 */
 	case PRIV_SEEOTHERGIDS:
 	case PRIV_SEEOTHERUIDS:
+	case PRIV_SEEJAILPROC:
 		break;
 
 	/*

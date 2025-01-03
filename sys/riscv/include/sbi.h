@@ -31,8 +31,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _MACHINE_SBI_H_
@@ -51,6 +49,12 @@
 #define	SBI_IMPL_ID_KVM			3
 #define	SBI_IMPL_ID_RUSTSBI		4
 #define	SBI_IMPL_ID_DIOSIX		5
+#define	SBI_IMPL_ID_COFFER		6
+#define	SBI_IMPL_ID_XEN_PROJECT		7
+#define	SBI_IMPL_ID_POLARFIRE_HSS	8
+#define	SBI_IMPL_ID_COREBOOT		9
+#define	SBI_IMPL_ID_OREBOOT		10
+#define	SBI_IMPL_ID_BHYVE		11
 
 /* SBI Error Codes */
 #define	SBI_SUCCESS			0
@@ -119,6 +123,8 @@
 #define	SBI_REMOTE_SFENCE_VMA_ASID	7
 #define	SBI_SHUTDOWN			8
 
+#ifndef LOCORE
+
 #define	SBI_CALL0(e, f)				SBI_CALL5(e, f, 0, 0, 0, 0, 0)
 #define	SBI_CALL1(e, f, p1)			SBI_CALL5(e, f, p1, 0, 0, 0, 0)
 #define	SBI_CALL2(e, f, p1, p2)			SBI_CALL5(e, f, p1, p2, 0, 0, 0)
@@ -161,11 +167,7 @@ sbi_call(uint64_t arg7, uint64_t arg6, uint64_t arg0, uint64_t arg1,
 	return (ret);
 }
 
-/* Base extension functions and variables. */
-extern u_long sbi_spec_version;
-extern u_long sbi_impl_id;
-extern u_long sbi_impl_version;
-
+/* Base extension functions. */
 static __inline long
 sbi_probe_extension(long id)
 {
@@ -242,4 +244,5 @@ sbi_console_getchar(void)
 void sbi_print_version(void);
 void sbi_init(void);
 
+#endif /* !LOCORE */
 #endif /* !_MACHINE_SBI_H_ */

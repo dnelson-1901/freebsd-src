@@ -31,9 +31,6 @@
  * THE POSSIBILITY OF SUCH DAMAGES.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
@@ -88,7 +85,6 @@ siba_attach(device_t dev)
 
 	/* Enumerate children */
 	if ((error = siba_add_children(dev))) {
-		device_delete_children(dev);
 		SIBA_LOCK_DESTROY(sc);
 		return (error);
 	}
@@ -1321,7 +1317,7 @@ siba_add_children(device_t dev)
 			goto failed;
 
 		/* Add the child device */
-		child = BUS_ADD_CHILD(dev, 0, NULL, -1);
+		child = BUS_ADD_CHILD(dev, 0, NULL, DEVICE_UNIT_ANY);
 		if (child == NULL) {
 			error = ENXIO;
 			goto failed;
@@ -1376,12 +1372,7 @@ siba_add_children(device_t dev)
 	return (0);
 
 failed:
-	for (u_int i = 0; i < cid->ncores; i++) {
-		if (children[i] == NULL)
-			continue;
-
-		device_delete_child(dev, children[i]);
-	}
+	device_delete_children(dev);
 
 	free(cores, M_BHND);
 	free(children, M_BHND);

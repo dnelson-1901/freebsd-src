@@ -120,7 +120,11 @@ extern "C" {
 #define	DN_MAX_LEVELS	(DIV_ROUND_UP(DN_MAX_OFFSET_SHIFT - SPA_MINBLOCKSHIFT, \
 	DN_MIN_INDBLKSHIFT - SPA_BLKPTRSHIFT) + 1)
 
-#define	DN_BONUS(dnp)	((void*)((dnp)->dn_bonus + \
+/*
+ * Use the flexible array instead of the fixed length one dn_bonus
+ * to address memcpy/memmove fortify error
+ */
+#define	DN_BONUS(dnp)	((void*)((dnp)->dn_bonus_flexible + \
 	(((dnp)->dn_nblkptr - 1) * sizeof (blkptr_t))))
 #define	DN_MAX_BONUS_LEN(dnp) \
 	((dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) ? \
@@ -266,6 +270,10 @@ typedef struct dnode_phys {
 			    sizeof (blkptr_t)];
 			blkptr_t dn_spill;
 		};
+		struct {
+			blkptr_t __dn_ignore4;
+			uint8_t dn_bonus_flexible[];
+		};
 	};
 } dnode_phys_t;
 
@@ -372,6 +380,9 @@ struct dnode {
 
 	/* holds prefetch structure */
 	struct zfetch	dn_zfetch;
+
+	/* Not in dn_phys, but should be. set it after taking a hold */
+	dmu_object_type_t dn_storage_type;	/* type for storage class */
 };
 
 /*
@@ -453,6 +464,8 @@ int dnode_next_offset(dnode_t *dn, int flags, uint64_t *off,
 void dnode_evict_dbufs(dnode_t *dn);
 void dnode_evict_bonus(dnode_t *dn);
 void dnode_free_interior_slots(dnode_t *dn);
+
+void dnode_set_storage_type(dnode_t *dn, dmu_object_type_t type);
 
 #define	DNODE_IS_DIRTY(_dn)						\
 	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))

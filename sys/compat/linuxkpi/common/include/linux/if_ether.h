@@ -29,13 +29,12 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_IF_ETHER_H_
 #define	_LINUXKPI_LINUX_IF_ETHER_H_
 
 #include <linux/types.h>
+#include <linux/skbuff.h>
 
 #include <net/ethernet.h>
 
@@ -70,5 +69,14 @@ struct ethhdr {
 	uint8_t		h_source[ETH_ALEN];
 	uint16_t	h_proto;
 } __packed;
+
+static inline struct ethhdr *
+eth_hdr(const struct sk_buff *skb)
+{
+	struct ethhdr *hdr;
+
+	hdr = (struct ethhdr *)skb_mac_header(skb);
+	return (hdr);
+}
 
 #endif	/* _LINUXKPI_LINUX_IF_ETHER_H_ */

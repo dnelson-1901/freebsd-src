@@ -1,4 +1,3 @@
-# $FreeBSD$
 #
 # The include file <src.libnames.mk> define library names suitable
 # for INTERNALLIB and PRIVATELIB definition
@@ -28,6 +27,7 @@ _PRIVATELIBS=	\
 		gtest_main \
 		heimipcc \
 		heimipcs \
+		kldelf \
 		ldns \
 		sqlite3 \
 		ssh \
@@ -44,7 +44,10 @@ _INTERNALLIBS=	\
 		bsnmptools \
 		c_nossp_pic \
 		cron \
+		der \
+		diff \
 		elftc \
+		fdt \
 		fifolog \
 		ifconfig \
 		ipf \
@@ -55,11 +58,13 @@ _INTERNALLIBS=	\
 		netbsd \
 		ntp \
 		ntpevent \
+		nvmf \
 		openbsd \
 		opts \
 		parse \
 		pe \
 		pfctl \
+		pkgecc \
 		pmcstat \
 		sl \
 		sm \
@@ -77,6 +82,7 @@ _INTERNALLIBS=	\
 		wpaeapol_auth \
 		wpaeapol_supp \
 		wpal2_packet \
+		wpapasn \
 		wparadius \
 		wparsn_supp \
 		wpatls \
@@ -203,6 +209,7 @@ _LIBRARIES=	\
 		stats \
 		stdthreads \
 		supcplusplus \
+		sys \
 		sysdecode \
 		tacplus \
 		termcapw \
@@ -223,6 +230,7 @@ _LIBRARIES=	\
 		y \
 		ypclnt \
 		z \
+		zdb \
 		zfs_core \
 		zfs \
 		zfsbootenv \
@@ -281,7 +289,7 @@ _DP_9p+=	casper cap_pwd cap_grp
 _DP_archive=	z bz2 lzma bsdxml zstd
 .endif
 _DP_avl=	spl
-_DP_bsddialog=	formw ncursesw tinfow
+_DP_bsddialog=	ncursesw tinfow
 _DP_zstd=	pthread
 .if ${MK_BLACKLIST} != "no"
 _DP_blacklist+=	pthread
@@ -307,6 +315,7 @@ _DP_bsnmp=	crypto
 .endif
 _DP_geom=	bsdxml sbuf
 _DP_cam=	sbuf
+_DP_kldelf=	elf
 _DP_kvm=	elf
 _DP_casper=	nv
 _DP_cap_dns=	nv
@@ -315,6 +324,7 @@ _DP_cap_grp=	nv
 _DP_cap_pwd=	nv
 _DP_cap_sysctl=	nv
 _DP_cap_syslog=	nv
+_DP_crypt=	md
 .if ${MK_OFED} != "no"
 _DP_pcap=	ibverbs mlx5
 .endif
@@ -338,6 +348,7 @@ _DP_mp=	crypto
 _DP_memstat=	kvm
 _DP_magic=	z
 _DP_mt=		sbuf bsdxml
+_DP_nvmf=	nv
 _DP_ldns=	ssl crypto
 _DP_lua=	m
 _DP_lutok=	lua
@@ -388,12 +399,12 @@ _DP_ucl=	m
 _DP_vmmapi=	util
 _DP_opencsd=	cxxrt
 _DP_ctf=	spl z
-_DP_dtrace=	ctf elf proc pthread rtld_db
+_DP_dtrace=	ctf elf proc pthread rtld_db xo
 _DP_xo=		util
 _DP_ztest=	geom m nvpair umem zpool pthread avl zfs_core spl zutil zfs uutil icp
 # The libc dependencies are not strictly needed but are defined to make the
 # assert happy.
-_DP_c=		compiler_rt
+_DP_c=		compiler_rt sys
 # Use libssp_nonshared only on i386 and power*.  Other archs emit direct calls
 # to __stack_chk_fail, not __stack_chk_fail_local provided by libssp_nonshared.
 .if ${MK_SSP} != "no" && \
@@ -402,7 +413,18 @@ _DP_c+=		ssp_nonshared
 .endif
 _DP_stats=	sbuf pthread
 _DP_stdthreads=	pthread
-_DP_tacplus=	md
+_DP_sys=	compiler_rt
+# Use libssp_nonshared only on i386 and power*.  Other archs emit direct calls
+# to __stack_chk_fail, not __stack_chk_fail_local provided by libssp_nonshared.
+.if ${MK_SSP} != "no" && \
+    (${MACHINE_ARCH} == "i386" || ${MACHINE_ARCH:Mpower*} != "")
+_DP_sys+=	ssp_nonshared
+.endif
+.if !defined(BOOTSTRAPPING)
+_DP_thr=	c sys
+_DP_pthread=	${_DP_thr}
+.endif
+_DP_tacplus=	md pam
 _DP_ncursesw=	tinfow
 _DP_formw=	ncursesw
 _DP_nvpair=	spl
@@ -414,7 +436,7 @@ _DP_fifolog=	z
 _DP_ipf=	kvm
 _DP_tpool=	spl
 _DP_uutil=	avl spl
-_DP_zfs=	md pthread umem util uutil m avl bsdxml crypto geom nvpair \
+_DP_zfs=	md pthread rt umem util uutil m avl bsdxml crypto geom nvpair \
 	z zfs_core zutil
 _DP_zfsbootenv= zfs nvpair
 _DP_zfs_core=	nvpair spl zutil
@@ -531,8 +553,14 @@ LDADD+=		${LDADD_${_l}}
 
 _LIB_OBJTOP?=	${OBJTOP}
 # INTERNALLIB definitions.
+LIBDIFFDIR=	${_LIB_OBJTOP}/lib/libdiff
+LIBDIFF?=	${LIBDIFFDIR}/libdiff${PIE_SUFFIX}.a
+
 LIBELFTCDIR=	${_LIB_OBJTOP}/lib/libelftc
 LIBELFTC?=	${LIBELFTCDIR}/libelftc${PIE_SUFFIX}.a
+
+LIBFDTDIR=	${_LIB_OBJTOP}/lib/libfdt
+LIBFDT?=	${LIBFDTDIR}/libfdt${PIE_SUFFIX}.a
 
 LIBLUADIR=	${_LIB_OBJTOP}/lib/liblua
 LIBLUA?=	${LIBLUADIR}/liblua${PIE_SUFFIX}.a
@@ -555,6 +583,9 @@ LIBSMDB?=	${LIBSMDBDIR}/libsmdb${PIE_SUFFIX}.a
 LIBSMUTILDIR=	${_LIB_OBJTOP}/lib/libsmutil
 LIBSMUTIL?=	${LIBSMUTILDIR}/libsmutil${PIE_SUFFIX}.a
 
+LIBSYSDIR=	${_LIB_OBJTOP}/lib/libsys
+LIBSYS?=	${LIBSYSDIR}/libsys${PIE_SUFFIX}.a
+
 LIBNETBSDDIR?=	${_LIB_OBJTOP}/lib/libnetbsd
 LIBNETBSD?=	${LIBNETBSDDIR}/libnetbsd${PIE_SUFFIX}.a
 
@@ -576,11 +607,17 @@ LIBNV?=		${LIBNVDIR}/libnv${PIE_SUFFIX}.a
 LIBISCSIUTILDIR=	${_LIB_OBJTOP}/lib/libiscsiutil
 LIBISCSIUTIL?=	${LIBISCSIUTILDIR}/libiscsiutil${PIE_SUFFIX}.a
 
+LIBNVMFDIR=	${_LIB_OBJTOP}/lib/libnvmf
+LIBNVMF?=	${LIBNVMFDIR}/libnvmf${PIE_SUFFIX}.a
+
 LIBTELNETDIR=	${_LIB_OBJTOP}/lib/libtelnet
 LIBTELNET?=	${LIBTELNETDIR}/libtelnet${PIE_SUFFIX}.a
 
 LIBCRONDIR=	${_LIB_OBJTOP}/usr.sbin/cron/lib
 LIBCRON?=	${LIBCRONDIR}/libcron${PIE_SUFFIX}.a
+
+LIBDERDIR=	${_LIB_OBJTOP}/lib/libder
+LIBDER?=	${LIBDERDIR}/libder${PIE_SUFFIX}.a
 
 LIBNTPDIR=	${_LIB_OBJTOP}/usr.sbin/ntp/libntp
 LIBNTP?=	${LIBNTPDIR}/libntp${PIE_SUFFIX}.a
@@ -594,7 +631,7 @@ LIBOPTS?=	${LIBOPTSDIR}/libopts${PIE_SUFFIX}.a
 LIBPARSEDIR=	${_LIB_OBJTOP}/usr.sbin/ntp/libparse
 LIBPARSE?=	${LIBPARSEDIR}/libparse${PIE_SUFFIX}.a
 
-LIBPFCTL=	${_LIB_OBJTOP}/lib/libpfctl
+LIBPFCTLDIR=	${_LIB_OBJTOP}/lib/libpfctl
 LIBPFCTL?=	${LIBPFCTLDIR}/libpfctl${PIE_SUFFIX}.a
 
 LIBLPRDIR=	${_LIB_OBJTOP}/usr.sbin/lpr/common_source
@@ -607,6 +644,9 @@ LIBBSNMPTOOLSDIR=	${_LIB_OBJTOP}/usr.sbin/bsnmpd/tools/libbsnmptools
 LIBBSNMPTOOLS?=	${LIBBSNMPTOOLSDIR}/libbsnmptools${PIE_SUFFIX}.a
 
 LIBBE?=		${LIBBEDIR}/libbe${PIE_SUFFIX}.a
+
+LIBPKGECCDIR=	${_LIB_OBJTOP}/secure/lib/libpkgecc
+LIBPKGECC?=	${LIBPKGECCDIR}/libpkgecc${PIE_SUFFIX}.a
 
 LIBPMCSTATDIR=	${_LIB_OBJTOP}/lib/libpmcstat
 LIBPMCSTAT?=	${LIBPMCSTATDIR}/libpmcstat${PIE_SUFFIX}.a
@@ -641,6 +681,9 @@ LIBWPAEAPOL_SUPP?=	${LIBWPAEAPOL_SUPPDIR}/libwpaeapol_supp${PIE_SUFFIX}.a
 LIBWPAL2_PACKETDIR=	${_LIB_OBJTOP}/usr.sbin/wpa/src/l2_packet
 LIBWPAL2_PACKET?=	${LIBWPAL2_PACKETDIR}/libwpal2_packet${PIE_SUFFIX}.a
 
+LIBWPAPASNDIR=		${_LIB_OBJTOP}/usr.sbin/wpa/src/pasn
+LIBWPAPASN?=		${LIBWPAPASNDIR}/libwpapasn${PIE_SUFFIX}.a
+
 LIBWPARADIUSDIR=	${_LIB_OBJTOP}/usr.sbin/wpa/src/radius
 LIBWPARADIUS?=	${LIBWPARADIUSDIR}/libwparadius${PIE_SUFFIX}.a
 
@@ -673,6 +716,8 @@ LIBNVPAIRDIR=	${_LIB_OBJTOP}/cddl/lib/libnvpair
 LIBNVPAIR?=	${LIBNVPAIRDIR}/libnvpair${PIE_SUFFIX}.a
 LIBUMEMDIR=	${_LIB_OBJTOP}/cddl/lib/libumem
 LIBUUTILDIR=	${_LIB_OBJTOP}/cddl/lib/libuutil
+LIBZDBDIR=	${_LIB_OBJTOP}/cddl/lib/libzdb
+LIBZDB?=	${LIBZDBDIR}/libzdb${PIE_SUFFIX}.a
 LIBZFSDIR=	${_LIB_OBJTOP}/cddl/lib/libzfs
 LIBZFS?=	${LIBZFSDIR}/libzfs${PIE_SUFFIX}.a
 LIBZFS_COREDIR=	${_LIB_OBJTOP}/cddl/lib/libzfs_core
@@ -732,6 +777,7 @@ LIBBLOCKSRUNTIMEDIR=	${_LIB_OBJTOP}/lib/libblocksruntime
 LIBBSNMPDIR=	${_LIB_OBJTOP}/lib/libbsnmp/libbsnmp
 LIBCASPERDIR=	${_LIB_OBJTOP}/lib/libcasper/libcasper
 LIBCAP_DNSDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_dns
+LIBCAP_FILEARGSDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_fileargs
 LIBCAP_GRPDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_grp
 LIBCAP_NETDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_net
 LIBCAP_PWDDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_pwd

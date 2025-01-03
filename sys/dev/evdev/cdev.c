@@ -23,8 +23,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "opt_evdev.h"
@@ -93,7 +91,7 @@ static struct cdevsw evdev_cdevsw = {
 	.d_name = "evdev",
 };
 
-static struct filterops evdev_cdev_filterops = {
+static const struct filterops evdev_cdev_filterops = {
 	.f_isfd = 1,
 	.f_attach = NULL,
 	.f_detach = evdev_kqdetach,

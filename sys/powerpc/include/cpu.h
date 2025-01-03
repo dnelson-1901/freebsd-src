@@ -31,7 +31,6 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *	$NetBSD: cpu.h,v 1.11 2000/05/26 21:19:53 thorpej Exp $
- * $FreeBSD$
  */
 
 #ifndef _MACHINE_CPU_H_
@@ -91,6 +90,8 @@ extern u_long cpu_features2;
 #define	PPC_FEATURE2_DARN	0x00200000
 #define	PPC_FEATURE2_SCV	0x00100000
 #define	PPC_FEATURE2_HTM_NOSUSPEND	0x00080000
+#define	PPC_FEATURE2_ARCH_3_1	0x00040000
+#define	PPC_FEATURE2_MMA	0x00020000
 
 #define	PPC_FEATURE_BITMASK						\
 	"\20"								\

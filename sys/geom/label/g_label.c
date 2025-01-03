@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2004-2005 Pawel Jakub Dawidek <pjd@FreeBSD.org>
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_geom.h"
 
 #include <sys/param.h>
@@ -103,10 +101,10 @@ const struct g_label_desc *g_labels[] = {
 	&g_label_iso9660,
 	&g_label_msdosfs,
 	&g_label_ext2fs,
-	&g_label_reiserfs,
 	&g_label_ntfs,
 	&g_label_disk_ident,
 	&g_label_flashmap,
+	&g_label_swaplinux,
 #endif
 	&g_label_generic,
 	NULL

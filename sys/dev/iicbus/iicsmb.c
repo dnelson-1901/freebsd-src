@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 1998, 2001 Nicolas Souchu
  * All rights reserved.
@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * I2C to SMB bridge
  *
@@ -137,7 +135,7 @@ iicsmb_identify(driver_t *driver, device_t parent)
 {
 
 	if (device_find_child(parent, "iicsmb", -1) == NULL)
-		BUS_ADD_CHILD(parent, 0, "iicsmb", -1);
+		BUS_ADD_CHILD(parent, 0, "iicsmb", DEVICE_UNIT_ANY);
 }
 
 static int
@@ -154,10 +152,10 @@ iicsmb_attach(device_t dev)
 
 	mtx_init(&sc->lock, "iicsmb", NULL, MTX_DEF);
 
-	sc->smbus = device_add_child(dev, "smbus", -1);
+	sc->smbus = device_add_child(dev, "smbus", DEVICE_UNIT_ANY);
 
 	/* probe and attach the smbus */
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -168,7 +166,6 @@ iicsmb_detach(device_t dev)
 	struct iicsmb_softc *sc = (struct iicsmb_softc *)device_get_softc(dev);
 
 	bus_generic_detach(dev);
-	device_delete_children(dev);
 	mtx_destroy(&sc->lock);
 
 	return (0);

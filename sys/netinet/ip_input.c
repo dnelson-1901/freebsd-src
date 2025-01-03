@@ -27,13 +27,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ip_input.c	8.2 (Berkeley) 1/4/94
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_bootp.h"
 #include "opt_inet.h"
 #include "opt_ipstealth.h"
@@ -136,7 +132,9 @@ SYSCTL_BOOL(_net_inet_ip, OID_AUTO, source_address_validation,
     CTLFLAG_VNET | CTLFLAG_RW, &VNET_NAME(ip_sav), true,
     "Drop incoming packets with source address that is a local address");
 
-VNET_DEFINE(pfil_head_t, inet_pfil_head);	/* Packet filter hooks */
+/* Packet filter hooks */
+VNET_DEFINE(pfil_head_t, inet_pfil_head);
+VNET_DEFINE(pfil_head_t, inet_local_pfil_head);
 
 static struct netisr_handler ip_nh = {
 	.nh_name = "ip",
@@ -326,6 +324,10 @@ ip_vnet_init(void *arg __unused)
 	args.pa_type = PFIL_TYPE_IP4;
 	args.pa_headname = PFIL_INET_NAME;
 	V_inet_pfil_head = pfil_head_register(&args);
+
+	args.pa_flags = PFIL_OUT;
+	args.pa_headname = PFIL_INET_LOCAL_NAME;
+	V_inet_local_pfil_head = pfil_head_register(&args);
 
 	if (hhook_head_register(HHOOK_TYPE_IPSEC_IN, AF_INET,
 	    &V_ipsec_hhh_in[HHOOK_IPSEC_INET],
@@ -619,8 +621,6 @@ tooshort:
 	if (pfil_mbuf_in(V_inet_pfil_head, &m, ifp, NULL) !=
 	    PFIL_PASS)
 		return;
-	if (m == NULL)			/* consumed by filter */
-		return;
 
 	ip = mtod(m, struct ip *);
 	dchg = (odst.s_addr != ip->ip_dst.s_addr);
@@ -817,6 +817,18 @@ ours:
 #endif /* IPSTEALTH */
 
 	/*
+	 * We are going to ship the packet to the local protocol stack. Call the
+	 * filter again for this 'output' action, allowing redirect-like rules
+	 * to adjust the source address.
+	 */
+	if (PFIL_HOOKED_OUT(V_inet_local_pfil_head)) {
+		if (pfil_mbuf_out(V_inet_local_pfil_head, &m, V_loif, NULL) !=
+		    PFIL_PASS)
+			return;
+		ip = mtod(m, struct ip *);
+	}
+
+	/*
 	 * Attempt reassembly; if it succeeds, proceed.
 	 * ip_reass() will return a different mbuf.
 	 */
@@ -930,6 +942,18 @@ ip_forward(struct mbuf *m, int srcrt)
 	flowid = m->m_pkthdr.flowid;
 	ro.ro_nh = fib4_lookup(M_GETFIB(m), ip->ip_dst, 0, NHR_REF, flowid);
 	if (ro.ro_nh != NULL) {
+		if (ro.ro_nh->nh_flags & (NHF_BLACKHOLE | NHF_BROADCAST)) {
+			IPSTAT_INC(ips_cantforward);
+			m_freem(m);
+			NH_FREE(ro.ro_nh);
+			return;
+		}
+		if (ro.ro_nh->nh_flags & NHF_REJECT) {
+			IPSTAT_INC(ips_cantforward);
+			NH_FREE(ro.ro_nh);
+			icmp_error(m, ICMP_UNREACH, ICMP_UNREACH_HOST, 0, 0);
+			return;
+		}
 		ia = ifatoia(ro.ro_nh->nh_ifa);
 	} else
 		ia = NULL;

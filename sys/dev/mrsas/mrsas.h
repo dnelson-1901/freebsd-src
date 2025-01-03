@@ -38,8 +38,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #ifndef MRSAS_H
 #define	MRSAS_H
 
@@ -992,7 +990,7 @@ typedef struct _MR_FW_RAID_MAP_EXT {
 
 typedef struct _MR_DRV_RAID_MAP {
 	/*
-	 * Total size of this structure, including this field. This feild
+	 * Total size of this structure, including this field. This field
 	 * will be manupulated by driver for ext raid map, else pick the
 	 * value from firmware raid map.
 	 */
@@ -3647,5 +3645,8 @@ mrsas_test_bit(int b, volatile void *p)
 {
 	return ((volatile int *)p)[b >> 5] & (1 << (b & 0x1f));
 }
+
+#include "mrsas_ioctl.h"
+extern int mrsas_user_command(struct mrsas_softc *, struct mfi_ioc_passthru *);
 
 #endif					/* MRSAS_H */

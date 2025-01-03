@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 Thomas Skibo
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /* 
@@ -36,9 +34,6 @@
  * (v1.4) November 16, 2012.  Xilinx doc UG585.  PL Configuration is
  * covered in section 6.4.5.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -796,14 +791,16 @@ static int
 zy7_devcfg_detach(device_t dev)
 {
 	struct zy7_devcfg_softc *sc = device_get_softc(dev);
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	if (sc->sysctl_tree_top != NULL) {
 		sysctl_ctx_free(&sc->sysctl_tree);
 		sc->sysctl_tree_top = NULL;
 	}
-
-	if (device_is_attached(dev))
-		bus_generic_detach(dev);
 
 	/* Get rid of /dev/devcfg0. */
 	if (sc->sc_ctl_dev != NULL)

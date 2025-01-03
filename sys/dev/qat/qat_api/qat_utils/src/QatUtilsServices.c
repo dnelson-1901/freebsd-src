@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /* Copyright(c) 2007-2022 Intel Corporation */
-/* $FreeBSD$ */
 #include "qat_utils.h"
 
 #include <sys/param.h>
@@ -92,7 +91,7 @@ qatUtilsMemFreeNUMA(void *ptr)
 		    "QatUtilsMemAlignedFree: Detected corrupted data: memory leak!\n");
 		return;
 	}
-	contigfree(memInfo->mAllocMemPtr, memInfo->mSize, M_QAT);
+	free(memInfo->mAllocMemPtr, M_QAT);
 }
 
 CpaStatus

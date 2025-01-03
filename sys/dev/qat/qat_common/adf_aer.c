@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
 /* Copyright(c) 2007-2022 Intel Corporation */
-/* $FreeBSD$ */
 #include "qat_freebsd.h"
 #include "adf_cfg.h"
 #include "adf_common_drv.h"
@@ -29,17 +28,13 @@ static struct workqueue_struct *device_reset_wq;
 void
 linux_complete_common(struct completion *c, int all)
 {
-	int wakeup_swapper;
-
 	sleepq_lock(c);
 	c->done++;
 	if (all)
-		wakeup_swapper = sleepq_broadcast(c, SLEEPQ_SLEEP, 0, 0);
+		sleepq_broadcast(c, SLEEPQ_SLEEP, 0, 0);
 	else
-		wakeup_swapper = sleepq_signal(c, SLEEPQ_SLEEP, 0, 0);
+		sleepq_signal(c, SLEEPQ_SLEEP, 0, 0);
 	sleepq_release(c);
-	if (wakeup_swapper)
-		kick_proc0();
 }
 
 /* reset dev data */
@@ -284,8 +279,6 @@ adf_notify_fatal_error_work(struct work_struct *work)
 
 	adf_error_notifier((uintptr_t)accel_dev);
 	if (!accel_dev->is_vf) {
-		if (accel_dev->u1.pf.vf_info)
-			adf_pf2vf_notify_fatal_error(accel_dev);
 		adf_dev_autoreset(accel_dev);
 	}
 

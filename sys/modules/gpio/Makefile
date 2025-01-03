@@ -1,5 +1,4 @@
 #
-# $FreeBSD$
 #
 # Copyright (c) 2011 Adrian Chadd.  All rights reserved.
 #
@@ -29,6 +28,10 @@ SUBDIR = gpiobus gpioiic gpioled gpiospi gpioths
 
 .if !empty(OPT_FDT)
 SUBDIR += gpiokeys gpiopps
+.endif
+
+.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386"
+SUBDIR += gpioaei
 .endif
 
 .include <bsd.subdir.mk>

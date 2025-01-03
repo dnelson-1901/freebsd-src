@@ -1,7 +1,8 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2019 Vladimir Kondratyev <wulf@FreeBSD.org>
+ * Copyright (c) 2023 Future Crew LLC.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	__IWMBT_HW_H__
 #define	__IWMBT_HW_H__
@@ -61,6 +60,9 @@ struct iwmbt_hci_event_cmd_compl {
 
 #define IWMBT_HCI_EVT_COMPL_SIZE(payload) \
 	(offsetof(struct iwmbt_hci_event_cmd_compl, data) + sizeof(payload))
+#define	IWMBT_HCI_EVENT_COMPL_HEAD_SIZE \
+	(offsetof(struct iwmbt_hci_event_cmd_compl, data) - \
+	 offsetof(struct iwmbt_hci_event_cmd_compl, numpkt))
 
 #define	IWMBT_CONTROL_ENDPOINT_ADDR	0x00
 #define	IWMBT_INTERRUPT_ENDPOINT_ADDR	0x81
@@ -70,18 +72,30 @@ struct iwmbt_hci_event_cmd_compl {
 #define	IWMBT_HCI_MAX_CMD_SIZE		256
 #define	IWMBT_HCI_MAX_EVENT_SIZE	16
 
+#define	IWMBT_MSEC2TS(msec)				\
+	(struct timespec) {				\
+	    .tv_sec = (msec) / 1000,			\
+	    .tv_nsec = ((msec) % 1000) * 1000000	\
+	};
+#define	IWMBT_TS2MSEC(ts)	((ts).tv_sec * 1000 + (ts).tv_nsec / 1000000)
 #define	IWMBT_HCI_CMD_TIMEOUT		2000	/* ms */
 #define	IWMBT_LOADCMPL_TIMEOUT		5000	/* ms */
 
 extern	int iwmbt_patch_fwfile(struct libusb_device_handle *hdl,
 	    const struct iwmbt_firmware *fw);
+extern	int iwmbt_load_rsa_header(struct libusb_device_handle *hdl,
+	    const struct iwmbt_firmware *fw);
+extern	int iwmbt_load_ecdsa_header(struct libusb_device_handle *hdl,
+	    const struct iwmbt_firmware *fw);
 extern	int iwmbt_load_fwfile(struct libusb_device_handle *hdl,
-	    const struct iwmbt_firmware *fw, uint32_t *boot_param);
+	    const struct iwmbt_firmware *fw, uint32_t *boot_param, int offset);
 extern	int iwmbt_enter_manufacturer(struct libusb_device_handle *hdl);
 extern	int iwmbt_exit_manufacturer(struct libusb_device_handle *hdl,
 	    int mode);
 extern	int iwmbt_get_version(struct libusb_device_handle *hdl,
 	    struct iwmbt_version *version);
+extern	int iwmbt_get_version_tlv(struct libusb_device_handle *hdl,
+	    struct iwmbt_version_tlv *version);
 extern	int iwmbt_get_boot_params(struct libusb_device_handle *hdl,
 	    struct iwmbt_boot_params *params);
 extern	int iwmbt_intel_reset(struct libusb_device_handle *hdl,

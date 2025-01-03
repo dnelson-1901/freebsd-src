@@ -21,8 +21,6 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -30,8 +28,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/endian.h>
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -173,6 +169,27 @@ static struct aw_sid_efuse h5_efuses[] = {
 	},
 };
 
+static struct aw_sid_efuse d1_efuses[] = {
+	{
+		.name = "rootkey",
+		.desc = "Root Key or ChipID",
+		.base = EFUSE_OFFSET,
+		.offset = 0x00,
+		.size = 16,
+		.id = AW_SID_FUSE_ROOTKEY,
+		.public = true,
+	},
+	{
+		.name = "calibration",
+		.desc = "Thermal Sensor Calibration Data",
+		.base = EFUSE_OFFSET,
+		.offset = 0x34,
+		.size = 4,
+		.id = AW_SID_FUSE_THSSENSOR,
+		.public = true,
+	},
+};
+
 struct aw_sid_conf {
 	struct aw_sid_efuse	*efuses;
 	size_t			nfuses;
@@ -208,6 +225,11 @@ static const struct aw_sid_conf h5_conf = {
 	.nfuses = nitems(h5_efuses),
 };
 
+static const struct aw_sid_conf d1_conf = {
+	.efuses = d1_efuses,
+	.nfuses = nitems(d1_efuses),
+};
+
 static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun4i-a10-sid",		(uintptr_t)&a10_conf},
 	{ "allwinner,sun7i-a20-sid",		(uintptr_t)&a20_conf},
@@ -215,6 +237,7 @@ static struct ofw_compat_data compat_data[] = {
 	{ "allwinner,sun8i-a83t-sid",		(uintptr_t)&a83t_conf},
 	{ "allwinner,sun8i-h3-sid",		(uintptr_t)&h3_conf},
 	{ "allwinner,sun50i-h5-sid",		(uintptr_t)&h5_conf},
+	{ "allwinner,sun20i-d1-sid",		(uintptr_t)&d1_conf},
 	{ NULL,					0 }
 };
 

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 The NetBSD Foundation, Inc.
  * All rights reserved.
@@ -26,7 +26,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  * $NetBSD: spr.h,v 1.25 2002/08/14 15:38:40 matt Exp $
- * $FreeBSD$
  */
 #ifndef _POWERPC_SPR_H_
 #define	_POWERPC_SPR_H_
@@ -221,7 +220,9 @@
 #define	  IBMPOWER9		  0x004e
 #define	  MPC860		  0x0050
 #define	  IBMCELLBE		  0x0070
+#define	  IBMPOWER10		  0x0080
 #define	  MPC8240		  0x0081
+#define	  IBMPOWER11		  0x0082
 #define	  PA6T			  0x0090
 #define	  IBM405GP		  0x4011
 #define	  IBM405L		  0x4161

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2021, Adrian Chadd <adrian@FreeBSD.org>
  *
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -56,8 +53,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
+#include <dev/clk/clk.h>
+#include <dev/hwreset/hwreset.h>
 
 #include <dev/spibus/spi.h>
 #include <dev/spibus/spibusvar.h>
@@ -432,7 +429,8 @@ qcom_spi_attach(device_t dev)
 	/* Register for debug sysctl */
 	qcom_spi_sysctl_attach(sc);
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 error:
 	if (sc->sc_irq_h)
 		bus_teardown_intr(dev, sc->sc_irq_res, sc->sc_irq_h);
@@ -842,8 +840,6 @@ qcom_spi_detach(device_t dev)
 	int i;
 
 	bus_generic_detach(sc->sc_dev);
-	if (sc->spibus != NULL)
-		device_delete_child(dev, sc->spibus);
 
 	if (sc->sc_irq_h)
 		bus_teardown_intr(dev, sc->sc_irq_res, sc->sc_irq_h);

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2002 Alfred Perlstein <alfred@FreeBSD.org>
  * Copyright (c) 2003-2005 SPARTA, Inc.
@@ -39,8 +39,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_posix.h"
 
 #include <sys/param.h>
@@ -142,7 +140,7 @@ static fo_chown_t	ksem_chown;
 static fo_fill_kinfo_t	ksem_fill_kinfo;
 
 /* File descriptor operations. */
-static struct fileops ksem_ops = {
+static const struct fileops ksem_ops = {
 	.fo_read = invfo_rdwr,
 	.fo_write = invfo_rdwr,
 	.fo_truncate = invfo_truncate,
@@ -155,6 +153,7 @@ static struct fileops ksem_ops = {
 	.fo_chown = ksem_chown,
 	.fo_sendfile = invfo_sendfile,
 	.fo_fill_kinfo = ksem_fill_kinfo,
+	.fo_cmp = file_kcmp_generic,
 	.fo_flags = DFLAG_PASSABLE
 };
 

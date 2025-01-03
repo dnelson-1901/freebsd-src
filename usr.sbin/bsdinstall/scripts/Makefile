@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 SCRIPTS=auto \
 	adduser \
 	bootconfig \
@@ -8,6 +6,8 @@ SCRIPTS=auto \
 	docsinstall \
 	entropy \
 	fetchmissingdists \
+	finalconfig \
+	firmware \
 	hardening \
 	hostname \
 	jail \

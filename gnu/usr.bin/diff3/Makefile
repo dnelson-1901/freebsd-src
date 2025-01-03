@@ -1,5 +1,3 @@
-# $FreeBSD$
-
 DIFFSRC=${SRCTOP}/contrib/diff/src
 .PATH:  ${DIFFSRC} \
 	${SRCTOP}/contrib/diff/lib \

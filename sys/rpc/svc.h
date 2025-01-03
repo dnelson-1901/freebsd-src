@@ -28,10 +28,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
  * POSSIBILITY OF SUCH DAMAGE.
- *
- *	from: @(#)svc.h 1.35 88/12/17 SMI
- *	from: @(#)svc.h      1.27    94/04/25 SMI
- * $FreeBSD$
  */
 
 /*
@@ -189,6 +185,7 @@ typedef struct __rpc_svcxprt {
 	int		xp_ngrps;	/* Cred. from TLS cert. */
 	uid_t		xp_uid;
 	gid_t		*xp_gidp;
+	int		xp_doneddp;
 #else
 	int		xp_fd;
 	u_short		xp_port;	 /* associated port number */
@@ -807,10 +804,9 @@ extern void *clnt_bck_create(struct socket *, const rpcprog_t, const rpcvers_t);
 /*
  * Generic TLI create routine
  */
-extern SVCXPRT *svc_tli_create(SVCPOOL *, struct socket *,
-    const struct netconfig *, const struct t_bind *, const size_t, const size_t);
+extern SVCXPRT *svc_tli_create(SVCPOOL *, const struct netconfig *,
+    const struct t_bind *, const size_t, const size_t);
 /*
- *      struct socket * so;             -- connection end point
  *      const struct netconfig *nconf;  -- netconfig structure for network
  *      const struct t_bind *bindaddr;  -- local bind address
  *      const size_t sendsz;             -- max sendsize

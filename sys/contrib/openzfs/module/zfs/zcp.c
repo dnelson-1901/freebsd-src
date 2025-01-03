@@ -544,7 +544,7 @@ zcp_nvpair_value_to_lua(lua_State *state, nvpair_t *pair,
 		    fnvpair_value_nvlist(pair), errbuf, errbuf_len);
 		break;
 	case DATA_TYPE_STRING_ARRAY: {
-		char **strarr;
+		const char **strarr;
 		uint_t nelem;
 		(void) nvpair_value_string_array(pair, &strarr, &nelem);
 		lua_newtable(state);
@@ -780,8 +780,7 @@ zcp_lua_counthook(lua_State *state, lua_Debug *ar)
 	 * Check if we were canceled while waiting for the
 	 * txg to sync or from our open context thread
 	 */
-	if (ri->zri_canceled ||
-	    (!ri->zri_sync && issig(JUSTLOOKING) && issig(FORREAL))) {
+	if (ri->zri_canceled || (!ri->zri_sync && issig())) {
 		ri->zri_canceled = B_TRUE;
 		(void) lua_pushstring(state, "Channel program was canceled.");
 		(void) lua_error(state);

@@ -1,3 +1,2 @@
-# $FreeBSD$
-
-SUBDIR+=	ofwdump
+SUBDIR+=	bhyve
+SUBDIR+=	bhyvectl

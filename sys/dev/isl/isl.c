@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Driver for intersil I2C ISL29018 Digital Ambient Light Sensor and Proximity
  * Sensor with Interrupt Function, only tested connected over SMBus (ig4iic).
@@ -159,7 +157,7 @@ isl_identify(driver_t *driver, device_t parent)
 
 	/* Check if we can communicate to our slave. */
 	if (init_device(dev, 0x88, 1) == 0)
-		BUS_ADD_CHILD(parent, ISA_ORDER_SPECULATIVE, "isl", -1);
+		BUS_ADD_CHILD(parent, ISA_ORDER_SPECULATIVE, "isl", DEVICE_UNIT_ANY);
 }
 #endif
 

@@ -29,9 +29,8 @@
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
 .\" Manual page, using -mandoc macros
-.\" $FreeBSD$
 .\"
-.Dd April 13, 2020
+.Dd November 18, 2024
 .Dt ARC4RANDOM 3
 .Os
 .Sh NAME
@@ -130,9 +129,31 @@ functions using
 .%O Document ID: 4027b5256e17b9796842e6d0f68b0b5e
 .%U http://cr.yp.to/papers.html#chacha
 .Re
+.Rs
+.%A Daniel Lemire
+.%T Fast Random Integer Generation in an Interval
+.%D January 2019
+.%J ACM Trans. Model. Comput. Simul.
+.%I Association for Computing Machinery
+.%C New York, NY, USA
+.%V vol. 29
+.%N no. 1
+.%P pp. 1\(en12
+.Re
 .Sh HISTORY
 These functions first appeared in
 .Ox 2.1 .
+.Fn arc4random
+first appeared in
+.Fx 3.0 .
+.Fn arc4random_buf
+and
+.Fn arc4random_uniform
+first appeared in
+.Fx 8.0 .
+.Fn arc4random_stir
+was removed in
+.Fx 12.0 .
 .Pp
 The original version of this random number generator used the
 RC4 (also known as ARC4) algorithm.

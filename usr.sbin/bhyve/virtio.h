@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013  Chris Torek <torek @ torek net>
  * All rights reserved.
@@ -24,8 +24,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef	_BHYVE_VIRTIO_H_
@@ -99,7 +97,7 @@
  * begin with a 16-bit <flags> field and 16-bit index <idx>, then
  * have <N> 16-bit <ring> values, followed by one final 16-bit
  * field <used_event>.  The <N> <ring> entries are simply indices
- * indices into the descriptor ring (and thus must meet the same
+ * into the descriptor ring (and thus must meet the same
  * constraints as each <next> value).  However, <idx> is counted
  * up from 0 (initially) and simply wraps around after 65535; it
  * is taken mod <N> to find the next available entry.

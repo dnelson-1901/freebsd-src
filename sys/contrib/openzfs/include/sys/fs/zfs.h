@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2020 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2024 by Delphix. All rights reserved.
  * Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2013, 2017 Joyent, Inc. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
@@ -30,6 +30,7 @@
  * Portions Copyright 2010 Robert Milkowski
  * Copyright (c) 2021, Colm Buckley <colm@tuatha.org>
  * Copyright (c) 2022 Hewlett Packard Enterprise Development LP.
+ * Copyright (c) 2024, Klara, Inc.
  */
 
 #ifndef	_SYS_FS_ZFS_H
@@ -81,6 +82,7 @@ typedef enum dmu_objset_type {
  * All of these include the terminating NUL byte.
  */
 #define	ZAP_MAXNAMELEN 256
+#define	ZAP_MAXNAMELEN_NEW 1024
 #define	ZAP_MAXVALUELEN (1024 * 8)
 #define	ZAP_OLDMAXVALUELEN 1024
 #define	ZFS_MAX_DATASET_NAME_LEN 256
@@ -191,6 +193,10 @@ typedef enum {
 	ZFS_PROP_REDACTED,
 	ZFS_PROP_REDACT_SNAPS,
 	ZFS_PROP_SNAPSHOTS_CHANGED,
+	ZFS_PROP_PREFETCH,
+	ZFS_PROP_VOLTHREADING,
+	ZFS_PROP_DIRECT,
+	ZFS_PROP_LONGNAME,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -253,6 +259,13 @@ typedef enum {
 	ZPOOL_PROP_LOAD_GUID,
 	ZPOOL_PROP_AUTOTRIM,
 	ZPOOL_PROP_COMPATIBILITY,
+	ZPOOL_PROP_BCLONEUSED,
+	ZPOOL_PROP_BCLONESAVED,
+	ZPOOL_PROP_BCLONERATIO,
+	ZPOOL_PROP_DEDUP_TABLE_SIZE,
+	ZPOOL_PROP_DEDUP_TABLE_QUOTA,
+	ZPOOL_PROP_DEDUPCACHED,
+	ZPOOL_PROP_LAST_SCRUBBED_TXG,
 	ZPOOL_NUM_PROPS
 } zpool_prop_t;
 
@@ -360,6 +373,12 @@ typedef enum {
 	VDEV_PROP_CHECKSUM_T,
 	VDEV_PROP_IO_N,
 	VDEV_PROP_IO_T,
+	VDEV_PROP_RAIDZ_EXPANDING,
+	VDEV_PROP_SLOW_IO_N,
+	VDEV_PROP_SLOW_IO_T,
+	VDEV_PROP_TRIM_SUPPORT,
+	VDEV_PROP_TRIM_ERRORS,
+	VDEV_PROP_SLOW_IOS,
 	VDEV_NUM_PROPS
 } vdev_prop_t;
 
@@ -519,6 +538,12 @@ typedef enum {
 	ZFS_VOLMODE_NONE = 3
 } zfs_volmode_t;
 
+typedef enum {
+	ZFS_DIRECT_DISABLED = 0,
+	ZFS_DIRECT_STANDARD,
+	ZFS_DIRECT_ALWAYS
+} zfs_direct_t;
+
 typedef enum zfs_keystatus {
 	ZFS_KEYSTATUS_NONE = 0,
 	ZFS_KEYSTATUS_UNAVAILABLE,
@@ -539,6 +564,12 @@ typedef enum zfs_key_location {
 	ZFS_KEYLOCATION_URI,
 	ZFS_KEYLOCATION_LOCATIONS
 } zfs_keylocation_t;
+
+typedef enum {
+	ZFS_PREFETCH_NONE = 0,
+	ZFS_PREFETCH_METADATA = 1,
+	ZFS_PREFETCH_ALL = 2
+} zfs_prefetch_type_t;
 
 #define	DEFAULT_PBKDF2_ITERATIONS 350000
 #define	MIN_PBKDF2_ITERATIONS 100000
@@ -713,6 +744,7 @@ typedef struct zpool_load_policy {
 #define	ZPOOL_CONFIG_SCAN_STATS		"scan_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_REMOVAL_STATS	"removal_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_CHECKPOINT_STATS	"checkpoint_stats" /* not on disk */
+#define	ZPOOL_CONFIG_RAIDZ_EXPAND_STATS	"raidz_expand_stats" /* not on disk */
 #define	ZPOOL_CONFIG_VDEV_STATS		"vdev_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_INDIRECT_SIZE	"indirect_size"	/* not stored on disk */
 
@@ -769,6 +801,9 @@ typedef struct zpool_load_policy {
 /* Number of slow IOs */
 #define	ZPOOL_CONFIG_VDEV_SLOW_IOS		"vdev_slow_ios"
 
+/* Number of Direct I/O write verify errors */
+#define	ZPOOL_CONFIG_VDEV_DIO_VERIFY_ERRORS	"vdev_dio_verify_errors"
+
 /* vdev enclosure sysfs path */
 #define	ZPOOL_CONFIG_VDEV_ENC_SYSFS_PATH	"vdev_enc_sysfs_path"
 
@@ -778,6 +813,8 @@ typedef struct zpool_load_policy {
 #define	ZPOOL_CONFIG_SPARES		"spares"
 #define	ZPOOL_CONFIG_IS_SPARE		"is_spare"
 #define	ZPOOL_CONFIG_NPARITY		"nparity"
+#define	ZPOOL_CONFIG_RAIDZ_EXPANDING	"raidz_expanding"
+#define	ZPOOL_CONFIG_RAIDZ_EXPAND_TXGS	"raidz_expand_txgs"
 #define	ZPOOL_CONFIG_HOSTID		"hostid"
 #define	ZPOOL_CONFIG_HOSTNAME		"hostname"
 #define	ZPOOL_CONFIG_LOADED_TIME	"initial_load_time"
@@ -813,6 +850,7 @@ typedef struct zpool_load_policy {
 #define	ZPOOL_CONFIG_FEATURES_FOR_READ	"features_for_read"
 #define	ZPOOL_CONFIG_FEATURE_STATS	"feature_stats"	/* not stored on disk */
 #define	ZPOOL_CONFIG_ERRATA		"errata"	/* not stored on disk */
+#define	ZPOOL_CONFIG_VDEV_ROOT_ZAP	"com.klarasystems:vdev_zap_root"
 #define	ZPOOL_CONFIG_VDEV_TOP_ZAP	"com.delphix:vdev_zap_top"
 #define	ZPOOL_CONFIG_VDEV_LEAF_ZAP	"com.delphix:vdev_zap_leaf"
 #define	ZPOOL_CONFIG_HAS_PER_VDEV_ZAPS	"com.delphix:has_per_vdev_zaps"
@@ -894,6 +932,15 @@ typedef struct zpool_load_policy {
 
 #define	VDEV_TOP_ZAP_ALLOCATION_BIAS \
 	"org.zfsonlinux:allocation_bias"
+
+#define	VDEV_TOP_ZAP_RAIDZ_EXPAND_STATE \
+	"org.openzfs:raidz_expand_state"
+#define	VDEV_TOP_ZAP_RAIDZ_EXPAND_START_TIME \
+	"org.openzfs:raidz_expand_start_time"
+#define	VDEV_TOP_ZAP_RAIDZ_EXPAND_END_TIME \
+	"org.openzfs:raidz_expand_end_time"
+#define	VDEV_TOP_ZAP_RAIDZ_EXPAND_BYTES_COPIED \
+	"org.openzfs:raidz_expand_bytes_copied"
 
 /* vdev metaslab allocation bias */
 #define	VDEV_ALLOC_BIAS_LOG		"log"
@@ -1032,6 +1079,7 @@ typedef enum pool_scan_func {
 	POOL_SCAN_NONE,
 	POOL_SCAN_SCRUB,
 	POOL_SCAN_RESILVER,
+	POOL_SCAN_ERRORSCRUB,
 	POOL_SCAN_FUNCS
 } pool_scan_func_t;
 
@@ -1041,6 +1089,7 @@ typedef enum pool_scan_func {
 typedef enum pool_scrub_cmd {
 	POOL_SCRUB_NORMAL = 0,
 	POOL_SCRUB_PAUSE,
+	POOL_SCRUB_FROM_LAST_TXG,
 	POOL_SCRUB_FLAGS_END
 } pool_scrub_cmd_t;
 
@@ -1066,10 +1115,16 @@ typedef enum zio_type {
 	ZIO_TYPE_WRITE,
 	ZIO_TYPE_FREE,
 	ZIO_TYPE_CLAIM,
-	ZIO_TYPE_IOCTL,
+	ZIO_TYPE_FLUSH,
 	ZIO_TYPE_TRIM,
 	ZIO_TYPES
 } zio_type_t;
+
+/*
+ * Compatibility: _IOCTL was renamed to _FLUSH; keep the old name available to
+ * user programs.
+ */
+#define	ZIO_TYPE_IOCTL	ZIO_TYPE_FLUSH
 
 /*
  * Pool statistics.  Note: all fields should be 64-bit because this
@@ -1083,7 +1138,7 @@ typedef struct pool_scan_stat {
 	uint64_t	pss_end_time;	/* scan end time */
 	uint64_t	pss_to_examine;	/* total bytes to scan */
 	uint64_t	pss_examined;	/* total bytes located by scanner */
-	uint64_t	pss_to_process; /* total bytes to process */
+	uint64_t	pss_skipped;	/* total bytes skipped by scanner */
 	uint64_t	pss_processed;	/* total processed bytes */
 	uint64_t	pss_errors;	/* scan errors	*/
 
@@ -1095,6 +1150,20 @@ typedef struct pool_scan_stat {
 	uint64_t	pss_pass_scrub_spent_paused;
 	uint64_t	pss_pass_issued; /* issued bytes per scan pass */
 	uint64_t	pss_issued;	/* total bytes checked by scanner */
+
+	/* error scrub values stored on disk */
+	uint64_t	pss_error_scrub_func;	/* pool_scan_func_t */
+	uint64_t	pss_error_scrub_state;	/* dsl_scan_state_t */
+	uint64_t	pss_error_scrub_start;	/* error scrub start time */
+	uint64_t	pss_error_scrub_end;	/* error scrub end time */
+	uint64_t	pss_error_scrub_examined; /* error blocks issued I/O */
+	/* error blocks to be issued I/O */
+	uint64_t	pss_error_scrub_to_be_examined;
+
+	/* error scrub values not stored on disk */
+	/* error scrub pause time in milliseconds */
+	uint64_t	pss_pass_error_scrub_pause;
+
 } pool_scan_stat_t;
 
 typedef struct pool_removal_stat {
@@ -1111,11 +1180,22 @@ typedef struct pool_removal_stat {
 	uint64_t prs_mapping_memory;
 } pool_removal_stat_t;
 
+typedef struct pool_raidz_expand_stat {
+	uint64_t pres_state; /* dsl_scan_state_t */
+	uint64_t pres_expanding_vdev;
+	uint64_t pres_start_time;
+	uint64_t pres_end_time;
+	uint64_t pres_to_reflow; /* bytes that need to be moved */
+	uint64_t pres_reflowed; /* bytes moved so far */
+	uint64_t pres_waiting_for_resilver;
+} pool_raidz_expand_stat_t;
+
 typedef enum dsl_scan_state {
 	DSS_NONE,
 	DSS_SCANNING,
 	DSS_FINISHED,
 	DSS_CANCELED,
+	DSS_ERRORSCRUBBING,
 	DSS_NUM_STATES
 } dsl_scan_state_t;
 
@@ -1132,6 +1212,7 @@ typedef struct vdev_rebuild_stat {
 	uint64_t vrs_pass_time_ms;	/* pass run time (millisecs) */
 	uint64_t vrs_pass_bytes_scanned; /* bytes scanned since start/resume */
 	uint64_t vrs_pass_bytes_issued;	/* bytes rebuilt since start/resume */
+	uint64_t vrs_pass_bytes_skipped; /* bytes skipped since start/resume */
 } vdev_rebuild_stat_t;
 
 /*
@@ -1196,6 +1277,7 @@ typedef struct vdev_stat {
 	uint64_t	vs_physical_ashift;	/* vdev_physical_ashift */
 	uint64_t	vs_noalloc;		/* allocations halted?	*/
 	uint64_t	vs_pspace;		/* physical capacity */
+	uint64_t	vs_dio_verify_errors;	/* DIO write verify errors */
 } vdev_stat_t;
 
 #define	VDEV_STAT_VALID(field, uint64_t_field_count) \
@@ -1261,6 +1343,7 @@ typedef enum pool_initialize_func {
 	POOL_INITIALIZE_START,
 	POOL_INITIALIZE_CANCEL,
 	POOL_INITIALIZE_SUSPEND,
+	POOL_INITIALIZE_UNINIT,
 	POOL_INITIALIZE_FUNCS
 } pool_initialize_func_t;
 
@@ -1355,7 +1438,7 @@ typedef enum {
  */
 typedef enum zfs_ioc {
 	/*
-	 * Core features - 81/128 numbers reserved.
+	 * Core features - 89/128 numbers reserved.
 	 */
 #ifdef __FreeBSD__
 	ZFS_IOC_FIRST =	0,
@@ -1450,6 +1533,9 @@ typedef enum zfs_ioc {
 	ZFS_IOC_WAIT_FS,			/* 0x5a54 */
 	ZFS_IOC_VDEV_GET_PROPS,			/* 0x5a55 */
 	ZFS_IOC_VDEV_SET_PROPS,			/* 0x5a56 */
+	ZFS_IOC_POOL_SCRUB,			/* 0x5a57 */
+	ZFS_IOC_POOL_PREFETCH,			/* 0x5a58 */
+	ZFS_IOC_DDT_PRUNE,			/* 0x5a59 */
 
 	/*
 	 * Per-platform (Optional) - 8/128 numbers reserved.
@@ -1545,6 +1631,10 @@ typedef enum {
 	ZFS_ERR_VDEV_NOTSUP,
 	ZFS_ERR_NOT_USER_NAMESPACE,
 	ZFS_ERR_RESUME_EXISTS,
+	ZFS_ERR_CRYPTO_NOTSUP,
+	ZFS_ERR_RAIDZ_EXPAND_IN_PROGRESS,
+	ZFS_ERR_ASHIFT_MISMATCH,
+	ZFS_ERR_STREAM_LARGE_MICROZAP,
 } zfs_errno_t;
 
 /*
@@ -1569,6 +1659,7 @@ typedef enum {
 	ZPOOL_WAIT_RESILVER,
 	ZPOOL_WAIT_SCRUB,
 	ZPOOL_WAIT_TRIM,
+	ZPOOL_WAIT_RAIDZ_EXPAND,
 	ZPOOL_WAIT_NUM_ACTIVITIES
 } zpool_wait_activity_t;
 
@@ -1576,6 +1667,17 @@ typedef enum {
 	ZFS_WAIT_DELETEQ,
 	ZFS_WAIT_NUM_ACTIVITIES
 } zfs_wait_activity_t;
+
+typedef enum {
+	ZPOOL_PREFETCH_NONE = 0,
+	ZPOOL_PREFETCH_DDT
+} zpool_prefetch_type_t;
+
+typedef enum {
+	ZPOOL_DDT_PRUNE_NONE,
+	ZPOOL_DDT_PRUNE_AGE,		/* in seconds */
+	ZPOOL_DDT_PRUNE_PERCENTAGE,	/* 1 - 100 */
+} zpool_ddt_prune_unit_t;
 
 /*
  * Bookmark name values.
@@ -1616,10 +1718,26 @@ typedef enum {
 #define	ZPOOL_HIDDEN_ARGS	"hidden_args"
 
 /*
+ * The following is used when invoking ZFS_IOC_POOL_GET_PROPS.
+ */
+#define	ZPOOL_GET_PROPS_NAMES		"get_props_names"
+
+/*
+ * Opt-in property names used with ZPOOL_GET_PROPS_NAMES.
+ * For example, properties that are hidden or expensive to compute.
+ */
+#define	ZPOOL_DEDUPCACHED_PROP_NAME	"dedupcached"
+
+/*
  * The following are names used when invoking ZFS_IOC_POOL_INITIALIZE.
  */
 #define	ZPOOL_INITIALIZE_COMMAND	"initialize_command"
 #define	ZPOOL_INITIALIZE_VDEVS		"initialize_vdevs"
+
+/*
+ * The following are names used when invoking ZFS_IOC_POOL_REGUID.
+ */
+#define	ZPOOL_REGUID_GUID	"guid"
 
 /*
  * The following are names used when invoking ZFS_IOC_POOL_TRIM.
@@ -1653,6 +1771,17 @@ typedef enum {
  */
 #define	ZFS_WAIT_ACTIVITY		"wait_activity"
 #define	ZFS_WAIT_WAITED			"wait_waited"
+
+/*
+ * The following are names used when invoking ZFS_IOC_POOL_PREFETCH.
+ */
+#define	ZPOOL_PREFETCH_TYPE		"prefetch_type"
+
+/*
+ * The following are names used when invoking ZFS_IOC_DDT_PRUNE.
+ */
+#define	DDT_PRUNE_UNIT		"ddt_prune_unit"
+#define	DDT_PRUNE_AMOUNT	"ddt_prune_amount"
 
 /*
  * Flags for ZFS_IOC_VDEV_SET_STATE

@@ -26,9 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <stand.h>
 #include <string.h>
 #include <sys/param.h>
@@ -66,9 +63,6 @@ __FBSDID("$FreeBSD$");
 #ifdef LOADER_GELI_SUPPORT
 #include "geliboot.h"
 #endif
-
-int bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp,
-    bool exit_bs);
 
 static int
 bi_getboothowto(char *kargs)
@@ -188,7 +182,7 @@ bi_load_efi_data(struct preloaded_file *kfp, bool exit_bs)
 	struct efi_map_header *efihdr;
 	bool do_vmap;
 
-#if defined(__amd64__) || defined(__aarch64__)
+#if defined(__amd64__) || defined(__aarch64__) || defined(__i386__)
 	struct efi_fb efifb;
 
 	efifb.fb_addr = gfx_state.tg_fb.fb_addr;
@@ -334,12 +328,24 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp, bool exit_bs)
 	struct devdesc *rootdev;
 	struct file_metadata *md;
 	vm_offset_t addr;
-	uint64_t kernend, module;
+	uint64_t kernend;
+#ifdef MODINFOMD_MODULEP
+	uint64_t module;
+#endif
 	uint64_t envp;
 	vm_offset_t size;
 	char *rootdevname;
 	int howto;
+#ifdef __i386__
+	/*
+	 * The 32-bit UEFI loader is used to
+	 * boot the 64-bit kernel on machines
+	 * that support it.
+	 */
+	bool is64 = true;
+#else
 	bool is64 = sizeof(long) == 8;
+#endif
 #if defined(LOADER_FDT_SUPPORT)
 	vm_offset_t dtbp;
 	int dtb_size;
@@ -385,10 +391,17 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp, bool exit_bs)
 	/* Pad to a page boundary. */
 	addr = roundup(addr, PAGE_SIZE);
 
+#ifdef EFI
 	addr = build_font_module(addr);
 
 	/* Pad to a page boundary. */
 	addr = roundup(addr, PAGE_SIZE);
+
+	addr = build_splash_module(addr);
+
+	/* Pad to a page boundary. */
+	addr = roundup(addr, PAGE_SIZE);
+#endif
 
 	/* Copy our environment. */
 	envp = addr;
@@ -415,7 +428,7 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp, bool exit_bs)
 	kernend = 0;	/* fill it in later */
 
 	/* Figure out the size and location of the metadata. */
-	module = *modulep = addr;
+	*modulep = addr;
 
 	file_addmetadata(kfp, MODINFOMD_HOWTO, sizeof(howto), &howto);
 	file_addmetadata(kfp, MODINFOMD_ENVP, sizeof(envp), &envp);
@@ -428,10 +441,17 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp, bool exit_bs)
 #endif
 	file_addmetadata(kfp, MODINFOMD_KERNEND, sizeof(kernend), &kernend);
 #ifdef MODINFOMD_MODULEP
+	module = *modulep;
 	file_addmetadata(kfp, MODINFOMD_MODULEP, sizeof(module), &module);
 #endif
 #ifdef EFI
+#ifndef __i386__
 	file_addmetadata(kfp, MODINFOMD_FW_HANDLE, sizeof(ST), &ST);
+#endif
+#if defined(__amd64__) || defined(__i386__)
+	file_addmetadata(kfp, MODINFOMD_EFI_ARCH, sizeof(MACHINE_ARCH),
+	    MACHINE_ARCH);
+#endif
 #endif
 #ifdef LOADER_GELI_SUPPORT
 	geli_export_key_metadata(kfp);

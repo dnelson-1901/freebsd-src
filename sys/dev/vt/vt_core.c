@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2009, 2013 The FreeBSD Foundation
  *
@@ -31,9 +31,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/consio.h>
 #include <sys/devctl.h>
@@ -47,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/mutex.h>
+#include <sys/splash.h>
 #include <sys/power.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
@@ -121,7 +119,7 @@ static const struct terminal_class vt_termclass = {
 
 /* Bell pitch/duration. */
 #define	VT_BELLDURATION	(SBT_1S / 20)
-#define	VT_BELLPITCH	(1193182 / 800) /* Approx 1491Hz */
+#define	VT_BELLPITCH	800
 
 #define	VT_UNIT(vw)	((vw)->vw_device->vd_unit * VT_MAXWINDOWS + \
 			(vw)->vw_number)
@@ -133,6 +131,9 @@ static VT_SYSCTL_INT(enable_bell, 0, "Enable bell");
 static VT_SYSCTL_INT(debug, 0, "vt(9) debug level");
 static VT_SYSCTL_INT(deadtimer, 15, "Time to wait busy process in VT_PROCESS mode");
 static VT_SYSCTL_INT(suspendswitch, 1, "Switch to VT0 before suspend");
+
+/* Slow down and dont rely on timers and interrupts */
+static VT_SYSCTL_INT(slow_down, 0, "Non-zero make console slower and synchronous.");
 
 /* Allow to disable some keyboard combinations. */
 static VT_SYSCTL_INT(kbd_halt, 1, "Enable halt keyboard combination.  "
@@ -204,11 +205,10 @@ SET_DECLARE(vt_drv_set, struct vt_driver);
 
 static struct terminal	vt_consterm;
 static struct vt_window	vt_conswindow;
-#ifndef SC_NO_CONSDRAWN
 static term_char_t vt_consdrawn[PIXEL_HEIGHT(VT_FB_MAX_HEIGHT) * PIXEL_WIDTH(VT_FB_MAX_WIDTH)];
 static term_color_t vt_consdrawnfg[PIXEL_HEIGHT(VT_FB_MAX_HEIGHT) * PIXEL_WIDTH(VT_FB_MAX_WIDTH)];
 static term_color_t vt_consdrawnbg[PIXEL_HEIGHT(VT_FB_MAX_HEIGHT) * PIXEL_WIDTH(VT_FB_MAX_WIDTH)];
-#endif
+static bool vt_cons_pos_to_flush[PIXEL_HEIGHT(VT_FB_MAX_HEIGHT) * PIXEL_WIDTH(VT_FB_MAX_WIDTH)];
 struct vt_device	vt_consdev = {
 	.vd_driver = NULL,
 	.vd_softc = NULL,
@@ -230,11 +230,11 @@ struct vt_device	vt_consdev = {
 	.vd_mcursor_bg = TC_BLACK,
 #endif
 
-#ifndef SC_NO_CONSDRAWN
 	.vd_drawn = vt_consdrawn,
 	.vd_drawnfg = vt_consdrawnfg,
 	.vd_drawnbg = vt_consdrawnbg,
-#endif
+
+	.vd_pos_to_flush = vt_cons_pos_to_flush,
 };
 static term_char_t vt_constextbuf[(_VTDEFW) * (VBF_DEFAULT_HISTORY_SIZE)];
 static term_char_t *vt_constextbufrows[VBF_DEFAULT_HISTORY_SIZE];
@@ -276,6 +276,9 @@ SYSINIT(vt_update_static, SI_SUB_KMEM, SI_ORDER_ANY, vt_update_static,
 SYSINIT(vt_early_cons, SI_SUB_INT_CONFIG_HOOKS, SI_ORDER_ANY, vt_upgrade,
     &vt_consdev);
 
+static bool inside_vt_flush = false;
+static bool inside_vt_window_switch = false;
+
 /* Initialize locks/mem depended members. */
 static void
 vt_update_static(void *dummy)
@@ -291,6 +294,7 @@ vt_update_static(void *dummy)
 		printf("VT: init without driver.\n");
 
 	mtx_init(&main_vd->vd_lock, "vtdev", NULL, MTX_DEF);
+	mtx_init(&main_vd->vd_flush_lock, "vtdev flush", NULL, MTX_DEF);
 	cv_init(&main_vd->vd_winswitch, "vtwswt");
 }
 
@@ -564,6 +568,11 @@ vt_window_switch(struct vt_window *vw)
 	struct vt_window *curvw = vd->vd_curwindow;
 	keyboard_t *kbd;
 
+	if (inside_vt_window_switch && KERNEL_PANICKED())
+		return (0);
+
+	inside_vt_window_switch = true;
+
 	if (kdb_active) {
 		/*
 		 * When grabbing the console for the debugger, avoid
@@ -573,15 +582,16 @@ vt_window_switch(struct vt_window *vw)
 		 * debugger entry/exit to be equivalent to
 		 * successfully try-locking here.
 		 */
-		if (curvw == vw)
-			return (0);
-		if (!(vw->vw_flags & (VWF_OPENED|VWF_CONSOLE)))
+		if (!(vw->vw_flags & (VWF_OPENED|VWF_CONSOLE))) {
+			inside_vt_window_switch = false;
 			return (EINVAL);
+		}
 
 		vd->vd_curwindow = vw;
 		vd->vd_flags |= VDF_INVALID;
 		if (vd->vd_driver->vd_postswitch)
 			vd->vd_driver->vd_postswitch(vd);
+		inside_vt_window_switch = false;
 		return (0);
 	}
 
@@ -595,10 +605,12 @@ vt_window_switch(struct vt_window *vw)
 		if ((kdb_active || KERNEL_PANICKED()) &&
 		    vd->vd_driver->vd_postswitch)
 			vd->vd_driver->vd_postswitch(vd);
+		inside_vt_window_switch = false;
 		VT_UNLOCK(vd);
 		return (0);
 	}
 	if (!(vw->vw_flags & (VWF_OPENED|VWF_CONSOLE))) {
+		inside_vt_window_switch = false;
 		VT_UNLOCK(vd);
 		return (EINVAL);
 	}
@@ -627,6 +639,7 @@ vt_window_switch(struct vt_window *vw)
 	mtx_unlock(&Giant);
 	DPRINTF(10, "%s(ttyv%d) done\n", __func__, vw->vw_number);
 
+	inside_vt_window_switch = false;
 	return (0);
 }
 
@@ -1125,6 +1138,13 @@ vtterm_bell(struct terminal *tm)
 	sysbeep(vw->vw_bell_pitch, vw->vw_bell_duration);
 }
 
+/*
+ * Beep with user-provided frequency and duration as specified by a KDMKTONE
+ * ioctl (compatible with Linux).  The frequency is specified as a 8254 PIT
+ * divisor for a 1.19MHz clock.
+ *
+ * See https://tldp.org/LDP/lpg/node83.html.
+ */
 static void
 vtterm_beep(struct terminal *tm, u_int param)
 {
@@ -1138,6 +1158,7 @@ vtterm_beep(struct terminal *tm, u_int param)
 		return;
 	}
 
+	/* XXX period unit is supposed to be "timer ticks." */
 	period = ((param >> 16) & 0xffff) * SBT_1MS;
 	freq = 1193182 / (param & 0xffff);
 
@@ -1336,6 +1357,122 @@ vt_set_border(struct vt_device *vd, const term_rect_t *area,
 		    vd->vd_height - 1, 1, c);
 }
 
+static void
+vt_flush_to_buffer(struct vt_device *vd,
+    const struct vt_window *vw, const term_rect_t *area)
+{
+	unsigned int col, row;
+	term_char_t c;
+	term_color_t fg, bg;
+	size_t z;
+
+	for (row = area->tr_begin.tp_row; row < area->tr_end.tp_row; ++row) {
+		for (col = area->tr_begin.tp_col; col < area->tr_end.tp_col;
+		    ++col) {
+			z = row * PIXEL_WIDTH(VT_FB_MAX_WIDTH) + col;
+			if (z >= PIXEL_HEIGHT(VT_FB_MAX_HEIGHT) *
+			    PIXEL_WIDTH(VT_FB_MAX_WIDTH))
+				continue;
+
+			c = VTBUF_GET_FIELD(&vw->vw_buf, row, col);
+			vt_determine_colors(c,
+			    VTBUF_ISCURSOR(&vw->vw_buf, row, col), &fg, &bg);
+
+			if (vd->vd_drawn && (vd->vd_drawn[z] == c) &&
+			    vd->vd_drawnfg && (vd->vd_drawnfg[z] == fg) &&
+			    vd->vd_drawnbg && (vd->vd_drawnbg[z] == bg)) {
+				vd->vd_pos_to_flush[z] = false;
+				continue;
+			}
+
+			vd->vd_pos_to_flush[z] = true;
+
+			if (vd->vd_drawn)
+				vd->vd_drawn[z] = c;
+			if (vd->vd_drawnfg)
+				vd->vd_drawnfg[z] = fg;
+			if (vd->vd_drawnbg)
+				vd->vd_drawnbg[z] = bg;
+		}
+	}
+}
+
+static void
+vt_bitblt_buffer(struct vt_device *vd, const struct vt_window *vw,
+    const term_rect_t *area)
+{
+	unsigned int col, row, x, y;
+	struct vt_font *vf;
+	term_char_t c;
+	term_color_t fg, bg;
+	const uint8_t *pattern;
+	size_t z;
+
+	vf = vw->vw_font;
+
+	for (row = area->tr_begin.tp_row; row < area->tr_end.tp_row; ++row) {
+		for (col = area->tr_begin.tp_col; col < area->tr_end.tp_col;
+		    ++col) {
+			x = col * vf->vf_width +
+			    vw->vw_draw_area.tr_begin.tp_col;
+			y = row * vf->vf_height +
+			    vw->vw_draw_area.tr_begin.tp_row;
+
+			z = row * PIXEL_WIDTH(VT_FB_MAX_WIDTH) + col;
+			if (z >= PIXEL_HEIGHT(VT_FB_MAX_HEIGHT) *
+			    PIXEL_WIDTH(VT_FB_MAX_WIDTH))
+				continue;
+			if (!vd->vd_pos_to_flush[z])
+				continue;
+
+			c = vd->vd_drawn[z];
+			fg = vd->vd_drawnfg[z];
+			bg = vd->vd_drawnbg[z];
+
+			pattern = vtfont_lookup(vf, c);
+			vd->vd_driver->vd_bitblt_bmp(vd, vw,
+			    pattern, NULL, vf->vf_width, vf->vf_height,
+			    x, y, fg, bg);
+		}
+	}
+
+#ifndef SC_NO_CUTPASTE
+	if (!vd->vd_mshown)
+		return;
+
+	term_rect_t drawn_area;
+
+	drawn_area.tr_begin.tp_col = area->tr_begin.tp_col * vf->vf_width;
+	drawn_area.tr_begin.tp_row = area->tr_begin.tp_row * vf->vf_height;
+	drawn_area.tr_end.tp_col = area->tr_end.tp_col * vf->vf_width;
+	drawn_area.tr_end.tp_row = area->tr_end.tp_row * vf->vf_height;
+
+	if (vt_is_cursor_in_area(vd, &drawn_area)) {
+		vd->vd_driver->vd_bitblt_bmp(vd, vw,
+		    vd->vd_mcursor->map, vd->vd_mcursor->mask,
+		    vd->vd_mcursor->width, vd->vd_mcursor->height,
+		    vd->vd_mx_drawn + vw->vw_draw_area.tr_begin.tp_col,
+		    vd->vd_my_drawn + vw->vw_draw_area.tr_begin.tp_row,
+		    vd->vd_mcursor_fg, vd->vd_mcursor_bg);
+	}
+#endif
+}
+
+static void
+vt_draw_decorations(struct vt_device *vd)
+{
+	struct vt_window *vw;
+	const teken_attr_t *a;
+
+	vw = vd->vd_curwindow;
+
+	a = teken_get_curattr(&vw->vw_terminal->tm_emulator);
+	vt_set_border(vd, &vw->vw_draw_area, a->ta_bgcolor);
+
+	if (vt_draw_logo_cpus)
+		vtterm_draw_cpu_logos(vd);
+}
+
 static int
 vt_flush(struct vt_device *vd)
 {
@@ -1345,6 +1482,10 @@ vt_flush(struct vt_device *vd)
 #ifndef SC_NO_CUTPASTE
 	int cursor_was_shown, cursor_moved;
 #endif
+	bool needs_refresh;
+
+	if (inside_vt_flush && KERNEL_PANICKED())
+		return (0);
 
 	vw = vd->vd_curwindow;
 	if (vw == NULL)
@@ -1357,7 +1498,10 @@ vt_flush(struct vt_device *vd)
 	if (((vd->vd_flags & VDF_TEXTMODE) == 0) && (vf == NULL))
 		return (0);
 
+	VT_FLUSH_LOCK(vd);
+
 	vtbuf_lock(&vw->vw_buf);
+	inside_vt_flush = true;
 
 #ifndef SC_NO_CUTPASTE
 	cursor_was_shown = vd->vd_mshown;
@@ -1400,27 +1544,63 @@ vt_flush(struct vt_device *vd)
 	vtbuf_undirty(&vw->vw_buf, &tarea);
 
 	/* Force a full redraw when the screen contents might be invalid. */
+	needs_refresh = false;
 	if (vd->vd_flags & (VDF_INVALID | VDF_SUSPENDED)) {
-		const teken_attr_t *a;
-
+		needs_refresh = true;
 		vd->vd_flags &= ~VDF_INVALID;
 
-		a = teken_get_curattr(&vw->vw_terminal->tm_emulator);
-		vt_set_border(vd, &vw->vw_draw_area, a->ta_bgcolor);
 		vt_termrect(vd, vf, &tarea);
 		if (vd->vd_driver->vd_invalidate_text)
 			vd->vd_driver->vd_invalidate_text(vd, &tarea);
-		if (vt_draw_logo_cpus)
-			vtterm_draw_cpu_logos(vd);
 	}
 
 	if (tarea.tr_begin.tp_col < tarea.tr_end.tp_col) {
-		vd->vd_driver->vd_bitblt_text(vd, vw, &tarea);
-		vtbuf_unlock(&vw->vw_buf);
+		if (vd->vd_driver->vd_bitblt_after_vtbuf_unlock) {
+			/*
+			 * When `vd_bitblt_after_vtbuf_unlock` is set to true,
+			 * we first remember the characters to redraw. They are
+			 * already copied to the `vd_drawn` arrays.
+			 *
+			 * We then unlock vt_buf and proceed with the actual
+			 * drawing using the backend driver.
+			 */
+			vt_flush_to_buffer(vd, vw, &tarea);
+			vtbuf_unlock(&vw->vw_buf);
+			vt_bitblt_buffer(vd, vw, &tarea);
+
+			if (needs_refresh)
+				vt_draw_decorations(vd);
+
+			/*
+			 * We can reset `inside_vt_flush` after unlocking vtbuf
+			 * here because we also hold vt_flush_lock in this code
+			 * path.
+			 */
+			inside_vt_flush = false;
+		} else {
+			/*
+			 * When `vd_bitblt_after_vtbuf_unlock` is false, we use
+			 * the backend's `vd_bitblt_text` callback directly.
+			 */
+			vd->vd_driver->vd_bitblt_text(vd, vw, &tarea);
+
+			if (needs_refresh)
+				vt_draw_decorations(vd);
+
+			inside_vt_flush = false;
+			vtbuf_unlock(&vw->vw_buf);
+		}
+
+		VT_FLUSH_UNLOCK(vd);
+
 		return (1);
 	}
 
+	inside_vt_flush = false;
 	vtbuf_unlock(&vw->vw_buf);
+
+	VT_FLUSH_UNLOCK(vd);
+
 	return (0);
 }
 
@@ -1446,6 +1626,9 @@ vtterm_pre_input(struct terminal *tm)
 {
 	struct vt_window *vw = tm->tm_softc;
 
+	if (inside_vt_flush && KERNEL_PANICKED())
+		return;
+
 	vtbuf_lock(&vw->vw_buf);
 }
 
@@ -1453,6 +1636,9 @@ static void
 vtterm_post_input(struct terminal *tm)
 {
 	struct vt_window *vw = tm->tm_softc;
+
+	if (inside_vt_flush && KERNEL_PANICKED())
+		return;
 
 	vtbuf_unlock(&vw->vw_buf);
 	vt_resume_flush_timer(vw, 0);
@@ -1474,6 +1660,12 @@ vtterm_done(struct terminal *tm)
 		}
 		vd->vd_flags &= ~VDF_SPLASH;
 		vt_flush(vd);
+	} else if (vt_slow_down > 0) {
+		int i, j;
+		for (i = 0; i < vt_slow_down; i++) {
+			for (j = 0; j < 1000; j++)
+				vt_flush(vd);
+		}
 	} else if (!(vd->vd_flags & VDF_ASYNC)) {
 		vt_flush(vd);
 	}
@@ -1483,18 +1675,32 @@ vtterm_done(struct terminal *tm)
 static void
 vtterm_splash(struct vt_device *vd)
 {
+	caddr_t kmdp;
+	struct splash_info *si;
+	uintptr_t image;
 	vt_axis_t top, left;
 
-	/* Display a nice boot splash. */
+	kmdp = preload_search_by_type("elf kernel");
+	if (kmdp == NULL)
+		kmdp = preload_search_by_type("elf64 kernel");
+	si = MD_FETCH(kmdp, MODINFOMD_SPLASH, struct splash_info *);
 	if (!(vd->vd_flags & VDF_TEXTMODE) && (boothowto & RB_MUTE)) {
-		top = (vd->vd_height - vt_logo_height) / 2;
-		left = (vd->vd_width - vt_logo_width) / 2;
-		switch (vt_logo_depth) {
-		case 1:
-			/* XXX: Unhardcode colors! */
+		if (si == NULL) {
+			top = (vd->vd_height - vt_logo_height) / 2;
+			left = (vd->vd_width - vt_logo_width) / 2;
 			vd->vd_driver->vd_bitblt_bmp(vd, vd->vd_curwindow,
 			    vt_logo_image, NULL, vt_logo_width, vt_logo_height,
 			    left, top, TC_WHITE, TC_BLACK);
+		} else {
+			if (si->si_depth != 4)
+				return;
+			image = (uintptr_t)si + sizeof(struct splash_info);
+			image = roundup2(image, 8);
+			top = (vd->vd_height - si->si_height) / 2;
+			left = (vd->vd_width - si->si_width) / 2;
+			vd->vd_driver->vd_bitblt_argb(vd, vd->vd_curwindow,
+			    (unsigned char *)image, si->si_width, si->si_height,
+			    left, top);
 		}
 		vd->vd_flags |= VDF_SPLASH;
 	}
@@ -1871,7 +2077,7 @@ static void
 vtterm_cnungrab(struct terminal *tm)
 {
 	struct vt_device *vd;
-	struct vt_window *vw;
+	struct vt_window *vw, *grabwindow;
 
 	vw = tm->tm_softc;
 	vd = vw->vw_device;
@@ -1880,10 +2086,19 @@ vtterm_cnungrab(struct terminal *tm)
 	if (vtterm_cnungrab_noswitch(vd, vw) != 0)
 		return;
 
-	if (!cold && vd->vd_grabwindow != vw)
-		vt_window_switch(vd->vd_grabwindow);
-
+	/*
+	 * We set `vd_grabwindow` to NULL before calling vt_window_switch()
+	 * because it allows the underlying vt(4) backend to distinguish a
+	 * "grab" from an "ungrab" of the console.
+	 *
+	 * This is used by `vt_drmfb` in drm-kmod to call either
+	 * fb_debug_enter() or fb_debug_leave() appropriately.
+	 */
+	grabwindow = vd->vd_grabwindow;
 	vd->vd_grabwindow = NULL;
+
+	if (!cold)
+		vt_window_switch(grabwindow);
 }
 
 static void
@@ -3099,6 +3314,13 @@ vt_replace_backend(const struct vt_driver *drv, void *softc)
 
 	/* Update windows sizes and initialize last items. */
 	vt_upgrade(vd);
+
+	/*
+	 * Give a chance to the new backend to run the post-switch code, for
+	 * instance to refresh the screen.
+	 */
+	if (vd->vd_driver->vd_postswitch)
+		vd->vd_driver->vd_postswitch(vd);
 
 #ifdef DEV_SPLASH
 	if (vd->vd_flags & VDF_SPLASH)

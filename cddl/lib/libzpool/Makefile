@@ -1,6 +1,6 @@
-# $FreeBSD$
-
 ZFSTOP=	${SRCTOP}/sys/contrib/openzfs
+
+.PATH: ${ZFSTOP}/lib/libzpool
 
 # ZFS_COMMON_SRCS
 .PATH: ${ZFSTOP}/module/zfs
@@ -13,10 +13,6 @@ ZFSTOP=	${SRCTOP}/sys/contrib/openzfs
 .PATH: ${ZFSTOP}/module/zstd/lib/common
 .PATH: ${ZFSTOP}/module/zstd/lib/compress
 .PATH: ${ZFSTOP}/module/zstd/lib/decompress
-
-.PATH: ${ZFSTOP}/module/os/linux/zfs
-
-.PATH: ${ZFSTOP}/lib/libzpool
 
 .if exists(${SRCTOP}/sys/cddl/contrib/opensolaris/common/atomic/${MACHINE_ARCH}/opensolaris_atomic.S)
 .PATH: ${SRCTOP}/sys/cddl/contrib/opensolaris/common/atomic/${MACHINE_ARCH}
@@ -36,11 +32,16 @@ PACKAGE=	zfs
 LIB=		zpool
 
 USER_C = \
+	arc_os.c \
 	kernel.c \
 	taskq.c \
-	util.c
+	util.c \
+	zfs_debug.c
+
+.PATH: ${ZFSTOP}/module/os/linux/zfs
 
 KERNEL_C = \
+	simd_stat.c \
 	zfeature_common.c \
 	zfs_comutil.c \
 	zfs_deleg.c \
@@ -56,21 +57,24 @@ KERNEL_C = \
 	abd_os.c \
 	aggsum.c \
 	arc.c \
-	arc_os.c \
         blake3_zfs.c \
 	blkptr.c \
 	bplist.c \
 	bpobj.c \
 	bptree.c \
-	btree.c \
 	bqueue.c \
+	btree.c \
+	brt.c \
 	cityhash.c \
 	dbuf.c \
 	dbuf_stats.c \
 	ddt.c \
+	ddt_log.c \
+	ddt_stats.c \
 	ddt_zap.c \
 	dmu.c \
 	dmu_diff.c \
+	dmu_direct.c \
 	dmu_object.c \
 	dmu_objset.c \
 	dmu_recv.c \
@@ -117,7 +121,7 @@ KERNEL_C = \
 	refcount.c \
 	rrwlock.c \
 	sa.c \
-	sha256.c \
+	sha2_zfs.c \
 	skein_zfs.c \
 	spa.c \
 	spa_checkpoint.c \
@@ -134,7 +138,6 @@ KERNEL_C = \
 	uberblock.c \
 	unique.c \
 	vdev.c \
-	vdev_cache.c \
 	vdev_draid.c \
 	vdev_draid_rand.c \
 	vdev_file.c \
@@ -143,6 +146,7 @@ KERNEL_C = \
 	vdev_indirect_mapping.c \
 	vdev_initialize.c \
 	vdev_label.c \
+	vdev_label_os.c \
 	vdev_mirror.c \
 	vdev_missing.c \
 	vdev_queue.c \
@@ -171,7 +175,6 @@ KERNEL_C = \
 	zfeature.c \
 	zfs_byteswap.c \
         zfs_chksum.c \
-	zfs_debug.c \
 	zfs_fm.c \
 	zfs_fuid.c \
 	zfs_sa.c \
@@ -245,9 +248,10 @@ LUA_C = \
 	lvm.c \
 	lzio.c
 
-UNICODE_C = u8_textprep.c uconv.c
+UNICODE_C = u8_textprep.c
 
-SRCS=		${USER_C} ${KERNEL_C} ${LUA_C} ${UNICODE_C} ${ARCH_C}
+SRCS+=		${USER_C} ${KERNEL_C} ${LUA_C} ${UNICODE_C} ${ARCH_C}
+
 
 WARNS?=		2
 CFLAGS+= \
@@ -255,10 +259,12 @@ CFLAGS+= \
 	-I${ZFSTOP}/include \
 	-I${ZFSTOP}/lib/libspl/include \
 	-I${ZFSTOP}/lib/libspl/include/os/freebsd \
+	-I${SRCTOP}/sys/contrib/openzfs/lib/libzpool/include \
 	-I${SRCTOP}/sys \
 	-I${ZFSTOP}/include/os/freebsd/zfs \
 	-I${SRCTOP}/cddl/compat/opensolaris/include \
 	-I${ZFSTOP}/module/icp/include \
+	-I${SRCTOP}/compat/linuxkpi/common/include/linux \
 	-include ${ZFSTOP}/include/os/freebsd/spl/sys/ccompile.h \
 	-DHAVE_ISSETUGID \
 	-include ${SRCTOP}/sys/modules/zfs/zfs_config.h \
@@ -277,15 +283,14 @@ CFLAGS.gcc+=	-fms-extensions
 
 LIBADD=		md pthread z spl icp nvpair avl umem
 
-# atomic.S doesn't like profiling.
-MK_PROFILE=	no
-
 CSTD=	c99
 
 # Since there are many asserts in this library, it makes no sense to compile
 # it without debugging.
 
 CFLAGS+=	-g -DDEBUG=1
+
+CFLAGS.gcc+=	-Wno-pointer-to-int-cast
 
 # Pointer values are used as debugging "tags" to mark reference count
 # ownerships and in some cases the tag reference is dropped after an

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2013 FreeBSD Foundation
  *
@@ -29,8 +29,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 /*
  * Note that this file is compiled into the kernel and into libc.
  */
@@ -61,6 +59,7 @@ __read_mostly cap_rights_t cap_fchdir_rights;
 __read_mostly cap_rights_t cap_fchflags_rights;
 __read_mostly cap_rights_t cap_fchmod_rights;
 __read_mostly cap_rights_t cap_fchown_rights;
+__read_mostly cap_rights_t cap_fchroot_rights;
 __read_mostly cap_rights_t cap_fcntl_rights;
 __read_mostly cap_rights_t cap_fexecve_rights;
 __read_mostly cap_rights_t cap_flock_rights;
@@ -110,6 +109,7 @@ cap_rights_sysinit(void *arg)
 	cap_rights_init_one(&cap_fchflags_rights, CAP_FCHFLAGS);
 	cap_rights_init_one(&cap_fchmod_rights, CAP_FCHMOD);
 	cap_rights_init_one(&cap_fchown_rights, CAP_FCHOWN);
+	cap_rights_init_one(&cap_fchroot_rights, CAP_FCHROOT);
 	cap_rights_init_one(&cap_fcntl_rights, CAP_FCNTL);
 	cap_rights_init_one(&cap_fexecve_rights, CAP_FEXECVE);
 	cap_rights_init_one(&cap_flock_rights, CAP_FLOCK);
@@ -306,6 +306,25 @@ __cap_rights_is_set(const cap_rights_t *rights, ...)
 	va_end(ap);
 
 	return (ret);
+}
+
+bool
+cap_rights_is_empty(const cap_rights_t *rights)
+{
+#ifndef _KERNEL
+	cap_rights_t cap_no_rights;
+	cap_rights_init(&cap_no_rights);
+#endif
+
+	assert(CAPVER(rights) == CAP_RIGHTS_VERSION_00);
+	assert(CAPVER(&cap_no_rights) == CAP_RIGHTS_VERSION_00);
+
+	for (int i = 0; i < CAPARSIZE(rights); i++) {
+		if (rights->cr_rights[i] != cap_no_rights.cr_rights[i])
+			return (false);
+	}
+
+	return (true);
 }
 
 bool

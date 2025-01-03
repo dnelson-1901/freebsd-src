@@ -1,7 +1,7 @@
 /* lint -save -library Flexelint comment for external headers */
 
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Charles Mott <cm@linktel.net>
  * All rights reserved.
@@ -26,8 +26,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -228,6 +226,26 @@ struct mbuf    *m_megapullup(struct mbuf *, int);
  *		100.64.0.0   ->   100.127.255.255
  */
 #define	PKT_ALIAS_UNREGISTERED_CGN	0x400
+
+/*
+ * When this bit is set, UDP uses endpoint-independent mapping (EIM), as per
+ * RFC 4787 ("full cone" NAT of RFC 3489). All packets from the same internal
+ * address:port are mapped to the same NAT address:port, regardless of their
+ * destination address:port. If filtering rules allow, and if
+ * PKT_ALIAS_DENY_INCOMING is unset, any other external address:port can also
+ * send to the internal address:port through its mapped NAT address:port. This
+ * is more compatible with applications, and can reduce the need for port
+ * forwarding, but less scalable as each NAT address:port can only be
+ * concurrently used by at most one internal address:port.
+ *
+ * When this bit is unset, UDP packets use endpoint-dependent mapping (EDM)
+ * ("symmetric" NAT). Each connection from a particular internal address:port
+ * to different external addresses:ports is mapped to a random and
+ * unpredictable NAT address:port. Two appplications behind EDM NATs can only
+ * connect to each other by port forwarding on the NAT, or tunnelling through
+ * an in-between server.
+ */
+#define PKT_ALIAS_UDP_EIM		0x800
 
 /* Function return codes. */
 #define	PKT_ALIAS_ERROR			-1

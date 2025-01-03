@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2001 Orion Hodson <O.Hodson@cs.ucl.ac.uk>
  * All rights reserved.
@@ -43,8 +43,6 @@
 #include <dev/pci/pcivar.h>
 
 #include "mixer_if.h"
-
-SND_DECLARE_FILE("$FreeBSD$");
 
 /* ------------------------------------------------------------------------- */
 /* Constants */
@@ -868,17 +866,17 @@ sv_attach(device_t dev) {
 	if (bootverbose)
 		printf("Sonicvibes: revision %d.\n", sc->rev);
 
-        if (pcm_register(dev, sc, 1, 1)) {
-		device_printf(dev, "sv_attach: pcm_register fail\n");
-                goto fail;
-	}
-
+	pcm_init(dev, sc);
         pcm_addchan(dev, PCMDIR_PLAY, &svpchan_class, sc);
         pcm_addchan(dev, PCMDIR_REC,  &svrchan_class, sc);
 
-        snprintf(status, SND_STATUSLEN, "at io 0x%jx irq %jd %s",
-                 rman_get_start(sc->enh_reg),  rman_get_start(sc->irq),PCM_KLDSTRING(snd_vibes));
-        pcm_setstatus(dev, status);
+        snprintf(status, SND_STATUSLEN, "port 0x%jx irq %jd on %s",
+                 rman_get_start(sc->enh_reg),  rman_get_start(sc->irq),
+		 device_get_nameunit(device_get_parent(dev)));
+	if (pcm_register(dev, status)) {
+		device_printf(dev, "sv_attach: pcm_register fail\n");
+                goto fail;
+	}
 
         DEB(printf("sv_attach: succeeded\n"));
 

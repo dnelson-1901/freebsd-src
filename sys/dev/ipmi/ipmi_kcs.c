@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2006 IronPort Systems Inc. <ambrisko@ironport.com>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -491,13 +488,13 @@ kcs_startup(struct ipmi_softc *sc)
 }
 
 static int
-kcs_driver_request_queue(struct ipmi_softc *sc, struct ipmi_request *req, int timo)
+kcs_driver_request_queue(struct ipmi_softc *sc, struct ipmi_request *req)
 {
 	int error;
 
 	IPMI_LOCK(sc);
 	ipmi_polled_enqueue_request_highpri(sc, req);
-	error = msleep(req, &sc->ipmi_requests_lock, 0, "ipmireq", timo);
+	error = msleep(req, &sc->ipmi_requests_lock, 0, "ipmireq", 0);
 	if (error == 0)
 		error = req->ir_error;
 	IPMI_UNLOCK(sc);
@@ -520,13 +517,13 @@ kcs_driver_request_poll(struct ipmi_softc *sc, struct ipmi_request *req)
 }
 
 static int
-kcs_driver_request(struct ipmi_softc *sc, struct ipmi_request *req, int timo)
+kcs_driver_request(struct ipmi_softc *sc, struct ipmi_request *req)
 {
 
 	if (KERNEL_PANICKED() || dumping)
 		return (kcs_driver_request_poll(sc, req));
 	else
-		return (kcs_driver_request_queue(sc, req, timo));
+		return (kcs_driver_request_queue(sc, req));
 }
 
 
