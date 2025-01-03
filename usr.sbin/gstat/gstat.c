@@ -406,7 +406,7 @@ main(int argc, char **argv)
 				PRINTMSG(",%.0f", (double)ld[2] * 1024);
 				if (ld[3] > 1e3) 
 					PRINTMSG(",%.0f", (double)ld[3]);
-				else if (ld[3] > 1e0)
+				else if (ld[3] > 1e1)
 					PRINTMSG(",%.1f", (double)ld[3]);
 				else
 					PRINTMSG(",%.3f", (double)ld[3]);
@@ -416,7 +416,7 @@ main(int argc, char **argv)
 				PRINTMSG(",%.0f", (double)ld[5] * 1024);
 				if (ld[6] > 1e3) 
 					PRINTMSG(",%.0f", (double)ld[6]);
-				else if (ld[6] > 1e0)
+				else if (ld[6] > 1e1)
 					PRINTMSG(",%.1f", (double)ld[6]);
 				else
 					PRINTMSG(",%.3f", (double)ld[6]);
@@ -430,7 +430,7 @@ main(int argc, char **argv)
 					if (ld[10] > 1e3) 
 						PRINTMSG(",%.0f",
 								(double)ld[10]);
-					else if (ld[10] > 1e0)
+					else if (ld[10] > 1e1)
 						PRINTMSG(",%.1f",
 								(double)ld[10]);
 					else
@@ -443,7 +443,7 @@ main(int argc, char **argv)
 					if (ld[12] > 1e3) 
 						PRINTMSG(",%.0f",
 								(double)ld[12]);
-					else if (ld[12] > 1e0)
+					else if (ld[12] > 1e1)
 						PRINTMSG(",%.1f",
 								(double)ld[12]);
 					else
@@ -460,7 +460,7 @@ main(int argc, char **argv)
 				PRINTMSG("%6.0f", (double)ld[2] * 1024);
 				if (ld[3] > 1e3) 
 					PRINTMSG("%6.0f", (double)ld[3]);
-				else if (ld[3] > 1e0)
+				else if (ld[3] > 1e1)
 					PRINTMSG("%6.1f", (double)ld[3]);
 				else
 					PRINTMSG("%6.3f", (double)ld[3]);
@@ -470,7 +470,7 @@ main(int argc, char **argv)
 				PRINTMSG("%6.0f", (double)ld[5] * 1024);
 				if (ld[6] > 1e3) 
 					PRINTMSG("%6.0f", (double)ld[6]);
-				else if (ld[6] > 1e0)
+				else if (ld[6] > 1e1)
 					PRINTMSG("%6.1f", (double)ld[6]);
 				else
 					PRINTMSG("%6.3f", (double)ld[6]);
@@ -485,8 +485,8 @@ main(int argc, char **argv)
 					if (ld[10] > 1e3) 
 						PRINTMSG("%6.0f",
 								(double)ld[10]);
-					else if (ld[10] > 1e0)
-						PRINTMSG(" %6.1f",
+					else if (ld[10] > 1e1)
+						PRINTMSG("%6.1f",
 								(double)ld[10]);
 					else
 						PRINTMSG("%6.3f",
@@ -498,8 +498,8 @@ main(int argc, char **argv)
 					if (ld[12] > 1e3) 
 						PRINTMSG("%6.0f",
 								(double)ld[12]);
-					else if (ld[12] > 1e0)
-						PRINTMSG(" %6.1f",
+					else if (ld[12] > 1e1)
+						PRINTMSG("%6.1f",
 								(double)ld[12]);
 					else
 						PRINTMSG("%6.3f",
