@@ -279,7 +279,7 @@ main(int argc, const char *argv[])
     ps.system  = false;
     reset_uids();
     ps.thread  = false;
-    ps.wcpu    = 1;
+    ps.wcpu    = false;
     ps.jid     = -1;
     ps.jail    = false;
     ps.swap    = false;

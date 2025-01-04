@@ -4693,8 +4693,11 @@ vfs_sysctl(SYSCTL_HANDLER_ARGS)
 	u_int namelen = arg2 + 1;	/* XXX */
 	struct vfsconf *vfsp;
 
-	log(LOG_WARNING, "userland calling deprecated sysctl, "
-	    "please rebuild world\n");
+	log(LOG_WARNING, "pid %d (%s), jid %d, uid %d: "
+	    "userland calling deprecated sysctl, "
+	    "please rebuild world\n", curproc->p_pid, curproc->p_comm,
+	    curproc->p_ucred->cr_prison->pr_id,
+	    curproc->p_ucred->cr_uid);
 
 #if 1 || defined(COMPAT_PRELITE2)
 	/* Resolve ambiguity between VFS_VFSCONF and VFS_GENERIC. */

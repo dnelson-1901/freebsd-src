@@ -75,6 +75,8 @@ struct	debugnet_methods;
 #include <sys/mbuf.h>		/* ifqueue only? */
 #include <sys/buf_ring.h>
 #include <net/vnet.h>
+#else
+#include <stdbool.h>
 #endif /* _KERNEL */
 #include <sys/ck.h>
 #include <sys/counter.h>

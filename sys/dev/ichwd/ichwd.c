@@ -378,6 +378,28 @@ ichwd_smi_is_enabled(struct ichwd_softc *sc)
 static __inline void
 ichwd_sts_reset(struct ichwd_softc *sc)
 {
+	uint32_t status;
+	status = ichwd_read_tco_2(sc, TCO1_STS) &
+		(TCO_SMI_STS | TCO_INT_STS | TCO_TIMEOUT);
+	if (status)
+	{
+		device_printf(sc->device, "Previous TCO1 status bits: %b",
+			status,
+			"\x10"
+			"\x02TCO_SMI_STS"
+			"\x03TCO_INT_STS"
+			"\x04TCO_TIMEOUT");
+	}
+	status = ichwd_read_tco_2(sc, TCO2_STS) &
+		(TCO_SECOND_TO_STS | TCO_BOOT_STS);
+	if (status)
+	{
+		device_printf(sc->device, "Previous TCO2 status bits: %b",
+			status,
+			"\x10"
+			"\x02TCO_SECOND_TO_STS"
+			"\x03TCO_BOOT_STS");
+	}
 	/*
 	 * The watchdog status bits are set to 1 by the hardware to
 	 * indicate various conditions.  They can be cleared by software
@@ -388,6 +410,8 @@ ichwd_sts_reset(struct ichwd_softc *sc)
 	 * According to Intel's docs, clearing SECOND_TO_STS and BOOT_STS must
 	 * be done in two separate operations.
 	 */
+	ichwd_verbose_printf(sc->device, "timer reset\n");
+
 	ichwd_write_tco_2(sc, TCO2_STS, TCO_SECOND_TO_STS);
 	if (sc->tco_version < 4)
 		ichwd_write_tco_2(sc, TCO2_STS, TCO_BOOT_STS);

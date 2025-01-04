@@ -10,11 +10,13 @@
 .Op Fl facedDHS
 .Op Fl o Ar file
 .Op Fl s Ar strsize
+.Op Fl t Ar timeout
 .Fl p Ar pid
 .Nm
 .Op Fl facedDHS
 .Op Fl o Ar file
 .Op Fl s Ar strsize
+.Op Fl t Ar timeout
 .Ar command Op Ar args
 .Sh DESCRIPTION
 The
@@ -76,6 +78,14 @@ will be displayed at the end of the string.
 The default
 .Ar strsize
 is 32.
+.It Fl t Ar timeout
+After
+.Ar timeout
+seconds with no syscall activity, print the syscall names and arguments
+for any threads currently waiting in the kernel.
+A value of 0 will disable the timeout.  The default
+.Ar timeout
+is 2 seconds.
 .It Fl p Ar pid
 Follow the process specified by
 .Ar pid

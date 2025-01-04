@@ -2454,9 +2454,15 @@ device_probe(device_t dev)
 		return (-1);
 
 	if (!(dev->flags & DF_ENABLED)) {
-		if (bootverbose && device_get_name(dev) != NULL) {
+		if (bootverbose) {
+			char pnpstr[32]="?";
+			char locstr[32]="?";
+
+			bus_child_pnpinfo_str(dev, pnpstr, sizeof(pnpstr));
+			bus_child_location_str(dev, locstr, sizeof(locstr));
 			device_print_prettyname(dev);
-			printf("not probed (disabled)\n");
+			printf("%s %s not probed (disabled)\n",
+				pnpstr, locstr);
 		}
 		return (-1);
 	}

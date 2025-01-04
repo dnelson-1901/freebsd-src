@@ -15,6 +15,8 @@ SYMLINKS=	${PROG_CXX} ${BINDIR}/ld
 MLINKS=		ld.lld.1 ld.1
 .endif
 
+NO_SHARED=	yes
+
 .include "${SRCTOP}/lib/clang/llvm.pre.mk"
 
 CFLAGS+=	-I${LLD_SRCS}/ELF

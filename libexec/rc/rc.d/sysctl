@@ -28,7 +28,7 @@ sysctl_start()
 
 	for _f in /etc/sysctl.conf /etc/sysctl.conf.local; do
 		if [ -r ${_f} ]; then
-			${command} ${command_args} ${_f} > /dev/null
+			${command} ${command_args} ${_f} | grep -v '\(.*\) -> \1$'
 		fi
 	done
 }

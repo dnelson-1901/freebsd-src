@@ -104,6 +104,8 @@
 #include <dev/ath/if_ath_alq.h>
 #endif
 
+#include <dev/led/led.h>
+
 static int
 ath_sysctl_slottime(SYSCTL_HANDLER_ARGS)
 {
@@ -808,12 +810,23 @@ ath_sysctl_alq_attach(struct ath_softc *sc)
 }
 #endif /* ATH_DEBUG_ALQ */
 
+static void ath_led_control(struct ath_softc *sc, int onoff)
+{
+	sc->sc_softled = 1;
+	sc->sc_ledon = onoff;
+
+	ath_led_config(sc);
+}
+
+
 void
 ath_sysctlattach(struct ath_softc *sc)
 {
 	struct sysctl_ctx_list *ctx = device_get_sysctl_ctx(sc->sc_dev);
 	struct sysctl_oid *tree = device_get_sysctl_tree(sc->sc_dev);
 	struct ath_hal *ah = sc->sc_ah;
+
+	led_create((led_t *)ath_led_control, sc, device_get_nameunit(sc->sc_dev));
 
 	SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
 		"countrycode", CTLFLAG_RD, &sc->sc_eecc, 0,

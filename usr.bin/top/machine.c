@@ -54,7 +54,7 @@
 extern struct timeval timeout;
 static int smpmode;
 enum displaymodes displaymode;
-static const int namelength = 10;
+static const int namelength = 8;
 /* TOP_JID_LEN based on max of 999999 */
 #define TOP_JID_LEN 6
 #define TOP_SWAP_LEN 5

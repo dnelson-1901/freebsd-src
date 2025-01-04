@@ -678,9 +678,10 @@ shutdown_panic(void *junk, int howto)
 				printf("Automatic reboot in %d seconds - "
 				       "press a key on the console to abort\n",
 					panic_reboot_wait_time);
-				for (loop = panic_reboot_wait_time * 10;
+				for (loop = panic_reboot_wait_time;
 				     loop > 0; --loop) {
-					DELAY(1000 * 100); /* 1/10th second */
+				    printf(".");
+					DELAY(1000 * 1000); /* 1 second */
 					/* Did user type a key? */
 					if (cncheckc() != -1)
 						break;

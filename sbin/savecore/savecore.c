@@ -85,6 +85,7 @@
 #include <syslog.h>
 #include <time.h>
 #include <unistd.h>
+#include <vis.h>
 #define	Z_SOLO
 #include <zlib.h>
 #include <zstd.h>
@@ -1005,6 +1006,15 @@ DoFile(const char *savedir, int savedirfd, const char *device)
 	}
 	memcpy(&kdhl, temp, sizeof(kdhl));
 	iscompressed = istextdump = false;
+	if (verbose)
+	{
+		char visbuf[sizeof(kdhl.magic)*4+1];
+		strvisx(visbuf, kdhl.magic, sizeof(kdhl.magic),
+			VIS_TAB | VIS_NL | VIS_SAFE | VIS_CSTYLE);
+		printf ("magic buffer: %s\n",visbuf);
+		if (verbose >= 2)
+			printheader(xostdout, &kdhl, device, bounds, -1);
+	}
 	if (compare_magic(&kdhl, TEXTDUMPMAGIC)) {
 		if (verbose)
 			printf("textdump magic on last dump header on %s\n",

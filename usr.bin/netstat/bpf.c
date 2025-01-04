@@ -81,11 +81,13 @@ bpf_flags(struct xbpf_d *bd, char *flagbuf)
 	*flagbuf++ = bd->bd_promisc ? 'p' : '-';
 	*flagbuf++ = bd->bd_immediate ? 'i' : '-';
 	*flagbuf++ = bd->bd_hdrcmplt ? '-' : 'f';
-	*flagbuf++ = (bd->bd_direction == BPF_D_IN) ? '-' :
+	*flagbuf++ = (bd->bd_direction == BPF_D_IN) ? 'i' :
 	    ((bd->bd_direction == BPF_D_OUT) ? 'o' : 's');
 	*flagbuf++ = bd->bd_feedback ? 'b' : '-';
 	*flagbuf++ = bd->bd_async ? 'a' : '-';
 	*flagbuf++ = bd->bd_locked ? 'l' : '-';
+	*flagbuf++ = (bd->bd_bufmode == BPF_BUFMODE_BUFFER) ? 'b' :
+	    ((bd->bd_bufmode == BPF_BUFMODE_ZBUF) ? 'z' : '?');
 	*flagbuf++ = '\0';
 
 	if (bd->bd_promisc)
@@ -102,6 +104,8 @@ bpf_flags(struct xbpf_d *bd, char *flagbuf)
 		xo_emit("{e:async/}");
 	if (bd->bd_locked)
 		xo_emit("{e:locked/}");
+	xo_emit("{e:buffer}", (bd->bd_bufmode == BPF_BUFMODE_BUFFER) ?
+	    "buffered" : "zero-copy");
 }
 
 void
@@ -136,7 +140,7 @@ bpf_stats(char *ifname)
 		free(bd);
 		return;
 	}
-	xo_emit("{T:/%5s} {T:/%6s} {T:/%7s} {T:/%9s} {T:/%9s} {T:/%9s} "
+	xo_emit("{T:/%5s} {T:/%6s} {T:/%8s} {T:/%9s} {T:/%9s} {T:/%9s} "
 	    "{T:/%5s} {T:/%5s} {T:/%s}\n",
 	    "Pid", "Netif", "Flags", "Recv", "Drop", "Match",
 	    "Sblen", "Hblen", "Command");

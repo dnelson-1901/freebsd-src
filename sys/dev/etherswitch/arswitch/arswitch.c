@@ -67,6 +67,8 @@
 #include <dev/etherswitch/arswitch/arswitch_8316.h>
 #include <dev/etherswitch/arswitch/arswitch_8327.h>
 
+#include <dev/led/led.h>
+
 #include "mdio_if.h"
 #include "miibus_if.h"
 #include "etherswitch_if.h"
@@ -89,6 +91,7 @@ static int ar8xxx_port_vlan_get(struct arswitch_softc *sc,
     etherswitch_port_t *p);
 static int arswitch_setled(struct arswitch_softc *sc, int phy, int led,
     int style);
+static void arswitch_led_func(struct arswitch_dev_led *dev_led, int onoff);
 
 static int
 arswitch_probe(device_t dev)
@@ -189,6 +192,9 @@ arswitch_attach_phys(struct arswitch_softc *sc)
 				sprintf(ledname, "%s%dled%d", name,
 				    arswitch_portforphy(phy), led+1);
 				sc->dev_led[phy][led].sc = sc;
+				sc->dev_led[phy][led].led =
+				    led_create((led_t *)arswitch_led_func,
+				    &sc->dev_led[phy][led], ledname);
 				sc->dev_led[phy][led].phy = phy;
 				sc->dev_led[phy][led].lednum = led;
 			}
@@ -680,7 +686,7 @@ static int
 arswitch_detach(device_t dev)
 {
 	struct arswitch_softc *sc = device_get_softc(dev);
-	int i;
+	int i, led;
 
 	callout_drain(&sc->callout_tick);
 
@@ -690,6 +696,9 @@ arswitch_detach(device_t dev)
 		if (sc->ifp[i] != NULL)
 			if_free(sc->ifp[i]);
 		free(sc->ifname[i], M_DEVBUF);
+		for (led=0; led < ARSWITCH_NUM_LEDS; led++)
+			if (sc->dev_led[i][led].led != NULL)
+				led_destroy(sc->dev_led[i][led].led);
 	}
 
 	free(sc->atu.entries, M_DEVBUF);
@@ -1060,6 +1069,17 @@ arswitch_setport(device_t dev, etherswitch_port_t *p)
 
 	ifm = &mii->mii_media;
 	return (ifmedia_ioctl(ifp, &p->es_ifr, ifm, SIOCSIFMEDIA));
+}
+
+/*
+ * led(4) callback function.  That api only knows on/off; if you want to
+ * reset back to defaults, you'll need to use etherswitchcfg.
+ */
+static void
+arswitch_led_func(struct arswitch_dev_led* dev_led, int onoff)
+{
+	arswitch_setled(dev_led->sc, dev_led->phy, dev_led->lednum,
+	    onoff ? ETHERSWITCH_PORT_LED_ON : ETHERSWITCH_PORT_LED_OFF);
 }
 
 static int

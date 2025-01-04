@@ -58,3 +58,7 @@ void meta_compat_child(void);
 void meta_compat_parent(pid_t);
 
 extern bool useMeta;
+extern char * oodateReason;
+
+#define SET_OODATE_REASON(...) \
+	if (!oodateReason) { asprintf(&oodateReason, __VA_ARGS__); }

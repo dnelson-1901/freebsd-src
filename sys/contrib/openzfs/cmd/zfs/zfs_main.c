@@ -489,20 +489,16 @@ static int
 usage_prop_cb(int prop, void *cb)
 {
 	FILE *fp = cb;
+	const char *name, *colname;
 
-	(void) fprintf(fp, "\t%-15s ", zfs_prop_to_name(prop));
-
-	if (zfs_prop_readonly(prop))
-		(void) fprintf(fp, " NO    ");
-	else
-		(void) fprintf(fp, "YES    ");
-
-	if (zfs_prop_inheritable(prop))
-		(void) fprintf(fp, "  YES   ");
-	else
-		(void) fprintf(fp, "   NO   ");
-
-	(void) fprintf(fp, "%s\n", zfs_prop_values(prop) ?: "-");
+	name = zfs_prop_to_name(prop);
+	colname = zfs_prop_column_name(prop);
+	
+	(void) fprintf(fp, "\t%-15s", name);
+	(void) fprintf(fp, " %-7s", strcasecmp(name, colname) ? colname : "");
+	(void) fprintf(fp, " %4s", zfs_prop_readonly(prop) ? "NO" : "YES");
+	(void) fprintf(fp, " %7s", zfs_prop_inheritable(prop) ? "YES" : "NO");
+	(void) fprintf(fp, "  %s\n", zfs_prop_values(prop) ?: "-");
 
 	return (ZPROP_CONT);
 }
@@ -551,41 +547,41 @@ usage(boolean_t requested)
 		(void) fprintf(fp, "%s",
 		    gettext("\nThe following properties are supported:\n"));
 
-		(void) fprintf(fp, "\n\t%-14s %s  %s   %s\n\n",
-		    "PROPERTY", "EDIT", "INHERIT", "VALUES");
+		(void) fprintf(fp, "\n\t%-15s %-7s %4s %7s  %s\n\n",
+		    "PROPERTY", "SHORT", "EDIT", "INHERIT", "VALUES");
 
 		/* Iterate over all properties */
 		(void) zprop_iter(usage_prop_cb, fp, B_FALSE, B_TRUE,
 		    ZFS_TYPE_DATASET);
 
-		(void) fprintf(fp, "\t%-15s ", "userused@...");
-		(void) fprintf(fp, " NO       NO   <size>\n");
-		(void) fprintf(fp, "\t%-15s ", "groupused@...");
-		(void) fprintf(fp, " NO       NO   <size>\n");
-		(void) fprintf(fp, "\t%-15s ", "projectused@...");
-		(void) fprintf(fp, " NO       NO   <size>\n");
-		(void) fprintf(fp, "\t%-15s ", "userobjused@...");
-		(void) fprintf(fp, " NO       NO   <size>\n");
-		(void) fprintf(fp, "\t%-15s ", "groupobjused@...");
-		(void) fprintf(fp, " NO       NO   <size>\n");
-		(void) fprintf(fp, "\t%-15s ", "projectobjused@...");
-		(void) fprintf(fp, " NO       NO   <size>\n");
-		(void) fprintf(fp, "\t%-15s ", "userquota@...");
-		(void) fprintf(fp, "YES       NO   <size> | none\n");
-		(void) fprintf(fp, "\t%-15s ", "groupquota@...");
-		(void) fprintf(fp, "YES       NO   <size> | none\n");
-		(void) fprintf(fp, "\t%-15s ", "projectquota@...");
-		(void) fprintf(fp, "YES       NO   <size> | none\n");
-		(void) fprintf(fp, "\t%-15s ", "userobjquota@...");
-		(void) fprintf(fp, "YES       NO   <size> | none\n");
-		(void) fprintf(fp, "\t%-15s ", "groupobjquota@...");
-		(void) fprintf(fp, "YES       NO   <size> | none\n");
-		(void) fprintf(fp, "\t%-15s ", "projectobjquota@...");
-		(void) fprintf(fp, "YES       NO   <size> | none\n");
-		(void) fprintf(fp, "\t%-15s ", "written@<snap>");
-		(void) fprintf(fp, " NO       NO   <size>\n");
-		(void) fprintf(fp, "\t%-15s ", "written#<bookmark>");
-		(void) fprintf(fp, " NO       NO   <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "userused@...");
+		(void) fprintf(fp, " NO      NO  <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "groupused@...");
+		(void) fprintf(fp, " NO      NO  <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "projectused@...");
+		(void) fprintf(fp, " NO      NO  <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "userobjused@...");
+		(void) fprintf(fp, " NO      NO  <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "groupobjused@...");
+		(void) fprintf(fp, " NO      NO  <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "projectobjused@...");
+		(void) fprintf(fp, " NO      NO  <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "userquota@...");
+		(void) fprintf(fp, "YES      NO  <size> | none\n");
+		(void) fprintf(fp, "\t%-24s ", "groupquota@...");
+		(void) fprintf(fp, "YES      NO  <size> | none\n");
+		(void) fprintf(fp, "\t%-24s ", "projectquota@...");
+		(void) fprintf(fp, "YES      NO  <size> | none\n");
+		(void) fprintf(fp, "\t%-24s ", "userobjquota@...");
+		(void) fprintf(fp, "YES      NO  <size> | none\n");
+		(void) fprintf(fp, "\t%-24s ", "groupobjquota@...");
+		(void) fprintf(fp, "YES      NO  <size> | none\n");
+		(void) fprintf(fp, "\t%-24s ", "projectobjquota@...");
+		(void) fprintf(fp, "YES      NO  <size> | none\n");
+		(void) fprintf(fp, "\t%-24s ", "written@<snap>");
+		(void) fprintf(fp, " NO      NO  <size>\n");
+		(void) fprintf(fp, "\t%-24s ", "written#<bookmark>");
+		(void) fprintf(fp, " NO      NO  <size>\n");
 
 		(void) fprintf(fp, gettext("\nSizes are specified in bytes "
 		    "with standard units such as K, M, G, etc.\n"));
@@ -688,7 +684,7 @@ parse_depth(char *opt, int *flags)
 	return (depth);
 }
 
-#define	PROGRESS_DELAY 2		/* seconds */
+#define	PROGRESS_DELAY 60		/* seconds */
 
 static const char *pt_reverse =
 	"\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b";

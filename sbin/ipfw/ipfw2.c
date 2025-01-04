@@ -771,7 +771,7 @@ get_token(struct _s_x *table, const char *string, const char *errbase)
 
 	if ((tcmd = match_token_relaxed(table, string)) < 0)
 		errx(EX_USAGE, "%s %s %s",
-		    (tcmd == 0) ? "invalid" : "ambiguous", errbase, string);
+		    (tcmd == -1) ? "invalid" : "ambiguous", errbase, string);
 
 	return (tcmd);
 }

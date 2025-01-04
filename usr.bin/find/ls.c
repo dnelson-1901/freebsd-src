@@ -64,8 +64,8 @@ printlong(char *name, char *accpath, struct stat *sb)
 	(void)printf("%6ju %8"PRId64" ", (uintmax_t)sb->st_ino, sb->st_blocks);
 	(void)strmode(sb->st_mode, modep);
 	(void)printf("%s %3ju %-*s %-*s ", modep, (uintmax_t)sb->st_nlink,
-	    MAXLOGNAME - 1,
-	    user_from_uid(sb->st_uid, 0), MAXLOGNAME - 1,
+	    8,
+	    user_from_uid(sb->st_uid, 0), 8,
 	    group_from_gid(sb->st_gid, 0));
 
 	if (S_ISCHR(sb->st_mode) || S_ISBLK(sb->st_mode))

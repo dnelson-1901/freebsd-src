@@ -41,6 +41,7 @@
 #include <sys/malloc.h>
 #include <sys/module.h>
 #include <sys/mutex.h>
+#include <sys/proc.h>
 #include <geom/geom_disk.h>
 
 #ifdef FDT
@@ -353,6 +354,8 @@ mx25l_write(struct mx25l_softc *sc, off_t offset, caddr_t data, off_t count)
 		if (err)
 			break;
 
+		maybe_yield();
+
 		data   += bytes_to_write;
 		offset += bytes_to_write;
 		count  -= bytes_to_write;
@@ -407,6 +410,9 @@ mx25l_read(struct mx25l_softc *sc, off_t offset, caddr_t data, off_t count)
 	cmd.rx_data_sz = count;
 
 	err = SPIBUS_TRANSFER(sc->sc_parent, sc->sc_dev, &cmd);
+
+	maybe_yield();
+
 	return (err);
 }
 

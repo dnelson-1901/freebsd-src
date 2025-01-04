@@ -104,6 +104,7 @@ extern int	maxbpg;		/* maximum blocks per file in a cyl group */
 extern int	avgfilesize;	/* expected average file size */
 extern int	avgfilesperdir;	/* expected number of files per directory */
 extern u_char	*volumelabel;	/* volume label for filesystem */
+extern int32_t	fsid[2];	/* filesystem id */
 extern struct uufsd disk;	/* libufs disk structure */
 
 /*

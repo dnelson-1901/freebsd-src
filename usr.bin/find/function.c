@@ -42,6 +42,7 @@ static const char sccsid[] = "@(#)function.c	8.10 (Berkeley) 5/4/95";
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/acl.h>
+#include <sys/extattr.h>
 #include <sys/wait.h>
 #include <sys/mount.h>
 
@@ -716,7 +717,7 @@ c_exec(OPTION *option, char ***argvp)
 	for (ap = argv = *argvp;; ++ap) {
 		if (!*ap)
 			errx(1,
-			    "%s: no terminating \";\" or \"+\"", option->name);
+			    "%s: no terminating \";\" or \"{}\" \"+\"", option->name);
 		if (**ap == ';')
 			break;
 		if (**ap == '+' && ap != argv && strcmp(*(ap - 1), "{}") == 0) {
@@ -809,6 +810,43 @@ finish_execplus(void)
 		p = p->e_next;
 	}
 }
+
+/*
+ * -extattr function --
+ *
+ *	Show files with extended attributes.
+ */
+int
+f_extattr(PLAN *plan __unused, FTSENT *entry)
+{
+	int size;
+
+	size = extattr_list_link(entry->fts_accpath, EXTATTR_NAMESPACE_SYSTEM, 
+	    NULL, 0);
+	if (size > 0) {
+		return (1);
+	} else if (size < 0) {
+		warn("%s", entry->fts_accpath);
+		return (0);
+	}
+	size = extattr_list_link(entry->fts_accpath, EXTATTR_NAMESPACE_USER, 
+	    NULL, 0);
+	if (size > 0) {
+		return (1);
+	} else if (size < 0) {
+		warn("%s", entry->fts_accpath);
+		return (0);
+	}
+	return (0);
+}
+
+PLAN *
+c_extattr(OPTION *option, char ***argvp __unused)
+{
+	ftsoptions &= ~FTS_NOSTAT;
+	return (palloc(option));
+}
+
 
 #if HAVE_STRUCT_STAT_ST_FLAGS
 int

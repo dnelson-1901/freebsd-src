@@ -113,7 +113,7 @@ geli_dev_strategy(void *devdata, int rw, daddr_t blk, size_t size, char *buf,
 	off_t alnend, alnstart, reqend, reqstart;
 	size_t alnsize;
 	char *iobuf;
-	int rc;
+	int rc = -1;
 
 	gdesc = (struct geli_devdesc *)devdata;
 

@@ -463,8 +463,10 @@ printtime(time_t ftime)
 {
 	char longstring[80];
 	static time_t now = 0;
+	time_t zero = 0;
 	const char *format;
 	static int d_first = -1;
+	struct tm *tm;
 
 	if (d_first < 0)
 		d_first = (*nl_langinfo(D_MD_ORDER) == 'd');
@@ -483,7 +485,10 @@ printtime(time_t ftime)
 	else
 		/* mmm dd  yyyy || dd mmm  yyyy */
 		format = d_first ? "%e %b  %Y" : "%b %e  %Y";
-	ls_strftime(longstring, sizeof(longstring), format, localtime(&ftime));
+	tm = localtime(&ftime);
+	if (tm == NULL)
+		tm = localtime(&zero);
+	ls_strftime(longstring, sizeof(longstring), format, tm);
 	fputs(longstring, stdout);
 	fputc(' ', stdout);
 }
@@ -807,7 +812,7 @@ aclmode(char *buf, const FTSENT *p)
 			type = ACL_TYPE_NFS4;
 			supports_acls = 1;
 		} else if (ret < 0 && errno != EINVAL) {
-			warn("%s", name);
+			warn("lpathconf(%s, _PC_ACL_NFS4) failed", name);
 			return;
 		}
 		if (supports_acls == 0) {
@@ -816,7 +821,7 @@ aclmode(char *buf, const FTSENT *p)
 				type = ACL_TYPE_ACCESS;
 				supports_acls = 1;
 			} else if (ret < 0 && errno != EINVAL) {
-				warn("%s", name);
+				warn("lpathconf(%s, _PC_ACL_EXTENDED) failed", name);
 				return;
 			}
 		}
@@ -825,12 +830,12 @@ aclmode(char *buf, const FTSENT *p)
 		return;
 	facl = acl_get_link_np(name, type);
 	if (facl == NULL) {
-		warn("%s", name);
+		warn("acl_get_link_np(%s) failed", name);
 		return;
 	}
 	if (acl_is_trivial_np(facl, &trivial)) {
 		acl_free(facl);
-		warn("%s", name);
+		warn("acl_is_trivial(%s) failed", name);
 		return;
 	}
 	if (!trivial)

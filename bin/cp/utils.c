@@ -178,8 +178,8 @@ copy_file(const FTSENT *entp, int dne)
 			if (use_copy_file_range) {
 				wcount = copy_file_range(from_fd, NULL,
 				    to_fd, NULL, SSIZE_MAX, 0);
-				if (wcount < 0 && errno == EINVAL) {
-					/* Prob a non-seekable FD */
+				if (wcount < 0 && (errno == EINVAL || errno == ENOSYS)) {
+					/* Prob a non-seekable FD or old kernel */
 					use_copy_file_range = 0;
 				}
 			}

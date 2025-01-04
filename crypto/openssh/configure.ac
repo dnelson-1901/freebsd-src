@@ -1499,6 +1499,14 @@ See http://www.gzip.org/zlib/ for details.])
     LIBS="$saved_LIBS"
 fi
 
+AC_ARG_WITH([libzstd], AS_HELP_STRING([--with-libzstd], [Build with libzstd.]))
+AS_IF([test "x$with_libzstd" = "xyes"],
+	[
+		PKG_CHECK_MODULES([LIBZSTD], [libzstd >= 1.4.0], [AC_DEFINE([HAVE_LIBZSTD], [1], [Use LIBZSTD])])
+		LIBS="$LIBS ${LIBZSTD_LIBS}"
+		CFLAGS="$CFLAGS ${LIBZSTD_CFLAGS}"
+	])
+
 dnl UnixWare 2.x
 AC_CHECK_FUNC([strcasecmp],
 	[], [ AC_CHECK_LIB([resolv], [strcasecmp], [LIBS="$LIBS -lresolv"]) ]

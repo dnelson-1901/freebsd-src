@@ -310,6 +310,12 @@
 #include <sys/zfs_racct.h>
 #include <sys/zstd/zstd.h>
 
+#ifdef _KERNEL
+#define kprintf printf
+#else
+#define kprintf(...)
+#endif
+
 #ifndef _KERNEL
 /* set with ZFS_DEBUG=watch, to enable watchpoints on frozen buffers */
 boolean_t arc_watch = B_FALSE;
@@ -4771,7 +4777,10 @@ arc_reap_cb_check(void *arg, zthr_t *zthr)
 	if (!kmem_cache_reap_active() && free_memory < 0) {
 
 		arc_no_grow = B_TRUE;
-		arc_warm = B_TRUE;
+		if (arc_warm == B_FALSE) {
+			arc_warm = B_TRUE;
+			kprintf("arc is now warm\n");
+		}
 		/*
 		 * Wait at least zfs_grow_retry (default 5) seconds
 		 * before considering growing.
@@ -7712,7 +7721,11 @@ arc_init(void)
 	arc_lowmem_init();
 #endif
 
+	kprintf(" allmem=%lld\n", (long long)allmem);
+
 	arc_set_limits(allmem);
+
+	kprintf(" arc_c_min=%lld, arc_c_max=%lld\n", (long long)arc_c_min, (long long)arc_c_max);
 
 #ifdef _KERNEL
 	/*
@@ -7740,6 +7753,8 @@ arc_init(void)
 	arc_c_min = MAX(arc_c_max / 2, 2ULL << SPA_MAXBLOCKSHIFT);
 #endif
 
+	kprintf(" arc_c_min=%lld, arc_c_max=%lld\n", (long long)arc_c_min, (long long)arc_c_max);
+
 	arc_c = arc_c_min;
 	/*
 	 * 32-bit fixed point fractions of metadata from total ARC size,
@@ -7752,6 +7767,8 @@ arc_init(void)
 	percent = MIN(zfs_arc_dnode_limit_percent, 100);
 	arc_dnode_limit = arc_c_max * percent / 100;
 
+	kprintf (" guessed arc_c_min=%lld, arc_c_max=%lld\n", (long long)arc_c_min, (long long)arc_c_max);
+
 	/* Apply user specified tunings */
 	arc_tuning_update(B_TRUE);
 
@@ -7762,6 +7779,9 @@ arc_init(void)
 		arc_c = arc_c_min;
 
 	arc_register_hotplug();
+
+	kprintf (" Final arc_c_min=%lld, arc_c_max=%lld, arc_meta_limit=%lld\n", 
+		(long long)arc_c_min, (long long)arc_c_max, (long long)arc_meta_limit);
 
 	arc_state_init();
 

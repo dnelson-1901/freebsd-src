@@ -64,7 +64,7 @@ struct procabi_table {
 	struct procabi *abi;
 };
 
-static sig_atomic_t detaching;
+static sig_atomic_t detaching, alarm_tripped;
 
 static void	enter_syscall(struct trussinfo *, struct threadinfo *,
 		    struct ptrace_lwpinfo *);
@@ -227,6 +227,59 @@ detach_proc(pid_t pid)
 
 	kill(pid, SIGCONT);
 }
+
+/*
+ * A signal handler so we can break out of wait after a timeout.
+ */
+static void
+trap_alarm(int signo __unused)
+{
+	alarm_tripped = 1;
+}
+
+static bool
+set_alarm(struct trussinfo *info)
+{
+	struct procinfo *p;
+	struct threadinfo *t;
+
+	LIST_FOREACH(p, &info->proclist, entries) {
+		LIST_FOREACH(t, &p->threadlist, entries) {
+			if (t->in_syscall) {
+				alarm(info->timeout);
+				alarm_tripped = 0;
+				return (true);
+			}
+		}
+	}
+	return (false);
+}
+
+
+/*
+ * Prints names and arguments of any threads currently in a syscall.
+ */
+static void
+print_sleeping_threads(struct trussinfo *info)
+{
+	struct procinfo *p;
+	struct threadinfo *t;
+
+	LIST_FOREACH(p, &info->proclist, entries) {
+		LIST_FOREACH(t, &p->threadlist, entries) {
+			if (t->in_syscall) {
+				info->curthread = t;
+				if (info->flags & (RELATIVETIMESTAMPS |
+				    ABSOLUTETIMESTAMPS))
+					clock_gettime(CLOCK_REALTIME,
+					    &t->after);
+				print_syscall(info);
+				fprintf(info->outfile, " <in progress>\n");
+			}
+		}
+	}
+}
+
 
 /*
  * Determine the ABI.  This is called after every exec, and when
@@ -568,6 +621,7 @@ exit_syscall(struct trussinfo *info, struct ptrace_lwpinfo *pl)
 		}
 	}
 
+	t->in_syscall = 0;
 	print_syscall_ret(info, psr.sr_error, psr.sr_retval);
 	free_syscall(t);
 
@@ -753,6 +807,10 @@ eventloop(struct trussinfo *info)
 	struct ptrace_lwpinfo pl;
 	siginfo_t si;
 	int pending_signal;
+	bool alarm_set = false;
+
+	signal(SIGALRM, trap_alarm);
+	siginterrupt(SIGALRM, 1);
 
 	while (!LIST_EMPTY(&info->proclist)) {
 		if (detaching) {
@@ -760,11 +818,34 @@ eventloop(struct trussinfo *info)
 			return;
 		}
 
-		if (waitid(P_ALL, 0, &si, WTRAPPED | WEXITED) == -1) {
-			if (errno == EINTR)
+		if (info->timeout)
+			alarm_set = set_alarm(info);
+
+		while (waitid(P_ALL, 0, &si, WTRAPPED | WEXITED) == -1) {
+			if (errno == EINTR) {
+				if (detaching)
+					break;
+				if (info->timeout && alarm_tripped) {
+					/*
+					 * The timer interrupted us, so we
+					 * must be waiting on slow syscalls.
+					 * Print their names and continue
+					 * waiting, this time forever.
+					 */
+					print_sleeping_threads(info);
+					fflush(info->outfile);
+					alarm(0);
+					alarm_set = false;
+				}
 				continue;
+			}
 			err(1, "Unexpected error from waitid");
 		}
+		if (detaching)
+			continue;
+
+		if (alarm_set)
+			alarm(0);
 
 		assert(si.si_signo == SIGCHLD);
 

@@ -776,8 +776,8 @@ dovmstat(unsigned int interval, int reps)
 		fill_vmmeter(&sum);
 		fill_vmtotal(&total);
 		xo_open_container("processes");
-		xo_emit("{:runnable/%2d} {:waiting/%2ld} "
-		    "{:swapped-out/%2ld}", total.t_rq - 1, total.t_dw +
+		xo_emit("{:runnable/%2d} {:waiting/%2d} "
+		    "{:swapped-out/%2hd}", total.t_rq - 1, total.t_dw +
 		    total.t_pw, total.t_sw);
 		xo_close_container("processes");
 		xo_open_container("memory");
@@ -990,73 +990,73 @@ dosum(void)
 
 	fill_vmmeter(&sum);
 	xo_open_container("summary-statistics");
-	xo_emit("{:context-switches/%9u} {N:cpu context switches}\n",
+	xo_emit("{:context-switches/%9llu} {N:cpu context switches}\n",
 	    sum.v_swtch);
-	xo_emit("{:interrupts/%9u} {N:device interrupts}\n",
+	xo_emit("{:interrupts/%9llu} {N:device interrupts}\n",
 	    sum.v_intr);
-	xo_emit("{:software-interrupts/%9u} {N:software interrupts}\n",
+	xo_emit("{:software-interrupts/%9llu} {N:software interrupts}\n",
 	    sum.v_soft);
-	xo_emit("{:traps/%9u} {N:traps}\n", sum.v_trap);
-	xo_emit("{:system-calls/%9u} {N:system calls}\n",
+	xo_emit("{:traps/%9llu} {N:traps}\n", sum.v_trap);
+	xo_emit("{:system-calls/%9llu} {N:system calls}\n",
 	    sum.v_syscall);
-	xo_emit("{:kernel-threads/%9u} {N:kernel threads created}\n",
+	xo_emit("{:kernel-threads/%9llu} {N:kernel threads created}\n",
 	    sum.v_kthreads);
-	xo_emit("{:forks/%9u} {N: fork() calls}\n", sum.v_forks);
-	xo_emit("{:vforks/%9u} {N:vfork() calls}\n",
+	xo_emit("{:forks/%9llu} {N: fork() calls}\n", sum.v_forks);
+	xo_emit("{:vforks/%9llu} {N:vfork() calls}\n",
 	    sum.v_vforks);
-	xo_emit("{:rforks/%9u} {N:rfork() calls}\n",
+	xo_emit("{:rforks/%9llu} {N:rfork() calls}\n",
 	    sum.v_rforks);
-	xo_emit("{:swap-ins/%9u} {N:swap pager pageins}\n",
+	xo_emit("{:swap-ins/%9llu} {N:swap pager pageins}\n",
 	    sum.v_swapin);
-	xo_emit("{:swap-in-pages/%9u} {N:swap pager pages paged in}\n",
+	xo_emit("{:swap-in-pages/%9llu} {N:swap pager pages paged in}\n",
 	    sum.v_swappgsin);
-	xo_emit("{:swap-outs/%9u} {N:swap pager pageouts}\n",
+	xo_emit("{:swap-outs/%9llu} {N:swap pager pageouts}\n",
 	    sum.v_swapout);
-	xo_emit("{:swap-out-pages/%9u} {N:swap pager pages paged out}\n",
+	xo_emit("{:swap-out-pages/%9llu} {N:swap pager pages paged out}\n",
 	    sum.v_swappgsout);
-	xo_emit("{:vnode-page-ins/%9u} {N:vnode pager pageins}\n",
+	xo_emit("{:vnode-page-ins/%9llu} {N:vnode pager pageins}\n",
 	    sum.v_vnodein);
-	xo_emit("{:vnode-page-in-pages/%9u} {N:vnode pager pages paged in}\n",
+	xo_emit("{:vnode-page-in-pages/%9llu} {N:vnode pager pages paged in}\n",
 	    sum.v_vnodepgsin);
-	xo_emit("{:vnode-page-outs/%9u} {N:vnode pager pageouts}\n",
+	xo_emit("{:vnode-page-outs/%9llu} {N:vnode pager pageouts}\n",
 	    sum.v_vnodeout);
-	xo_emit("{:vnode-page-out-pages/%9u} {N:vnode pager pages paged out}\n",
+	xo_emit("{:vnode-page-out-pages/%9llu} {N:vnode pager pages paged out}\n",
 	    sum.v_vnodepgsout);
-	xo_emit("{:page-daemon-wakeups/%9u} {N:page daemon wakeups}\n",
+	xo_emit("{:page-daemon-wakeups/%9llu} {N:page daemon wakeups}\n",
 	    sum.v_pdwakeups);
-	xo_emit("{:page-daemon-pages/%9u} {N:pages examined by the page "
+	xo_emit("{:page-daemon-pages/%9llu} {N:pages examined by the page "
 	    "daemon}\n", sum.v_pdpages);
-	xo_emit("{:page-reclamation-shortfalls/%9u} {N:clean page reclamation "
+	xo_emit("{:page-reclamation-shortfalls/%9llu} {N:clean page reclamation "
 	    "shortfalls}\n", sum.v_pdshortfalls);
-	xo_emit("{:reactivated/%9u} {N:pages reactivated by the page daemon}\n",
+	xo_emit("{:reactivated/%9llu} {N:pages reactivated by the page daemon}\n",
 	    sum.v_reactivated);
-	xo_emit("{:copy-on-write-faults/%9u} {N:copy-on-write faults}\n",
+	xo_emit("{:copy-on-write-faults/%9llu} {N:copy-on-write faults}\n",
 	    sum.v_cow_faults);
-	xo_emit("{:copy-on-write-optimized-faults/%9u} {N:copy-on-write "
+	xo_emit("{:copy-on-write-optimized-faults/%9llu} {N:copy-on-write "
 	    "optimized faults}\n", sum.v_cow_optim);
-	xo_emit("{:zero-fill-pages/%9u} {N:zero fill pages zeroed}\n",
+	xo_emit("{:zero-fill-pages/%9llu} {N:zero fill pages zeroed}\n",
 	    sum.v_zfod);
-	xo_emit("{:zero-fill-prezeroed/%9u} {N:zero fill pages prezeroed}\n",
+	xo_emit("{:zero-fill-prezeroed/%9llu} {N:zero fill pages prezeroed}\n",
 	    sum.v_ozfod);
-	xo_emit("{:intransit-blocking/%9u} {N:intransit blocking page faults}\n",
+	xo_emit("{:intransit-blocking/%9llu} {N:intransit blocking page faults}\n",
 	    sum.v_intrans);
-	xo_emit("{:total-faults/%9u} {N:total VM faults taken}\n",
+	xo_emit("{:total-faults/%9llu} {N:total VM faults taken}\n",
 	    sum.v_vm_faults);
-	xo_emit("{:faults-requiring-io/%9u} {N:page faults requiring I\\/O}\n",
+	xo_emit("{:faults-requiring-io/%9llu} {N:page faults requiring I\\/O}\n",
 	    sum.v_io_faults);
-	xo_emit("{:faults-from-thread-creation/%9u} {N:pages affected by "
+	xo_emit("{:faults-from-thread-creation/%9llu} {N:pages affected by "
 	    "kernel thread creation}\n", sum.v_kthreadpages);
-	xo_emit("{:faults-from-fork/%9u} {N:pages affected by  fork}()\n",
+	xo_emit("{:faults-from-fork/%9llu} {N:pages affected by  fork}()\n",
 	    sum.v_forkpages);
-	xo_emit("{:faults-from-vfork/%9u} {N:pages affected by vfork}()\n",
+	xo_emit("{:faults-from-vfork/%9llu} {N:pages affected by vfork}()\n",
 	    sum.v_vforkpages);
-	xo_emit("{:pages-rfork/%9u} {N:pages affected by rfork}()\n",
+	xo_emit("{:pages-rfork/%9llu} {N:pages affected by rfork}()\n",
 	    sum.v_rforkpages);
-	xo_emit("{:pages-freed/%9u} {N:pages freed}\n",
+	xo_emit("{:pages-freed/%9llu} {N:pages freed}\n",
 	    sum.v_tfree);
-	xo_emit("{:pages-freed-by-daemon/%9u} {N:pages freed by daemon}\n",
+	xo_emit("{:pages-freed-by-daemon/%9llu} {N:pages freed by daemon}\n",
 	    sum.v_dfree);
-	xo_emit("{:pages-freed-on-exit/%9u} {N:pages freed by exiting processes}\n",
+	xo_emit("{:pages-freed-on-exit/%9llu} {N:pages freed by exiting processes}\n",
 	    sum.v_pfree);
 	xo_emit("{:active-pages/%9u} {N:pages active}\n",
 	    sum.v_active_count);
@@ -1106,17 +1106,17 @@ doforkst(void)
 
 	fill_vmmeter(&sum);
 	xo_open_container("fork-statistics");
-	xo_emit("{:fork/%u} {N:forks}, {:fork-pages/%u} {N:pages}, "
+	xo_emit("{:fork/%llu} {N:forks}, {:fork-pages/%llu} {N:pages}, "
 	    "{L:average} {:fork-average/%.2f}\n",
 	    sum.v_forks, sum.v_forkpages,
 	    sum.v_forks == 0 ? 0.0 :
 	    (double)sum.v_forkpages / sum.v_forks);
-	xo_emit("{:vfork/%u} {N:vforks}, {:vfork-pages/%u} {N:pages}, "
+	xo_emit("{:vfork/%llu} {N:vforks}, {:vfork-pages/%llu} {N:pages}, "
 	    "{L:average} {:vfork-average/%.2f}\n",
 	    sum.v_vforks, sum.v_vforkpages,
 	    sum.v_vforks == 0 ? 0.0 :
 	    (double)sum.v_vforkpages / sum.v_vforks);
-	xo_emit("{:rfork/%u} {N:rforks}, {:rfork-pages/%u} {N:pages}, "
+	xo_emit("{:rfork/%llu} {N:rforks}, {:rfork-pages/%llu} {N:pages}, "
 	    "{L:average} {:rfork-average/%.2f}\n",
 	    sum.v_rforks, sum.v_rforkpages,
 	    sum.v_rforks == 0 ? 0.0 :
@@ -1488,24 +1488,26 @@ domemstat_zone(void)
 		}
 	}
 	xo_open_container("memory-zone-statistics");
-	xo_emit("{T:/%-20s} {T:/%6s} {T:/%6s} {T:/%8s} {T:/%8s} {T:/%8s} {T:/%8s}"
-	    "{T:/%4s} {T:/%4s}\n", "ITEM", "SIZE",
-	    "LIMIT", "USED", "FREE", "REQ", "FAIL", "SLEEP", "XDOMAIN");
+	xo_emit("{T:/%-20s} {T:/%6s} {T:/%6s} {T:/%8s} {T:/%8s} {T:/%10s} {T:/%11s} "
+	    "{T:/%7s} {T:/%4s} {T:/%4s}\n", "ITEM", "SIZE",
+	    "LIMIT", "USED", "FREE", "BYTES", "REQ", "FAIL", "SLEEP", "XDOMAIN");
 	xo_open_list("zone");
 	for (mtp = memstat_mtl_first(mtlp); mtp != NULL;
 	    mtp = memstat_mtl_next(mtp)) {
 		strlcpy(name, memstat_get_name(mtp), MEMTYPE_MAXNAME);
 		strcat(name, ":");
 		xo_open_instance("zone");
-		xo_emit("{d:name/%-20s}{ke:name/%s} {:size/%6ju}, "
+		xo_emit("{d:name/%-20s}{ke:name/%s} {:size/%6ju},"
 		    "{:limit/%6ju},{:used/%8ju},"
-		    "{:free/%8ju},{:requests/%8ju},"
-		    "{:fail/%4ju},{:sleep/%4ju},{:xdomain/%4ju}\n", name,
+		    "{:free/%8ju},{:bytes/%10ju},"
+		    "{:requests/%11ju},"
+		    "{:fail/%7ju},{:sleep/%4ju},{:xdomain/%4ju}\n", name,
 		    memstat_get_name(mtp),
 		    (uintmax_t)memstat_get_size(mtp),
 		    (uintmax_t)memstat_get_countlimit(mtp),
 		    (uintmax_t)memstat_get_count(mtp),
 		    (uintmax_t)memstat_get_free(mtp),
+		    (uintmax_t)memstat_get_bytes(mtp),
 		    (uintmax_t)memstat_get_numallocs(mtp),
 		    (uintmax_t)memstat_get_failures(mtp),
 		    (uintmax_t)memstat_get_sleeps(mtp),

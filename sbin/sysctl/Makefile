@@ -8,6 +8,8 @@ PROG=	sysctl
 WARNS?=	3
 MAN=	sysctl.8
 
+NO_SHARED?=	YES
+
 HAS_TESTS=
 SUBDIR.${MK_TESTS}+=	tests
 

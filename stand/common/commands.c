@@ -215,6 +215,39 @@ command_help(int argc, char *argv[])
 	return (CMD_OK);
 }
 
+/*
+ * Linker sets aren't sorted, so make a copy that's sorted to use when
+ * printing the command list.
+ */
+static struct bootblk_command **
+sort_commandset(void)
+{
+	struct bootblk_command	**array;
+	struct bootblk_command	**cmdp;
+	int	i;
+
+	array = malloc(sizeof(*array) * SET_COUNT(Xcommand_set));
+	/* just return the unsorted set on malloc failure */
+	if (array == NULL)
+		return SET_BEGIN(Xcommand_set);
+	i = 0;
+
+	/* simple insertion sort */
+	SET_FOREACH(cmdp, Xcommand_set) {
+		int	j;
+
+		for (j = i;
+		    j > 0 && strcmp(array[j - 1]->c_name, (*cmdp)->c_name) > 0;
+		    j--) {
+			array[j] = array[j -1];
+		}
+		array[j] = *cmdp;
+		i++;
+	}
+	return array;
+}
+
+
 COMMAND_SET(commandlist, "?", "list commands", command_commandlist);
 
 /*
@@ -228,22 +261,26 @@ COMMAND_SET(commandlist, "?", "list commands", command_commandlist);
 static int
 command_commandlist(int argc __unused, char *argv[] __unused)
 {
-	struct bootblk_command	**cmdp;
-	int	res;
-	char	name[20];
+	static struct bootblk_command	**sorted_list;
+	struct bootblk_command		**cmdp;
+	int	i, res;
+	char	*line;
+
+	if (sorted_list == NULL)
+		sorted_list = sort_commandset();
 
 	res = 0;
 	pager_open();
 	res = pager_output("Available commands:\n");
-	SET_FOREACH(cmdp, Xcommand_set) {
+	for (i = 0; i < SET_COUNT(Xcommand_set); i++) {
+		cmdp = &sorted_list[i];
 		if (res)
 			break;
 		if ((*cmdp)->c_name != NULL && (*cmdp)->c_desc != NULL) {
-			snprintf(name, sizeof(name), "  %-15s  ",
-			    (*cmdp)->c_name);
-			pager_output(name);
-			pager_output((*cmdp)->c_desc);
-			res = pager_output("\n");
+			asprintf(&line, "  %-15s  %s\n",
+			    (*cmdp)->c_name, (*cmdp)->c_desc);
+			res = pager_output(line);
+			free(line);
 		}
 	}
 	pager_close();

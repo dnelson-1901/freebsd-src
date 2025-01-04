@@ -180,13 +180,13 @@ private:
     }
   }
 
-  template <class T1>
-  static bool compareThisIfSameType(const T1 &a, const T1 &b) {
+  template <class tmp_T1>
+  static bool compareThisIfSameType(const tmp_T1 &a, const tmp_T1 &b) {
     return &a == &b;
   }
 
-  template <class T1, class T2>
-  static bool compareThisIfSameType(const T1 &a, const T2 &b) {
+  template <class tmp_T1, class tmp_T2>
+  static bool compareThisIfSameType(const tmp_T1 &a, const tmp_T2 &b) {
     return false;
   }
 

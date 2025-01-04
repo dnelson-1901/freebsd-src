@@ -48,6 +48,7 @@
 #include "sshbuf.h"
 #include "ssherr.h"
 #include "digest.h"
+#include "kex.h"
 
 #include "openbsd-compat/openssl-compat.h"
 
@@ -142,12 +143,33 @@ cipher_alg_list(char sep, int auth_only)
 const char *
 compression_alg_list(int compression)
 {
-#ifdef WITH_ZLIB
-	return compression ? "zlib@openssh.com,zlib,none" :
-	    "none,zlib@openssh.com,zlib";
+#ifdef HAVE_LIBZSTD
+#define COMP_ZSTD_WITH "zstd@openssh.com,"
+#define COMP_ZSTD_NONE ",zstd@openssh.com"
 #else
-	return "none";
+#define COMP_ZSTD_WITH ""
+#define COMP_ZSTD_NONE ""
 #endif
+
+#ifdef WITH_ZLIB
+#define COMP_ZLIB_C_WITH "zlib@openssh.com,zlib,"
+#define COMP_ZLIB_S_WITH "zlib@openssh.com,"
+
+#define COMP_ZLIB_C_NONE ",zlib@openssh.com,zlib"
+#else
+#define COMP_ZLIB_C_WITH ""
+#define COMP_ZLIB_S_WITH ""
+#define COMP_ZLIB_C_NONE ""
+#endif
+	switch (compression) {
+	case COMP_ZLIB: return COMP_ZLIB_C_WITH "none";
+	case COMP_DELAYED: return COMP_ZLIB_S_WITH "none";
+	case COMP_ZSTD: return COMP_ZSTD_WITH "none";
+	case COMP_ALL_C: return COMP_ZSTD_WITH COMP_ZLIB_C_WITH "none";
+	case COMP_ALL_S: return COMP_ZSTD_WITH COMP_ZLIB_S_WITH "none";
+	default:
+	case 0: return "none" COMP_ZSTD_NONE COMP_ZLIB_C_NONE;
+	}
 }
 
 u_int

@@ -886,6 +886,11 @@ choose_comp(struct sshcomp *comp, char *client, char *server)
 		comp->type = COMP_ZLIB;
 	} else
 #endif	/* WITH_ZLIB */
+#ifdef HAVE_LIBZSTD
+	if (strcmp(name, "zstd@openssh.com") == 0) {
+		comp->type = COMP_ZSTD;
+	} else
+#endif /* HAVE_LIBZSTD */
 	if (strcmp(name, "none") == 0) {
 		comp->type = COMP_NONE;
 	} else {

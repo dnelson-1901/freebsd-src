@@ -984,8 +984,14 @@ static const struct multistate multistate_pubkey_auth[] = {
 	{ NULL, -1 }
 };
 static const struct multistate multistate_compression[] = {
+#if defined(WITH_ZLIB) || defined(HAVE_LIBZSTD)
+	{ "yes",			COMP_ALL_C },
+#endif
 #ifdef WITH_ZLIB
-	{ "yes",			COMP_ZLIB },
+	{ "zlib",			COMP_ZLIB },
+#endif
+#ifdef HAVE_LIBZSTD
+	{ "zstd",			COMP_ZSTD },
 #endif
 	{ "no",				COMP_NONE },
 	{ NULL, -1 }

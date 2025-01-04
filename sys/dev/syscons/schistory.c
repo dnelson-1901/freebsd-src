@@ -250,7 +250,7 @@ history_to_screen(scr_stat *scp)
 
 /* go to the tail of the history buffer */
 void
-sc_hist_home(scr_stat *scp)
+sc_hist_end(scr_stat *scp)
 {
 	scp->history_pos = sc_vtb_tail(scp->history);
 	history_to_screen(scp);
@@ -258,7 +258,7 @@ sc_hist_home(scr_stat *scp)
 
 /* go to the top of the history buffer */
 void
-sc_hist_end(scr_stat *scp)
+sc_hist_home(scr_stat *scp)
 {
 	scp->history_pos = sc_vtb_pos(scp->history, sc_vtb_tail(scp->history),
 				      scp->xsize*scp->ysize);

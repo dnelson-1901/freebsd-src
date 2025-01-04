@@ -1571,6 +1571,12 @@ pr_icmph(struct icmp *icp, struct ip *oip, const u_char *const oicmp_raw)
 		case ICMP_UNREACH_FILTER_PROHIB:
 			(void)printf("Communication prohibited by filter\n");
 			break;
+		case ICMP_UNREACH_HOST_PROHIB:
+			(void)printf("Communication to host prohibited\n");
+			break;
+		case ICMP_UNREACH_NET_PROHIB:
+			(void)printf("Communication to network prohibited\n");
+			break;
 		default:
 			(void)printf("Dest Unreachable, Bad Code: %d\n",
 			    icp->icmp_code);

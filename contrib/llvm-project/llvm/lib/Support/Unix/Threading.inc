@@ -433,8 +433,11 @@ static int computeHostNumPhysicalCores() {
   return reinterpret_cast<int &>(CSD[CSD_NUMBER_ONLINE_STANDARD_CPS]);
 }
 #else
-// On other systems, return -1 to indicate unknown.
-static int computeHostNumPhysicalCores() { return -1; }
+// On other systems, use hardware_concurrency.
+#include <thread>
+static int computeHostNumPhysicalCores() {
+  return std::thread::hardware_concurrency();
+}
 #endif
 
 int llvm::get_physical_cores() {

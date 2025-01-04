@@ -342,6 +342,9 @@ static bool shouldUseMmap(sys::fs::file_t FD,
                           bool RequiresNullTerminator,
                           int PageSize,
                           bool IsVolatile) {
+  // too much magic here.  better off just fopen'ing the file.
+  return false;
+
   // mmap may leave the buffer without null terminator if the file size changed
   // by the time the last page is mapped in, so avoid it if the file size is
   // likely to change.

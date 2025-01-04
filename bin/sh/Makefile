@@ -11,6 +11,7 @@ ROOTNAME_dot.profile=	.profile
 PACKAGE=runtime
 PROG=	sh
 INSTALLFLAGS= -S
+NO_SHARED?=	YES
 SHSRCS=	alias.c arith_yacc.c arith_yylex.c cd.c echo.c error.c eval.c \
 	exec.c expand.c \
 	histedit.c input.c jobs.c kill.c mail.c main.c memalloc.c miscbltin.c \
@@ -25,6 +26,15 @@ SRCS= ${SHSRCS} ${GENSRCS} ${GENHDRS}
 # builtin.1 in share/man/man1/.
 
 LIBADD=	edit
+
+.if ${COMPILER_TYPE} == "clang" && !defined(RESCUE) && ${MACHINE_CPUARCH} != "mips"
+# Build with LTO, force objcopy and strip to avoid ports versions
+CFLAGS+=	-flto=thin
+LDFLAGS+=	-fuse-ld=lld
+OBJCOPY=	llvm-objcopy
+STRIPBIN=	llvm-strip
+.export STRIPBIN
+.endif
 
 CFLAGS+=-DSHELL -I. -I${.CURDIR}
 # for debug:

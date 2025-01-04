@@ -108,7 +108,7 @@ hexdump(uint8_t *data, size_t datalen)
 void
 bindump(uint8_t *data, size_t datalen)
 {
-	write(1, data, datalen);
+	fwrite(data, datalen, 1, stdout);
 }
 
 #define LOAD_OPTION_ACTIVE 1

@@ -88,7 +88,7 @@
 	"rsa-sha2-512," \
 	"rsa-sha2-256"
 
-#define	KEX_DEFAULT_COMP	"none,zlib@openssh.com"
+#define	KEX_DEFAULT_COMP	"none,zstd@openssh.com,zlib@openssh.com"
 #define	KEX_DEFAULT_LANG	""
 
 #define KEX_CLIENT \

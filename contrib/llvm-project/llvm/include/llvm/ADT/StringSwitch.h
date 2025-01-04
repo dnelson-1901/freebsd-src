@@ -87,55 +87,55 @@ public:
     return *this;
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, T Value) {
-    return Case(S0, Value).Case(S1, Value);
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, T Value) {
+    return Case(tmp_S0, Value).Case(tmp_S1, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       T Value) {
-    return Case(S0, Value).Cases(S1, S2, Value);
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                      StringLiteral S3, T Value) {
-    return Case(S0, Value).Cases(S1, S2, S3, Value);
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                      StringLiteral tmp_S3, T Value) {
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                      StringLiteral S3, StringLiteral S4, T Value) {
-    return Case(S0, Value).Cases(S1, S2, S3, S4, Value);
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                      StringLiteral tmp_S3, StringLiteral tmp_S4, T Value) {
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                      StringLiteral S3, StringLiteral S4, StringLiteral S5,
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                      StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
                       T Value) {
-    return Case(S0, Value).Cases(S1, S2, S3, S4, S5, Value);
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                      StringLiteral S3, StringLiteral S4, StringLiteral S5,
-                      StringLiteral S6, T Value) {
-    return Case(S0, Value).Cases(S1, S2, S3, S4, S5, S6, Value);
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                      StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
+                      StringLiteral tmp_S6, T Value) {
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                      StringLiteral S3, StringLiteral S4, StringLiteral S5,
-                      StringLiteral S6, StringLiteral S7, T Value) {
-    return Case(S0, Value).Cases(S1, S2, S3, S4, S5, S6, S7, Value);
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                      StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
+                      StringLiteral tmp_S6, StringLiteral tmp_S7, T Value) {
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                      StringLiteral S3, StringLiteral S4, StringLiteral S5,
-                      StringLiteral S6, StringLiteral S7, StringLiteral S8,
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                      StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
+                      StringLiteral tmp_S6, StringLiteral tmp_S7, StringLiteral tmp_S8,
                       T Value) {
-    return Case(S0, Value).Cases(S1, S2, S3, S4, S5, S6, S7, S8, Value);
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, tmp_S8, Value);
   }
 
-  StringSwitch &Cases(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                      StringLiteral S3, StringLiteral S4, StringLiteral S5,
-                      StringLiteral S6, StringLiteral S7, StringLiteral S8,
-                      StringLiteral S9, T Value) {
-    return Case(S0, Value).Cases(S1, S2, S3, S4, S5, S6, S7, S8, S9, Value);
+  StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                      StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
+                      StringLiteral tmp_S6, StringLiteral tmp_S7, StringLiteral tmp_S8,
+                      StringLiteral tmp_S9, T Value) {
+    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, tmp_S8, tmp_S9, Value);
   }
 
   // Case-insensitive case matchers.
@@ -160,23 +160,23 @@ public:
     return *this;
   }
 
-  StringSwitch &CasesLower(StringLiteral S0, StringLiteral S1, T Value) {
-    return CaseLower(S0, Value).CaseLower(S1, Value);
+  StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, T Value) {
+    return CaseLower(tmp_S0, Value).CaseLower(tmp_S1, Value);
   }
 
-  StringSwitch &CasesLower(StringLiteral S0, StringLiteral S1, StringLiteral S2,
+  StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                            T Value) {
-    return CaseLower(S0, Value).CasesLower(S1, S2, Value);
+    return CaseLower(tmp_S0, Value).CasesLower(tmp_S1, tmp_S2, Value);
   }
 
-  StringSwitch &CasesLower(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                           StringLiteral S3, T Value) {
-    return CaseLower(S0, Value).CasesLower(S1, S2, S3, Value);
+  StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                           StringLiteral tmp_S3, T Value) {
+    return CaseLower(tmp_S0, Value).CasesLower(tmp_S1, tmp_S2, tmp_S3, Value);
   }
 
-  StringSwitch &CasesLower(StringLiteral S0, StringLiteral S1, StringLiteral S2,
-                           StringLiteral S3, StringLiteral S4, T Value) {
-    return CaseLower(S0, Value).CasesLower(S1, S2, S3, S4, Value);
+  StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
+                           StringLiteral tmp_S3, StringLiteral tmp_S4, T Value) {
+    return CaseLower(tmp_S0, Value).CasesLower(tmp_S1, tmp_S2, tmp_S3, tmp_S4, Value);
   }
 
   [[nodiscard]] R Default(T Value) {

@@ -71,7 +71,6 @@ struct val	*op_times(struct val *, struct val *);
 int		to_integer(struct val *);
 void		to_string(struct val *);
 int		yyerror(const char *);
-int		yylex(void);
 
 %}
 

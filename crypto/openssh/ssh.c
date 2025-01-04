@@ -1018,8 +1018,8 @@ main(int ac, char **av)
 			break;
 
 		case 'C':
-#ifdef WITH_ZLIB
-			options.compression = 1;
+#if defined(HAVE_LIBZSTD) || defined(WITH_ZLIB)
+			options.compression = COMP_ALL_C;
 #else
 			error("Compression not supported, disabling.");
 #endif

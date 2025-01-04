@@ -2292,8 +2292,13 @@ linker_load_dependencies(linker_file_t lf)
 		}
 		error = linker_load_module(NULL, modname, lf, verinfo, NULL);
 		if (error) {
-			printf("KLD %s: depends on %s - not available or"
-			    " version mismatch\n", lf->filename, modname);
+			printf("KLD %s: depends on %s:%d(%d-%d) - not available or"
+			    " version mismatch - errno %d\n", lf->filename, modname, 
+			    	verinfo->md_ver_preferred,
+			    	verinfo->md_ver_minimum,
+			    	verinfo->md_ver_maximum,
+			    	error
+			    	);
 			break;
 		}
 	}

@@ -3,6 +3,7 @@
 .include <src.opts.mk>
 
 PROG=	head
+NO_SHARED?=	YES
 LIBADD=	util
 
 HAS_TESTS=

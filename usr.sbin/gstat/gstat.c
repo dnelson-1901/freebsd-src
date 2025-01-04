@@ -258,25 +258,25 @@ main(int argc, char **argv)
 		}
 		if (!flag_C) {
 			PRINTMSG("\n");
-			PRINTMSG(" L(q)  ops/s   ");
+			PRINTMSG("L(q) ops/s");
 			if (flag_s) {
-				PRINTMSG(" r/s     kB   kBps   ms/r   ");
-				PRINTMSG(" w/s     kB   kBps   ms/w   ");
+				PRINTMSG("   r/s    kB  kBps  ms/r");
+				PRINTMSG("   w/s    kB  kBps  ms/w");
 			}
 			else {
-				PRINTMSG(" r/s   kBps   ms/r   ");
-				PRINTMSG(" w/s   kBps   ms/w   ");
+				PRINTMSG("   r/s  kBps  ms/r");
+				PRINTMSG("   w/s  kBps  ms/w");
 			}
 			if (flag_d) {
 				if (flag_s) {
-					PRINTMSG(" d/s     kB   kBps");
-					PRINTMSG("   ms/d   ");
+					PRINTMSG("   d/s    kB  kBps");
+					PRINTMSG("  ms/d");
 				} else
-					PRINTMSG(" d/s   kBps   ms/d   ");
+					PRINTMSG("   d/s  kBps  ms/d");
 			}
 			if (flag_o)
-				PRINTMSG(" o/s   ms/o   ");
-			PRINTMSG("%%busy Name\n");
+				PRINTMSG("   o/s  ms/o");
+			PRINTMSG(" %%busy Name\n");
 		} else if (flag_C && !head_printed) {
 			PRINTMSG("timestamp,name,q-depth,total_ops/s");
 			if (flag_s) {
@@ -442,47 +442,47 @@ main(int argc, char **argv)
 				}
 				PRINTMSG(",%.1lf", (double)ld[7]);
 			} else {
-				PRINTMSG(" %4ju", (uintmax_t)u64);
-				PRINTMSG(" %6.0f", (double)ld[0]);
-				PRINTMSG(" %6.0f", (double)ld[1]);
+				PRINTMSG("%4ju", (uintmax_t)u64);
+				PRINTMSG("%6.0f", (double)ld[0]);
+				PRINTMSG("%6.0f", (double)ld[1]);
 				if (flag_s)
-					PRINTMSG(" %6.0f", (double)ld[13]);
-				PRINTMSG(" %6.0f", (double)ld[2] * 1024);
+					PRINTMSG("%6.0f", (double)ld[13]);
+				PRINTMSG("%6.0f", (double)ld[2] * 1024);
 				if (ld[3] > 1e3) 
-					PRINTMSG(" %6.0f", (double)ld[3]);
+					PRINTMSG("%6.0f", (double)ld[3]);
 				else
-					PRINTMSG(" %6.1f", (double)ld[3]);
-				PRINTMSG(" %6.0f", (double)ld[4]);
+					PRINTMSG("%6.1f", (double)ld[3]);
+				PRINTMSG("%6.0f", (double)ld[4]);
 				if (flag_s)
-					PRINTMSG(" %6.0f", (double)ld[14]);
-				PRINTMSG(" %6.0f", (double)ld[5] * 1024);
+					PRINTMSG("%6.0f", (double)ld[14]);
+				PRINTMSG("%6.0f", (double)ld[5] * 1024);
 				if (ld[6] > 1e3) 
-					PRINTMSG(" %6.0f", (double)ld[6]);
+					PRINTMSG("%6.0f", (double)ld[6]);
 				else
-					PRINTMSG(" %6.1f", (double)ld[6]);
+					PRINTMSG("%6.1f", (double)ld[6]);
 
 				if (flag_d) {
-					PRINTMSG(" %6.0f", (double)ld[8]);
+					PRINTMSG("%6.0f", (double)ld[8]);
 					if (flag_s)
-						PRINTMSG(" %6.0f", 
+						PRINTMSG("%6.0f", 
 								(double)ld[15]);
-					PRINTMSG(" %6.0f", 
+					PRINTMSG("%6.0f", 
 							(double)ld[9] * 1024);
 					if (ld[10] > 1e3) 
-						PRINTMSG(" %6.0f",
+						PRINTMSG("%6.0f",
 								(double)ld[10]);
 					else
-						PRINTMSG(" %6.1f",
+						PRINTMSG("%6.1f",
 								(double)ld[10]);
 				}
 
 				if (flag_o) {
-					PRINTMSG(" %6.0f", (double)ld[11]);
+					PRINTMSG("%6.0f", (double)ld[11]);
 					if (ld[12] > 1e3) 
-						PRINTMSG(" %6.0f",
+						PRINTMSG("%6.0f",
 								(double)ld[12]);
 					else
-						PRINTMSG(" %6.1f", 
+						PRINTMSG("%6.1f", 
 								(double)ld[12]);
 				}
 
@@ -494,12 +494,9 @@ main(int argc, char **argv)
 					i = 1;
 				if (!flag_b)
 					attron(COLOR_PAIR(i));
-				PRINTMSG(" %6.1lf", (double)ld[7]);
-				if (!flag_b) {
+				PRINTMSG("%6.1lf", (double)ld[7]);
+				if (!flag_b) 
 					attroff(COLOR_PAIR(i));
-					PRINTMSG("|");
-				} else
-					PRINTMSG(" ");
 				PRINTMSG(" %s", g_name);
 				if (!flag_b)
 					clrtoeol();

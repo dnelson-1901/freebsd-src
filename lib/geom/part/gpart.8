@@ -116,6 +116,10 @@
 .Op Fl l | r
 .Op Fl p
 .Op Ar geom ...
+.\" ==== TRIM ====
+.Nm
+.Cm trim
+.Ar provider
 .\" ==== UNDO ====
 .Nm
 .Cm undo
@@ -496,6 +500,15 @@ Show provider names instead of partition indexes.
 .It Fl r
 Show raw partition type instead of symbolic name.
 .El
+.\" ==== TRIM ====
+.It Cm trim
+Sends a BIO_DELETE request for the contents of the provider 
+.Ar provider .
+Depending on the underlying storage device, this may fill its blocks
+with a constant value (0x00 or 0xFF), or may do nothing.  Running this
+command on a partition on an SSD device before deleting it may improve
+performance, since the SSD can immediately reuse the blocks for subsequent
+write requests.
 .\" ==== UNDO ====
 .It Cm undo
 Revert any pending changes for geom

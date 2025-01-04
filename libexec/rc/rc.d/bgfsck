@@ -41,7 +41,7 @@ bgfsck_start()
 		startmsg "${bgfsck_msg}."
 	fi
 
-	(sleep ${background_fsck_delay}; nice -4 fsck -B -p) 2>&1 | \
+	(sleep ${background_fsck_delay}; nice -4 fsck -B -p ; echo all done) 2>&1 | \
 	    logger -p daemon.notice -t fsck &
 }
 

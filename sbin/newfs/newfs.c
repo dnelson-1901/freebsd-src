@@ -60,6 +60,7 @@ static char sccsid[] = "@(#)newfs.c	8.13 (Berkeley) 5/1/95";
 #include <sys/file.h>
 #include <sys/mount.h>
 
+#include <netinet/in.h>
 #include <ufs/ufs/dir.h>
 #include <ufs/ufs/dinode.h>
 #include <ufs/ffs/fs.h>
@@ -112,6 +113,7 @@ int	maxbpg;			/* maximum blocks per file in a cyl group */
 int	avgfilesize = AVFILESIZ;/* expected average file size */
 int	avgfilesperdir = AFPDIR;/* expected number of files per directory */
 u_char	*volumelabel = NULL;	/* volume label for filesystem */
+int32_t fsid[2] = { 0, 0 };	/* filesystem id */
 struct uufsd disk;		/* libufs disk structure */
 
 static char	device[MAXPATHLEN];
@@ -142,11 +144,22 @@ main(int argc, char *argv[])
 	part_name = 'c';
 	reserved = 0;
 	while ((ch = getopt(argc, argv,
-	    "EJL:NO:RS:T:UXa:b:c:d:e:f:g:h:i:jk:lm:no:p:r:s:t")) != -1)
+	    "EI:JL:NO:RS:T:UXa:b:c:d:e:f:g:h:i:jk:lm:no:p:r:s:t")) != -1)
 		switch (ch) {
 		case 'E':
 			Eflag = 1;
 			break;
+		case 'I':
+		{
+			long long fsid_64;
+			errno = 0;
+			fsid_64 = strtoull(optarg,NULL,0);
+			if (errno)
+				err(1, "Could not convert fsid %s into a number", optarg);
+			fsid[0] = htonl(fsid_64 >> 32);
+			fsid[1] = htonl(fsid_64 & 0xFFFFFFFF);
+			break;
+		}
 		case 'J':
 			Jflag = 1;
 			break;

@@ -2739,8 +2739,8 @@ print_syscall(struct trussinfo *trussinfo)
 		if (s_args[i] != NULL)
 			len += fprintf(trussinfo->outfile, "%s", s_args[i]);
 		else
-			len += fprintf(trussinfo->outfile,
-			    "<missing argument>");
+			len += fprintf(trussinfo->outfile, t->in_syscall ?
+			    "<unavailable>" : "<missing argument>");
 		len += fprintf(trussinfo->outfile, "%s", i < (nargs - 1) ?
 		    "," : "");
 	}

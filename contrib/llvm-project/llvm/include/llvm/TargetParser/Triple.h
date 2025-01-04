@@ -167,7 +167,7 @@ public:
     UnknownVendor,
 
     Apple,
-    PC,
+    V_PC,
     SCEI,
     Freescale,
     IBM,

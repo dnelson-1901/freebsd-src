@@ -82,11 +82,11 @@ setup_loopback() {
 	# Only in rare cases do you want to change these rules
 	#
 	${fwcmd} add 100 pass all from any to any via lo0
-	${fwcmd} add 200 deny all from any to 127.0.0.0/8
-	${fwcmd} add 300 deny ip from 127.0.0.0/8 to any
+	${fwcmd} add 200 deny log all from any to 127.0.0.0/8
+	${fwcmd} add 300 deny log ip from 127.0.0.0/8 to any
 	if [ $ipv6_available -eq 0 ]; then
-		${fwcmd} add 400 deny all from any to ::1
-		${fwcmd} add 500 deny all from ::1 to any
+		${fwcmd} add 400 deny log all from any to ::1
+		${fwcmd} add 500 deny log all from ::1 to any
 	fi
 }
 

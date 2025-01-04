@@ -483,8 +483,13 @@ retry:
 	sblock.fs_ronly = 0;
 	sblock.fs_state = 0;
 	sblock.fs_clean = 1;
-	sblock.fs_id[0] = (long)utime;
-	sblock.fs_id[1] = newfs_random();
+	if (fsid[0] == 0 && fsid[1] == 0) {
+		sblock.fs_id[0] = (long)utime;
+		sblock.fs_id[1] = newfs_random();
+	} else {
+		sblock.fs_id[0] = fsid[0];
+		sblock.fs_id[1] = fsid[1];
+	}
 	sblock.fs_fsmnt[0] = '\0';
 	csfrags = howmany(sblock.fs_cssize, sblock.fs_fsize);
 	sblock.fs_dsize = sblock.fs_size - sblock.fs_sblkno -

@@ -79,6 +79,9 @@
 #ifdef WITH_ZLIB
 #include <zlib.h>
 #endif
+#ifdef HAVE_LIBZSTD
+#include <zstd.h>
+#endif
 
 #include "xmalloc.h"
 #include "compat.h"
@@ -157,6 +160,14 @@ struct session_state {
 	/* Incoming/outgoing compression dictionaries */
 	z_stream compression_in_stream;
 	z_stream compression_out_stream;
+#endif
+#ifdef HAVE_LIBZSTD
+	ZSTD_DCtx *compression_zstd_in_stream;
+	ZSTD_CCtx *compression_zstd_out_stream;
+	u_int64_t compress_zstd_in_raw;
+	u_int64_t compress_zstd_in_comp;
+	u_int64_t compress_zstd_out_raw;
+	u_int64_t compress_zstd_out_comp;
 #endif
 	int compression_in_started;
 	int compression_out_started;
@@ -605,11 +616,11 @@ ssh_packet_close_internal(struct ssh *ssh, int do_close)
 		state->newkeys[mode] = NULL;
 		ssh_clear_newkeys(ssh, mode);		/* next keys */
 	}
-#ifdef WITH_ZLIB
 	/* compression state is in shared mem, so we can only release it once */
 	if (do_close && state->compression_buffer) {
 		sshbuf_free(state->compression_buffer);
-		if (state->compression_out_started) {
+#ifdef WITH_ZLIB
+		if (state->compression_out_started == COMP_ZLIB) {
 			z_streamp stream = &state->compression_out_stream;
 			debug("compress outgoing: "
 			    "raw data %llu, compressed %llu, factor %.2f",
@@ -620,7 +631,7 @@ ssh_packet_close_internal(struct ssh *ssh, int do_close)
 			if (state->compression_out_failures == 0)
 				deflateEnd(stream);
 		}
-		if (state->compression_in_started) {
+		if (state->compression_in_started == COMP_ZLIB) {
 			z_streamp stream = &state->compression_in_stream;
 			debug("compress incoming: "
 			    "raw data %llu, compressed %llu, factor %.2f",
@@ -631,8 +642,28 @@ ssh_packet_close_internal(struct ssh *ssh, int do_close)
 			if (state->compression_in_failures == 0)
 				inflateEnd(stream);
 		}
+#endif /* WITH_ZLIB */
+#ifdef HAVE_LIBZSTD
+		if (state->compression_out_started == COMP_ZSTD) {
+			debug("compress outgoing: "
+			      "raw data %llu, compressed %llu, factor %.2f",
+			      (unsigned long long)state->compress_zstd_out_raw,
+			      (unsigned long long)state->compress_zstd_out_comp,
+			      state->compress_zstd_out_raw == 0 ? 0.0 :
+			      (double) state->compress_zstd_out_comp /
+			      state->compress_zstd_out_raw);
+		}
+		if (state->compression_in_started == COMP_ZSTD) {
+			debug("compress incoming: "
+			      "raw data %llu, compressed %llu, factor %.2f",
+			      (unsigned long long)state->compress_zstd_in_raw,
+			      (unsigned long long)state->compress_zstd_in_comp,
+			      state->compress_zstd_in_raw == 0 ? 0.0 :
+			      (double) state->compress_zstd_in_comp /
+			      state->compress_zstd_in_raw);
+		}
+#endif /* HAVE_LIBZSTD */
 	}
-#endif	/* WITH_ZLIB */
 	cipher_free(state->send_context);
 	cipher_free(state->receive_context);
 	state->send_context = state->receive_context = NULL;
@@ -697,11 +728,11 @@ start_compression_out(struct ssh *ssh, int level)
 	if (level < 1 || level > 9)
 		return SSH_ERR_INVALID_ARGUMENT;
 	debug("Enabling compression at level %d.", level);
-	if (ssh->state->compression_out_started == 1)
+	if (ssh->state->compression_out_started == COMP_ZLIB)
 		deflateEnd(&ssh->state->compression_out_stream);
 	switch (deflateInit(&ssh->state->compression_out_stream, level)) {
 	case Z_OK:
-		ssh->state->compression_out_started = 1;
+		ssh->state->compression_out_started = COMP_ZLIB;
 		break;
 	case Z_MEM_ERROR:
 		return SSH_ERR_ALLOC_FAIL;
@@ -714,11 +745,11 @@ start_compression_out(struct ssh *ssh, int level)
 static int
 start_compression_in(struct ssh *ssh)
 {
-	if (ssh->state->compression_in_started == 1)
+	if (ssh->state->compression_in_started == COMP_ZLIB)
 		inflateEnd(&ssh->state->compression_in_stream);
 	switch (inflateInit(&ssh->state->compression_in_stream)) {
 	case Z_OK:
-		ssh->state->compression_in_started = 1;
+		ssh->state->compression_in_started = COMP_ZLIB;
 		break;
 	case Z_MEM_ERROR:
 		return SSH_ERR_ALLOC_FAIL;
@@ -735,7 +766,7 @@ compress_buffer(struct ssh *ssh, struct sshbuf *in, struct sshbuf *out)
 	u_char buf[4096];
 	int r, status;
 
-	if (ssh->state->compression_out_started != 1)
+	if (ssh->state->compression_out_started != COMP_ZLIB)
 		return SSH_ERR_INTERNAL_ERROR;
 
 	/* This case is not handled below. */
@@ -781,7 +812,7 @@ uncompress_buffer(struct ssh *ssh, struct sshbuf *in, struct sshbuf *out)
 	u_char buf[4096];
 	int r, status;
 
-	if (ssh->state->compression_in_started != 1)
+	if (ssh->state->compression_in_started != COMP_ZLIB)
 		return SSH_ERR_INTERNAL_ERROR;
 
 	if ((ssh->state->compression_in_stream.next_in =
@@ -848,6 +879,143 @@ uncompress_buffer(struct ssh *ssh, struct sshbuf *in, struct sshbuf *out)
 	return SSH_ERR_INTERNAL_ERROR;
 }
 #endif	/* WITH_ZLIB */
+
+#ifdef HAVE_LIBZSTD
+static int
+start_compression_zstd_out(struct ssh *ssh)
+{
+	debug("Enabling ZSTD compression.");
+	if (ssh->state->compression_out_started == COMP_ZSTD)
+		ZSTD_CCtx_reset(ssh->state->compression_zstd_out_stream, ZSTD_reset_session_only);
+	if (!ssh->state->compression_zstd_out_stream)
+		ssh->state->compression_zstd_out_stream = ZSTD_createCCtx();
+	if (!ssh->state->compression_zstd_out_stream)
+		return SSH_ERR_ALLOC_FAIL;
+	ssh->state->compression_out_started = COMP_ZSTD;
+	return 0;
+}
+
+static int
+start_compression_zstd_in(struct ssh *ssh)
+{
+	if (ssh->state->compression_in_started == COMP_ZSTD)
+		ZSTD_DCtx_reset(ssh->state->compression_zstd_in_stream, ZSTD_reset_session_only);
+	if (!ssh->state->compression_zstd_in_stream)
+		ssh->state->compression_zstd_in_stream = ZSTD_createDCtx();
+	if (!ssh->state->compression_zstd_in_stream)
+		return SSH_ERR_ALLOC_FAIL;
+
+	ssh->state->compression_in_started = COMP_ZSTD;
+	return 0;
+}
+
+static int
+compress_buffer_zstd(struct ssh *ssh, struct sshbuf *in, struct sshbuf *out)
+{
+	u_char buf[4096];
+	ZSTD_inBuffer in_buff;
+	ZSTD_outBuffer out_buff;
+	int r, comp;
+
+	if (ssh->state->compression_out_started != COMP_ZSTD)
+		return SSH_ERR_INTERNAL_ERROR;
+
+	if (sshbuf_len(in) == 0)
+		return 0;
+
+	in_buff.src = sshbuf_mutable_ptr(in);
+	if (!in_buff.src)
+		return SSH_ERR_INTERNAL_ERROR;
+	in_buff.size = sshbuf_len(in);
+	in_buff.pos = 0;
+
+	ssh->state->compress_zstd_out_raw += in_buff.size;
+	out_buff.dst = buf;
+	out_buff.size = sizeof(buf);
+
+	/*
+	 * Consume input and immediatelly flush compressed data. It will loop
+	 * multiple times if the output does not fit into the buffer
+	 */
+	do {
+		out_buff.pos = 0;
+
+		comp = ZSTD_compressStream2(ssh->state->compression_zstd_out_stream,
+					 &out_buff, &in_buff, ZSTD_e_flush);
+		if (ZSTD_isError(comp))
+			return SSH_ERR_ALLOC_FAIL;
+		/* Append compressed data to output_buffer. */
+		r = sshbuf_put(out, buf, out_buff.pos);
+		if (r != 0)
+			return r;
+		ssh->state->compress_zstd_out_comp += out_buff.pos;
+	} while (comp > 0);
+	return 0;
+}
+
+static int uncompress_buffer_zstd(struct ssh *ssh, struct sshbuf *in,
+				  struct sshbuf *out)
+{
+	u_char buf[4096];
+	ZSTD_inBuffer in_buff;
+	ZSTD_outBuffer out_buff;
+	int r, decomp;
+
+	if (ssh->state->compression_in_started != COMP_ZSTD)
+		return SSH_ERR_INTERNAL_ERROR;
+
+	in_buff.src = sshbuf_mutable_ptr(in);
+	if (in_buff.src == NULL)
+		return SSH_ERR_INTERNAL_ERROR;
+	in_buff.size = sshbuf_len(in);
+	in_buff.pos = 0;
+	ssh->state->compress_zstd_in_comp += in_buff.size;
+	for (;;) {
+		/* Set up fixed-size output buffer. */
+		out_buff.dst = buf;
+		out_buff.size = sizeof(buf);
+		out_buff.pos = 0;
+
+		decomp = ZSTD_decompressStream(ssh->state->compression_zstd_in_stream,
+					       &out_buff, &in_buff);
+		if (ZSTD_isError(decomp))
+			return SSH_ERR_INVALID_FORMAT;
+
+		r = sshbuf_put(out, buf, out_buff.pos);
+		if (r != 0)
+			return r;
+		ssh->state->compress_zstd_in_raw += out_buff.pos;
+		if (in_buff.size == in_buff.pos &&
+		    out_buff.pos <  sizeof(buf))
+			return 0;
+	}
+}
+#else /* HAVE_LIBZSTD */
+
+static int
+start_compression_zstd_out(struct ssh *ssh)
+{
+	return SSH_ERR_INTERNAL_ERROR;
+}
+
+static int
+start_compression_zstd_in(struct ssh *ssh)
+{
+	return SSH_ERR_INTERNAL_ERROR;
+}
+
+static int
+compress_buffer_zstd(struct ssh *ssh, struct sshbuf *in, struct sshbuf *out)
+{
+	return SSH_ERR_INTERNAL_ERROR;
+}
+
+static int
+uncompress_buffer_zstd(struct ssh *ssh, struct sshbuf *in, struct sshbuf *out)
+{
+	return SSH_ERR_INTERNAL_ERROR;
+}
+#endif /* HAVE_LIBZSTD */
 
 void
 ssh_clear_newkeys(struct ssh *ssh, int mode)
@@ -925,18 +1093,30 @@ ssh_set_newkeys(struct ssh *ssh, int mode)
 	   explicit_bzero(enc->key, enc->key_len);
 	   explicit_bzero(mac->key, mac->key_len); */
 	if ((comp->type == COMP_ZLIB ||
-	    (comp->type == COMP_DELAYED &&
+	    ((comp->type == COMP_DELAYED ||
+	      comp->type == COMP_ZSTD) &&
 	    state->after_authentication)) && comp->enabled == 0) {
 		if ((r = ssh_packet_init_compression(ssh)) < 0)
 			return r;
-		if (mode == MODE_OUT) {
-			if ((r = start_compression_out(ssh, 6)) != 0)
-				return r;
+		if (comp->type == COMP_ZSTD) {
+			if (mode == MODE_OUT) {
+				if ((r = start_compression_zstd_out(ssh)) != 0)
+					return r;
+			} else {
+				if ((r = start_compression_zstd_in(ssh)) != 0)
+					return r;
+			}
+			comp->enabled = COMP_ZSTD;
 		} else {
-			if ((r = start_compression_in(ssh)) != 0)
-				return r;
+			if (mode == MODE_OUT) {
+				if ((r = start_compression_out(ssh, 6)) != 0)
+					return r;
+			} else {
+				if ((r = start_compression_in(ssh)) != 0)
+					return r;
+			}
+			comp->enabled = COMP_ZLIB;
 		}
-		comp->enabled = 1;
 	}
 	/*
 	 * The 2^(blocksize*2) limit is too expensive for 3DES,
@@ -1023,6 +1203,7 @@ ssh_packet_enable_delayed_compress(struct ssh *ssh)
 	struct session_state *state = ssh->state;
 	struct sshcomp *comp = NULL;
 	int r, mode;
+	int type = 0;
 
 	/*
 	 * Remember that we are past the authentication step, so rekeying
@@ -1034,17 +1215,33 @@ ssh_packet_enable_delayed_compress(struct ssh *ssh)
 		if (state->newkeys[mode] == NULL)
 			continue;
 		comp = &state->newkeys[mode]->comp;
-		if (comp && !comp->enabled && comp->type == COMP_DELAYED) {
-			if ((r = ssh_packet_init_compression(ssh)) != 0)
+		if (comp && !comp->enabled && comp->type)
+			type = comp->type;
+		if (type == COMP_DELAYED || type == COMP_ZSTD) {
+			if ((r = ssh_packet_init_compression(ssh)) != 0) {
 				return r;
-			if (mode == MODE_OUT) {
-				if ((r = start_compression_out(ssh, 6)) != 0)
-					return r;
-			} else {
-				if ((r = start_compression_in(ssh)) != 0)
-					return r;
 			}
-			comp->enabled = 1;
+			if (type == COMP_DELAYED) {
+				if (mode == MODE_OUT) {
+					if ((r = start_compression_out(ssh, 6)) != 0)
+						return r;
+				} else {
+					if ((r = start_compression_in(ssh)) != 0)
+						return r;
+				}
+				comp->enabled = COMP_ZLIB;
+			} else if (type == COMP_ZSTD) {
+				if (mode == MODE_OUT) {
+					if ((r = start_compression_zstd_out(ssh)) != 0)
+						return r;
+				} else {
+					if ((r = start_compression_zstd_in(ssh)) != 0)
+						return r;
+				}
+				comp->enabled = COMP_ZSTD;
+			} else {
+				return SSH_ERR_INTERNAL_ERROR;
+			}
 		}
 	}
 	return 0;
@@ -1105,9 +1302,15 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 		if ((r = sshbuf_consume(state->outgoing_packet, 5)) != 0)
 			goto out;
 		sshbuf_reset(state->compression_buffer);
-		if ((r = compress_buffer(ssh, state->outgoing_packet,
-		    state->compression_buffer)) != 0)
-			goto out;
+		if (comp->enabled == COMP_ZSTD) {
+			if ((r = compress_buffer_zstd(ssh, state->outgoing_packet,
+						      state->compression_buffer)) != 0)
+				goto out;
+		} else {
+			if ((r = compress_buffer(ssh, state->outgoing_packet,
+						 state->compression_buffer)) != 0)
+				goto out;
+		}
 		sshbuf_reset(state->outgoing_packet);
 		if ((r = sshbuf_put(state->outgoing_packet,
 		    "\0\0\0\0\0", 5)) != 0 ||
@@ -1658,9 +1861,15 @@ ssh_packet_read_poll2(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 	    sshbuf_len(state->incoming_packet)));
 	if (comp && comp->enabled) {
 		sshbuf_reset(state->compression_buffer);
-		if ((r = uncompress_buffer(ssh, state->incoming_packet,
-		    state->compression_buffer)) != 0)
-			goto out;
+		if (comp->enabled == COMP_ZSTD) {
+			if ((r = uncompress_buffer_zstd(ssh, state->incoming_packet,
+							state->compression_buffer)) != 0)
+				goto out;
+		} else {
+			if ((r = uncompress_buffer(ssh, state->incoming_packet,
+						   state->compression_buffer)) != 0)
+				goto out;
+		}
 		sshbuf_reset(state->incoming_packet);
 		if ((r = sshbuf_putb(state->incoming_packet,
 		    state->compression_buffer)) != 0)

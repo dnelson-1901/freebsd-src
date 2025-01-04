@@ -190,6 +190,7 @@ main(int argc, char *argv[])
 				}
 				if(!s) {
 					refresh();
+					usleep(20000);
 				}
 			}
 		}

@@ -62,7 +62,8 @@ CFLAGS+= -D_PATH_SSH_ASKPASS_DEFAULT='"${LOCALBASE}/bin/ssh-askpass"'
 
 NO_LINT=
 
-LIBADD+=	crypto crypt z
+LIBADD+=	crypto crypt z zstd
+CFLAGS+=	-I${SRCTOP}/sys/contrib/zstd/lib/
 
 .include <bsd.lib.mk>
 

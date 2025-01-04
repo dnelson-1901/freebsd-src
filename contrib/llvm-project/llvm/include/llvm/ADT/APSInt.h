@@ -354,12 +354,12 @@ public:
   void Profile(FoldingSetNodeID &ID) const;
 };
 
-inline bool operator==(int64_t V1, const APSInt &V2) { return V2 == V1; }
-inline bool operator!=(int64_t V1, const APSInt &V2) { return V2 != V1; }
-inline bool operator<=(int64_t V1, const APSInt &V2) { return V2 >= V1; }
-inline bool operator>=(int64_t V1, const APSInt &V2) { return V2 <= V1; }
-inline bool operator<(int64_t V1, const APSInt &V2) { return V2 > V1; }
-inline bool operator>(int64_t V1, const APSInt &V2) { return V2 < V1; }
+inline bool operator==(int64_t tmp_V1, const APSInt &tmp_V2) { return tmp_V2 == tmp_V1; }
+inline bool operator!=(int64_t tmp_V1, const APSInt &tmp_V2) { return tmp_V2 != tmp_V1; }
+inline bool operator<=(int64_t tmp_V1, const APSInt &tmp_V2) { return tmp_V2 >= tmp_V1; }
+inline bool operator>=(int64_t tmp_V1, const APSInt &tmp_V2) { return tmp_V2 <= tmp_V1; }
+inline bool operator<(int64_t tmp_V1, const APSInt &tmp_V2) { return tmp_V2 > tmp_V1; }
+inline bool operator>(int64_t tmp_V1, const APSInt &tmp_V2) { return tmp_V2 < tmp_V1; }
 
 inline raw_ostream &operator<<(raw_ostream &OS, const APSInt &I) {
   I.print(OS, I.isSigned());

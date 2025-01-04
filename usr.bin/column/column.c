@@ -266,7 +266,7 @@ maketbl(void)
 	for (cnt = 0, t = tbl; cnt < entries; ++cnt, ++t) {
 		for (coloff = 0; coloff < t->cols  - 1; ++coloff)
 			(void)wprintf(L"%ls%*ls", t->list[coloff],
-			    lens[coloff] - t->len[coloff] + 2, L" ");
+			    lens[coloff] - t->len[coloff] + 1, L" ");
 		(void)wprintf(L"%ls\n", t->list[coloff]);
 		free(t->list);
 		free(t->len);

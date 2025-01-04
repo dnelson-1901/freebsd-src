@@ -4,6 +4,7 @@ BZ2DIR=	${SRCTOP}/contrib/bzip2
 
 PROG=	bzip2
 CFLAGS+= -D_FILE_OFFSET_BITS=64
+NO_SHARED?=	YES
 
 WARNS?=	3
 

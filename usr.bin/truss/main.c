@@ -57,8 +57,8 @@ static __dead2 void
 usage(void)
 {
 	fprintf(stderr, "%s\n%s\n",
-	    "usage: truss [-cfaedDHS] [-o file] [-s strsize] -p pid",
-	    "       truss [-cfaedDHS] [-o file] [-s strsize] command [args]");
+	    "usage: truss [-cfaedDHS] [-o file] [-s strsize] [-t timeout] -p pid",
+	    "       truss [-cfaedDHS] [-o file] [-s strsize] [-t timeout] command [args]");
 	exit(1);
 }
 
@@ -83,9 +83,10 @@ main(int ac, char **av)
 	pid = 0;
 	trussinfo->outfile = stderr;
 	trussinfo->strsize = 32;
+	trussinfo->timeout = 2;
 	trussinfo->curthread = NULL;
 	LIST_INIT(&trussinfo->proclist);
-	while ((c = getopt(ac, av, "p:o:facedDs:SH")) != -1) {
+	while ((c = getopt(ac, av, "p:o:facedDs:t:SH")) != -1) {
 		switch (c) {
 		case 'p':	/* specified pid */
 			pid = atoi(optarg);
@@ -120,6 +121,9 @@ main(int ac, char **av)
 			    &errstr);
 			if (errstr)
 				errx(1, "maximum string size is %s: %s", errstr, optarg);
+			break;
+		case 't':	/* Pending syscall timeout */
+			trussinfo->timeout = atoi(optarg);
 			break;
 		case 'S':	/* Don't trace signals */
 			trussinfo->flags |= NOSIGS;

@@ -435,6 +435,15 @@ static int add_common_radius_sta_attr(struct hostapd_data *hapd,
 {
 	char buf[128];
 
+	/* If aid is zero, use a hash of the mac address instead */
+	if (sta->aid == 0) {
+		hmac_sha256("aid",3, sta->addr, 6, buf);
+		sta->aid = (unsigned char)buf[0] + 1;
+		wpa_printf(MSG_ERROR, "Generating fake AID %d", sta->aid);
+		hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE8021X,
+		       HOSTAPD_LEVEL_DEBUG, "Generating fake AID2 %d", sta->aid);
+	}
+
 	if (!hostapd_config_get_radius_attr(req_attr,
 					    RADIUS_ATTR_SERVICE_TYPE) &&
 	    !radius_msg_add_attr_int32(msg, RADIUS_ATTR_SERVICE_TYPE,

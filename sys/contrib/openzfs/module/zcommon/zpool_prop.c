@@ -91,7 +91,7 @@ zpool_prop_init(void)
 	zprop_register_number(ZPOOL_PROP_FREEING, "freeing", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<size>", "FREEING", B_FALSE, sfeatures);
 	zprop_register_number(ZPOOL_PROP_CHECKPOINT, "checkpoint", 0,
-	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "CKPOINT", B_FALSE,
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "CKPNT", B_FALSE,
 	    sfeatures);
 	zprop_register_number(ZPOOL_PROP_LEAKED, "leaked", 0, PROP_READONLY,
 	    ZFS_TYPE_POOL, "<size>", "LEAKED", B_FALSE, sfeatures);
@@ -99,7 +99,7 @@ zpool_prop_init(void)
 	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "ALLOC", B_FALSE,
 	    sfeatures);
 	zprop_register_number(ZPOOL_PROP_EXPANDSZ, "expandsize", 0,
-	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "EXPANDSZ", B_FALSE,
+	    PROP_READONLY, ZFS_TYPE_POOL, "<size>", "EXPND", B_FALSE,
 	    sfeatures);
 	zprop_register_number(ZPOOL_PROP_FRAGMENTATION, "fragmentation", 0,
 	    PROP_READONLY, ZFS_TYPE_POOL, "<percent>", "FRAG", B_FALSE,
@@ -115,7 +115,7 @@ zpool_prop_init(void)
 	    ZFS_TYPE_POOL, "<state>", "HEALTH", B_FALSE, sfeatures);
 	zprop_register_number(ZPOOL_PROP_DEDUPRATIO, "dedupratio", 0,
 	    PROP_READONLY, ZFS_TYPE_POOL, "<1.00x or higher if deduped>",
-	    "DEDUP", B_FALSE, sfeatures);
+	    "DEDUP", B_TRUE, sfeatures);
 	zprop_register_number(ZPOOL_PROP_BCLONEUSED, "bcloneused", 0,
 	    PROP_READONLY, ZFS_TYPE_POOL, "<size>",
 	    "BCLONE_USED", B_FALSE, sfeatures);

@@ -8,6 +8,7 @@ PROG=	awk
 SRCS=	awkgram.y b.c lex.c lib.c main.c parse.c proctab.c run.c tran.c awkgram.tab.h
 
 CFLAGS+= -DHAS_ISBLANK -I. -I${AWKSRC} -DFOPEN_MAX=64
+NO_SHARED?=	YES
 
 WARNS?=	1
 

@@ -375,8 +375,10 @@ g_map_taste(struct g_class *mp, struct g_provider *pp, int insist __unused)
 
 	g_access(cp, -1, 0, 0);
 	if (LIST_EMPTY(&gp->provider)) {
+#if 0
 		if (bootverbose)
 			printf("MAP: No valid partition found at %s\n", pp->name);
+#endif
 		g_slice_spoiled(cp);
 		return (NULL);
 	}

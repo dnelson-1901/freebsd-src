@@ -116,7 +116,8 @@ main(int argc, char *argv[])
 		usage();
 
 	if (*argv != NULL) {
-		if (setutxdb(UTXDB_ACTIVE, *argv) != 0)
+		if (setutxdb(UTXDB_ACTIVE, *argv) != 0 &&
+		    setutxdb(UTXDB_LOG, *argv) != 0)
 			err(1, "%s", *argv);
 	}
 

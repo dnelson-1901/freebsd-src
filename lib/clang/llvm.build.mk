@@ -123,3 +123,22 @@ CFLAGS+=	-DBOOTSTRAPPING_WANT_NATIVE_SYSCTL
 .if defined(BOOTSTRAPPING) && ${.MAKE.OS} == "Linux"
 LIBADD+=	dl
 .endif
+
+# Link clang and tools with LTO for a 10% speed boost.  May need to disable
+# during clang version or base system jumps, because LTO bitcode changes
+# across versions and required shlibs may not be available
+.if ${COMPILER_TYPE} == "clang" && exists(/usr/bin/llvm-ar) && exists(/usr/bin/llvm-objcopy)
+# Build with LTO
+CFLAGS+=	-flto=thin
+CXXFLAGS+=	-flto=thin
+LDFLAGS+=	-fuse-ld=lld
+# force lto-aware ar, nm and ranlib so we can put lto objects in .a files
+AR=		llvm-ar
+NM=		llvm-nm
+RANLIB=		llvm-ranlib
+RANLIBFLAGS=
+# force objcopy and strip so we don't use binutils versions
+OBJCOPY=	llvm-objcopy
+STRIPBIN=	llvm-strip
+.export STRIPBIN
+.endif

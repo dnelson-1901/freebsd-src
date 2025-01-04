@@ -1531,6 +1531,40 @@ vfs_domount_update(
 		vfs_freeopts(mp->mnt_opt);
 	mp->mnt_opt = mp->mnt_optnew;
 	*optlist = NULL;
+
+	/* Collapse the mount options into a readable string */
+	mp->mnt_stat.f_charspare[0]=0;
+	if (mp->mnt_opt) {
+		struct vfsopt *opt;
+		struct sbuf *sb;
+
+		sb = sbuf_new(NULL, mp->mnt_stat.f_charspare,
+			sizeof(mp->mnt_stat.f_charspare),
+			SBUF_FIXEDLEN);
+		TAILQ_FOREACH(opt, mp->mnt_opt, link) {
+			/*
+			 * Skip options that are temporary or stored
+			 * elsewhere in struct statfs
+			 */
+			if (strcmp(opt->name,"errmsg") == 0 ||
+			    strcmp(opt->name,"from") == 0 ||
+			    strcmp(opt->name,"fspath") == 0 ||
+			    strcmp(opt->name,"fstype") == 0 ||
+			    strcmp(opt->name,"nfs_args") == 0 ||
+			    strcmp(opt->name,"update") == 0 )
+				continue;
+			if (sbuf_len(sb))
+				sbuf_cat(sb, ",");
+			sbuf_cat(sb, opt->name);
+			if (opt->len) {
+				sbuf_cat(sb, "=");
+				sbuf_cat(sb, opt->value);
+			}
+		}
+		sbuf_finish(sb);
+		sbuf_delete(sb);
+	}
+
 	(void)VFS_STATFS(mp, &mp->mnt_stat);
 	/*
 	 * Prevent external consumers of mount options from reading

@@ -47,10 +47,15 @@ typedef enum {
 #define	zfs_cv_init(cv, name, type, arg)	do {			\
 	const char *_name;						\
 	ASSERT((type) == CV_DEFAULT);					\
+	/* skip leading non-alpha characters */				\
 	for (_name = #cv; *_name != '\0'; _name++) {			\
 		if (*_name >= 'a' && *_name <= 'z')			\
 			break;						\
 	}								\
+	/* find and skip past any "->" */				\
+	if (strstr(_name, "->"))					\
+		_name=strstr(_name, "->") + 2;				\
+	/* if we skipped the whole name, use the entire string */	\
 	if (*_name == '\0')						\
 		_name = #cv;						\
 	cv_init((cv), _name);						\

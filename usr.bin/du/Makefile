@@ -6,6 +6,8 @@ PACKAGE=	runtime
 PROG=	du
 LIBADD=	util
 
+NO_SHARED?=	YES
+
 HAS_TESTS=
 SUBDIR.${MK_TESTS}+=	tests
 

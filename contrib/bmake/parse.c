@@ -1283,7 +1283,7 @@ IncludeFile(const char *file, bool isSystem, bool depinc, bool silent)
 
 	if ((fd = open(fullname, O_RDONLY)) == -1) {
 		if (!silent)
-			Parse_Error(PARSE_FATAL, "Cannot open %s", fullname);
+			Parse_Error(PARSE_FATAL, "Cannot open %s: %s", fullname, strerror(errno));
 		free(fullname);
 		return;
 	}

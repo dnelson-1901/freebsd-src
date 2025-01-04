@@ -4,6 +4,7 @@
 
 PACKAGE=runtime
 PROG=	rm
+NO_SHARED?=	YES
 
 LINKS=	${BINDIR}/rm ${BINDIR}/unlink
 MLINKS=	rm.1 unlink.1

@@ -2899,6 +2899,10 @@ This value is a 12-bit VLAN Identifier (VID) which is used to create an 802.1Q
 or 802.1ad VLAN header for packets sent from the
 .Xr vlan 4
 interface.
+A value of
+.Cm 0
+creates a "native vlan", which receives any incoming untagged packets on
+the physical interface, and transmits outgoing packets without any vlan tags.
 Note that
 .Cm vlan
 and

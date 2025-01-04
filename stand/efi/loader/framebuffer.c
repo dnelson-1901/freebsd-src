@@ -913,6 +913,9 @@ command_gop(int argc, char *argv[])
 				break;
 		}
 		pager_close();
+	} else {
+		printf("Unknown subcommand %s\n", argv[1]);
+		goto usage;
 	}
 	return (CMD_OK);
 

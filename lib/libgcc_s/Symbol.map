@@ -134,6 +134,9 @@ GCC_4.0.0 {
 };
 
 GCC_4.2.0 {
+	__floatunsidf;
+	__floatunsisf;
+	__floatunsixf;
 	__floatundidf;
 	__floatundisf;
 	__floatundixf;

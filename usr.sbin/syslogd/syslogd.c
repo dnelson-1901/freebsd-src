@@ -980,8 +980,8 @@ parsemsg_remove_unsafe_characters(const char *in, char *out, size_t outlen)
 			*q++ = '-';
 		}
 		if (isascii(c) && iscntrl(c)) {
-			if (c == '\n') {
-				*q++ = ' ';
+			if (c == '\n' && *in == 0) {
+				/* eat a trailing eol */
 			} else if (c == '\t') {
 				*q++ = '\t';
 			} else {
@@ -2405,7 +2405,7 @@ readconfigfile(FILE *cf, int allow_includes)
 	struct filed *f;
 	struct dirent **ent;
 	char cline[LINE_MAX];
-	char host[MAXHOSTNAMELEN];
+	char host[LINE_MAX];
 	char prog[LINE_MAX];
 	char file[MAXPATHLEN];
 	char pfilter[LINE_MAX];
@@ -2481,8 +2481,8 @@ readconfigfile(FILE *cf, int allow_includes)
 			}
 			if (*p == '@')
 				p = LocalHostName;
-			for (i = 1; i < MAXHOSTNAMELEN - 1; i++) {
-				if (!isalnum(*p) && *p != '.' && *p != '-'
+			for (i = 1; i < LINE_MAX - 1; i++) {
+				if (!isalnum(*p) && *p != '.' && *p != '-' && *p != '_'
 				    && *p != ',' && *p != ':' && *p != '%')
 					break;
 				host[i] = *p++;

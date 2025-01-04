@@ -638,24 +638,36 @@ wait_for_pids()
 		return
 	fi
 	_prefix=
+	_loops=0
 	while true; do
 		_nlist="";
 		for _j in $_list; do
 			if kill -0 $_j 2>/dev/null; then
 				_nlist="${_nlist}${_nlist:+ }$_j"
-				[ -n "$_prefix" ] && sleep 1
 			fi
 		done
 		if [ -z "$_nlist" ]; then
 			break
 		fi
 		_list=$_nlist
-		echo -n ${_prefix:-"Waiting for PIDS: "}$_list
-		_prefix=", "
-		pwait $_list 2>/dev/null
+		case $(( $_loops % 8 )) in
+			0) echo -n "${_prefix:-Waiting for PIDS: }$_list"
+				_prefix=", "
+				;;
+			0) echo -e ' -\010\010\c' ;;
+			1) echo -e ' \\\010\010\c' ;;
+			2) echo -e ' |\010\010\c' ;;
+			3) echo -e ' /\010\010\c' ;;
+			4) echo -e ' -\010\010\c' ;;
+			5) echo -e ' \\\010\010\c' ;;
+			6) echo -e ' |\010\010\c' ;;
+			7) echo -e ' /\010\010\c' ;;
+		esac
+		_loops=$(( $_loops + 1 ))
+		sleep 0.25
 	done
 	if [ -n "$_prefix" ]; then
-		echo "."
+		echo ". "
 	fi
 }
 

@@ -19,7 +19,7 @@ CFLAGS+= -I${SRCTOP}/contrib/ntp/include \
 	-I${SRCTOP}/contrib/ntp/sntp/libopts \
 	-I${.CURDIR:H}
 
-LIBADD+=	edit ntp opts m pthread
+LIBADD+=	ntp edit opts m pthread
 
 .if ${MK_OPENSSL} != "no"
 LIBADD+=	crypto

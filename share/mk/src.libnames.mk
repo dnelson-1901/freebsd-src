@@ -296,7 +296,7 @@ _DP_archive+=	md
 .endif
 _DP_sqlite3=	pthread
 _DP_ssl=	crypto
-_DP_ssh=	crypto crypt z
+_DP_ssh=	crypto crypt z zstd
 .if ${MK_LDNS} != "no"
 _DP_ssh+=	ldns
 .endif
@@ -731,6 +731,7 @@ LIBBLOCKSRUNTIMEDIR=	${_LIB_OBJTOP}/lib/libblocksruntime
 LIBBSNMPDIR=	${_LIB_OBJTOP}/lib/libbsnmp/libbsnmp
 LIBCASPERDIR=	${_LIB_OBJTOP}/lib/libcasper/libcasper
 LIBCAP_DNSDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_dns
+LIBCAP_FILEARGSDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_fileargs
 LIBCAP_GRPDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_grp
 LIBCAP_NETDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_net
 LIBCAP_PWDDIR=	${_LIB_OBJTOP}/lib/libcasper/services/cap_pwd

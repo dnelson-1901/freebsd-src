@@ -35,6 +35,7 @@
 .Nd construct a new UFS1/UFS2 file system
 .Sh SYNOPSIS
 .Nm
+.Op Fl I Ar fsid
 .Op Fl EJNUjlnt
 .Op Fl L Ar volname
 .Op Fl O Ar filesystem-type
@@ -75,6 +76,13 @@ has numerous options to allow the defaults to be selectively overridden.
 .Pp
 The following options define the general layout policies:
 .Bl -tag -width indent
+.It Fl I Ar fsid
+Use the given filesystem ID (specified as a 64-bit integer or hex value
+preceded by 0x).
+The fsid is used to identify the filesystem when exported via NFS, must
+be unique to a system, and an exported filesystem should have the same
+fsid across reboots, or clients will receive ESTALE errors.
+The default value is composed of the current time and a random number.
 .It Fl E
 Erase the content of the disk before making the filesystem.
 The reserved area in front of the superblock (for bootcode) will not be erased.

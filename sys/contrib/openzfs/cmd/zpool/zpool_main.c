@@ -475,18 +475,19 @@ static int
 print_pool_prop_cb(int prop, void *cb)
 {
 	FILE *fp = cb;
+	const char *name, *colname;
 
-	(void) fprintf(fp, "\t%-19s  ", zpool_prop_to_name(prop));
+	name = zpool_prop_to_name(prop);
+	colname = zpool_prop_column_name(prop);
 
-	if (zpool_prop_readonly(prop))
-		(void) fprintf(fp, "  NO   ");
-	else
-		(void) fprintf(fp, " YES   ");
+	(void) fprintf(fp, "\t%-19s", name);
+	(void) fprintf(fp, " %-8s", strcasecmp(name, colname) ? colname : "");
+	(void) fprintf(fp, " %4s", zpool_prop_readonly(prop) ? "NO" : "YES");
 
 	if (zpool_prop_values(prop) == NULL)
-		(void) fprintf(fp, "-\n");
+		(void) fprintf(fp, "  -\n");
 	else
-		(void) fprintf(fp, "%s\n", zpool_prop_values(prop));
+		(void) fprintf(fp, "  %s\n", zpool_prop_values(prop));
 
 	return (ZPROP_CONT);
 }
@@ -552,16 +553,16 @@ usage(boolean_t requested)
 		(void) fprintf(fp, "%s",
 		    gettext("\nthe following properties are supported:\n"));
 
-		(void) fprintf(fp, "\n\t%-19s  %s   %s\n\n",
-		    "PROPERTY", "EDIT", "VALUES");
+		(void) fprintf(fp, "\n\t%-19s %-8s %4s  %s\n\n",
+		    "PROPERTY", "SHORT", "EDIT", "VALUES");
 
 		/* Iterate over all properties */
 		if (current_prop_type == ZFS_TYPE_POOL) {
 			(void) zprop_iter(print_pool_prop_cb, fp, B_FALSE,
 			    B_TRUE, current_prop_type);
 
-			(void) fprintf(fp, "\t%-19s   ", "feature@...");
-			(void) fprintf(fp, "YES   "
+			(void) fprintf(fp, "\t%-29s", "feature@...");
+			(void) fprintf(fp, " YES   "
 			    "disabled | enabled | active\n");
 
 			(void) fprintf(fp, gettext("\nThe feature@ properties "

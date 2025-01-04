@@ -8,6 +8,17 @@ PROG=		xinstall
 PROGNAME=	install
 SRCS=		xinstall.c getid.c
 MAN=		install.1
+NO_SHARED?=	YES
+
+.info install debug:${.newline}\
+  DESTDIR=${DESTDIR}${.newline}\
+  PATH=${PATH}${.newline}
+.if ${DESTDIR:M*legacy*} && ${PATH:M*legacy*} && ${MACHINE} == "mips"
+# install is installing on top of itself?
+.info install installing onto itself
+INSTALL=	/usr/bin/install
+INSTALLFLAGS+=	-S -v -U
+.endif
 
 .PATH:		${SRCTOP}/contrib/mtree
 CFLAGS+=	-I${SRCTOP}/contrib/mtree

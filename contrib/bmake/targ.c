@@ -375,16 +375,18 @@ Targ_PrintCmds(GNode *gn)
 /*
  * Format a modification time in some reasonable way and return it.
  * The formatted time is placed in a static area, so it is overwritten
- * with each call.
+ * after 4 calls.  Should be enough for debugging output.
  */
 const char *
 Targ_FmtTime(time_t tm)
 {
-	static char buf[128];
+    static int bufindex;
+	static char buf[4][128];
 
 	struct tm *parts = localtime(&tm);
-	(void)strftime(buf, sizeof buf, "%H:%M:%S %b %d, %Y", parts);
-	return buf;
+    bufindex = (bufindex + 1) % 4;
+	(void)strftime(buf[bufindex], sizeof buf[bufindex], "%H:%M:%S %b %d, %Y", parts);
+	return buf[bufindex];
 }
 
 /* Print out a type field giving only those attributes the user can set. */

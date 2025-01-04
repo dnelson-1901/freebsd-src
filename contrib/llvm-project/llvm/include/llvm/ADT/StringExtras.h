@@ -437,9 +437,9 @@ inline void join_items_impl(std::string &Result, Sep Separator,
 }
 
 template <typename Sep, typename Arg1, typename... Args>
-inline void join_items_impl(std::string &Result, Sep Separator, const Arg1 &A1,
+inline void join_items_impl(std::string &Result, Sep Separator, const Arg1 &tmp_A1,
                             Args &&... Items) {
-  Result += A1;
+  Result += tmp_A1;
   Result += Separator;
   join_items_impl(Result, Separator, std::forward<Args>(Items)...);
 }

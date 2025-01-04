@@ -4,6 +4,7 @@
 
 PACKAGE=runtime
 PROG=	cat
+NO_SHARED?=	YES
 
 .ifdef BOOTSTRAPPING
 # For the bootstrap cat we disable all wide char support to allow building

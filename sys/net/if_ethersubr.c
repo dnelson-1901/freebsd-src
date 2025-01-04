@@ -904,6 +904,24 @@ ether_demux(struct ifnet *ifp, struct mbuf *m)
 		m->m_flags &= ~M_PROMISC;
 		(*vlan_input_p)(ifp, m);
 		return;
+	} else {
+		/*
+		 * The frame wasn't tagged, but if trunking is enabled and a
+		 * native vlan is configured, pass the frame on to the vlan
+		 * module for processing there.
+		 */
+		if (ifp->if_vlantrunk && ifp->if_nativevlan)
+		{
+			KASSERT(vlan_input_p != NULL,("%s: VLAN not loaded!",
+			    __func__));
+			/* Pretend the tag header got removed already. */
+			m->m_pkthdr.ether_vtag = 0;
+			m->m_flags |= M_VLANTAG;
+			/* Clear before possibly re-entering ether_input(). */
+			m->m_flags &= ~M_PROMISC;
+			(*vlan_input_p)(ifp, m);
+			return;
+		}
 	}
 
 	/*
@@ -1440,6 +1458,13 @@ ether_8021q_frame(struct mbuf **mp, struct ifnet *ife, struct ifnet *p,
 	if ((*mp)->m_flags & M_VLANTAG) {
 		pcp = EVL_PRIOFTAG((*mp)->m_pkthdr.ether_vtag);
 	}
+
+	/*
+	 * If this is not the native vlan, the packet will need to have a
+	 * vlan tag inserted.  Native vlan packets are sent out unchanged.
+	 */
+	if (qtag->vid == 0)
+		return (true);
 
 	/*
 	 * If underlying interface can do VLAN tag insertion itself,

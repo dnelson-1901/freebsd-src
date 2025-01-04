@@ -571,7 +571,7 @@ std::string Linux::getDynamicLinker(const ArgList &Args) const {
 
   if (Distro == Distro::Exherbo &&
       (Triple.getVendor() == llvm::Triple::UnknownVendor ||
-       Triple.getVendor() == llvm::Triple::PC))
+       Triple.getVendor() == llvm::Triple::V_PC))
     return "/usr/" + Triple.str() + "/lib/" + Loader;
   return "/" + LibDir + "/" + Loader;
 }

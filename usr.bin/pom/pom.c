@@ -104,7 +104,7 @@ main(int argc, char **argv)
 			odate = optarg;
 			break;
 		case 'p':
-			pflag = 1;
+			pflag++;
 			break;
 		case 't':
 			otime = optarg;
@@ -151,7 +151,10 @@ main(int argc, char **argv)
 		days += isleap(1900 + cnt) ? 366 : 365;
 	today = potm(days);
 	if (pflag) {
-		(void)printf("%1.0f\n", today);
+		if (pflag > 1)
+			(void)printf("%f\n", today);
+		else
+			(void)printf("%1.0f\n", today);
 		return (0);
 	}
 	(void)printf("The Moon is ");

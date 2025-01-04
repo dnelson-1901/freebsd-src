@@ -49,6 +49,46 @@ HOME=/
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export HOME PATH
 
+getled()
+{
+ ledport=
+ case $1 in
+  0) led=SYSTEM ;; 1) led=WLAN2G ;; 2) led=ath1 ;;
+  3) led=arswitch0port5led1 ledport=5 ;; 4) led=arswitch0port4led1 ledport=4 ;;
+  5) led=arswitch0port3led1 ledport=3 ;; 6) led=arswitch0port2led1 ledport=2 ;;
+  7) led=arswitch0port1led1 ledport=1 ;; 8) led=QSS ;;
+ esac
+ led=/dev/led/$led
+}
+
+leds()
+{
+ if [ ! -e /dev/led/SYSTEM ] ; then return 0 ; fi
+
+ case $1 in
+  on) _ledstate=1 ;; blink) _ledstate=f ;; *) _ledstate=0
+ esac
+ case $1 in
+  on|off|blink|default)
+   # use /dev/led for gpio leds, etherswitch for the switch leds
+   for lednum in 0 1 2 8 ; do getled $lednum ; echo $_ledstate > $led ; done
+   etherswitchcfg port1 led 1 $1 port2 led 1 $1 port3 led 1 $1 port4 led 1 $1 port5 led 1 $1 > /dev/null ;;
+  cycle)
+   # cycle the leds on and then back off in sequence
+   getled $(( ledcounter%9 )) ; echo $(( (ledcounter<9)?1:0 )) > $led
+   ledcounter=$(( (ledcounter+1) % 18 ))
+   getled $(( ledcounter%9 ))
+   # blink the "active" led
+   case $(( ledcounter%9 )) in
+    0|1|2|8) echo f > $led ;;
+    *) etherswitchcfg port$ledport led 1 blink > /dev/null ;;
+   esac
+  ;;
+esac
+}
+
+leds blink
+
 if [ "$1" = autoboot ]; then
 	autoboot=yes
 	_boot="faststart"
@@ -97,8 +137,11 @@ unset system_rc
 find_system_scripts
 files=`rcorder ${skip} ${skip_firstboot} ${system_rc} 2>/dev/null`
 
+leds off
+
 _rc_elem_done=' '
 for _rc_elem in ${files}; do
+	leds cycle
 	run_rc_script ${_rc_elem} ${_boot}
 	_rc_elem_done="${_rc_elem_done}${_rc_elem} "
 
@@ -129,9 +172,11 @@ for _rc_elem in ${files}; do
 	case "$_rc_elem_done" in
 	*" $_rc_elem "*)	continue ;;
 	esac
-
+	leds cycle
 	run_rc_script ${_rc_elem} ${_boot}
 done
+
+leds default
 
 # Remove the firstboot sentinel, and reboot if it was requested.
 # Be a bit paranoid about removing it to handle the common failure

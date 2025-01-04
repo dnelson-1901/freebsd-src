@@ -110,19 +110,19 @@ public:
 
   bool operator>=(AdaptedConstIterator &rhs) { return m_iter >= rhs.m_iter; }
 
-  template <typename C1, typename E1, E1 (*A1)(typename C1::const_iterator &)>
-  friend AdaptedConstIterator<C1, E1, A1>
+  template <typename C1, typename E1, E1 (*tmp_A1)(typename C1::const_iterator &)>
+  friend AdaptedConstIterator<C1, E1, tmp_A1>
   operator+(typename C1::const_iterator::difference_type,
-            AdaptedConstIterator<C1, E1, A1> &);
+            AdaptedConstIterator<C1, E1, tmp_A1> &);
 
-  template <typename C1, typename E1, E1 (*A1)(typename C1::const_iterator &)>
+  template <typename C1, typename E1, E1 (*tmp_A1)(typename C1::const_iterator &)>
   friend typename C1::const_iterator::difference_type
-  operator-(AdaptedConstIterator<C1, E1, A1> &,
-            AdaptedConstIterator<C1, E1, A1> &);
+  operator-(AdaptedConstIterator<C1, E1, tmp_A1> &,
+            AdaptedConstIterator<C1, E1, tmp_A1> &);
 
-  template <typename C1, typename E1, E1 (*A1)(typename C1::const_iterator &)>
-  friend void swap(AdaptedConstIterator<C1, E1, A1> &,
-                   AdaptedConstIterator<C1, E1, A1> &);
+  template <typename C1, typename E1, E1 (*tmp_A1)(typename C1::const_iterator &)>
+  friend void swap(AdaptedConstIterator<C1, E1, tmp_A1> &,
+                   AdaptedConstIterator<C1, E1, tmp_A1> &);
 
 private:
   BackingIterator m_iter;

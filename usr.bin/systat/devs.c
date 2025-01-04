@@ -370,12 +370,7 @@ dslabel(int maxdrives, int diskcol, int diskrow)
 	mvprintw(diskrow + 2, diskcol, "tps");
 	mvprintw(diskrow + 3, diskcol, "MB/s");
 	mvprintw(diskrow + 4, diskcol, "%%busy");
-	/*
-	 * For now, we don't support a fourth disk statistic.  So there's
-	 * no point in providing a label for it.  If someone can think of a
-	 * fourth useful disk statistic, there is room to add it.
-	 */
-	/* mvprintw(diskrow + 4, diskcol, " msps"); */
+	mvprintw(diskrow + 5, diskcol, "queued");
 	j = 0;
 	for (i = 0; i < num_devices && j < maxdrives; i++)
 		if (dev_select[i].selected) {
@@ -394,6 +389,7 @@ dsshow2(int diskcol, int diskrow, int dn, int lc, struct statinfo *now, struct s
 	long double transfers_per_second;
 	long double kb_per_transfer, mb_per_second;
 	long double elapsed_time, device_busy;
+	long double busy_count;
 	int di;
 
 	di = dev_select[dn].position;
@@ -406,6 +402,8 @@ dsshow2(int diskcol, int diskrow, int dn, int lc, struct statinfo *now, struct s
 		elapsed_time = now->snap_time - devstat_compute_etime(
 		    &now->dinfo->devices[di].creation_time, NULL);
 	}
+
+	busy_count = now->dinfo->devices[di].start_count - now->dinfo->devices[di].end_count;
 
 	if (devstat_compute_statistics(&now->dinfo->devices[di], then ?
 	    &then->dinfo->devices[di] : NULL, elapsed_time,
@@ -421,6 +419,7 @@ dsshow2(int diskcol, int diskrow, int dn, int lc, struct statinfo *now, struct s
 	putlongdouble(transfers_per_second, diskrow + 2, lc, 5, 0, 0);
 	putlongdouble(mb_per_second, diskrow + 3, lc, 5, 2, 0);
 	putlongdouble(device_busy, diskrow + 4, lc, 5, 0, 0);
+	putlongdouble(busy_count, diskrow + 5, lc, 5, 0, 0);
 }
 
 void

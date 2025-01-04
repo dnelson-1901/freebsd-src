@@ -381,11 +381,7 @@ fill_default_server_options(ServerOptions *options)
 		options->permit_user_env_allowlist = NULL;
 	}
 	if (options->compression == -1)
-#ifdef WITH_ZLIB
-		options->compression = COMP_DELAYED;
-#else
-		options->compression = COMP_NONE;
-#endif
+		options->compression = COMP_ALL_S;
 
 	if (options->rekey_limit == -1)
 		options->rekey_limit = 0;
@@ -1316,9 +1312,15 @@ static const struct multistate multistate_permitrootlogin[] = {
 	{ NULL, -1 }
 };
 static const struct multistate multistate_compression[] = {
+#if defined(WITH_ZLIB) || defined(HAVE_LIBZSTD)
+	{ "yes",			COMP_ALL_S },
+#endif
 #ifdef WITH_ZLIB
-	{ "yes",			COMP_DELAYED },
 	{ "delayed",			COMP_DELAYED },
+	{ "zlib",			COMP_DELAYED },
+#endif
+#ifdef HAVE_LIBZSTD
+	{ "zstd",			COMP_ZSTD },
 #endif
 	{ "no",				COMP_NONE },
 	{ NULL, -1 }

@@ -37,6 +37,7 @@ static char sccsid[] = "@(#)option.c	8.2 (Berkeley) 4/16/94";
 */
 
 #include <sys/cdefs.h>
+#include <sys/acl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -80,6 +81,7 @@ static OPTION const options[] = {
 	{ "-empty",	c_empty,	f_empty,	0 },
 	{ "-exec",	c_exec,		f_exec,		0 },
 	{ "-execdir",	c_exec,		f_exec,		F_EXECDIR },
+	{ "-extattr",	c_extattr,	f_extattr,	0 },
 	{ "-false",	c_simple,	f_false,	0 },
 #if HAVE_STRUCT_STAT_ST_FLAGS
 	{ "-flags",	c_flags,	f_flags,	0 },

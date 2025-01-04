@@ -630,6 +630,9 @@ swap_pager_swap_init(void)
 	 */
 	n = maxswzone != 0 ? maxswzone / sizeof(struct swblk) :
 	    vm_cnt.v_page_count / 2;
+	/* Ensure that we can allocate at least 2GB of swap */
+	if (n < 2LL * 1024 * 1024 * 1024 / PAGE_SIZE / SWAP_META_PAGES)
+		n = 2LL * 1024 * 1024 * 1024 / PAGE_SIZE / SWAP_META_PAGES;
 	swpctrie_zone = uma_zcreate("swpctrie", pctrie_node_size(), NULL, NULL,
 	    pctrie_zone_init, NULL, UMA_ALIGN_PTR, 0);
 	swblk_zone = uma_zcreate("swblk", sizeof(struct swblk), NULL, NULL,
@@ -658,6 +661,8 @@ swap_pager_swap_init(void)
 	/* absolute maximum we can handle assuming 100% efficiency */
 	swap_maxpages = n * SWAP_META_PAGES;
 	swzone = n * sizeof(struct swblk);
+	if (!maxswzone)
+		maxswzone = swzone;
 	if (!uma_zone_reserve_kva(swpctrie_zone, n))
 		printf("Cannot reserve swap pctrie zone, "
 		    "reduce kern.maxswzone.\n");

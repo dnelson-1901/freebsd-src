@@ -121,7 +121,7 @@ static struct entry {
 
 #define	W_DISPUSERSIZE	10
 #define	W_DISPLINESIZE	8
-#define	W_MAXHOSTSIZE	40
+#define	W_MAXHOSTSIZE	24
 
 static void		 pr_header(time_t *, int);
 static struct stat	*ttystat(char *);

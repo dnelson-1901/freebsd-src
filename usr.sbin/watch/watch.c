@@ -46,7 +46,7 @@
 #define MIN_SIZE	256
 
 #define CHR_SWITCH	24	/* Ctrl+X	 */
-#define CHR_CLEAR	23	/* Ctrl+V	 */
+#define CHR_CLEAR	23	/* Ctrl+W	 */
 
 static void	clear(void);
 static void	timestamp(const char *);
@@ -139,9 +139,11 @@ static void
 fatal(int error, const char *buf)
 {
 
+	int e = errno;
 	unset_tty();
+	errno = e;
 	if (buf)
-		errx(error, "fatal: %s", buf);
+		err(error, "fatal: %s", buf);
 	else
 		exit(error);
 }
@@ -363,9 +365,11 @@ main(int ac, char *av[])
 				fatal(EX_IOERR, "read (stdin) failed");
 
 			switch (chb[0]) {
+#if 0
 			case CHR_CLEAR:
 				clear();
 				break;
+#endif
 			case CHR_SWITCH:
 				if (!opt_no_switch) {
 					detach_snp();
