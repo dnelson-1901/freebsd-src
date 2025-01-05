@@ -135,7 +135,7 @@ LIBADD+=	dl
 # Link clang and tools with LTO for a 10% speed boost.  May need to disable
 # during clang version or base system jumps, because LTO bitcode changes
 # across versions and required shlibs may not be available
-.if ${COMPILER_TYPE} == "zclang" && exists(/usr/bin/llvm-ar) && exists(/usr/bin/llvm-objcopy)
+.if ${COMPILER_TYPE} == "clang" && exists(/usr/bin/llvm-ar) && exists(/usr/bin/llvm-objcopy)
 # Build with LTO
 CFLAGS+=	-flto=thin
 CXXFLAGS+=	-flto=thin
