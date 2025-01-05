@@ -102,6 +102,11 @@
 #define	PS_FST_FFLAG_EXEC	0x2000
 #define	PS_FST_FFLAG_HASLOCK	0x4000
 
+#if !defined(__ILP32__) && !defined(__riscv)
+/* Target architecture supports 32-bit compat */
+#define	PS_ARCH_HAS_FREEBSD32	1
+#endif
+
 struct kinfo_kstack;
 struct kinfo_proc;
 struct kinfo_vmentry;
@@ -207,6 +212,7 @@ void	procstat_freefiles(struct procstat *procstat,
     struct filestat_list *head);
 void	procstat_freeptlwpinfo(struct procstat *procstat,
     struct ptrace_lwpinfo *pl);
+void	procstat_freerlimitusage(struct procstat *procstat, rlim_t *resusage);
 void	procstat_freevmmap(struct procstat *procstat,
     struct kinfo_vmentry *vmmap);
 struct advlock_list	*procstat_getadvlock(struct procstat *procstat);
@@ -246,6 +252,8 @@ int	procstat_getpathname(struct procstat *procstat, struct kinfo_proc *kp,
     char *pathname, size_t maxlen);
 int	procstat_getrlimit(struct procstat *procstat, struct kinfo_proc *kp,
     int which, struct rlimit* rlimit);
+rlim_t	*procstat_getrlimitusage(struct procstat *procstat,
+    struct kinfo_proc *kp, unsigned int *cntp);
 int	procstat_getumask(struct procstat *procstat, struct kinfo_proc *kp,
     unsigned short* umask);
 struct kinfo_vmentry	*procstat_getvmmap(struct procstat *procstat,

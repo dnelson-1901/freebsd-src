@@ -89,9 +89,11 @@ env_setup() {
 	SRC_CONF="/dev/null"
 
 	# The number of make(1) jobs, defaults to the number of CPUs available
-	# for buildworld, and half of number of CPUs available for buildkernel.
+	# for buildworld, and half of number of CPUs available for buildkernel
+	# and 'make release'.
 	WORLD_FLAGS="-j$(sysctl -n hw.ncpu)"
 	KERNEL_FLAGS="-j$(( $(( $(sysctl -n hw.ncpu) + 1 )) / 2))"
+	RELEASE_FLAGS="-j$(( $(( $(sysctl -n hw.ncpu) + 1 )) / 2))"
 
 	MAKE_FLAGS="-s"
 
@@ -117,6 +119,9 @@ env_setup() {
 	# Set to non-empty value to build virtual machine images for various
 	# cloud providers as part of the release.
 	WITH_CLOUDWARE=
+
+	# Set to non-empty to build OCI images as part of the release
+	WITH_OCIIMAGES=
 
 	return 0
 } # env_setup()
@@ -190,10 +195,11 @@ env_check() {
 		${CONF_FILES}"
 	RELEASE_KMAKEFLAGS="${MAKE_FLAGS} ${KERNEL_FLAGS} \
 		KERNCONF=\"${KERNEL}\" ${ARCH_FLAGS} ${CONF_FILES}"
-	RELEASE_RMAKEFLAGS="${ARCH_FLAGS} \
+	RELEASE_RMAKEFLAGS="${ARCH_FLAGS} ${RELEASE_FLAGS} \
 		KERNCONF=\"${KERNEL}\" ${CONF_FILES} ${SRCPORTS} \
 		WITH_DVD=${WITH_DVD} WITH_VMIMAGES=${WITH_VMIMAGES} \
-		WITH_CLOUDWARE=${WITH_CLOUDWARE} XZ_THREADS=${XZ_THREADS}"
+		WITH_CLOUDWARE=${WITH_CLOUDWARE} WITH_OCIIMAGES=${WITH_OCIIMAGES} \
+		XZ_THREADS=${XZ_THREADS}"
 
 	return 0
 } # env_check()
@@ -252,11 +258,11 @@ extra_chroot_setup() {
 		cp ${SRC_CONF} ${CHROOTDIR}/${SRC_CONF}
 	fi
 
-	if [ -z "${NOGIT}" ]; then
-		# Install git from ports or packages if the ports tree is
-		# available and VCSCMD is unset.
-		_gitcmd="$(which git)"
-		if [ -d ${CHROOTDIR}/usr/ports -a -z "${_gitcmd}" ]; then
+	_gitcmd="$(which git)"
+	if [ -z "${NOGIT}" -a -z "${_gitcmd}" ]; then
+		# Install git from ports if the ports tree is available;
+		# otherwise install the pkg.
+		if [ -d ${CHROOTDIR}/usr/ports ]; then
 			# Trick the ports 'run-autotools-fixup' target to do the right
 			# thing.
 			_OSVERSION=$(chroot ${CHROOTDIR} /usr/bin/uname -U)
@@ -284,6 +290,44 @@ extra_chroot_setup() {
 			eval chroot ${CHROOTDIR} env ASSUME_ALWAYS_YES=yes \
 				pkg clean -y
 		fi
+	fi
+
+	if [ ! -z "${WITH_OCIIMAGES}" ]; then
+		# Install buildah and skopeo from ports if the ports tree is available;
+		# otherwise install the pkg.
+		if [ -d ${CHROOTDIR}/usr/ports ]; then
+			# Trick the ports 'run-autotools-fixup' target to do the right
+			# thing.
+			_OSVERSION=$(chroot ${CHROOTDIR} /usr/bin/uname -U)
+			REVISION=$(chroot ${CHROOTDIR} make -C /usr/src/release -V REVISION)
+			BRANCH=$(chroot ${CHROOTDIR} make -C /usr/src/release -V BRANCH)
+			UNAME_r=${REVISION}-${BRANCH}
+			GITUNSETOPTS="CONTRIB CURL CVS GITWEB GUI HTMLDOCS"
+			GITUNSETOPTS="${GITUNSETOPTS} ICONV NLS P4 PERL"
+			GITUNSETOPTS="${GITUNSETOPTS} SEND_EMAIL SUBTREE SVN"
+			GITUNSETOPTS="${GITUNSETOPTS} PCRE PCRE2"
+			PBUILD_FLAGS="OSVERSION=${_OSVERSION} BATCH=yes"
+			PBUILD_FLAGS="${PBUILD_FLAGS} UNAME_r=${UNAME_r}"
+			PBUILD_FLAGS="${PBUILD_FLAGS} OSREL=${REVISION}"
+			PBUILD_FLAGS="${PBUILD_FLAGS} WRKDIRPREFIX=/tmp/ports"
+			PBUILD_FLAGS="${PBUILD_FLAGS} DISTDIR=/tmp/distfiles"
+			for _PORT in sysutils/buildah sysutils/skopeo; do
+				eval chroot ${CHROOTDIR} env ${PBUILD_FLAGS} make -C \
+				     /usr/ports/${_PORT} \
+				     FORCE_PKG_REGISTER=1 deinstall install clean distclean
+			done
+		else
+			eval chroot ${CHROOTDIR} env ASSUME_ALWAYS_YES=yes \
+				pkg install -y sysutils/buildah sysutils/skopeo
+			eval chroot ${CHROOTDIR} env ASSUME_ALWAYS_YES=yes \
+				pkg clean -y
+		fi
+		# Use the vfs storage driver so that this works whether or not
+		# the build directory is on ZFS. The images are small so the
+		# performance difference is negligible.
+		eval chroot ${CHROOTDIR} sed -I .bak -e '/^driver/s/zfs/vfs/' /usr/local/etc/containers/storage.conf
+		# Remove any stray images from previous builds
+		eval chroot ${CHROOTDIR} buildah rmi -af
 	fi
 
 	if [ ! -z "${EMBEDDEDPORTS}" ]; then
@@ -321,6 +365,9 @@ chroot_build_target() {
 	fi
 	eval chroot ${CHROOTDIR} make -C /usr/src ${RELEASE_WMAKEFLAGS} buildworld
 	eval chroot ${CHROOTDIR} make -C /usr/src ${RELEASE_KMAKEFLAGS} buildkernel
+	if [ ! -z "${WITH_OCIIMAGES}" ]; then
+		eval chroot ${CHROOTDIR} make -C /usr/src ${RELEASE_WMAKEFLAGS} packages
+	fi
 
 	return 0
 } # chroot_build_target
@@ -335,7 +382,7 @@ chroot_build_release() {
 		fi
 		if [ -z "${VMSIZE}" ]; then
 			VMSIZE="$(eval chroot ${CHROOTDIR} \
-				make -C /usr/src/release -V VMSIZE)"
+				make -C /usr/src/release ${ARCH_FLAGS} -V VMSIZE)"
 		fi
 		RELEASE_RMAKEFLAGS="${RELEASE_RMAKEFLAGS} \
 			VMFORMATS=\"${VMFORMATS}\" VMSIZE=${VMSIZE}"

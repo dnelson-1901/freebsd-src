@@ -47,6 +47,19 @@ local frame_size
 local default_shift
 local shift
 
+-- Make this code compatible with older loader binaries. We moved the term_*
+-- functions from loader to the gfx. if we're running on an older loader that
+-- has these functions, create aliases for them in gfx. The loader binary might
+-- be so old as to not have them, but in that case, we want to copy the nil
+-- values. The new loader will provide loader.* versions of all the gfx.*
+-- functions for backwards compatibility, so we only define the functions we use
+-- here.
+if gfx == nil then
+	gfx = {}
+	gfx.term_drawrect = loader.term_drawrect
+	gfx.term_putimage = loader.term_putimage
+end
+
 local function menuEntryName(drawing_menu, entry)
 	local name_handler = menu_name_handlers[entry.entry_type]
 
@@ -225,8 +238,8 @@ local function drawframe()
 	x = x + shift.x
 	y = y + shift.y
 
-	if core.isFramebufferConsole() and loader.term_drawrect ~= nil then
-		loader.term_drawrect(x, y, x + w, y + h)
+	if core.isFramebufferConsole() and gfx.term_drawrect ~= nil then
+		gfx.term_drawrect(x, y, x + w, y + h)
 		return true
 	end
 
@@ -312,9 +325,9 @@ local function drawbrand()
 	end
 
 	if core.isFramebufferConsole() and
-	    loader.term_putimage ~= nil and
+	    gfx.term_putimage ~= nil and
 	    branddef.image ~= nil then
-		if loader.term_putimage(branddef.image, 1, 1, 0, 7, 0)
+		if gfx.term_putimage(branddef.image, 1, 1, 0, 7, 0)
 		then
 			return true
 		end
@@ -363,14 +376,14 @@ local function drawlogo()
 	end
 
 	if core.isFramebufferConsole() and
-	    loader.term_putimage ~= nil and
+	    gfx.term_putimage ~= nil and
 	    logodef.image ~= nil then
 		local y1 = 15
 
 		if logodef.image_rl ~= nil then
 			y1 = logodef.image_rl
 		end
-		if loader.term_putimage(logodef.image, x, y, 0, y + y1, 0)
+		if gfx.term_putimage(logodef.image, x, y, 0, y + y1, 0)
 		then
 			return true
 		end
@@ -459,7 +472,7 @@ logodefs = {
 brand_position = {x = 2, y = 1}
 logo_position = {x = 46, y = 4}
 menu_position = {x = 5, y = 10}
-frame_size = {w = 42, h = 13}
+frame_size = {w = 42, h = 14}
 default_shift = {x = 0, y = 0}
 shift = default_shift
 
@@ -493,23 +506,45 @@ drawer.frame_styles = {
 		top_right	= "+",
 		bottom_right	= "+",
 	},
-	["single"] = {
+}
+
+if core.hasUnicode() then
+	-- unicode based framing characters
+	drawer.frame_styles["single"] = {
 		horizontal	= "\xE2\x94\x80",
 		vertical	= "\xE2\x94\x82",
 		top_left	= "\xE2\x94\x8C",
 		bottom_left	= "\xE2\x94\x94",
 		top_right	= "\xE2\x94\x90",
 		bottom_right	= "\xE2\x94\x98",
-	},
-	["double"] = {
+	}
+	drawer.frame_styles["double"] = {
 		horizontal	= "\xE2\x95\x90",
 		vertical	= "\xE2\x95\x91",
 		top_left	= "\xE2\x95\x94",
 		bottom_left	= "\xE2\x95\x9A",
 		top_right	= "\xE2\x95\x97",
 		bottom_right	= "\xE2\x95\x9D",
-	},
-}
+	}
+else
+	-- non-unicode cons25-style framing characters
+	drawer.frame_styles["single"] = {
+		horizontal	= "\xC4",
+		vertical	= "\xB3",
+		top_left	= "\xDA",
+		bottom_left	= "\xC0",
+		top_right	= "\xBF",
+		bottom_right	= "\xD9",
+        }
+	drawer.frame_styles["double"] = {
+		horizontal	= "\xCD",
+		vertical	= "\xBA",
+		top_left	= "\xC9",
+		bottom_left	= "\xC8",
+		top_right	= "\xBB",
+		bottom_right	= "\xBC",
+	}
+end
 
 function drawer.drawscreen(menudef)
 	-- drawlogo() must go first.

@@ -26,9 +26,6 @@
  * Copyright (c) 2020, 2022 by Delphix. All rights reserved.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/vfs.h>
 
@@ -85,7 +82,9 @@ translate_opts(const char *shareopts, FILE *out)
 	strlcpy(oldopts, shareopts, sizeof (oldopts));
 	newopts[0] = '\0';
 	s = oldopts;
-	while ((o = strsep(&s, "-, ")) != NULL) {
+	while ((o = strsep(&s, ", ")) != NULL) {
+		if (o[0] == '-')
+			o++;
 		if (o[0] == '\0')
 			continue;
 		for (i = 0; i < ARRAY_SIZE(known_opts); ++i) {
@@ -161,7 +160,8 @@ nfs_is_shared(sa_share_impl_t impl_share)
 static int
 nfs_validate_shareopts(const char *shareopts)
 {
-	(void) shareopts;
+	if (strlen(shareopts) == 0)
+		return (SA_SYNTAX_ERR);
 	return (SA_OK);
 }
 

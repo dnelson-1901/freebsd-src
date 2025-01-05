@@ -53,8 +53,6 @@
 static void gpiobus_print_pins(struct gpiobus_ivar *, struct sbuf *);
 static int gpiobus_parse_pins(struct gpiobus_softc *, device_t, int);
 static int gpiobus_probe(device_t);
-static int gpiobus_attach(device_t);
-static int gpiobus_detach(device_t);
 static int gpiobus_suspend(device_t);
 static int gpiobus_resume(device_t);
 static void gpiobus_probe_nomatch(device_t, device_t);
@@ -551,7 +549,7 @@ gpiobus_probe(device_t dev)
 	return (BUS_PROBE_GENERIC);
 }
 
-static int
+int
 gpiobus_attach(device_t dev)
 {
 	int err;
@@ -573,13 +571,11 @@ gpiobus_attach(device_t dev)
  * Since this is not a self-enumerating bus, and since we always add
  * children in attach, we have to always delete children here.
  */
-static int
+int
 gpiobus_detach(device_t dev)
 {
 	struct gpiobus_softc *sc;
-	struct gpiobus_ivar *devi;
-	device_t *devlist;
-	int i, err, ndevs;
+	int i, err;
 
 	sc = GPIOBUS_SOFTC(dev);
 	KASSERT(mtx_initialized(&sc->sc_mtx),
@@ -588,17 +584,9 @@ gpiobus_detach(device_t dev)
 
 	if ((err = bus_generic_detach(dev)) != 0)
 		return (err);
-
-	if ((err = device_get_children(dev, &devlist, &ndevs)) != 0)
+	if ((err = device_delete_children(dev)) != 0)
 		return (err);
-	for (i = 0; i < ndevs; i++) {
-		devi = GPIOBUS_IVAR(devlist[i]);
-		gpiobus_free_ivars(devi);
-		resource_list_free(&devi->rl);
-		free(devi, M_DEVBUF);
-		device_delete_child(dev, devlist[i]);
-	}
-	free(devlist, M_TEMP);
+
 	rman_fini(&sc->sc_intr_rman);
 	if (sc->sc_pins) {
 		for (i = 0; i < sc->sc_npins; i++) {
@@ -702,6 +690,19 @@ gpiobus_add_child(device_t dev, u_int order, const char *name, int unit)
 	return (child);
 }
 
+static void
+gpiobus_child_deleted(device_t dev, device_t child)
+{
+	struct gpiobus_ivar *devi;
+
+	devi = GPIOBUS_IVAR(child);
+	if (devi == NULL)
+		return;
+	gpiobus_free_ivars(devi);
+	resource_list_free(&devi->rl);
+	free(devi, M_DEVBUF);
+}
+
 static int
 gpiobus_rescan(device_t dev)
 {
@@ -721,7 +722,6 @@ static void
 gpiobus_hinted_child(device_t bus, const char *dname, int dunit)
 {
 	struct gpiobus_softc *sc = GPIOBUS_SOFTC(bus);
-	struct gpiobus_ivar *devi;
 	device_t child;
 	const char *pins;
 	int irq, pinmask;
@@ -731,19 +731,14 @@ gpiobus_hinted_child(device_t bus, const char *dname, int dunit)
 	}
 
 	child = BUS_ADD_CHILD(bus, 0, dname, dunit);
-	devi = GPIOBUS_IVAR(child);
 	if (resource_int_value(dname, dunit, "pins", &pinmask) == 0) {
 		if (gpiobus_parse_pins(sc, child, pinmask)) {
-			resource_list_free(&devi->rl);
-			free(devi, M_DEVBUF);
 			device_delete_child(bus, child);
 			return;
 		}
 	}
 	else if (resource_string_value(dname, dunit, "pin_list", &pins) == 0) {
 		if (gpiobus_parse_pin_list(sc, child, pins)) {
-			resource_list_free(&devi->rl);
-			free(devi, M_DEVBUF);
 			device_delete_child(bus, child);
 			return;
 		}
@@ -755,25 +750,7 @@ gpiobus_hinted_child(device_t bus, const char *dname, int dunit)
 	}
 }
 
-static int
-gpiobus_set_resource(device_t dev, device_t child, int type, int rid,
-    rman_res_t start, rman_res_t count)
-{
-	struct gpiobus_ivar *devi;
-	struct resource_list_entry *rle;
-
-	dprintf("%s: entry (%p, %p, %d, %d, %p, %ld)\n",
-	    __func__, dev, child, type, rid, (void *)(intptr_t)start, count);
-	devi = GPIOBUS_IVAR(child);
-	rle = resource_list_add(&devi->rl, type, rid, start,
-	    start + count - 1, count);
-	if (rle == NULL)
-		return (ENXIO);
-
-	return (0);
-}
-
-static int
+int
 gpiobus_read_ivar(device_t dev, device_t child, int which, uintptr_t *result)
 {
 	struct gpiobus_ivar *devi;
@@ -1075,13 +1052,16 @@ static device_method_t gpiobus_methods[] = {
 	DEVMETHOD(bus_setup_intr,	bus_generic_setup_intr),
 	DEVMETHOD(bus_config_intr,	bus_generic_config_intr),
 	DEVMETHOD(bus_teardown_intr,	bus_generic_teardown_intr),
-	DEVMETHOD(bus_set_resource,	gpiobus_set_resource),
+	DEVMETHOD(bus_delete_resource,	bus_generic_rl_delete_resource),
+	DEVMETHOD(bus_get_resource,	bus_generic_rl_get_resource),
+	DEVMETHOD(bus_set_resource,	bus_generic_rl_set_resource),
 	DEVMETHOD(bus_alloc_resource,	gpiobus_alloc_resource),
 	DEVMETHOD(bus_release_resource,	gpiobus_release_resource),
 	DEVMETHOD(bus_activate_resource,	bus_generic_activate_resource),
 	DEVMETHOD(bus_deactivate_resource,	bus_generic_deactivate_resource),
 	DEVMETHOD(bus_get_resource_list,	gpiobus_get_resource_list),
 	DEVMETHOD(bus_add_child,	gpiobus_add_child),
+	DEVMETHOD(bus_child_deleted,	gpiobus_child_deleted),
 	DEVMETHOD(bus_rescan,		gpiobus_rescan),
 	DEVMETHOD(bus_probe_nomatch,	gpiobus_probe_nomatch),
 	DEVMETHOD(bus_print_child,	gpiobus_print_child),

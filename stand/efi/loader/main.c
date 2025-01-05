@@ -27,7 +27,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <stand.h>
 
 #include <sys/disk.h>
@@ -57,8 +56,17 @@
 #include <bootstrap.h>
 #include <smbios.h>
 
+#include <dev/random/fortuna.h>
+#include <geom/eli/pkcs5v2.h>
+
 #include "efizfs.h"
 #include "framebuffer.h"
+
+#include "platform/acfreebsd.h"
+#include "acconfig.h"
+#define ACPI_SYSTEM_XFACE
+#include "actypes.h"
+#include "actbl.h"
 
 #include "loader_efi.h"
 
@@ -256,26 +264,28 @@ probe_zfs_currdev(uint64_t guid)
 	currdev.dd.d_unit = 0;
 	currdev.pool_guid = guid;
 	currdev.root_guid = 0;
-	set_currdev_devdesc((struct devdesc *)&currdev);
 	devname = devformat(&currdev.dd);
+	set_currdev(devname);
+	printf("Setting currdev to %s\n", devname);
 	init_zfs_boot_options(devname);
 
 	if (zfs_get_bootonce(&currdev, OS_BOOTONCE, buf, sizeof(buf)) == 0) {
 		printf("zfs bootonce: %s\n", buf);
 		set_currdev(buf);
 		setenv("zfs-bootonce", buf, 1);
-		(void)zfs_attach_nvstore(&currdev);
 	}
+	(void)zfs_attach_nvstore(&currdev);
 
 	return (sanity_check_currdev());
 }
 #endif
 
 #ifdef MD_IMAGE_SIZE
+extern struct devsw md_dev;
+
 static bool
 probe_md_currdev(void)
 {
-	extern struct devsw md_dev;
 	bool rv;
 
 	set_currdev_devsw(&md_dev, 0);
@@ -716,7 +726,10 @@ setenv_int(const char *key, int val)
  * Parse ConOut (the list of consoles active) and see if we can find a
  * serial port and/or a video port. It would be nice to also walk the
  * ACPI name space to map the UID for the serial port to a port. The
- * latter is especially hard.
+ * latter is especially hard. Also check for ConIn as well. This will
+ * be enough to determine if we have serial, and if we don't, we default
+ * to video. If there's a dual-console situation with ConIn, this will
+ * currently fail.
  */
 int
 parse_uefi_con_out(void)
@@ -735,6 +748,8 @@ parse_uefi_con_out(void)
 	rv = efi_global_getenv("ConOut", buf, &sz);
 	if (rv != EFI_SUCCESS)
 		rv = efi_global_getenv("ConOutDev", buf, &sz);
+	if (rv != EFI_SUCCESS)
+		rv = efi_global_getenv("ConIn", buf, &sz);
 	if (rv != EFI_SUCCESS) {
 		/*
 		 * If we don't have any ConOut default to both. If we have GOP
@@ -896,6 +911,40 @@ ptov(uintptr_t x)
 	return ((caddr_t)x);
 }
 
+static void
+acpi_detect(void)
+{
+	ACPI_TABLE_RSDP *rsdp;
+	char buf[24];
+	int revision;
+
+	feature_enable(FEATURE_EARLY_ACPI);
+	if ((rsdp = efi_get_table(&acpi20)) == NULL)
+		if ((rsdp = efi_get_table(&acpi)) == NULL)
+			return;
+
+	sprintf(buf, "0x%016llx", (unsigned long long)rsdp);
+	setenv("acpi.rsdp", buf, 1);
+	revision = rsdp->Revision;
+	if (revision == 0)
+		revision = 1;
+	sprintf(buf, "%d", revision);
+	setenv("acpi.revision", buf, 1);
+	strncpy(buf, rsdp->OemId, sizeof(rsdp->OemId));
+	buf[sizeof(rsdp->OemId)] = '\0';
+	setenv("acpi.oem", buf, 1);
+	sprintf(buf, "0x%016x", rsdp->RsdtPhysicalAddress);
+	setenv("acpi.rsdt", buf, 1);
+	if (revision >= 2) {
+		/* XXX extended checksum? */
+		sprintf(buf, "0x%016llx",
+		    (unsigned long long)rsdp->XsdtPhysicalAddress);
+		setenv("acpi.xsdt", buf, 1);
+		sprintf(buf, "%d", rsdp->Length);
+		setenv("acpi.xsdt_length", buf, 1);
+	}
+}
+
 EFI_STATUS
 main(int argc, CHAR16 *argv[])
 {
@@ -941,6 +990,9 @@ main(int argc, CHAR16 *argv[])
 
         /* Get our loaded image protocol interface structure. */
 	(void) OpenProtocolByHandle(IH, &imgid, (void **)&boot_img);
+
+	/* Report the RSDP early. */
+	acpi_detect();
 
 	/*
 	 * Chicken-and-egg problem; we want to have console output early, but
@@ -1200,11 +1252,27 @@ command_seed_entropy(int argc, char *argv[])
 {
 	EFI_STATUS status;
 	EFI_RNG_PROTOCOL *rng;
-	unsigned int size = 2048;
+	unsigned int size_efi = RANDOM_FORTUNA_DEFPOOLSIZE * RANDOM_FORTUNA_NPOOLS;
+	unsigned int size = RANDOM_FORTUNA_DEFPOOLSIZE * RANDOM_FORTUNA_NPOOLS;
+	void *buf_efi;
 	void *buf;
 
 	if (argc > 1) {
-		size = strtol(argv[1], NULL, 0);
+		size_efi = strtol(argv[1], NULL, 0);
+
+		/* Don't *compress* the entropy we get from EFI. */
+		if (size_efi > size)
+			size = size_efi;
+
+		/*
+		 * If the amount of entropy we get from EFI is less than the
+		 * size of a single Fortuna pool -- i.e. not enough to ensure
+		 * that Fortuna is safely seeded -- don't expand it since we
+		 * don't want to trick Fortuna into thinking that it has been
+		 * safely seeded when it has not.
+		 */
+		if (size_efi < RANDOM_FORTUNA_DEFPOOLSIZE)
+			size = size_efi;
 	}
 
 	status = BS->LocateProtocol(&rng_guid, NULL, (VOID **)&rng);
@@ -1218,18 +1286,34 @@ command_seed_entropy(int argc, char *argv[])
 		return (CMD_ERROR);
 	}
 
-	status = rng->GetRNG(rng, NULL, size, (UINT8 *)buf);
+	if ((buf_efi = malloc(size_efi)) == NULL) {
+		free(buf);
+		command_errmsg = "out of memory";
+		return (CMD_ERROR);
+	}
+
+	TSENTER2("rng->GetRNG");
+	status = rng->GetRNG(rng, NULL, size_efi, (UINT8 *)buf_efi);
+	TSEXIT();
 	if (status != EFI_SUCCESS) {
+		free(buf_efi);
 		free(buf);
 		command_errmsg = "GetRNG failed";
 		return (CMD_ERROR);
 	}
+	if (size_efi < size)
+		pkcs5v2_genkey_raw(buf, size, "", 0, buf_efi, size_efi, 1);
+	else
+		memcpy(buf, buf_efi, size);
 
 	if (file_addbuf("efi_rng_seed", "boot_entropy_platform", size, buf) != 0) {
+		free(buf_efi);
 		free(buf);
 		return (CMD_ERROR);
 	}
 
+	explicit_bzero(buf_efi, size_efi);
+	free(buf_efi);
 	free(buf);
 	return (CMD_OK);
 }
@@ -1671,6 +1755,7 @@ command_chain(int argc, char *argv[])
 
 COMMAND_SET(chain, "chain", "chain load file", command_chain);
 
+#if defined(LOADER_NET_SUPPORT)
 extern struct in_addr servip;
 static int
 command_netserver(int argc, char *argv[])
@@ -1701,3 +1786,4 @@ command_netserver(int argc, char *argv[])
 
 COMMAND_SET(netserver, "netserver", "change or display netserver URI",
     command_netserver);
+#endif

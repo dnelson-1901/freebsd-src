@@ -47,6 +47,7 @@ nodist_libzfs_la_SOURCES = \
 	module/zcommon/zfs_fletcher_superscalar4.c \
 	module/zcommon/zfs_namecheck.c \
 	module/zcommon/zfs_prop.c \
+	module/zcommon/zfs_valstr.c \
 	module/zcommon/zpool_prop.c \
 	module/zcommon/zprop_common.c
 
@@ -57,7 +58,7 @@ libzfs_la_LIBADD = \
 	libzutil.la \
 	libuutil.la
 
-libzfs_la_LIBADD += -lm $(LIBCRYPTO_LIBS) $(ZLIB_LIBS) $(LIBFETCH_LIBS) $(LTLIBINTL)
+libzfs_la_LIBADD += -lrt -lm $(LIBCRYPTO_LIBS) $(ZLIB_LIBS) $(LIBFETCH_LIBS) $(LTLIBINTL)
 
 libzfs_la_LDFLAGS = -pthread
 

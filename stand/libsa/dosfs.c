@@ -25,7 +25,6 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 /*
  * Readonly filesystem for Microsoft FAT12/FAT16/FAT32 filesystems,
  * also supports VFAT.
@@ -816,7 +815,7 @@ fsize(DOS_FS *fs, DOS_DE *de)
 	int n;
 
 	if (!(size = cv4(de->size)) && de->attr & FA_DIR) {
-		if (!(c = cv2(de->clus))) {
+		if (!(c = stclus(fs->fatsz, de))) {
 			size = fs->dirents * sizeof(DOS_DE);
 		} else {
 			if ((n = fatcnt(fs, c)) == -1)

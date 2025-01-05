@@ -88,6 +88,10 @@ CWARNFLAGS.clang+=	-Wno-unused-const-variable
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 150000
 CWARNFLAGS.clang+=	-Wno-error=unused-but-set-parameter
 .endif
+.if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 190000
+# Similar to gcc >= 8.1 -Wno-error=cast-function-type below
+CWARNFLAGS.clang+=	-Wno-error=cast-function-type-mismatch
+.endif
 .endif # WARNS <= 6
 .if ${WARNS} <= 3
 CWARNFLAGS.clang+=	-Wno-tautological-compare -Wno-unused-value\
@@ -217,6 +221,7 @@ CWARNFLAGS+=	-Wno-error=aggressive-loop-optimizations	\
 		-Wno-error=restrict				\
 		-Wno-error=sizeof-pointer-memaccess		\
 		-Wno-error=stringop-truncation
+CXXWARNFLAGS+=	-Wno-error=class-memaccess
 .endif
 
 # GCC 9.2.0
@@ -232,6 +237,13 @@ CWARNFLAGS+=	-Wno-error=overflow
 # globally for all C++
 CXXWARNFLAGS+=	-Wno-literal-suffix 			\
 		-Wno-error=unknown-pragmas
+.endif
+
+# GCC 13.1.0
+.if ${COMPILER_VERSION} >= 130100
+# These warnings are raised by headers in libc++ so are disabled
+# globally for all C++
+CXXWARNFLAGS+=	-Wno-dangling-reference
 .endif
 
 # GCC produces false positives for functions that switch on an

@@ -37,6 +37,7 @@
  * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  * Copyright (c) 2012, 2019 by Delphix. All rights reserved.
+ * Copyright (c) 2024, Klara, Inc.
  */
 
 /*
@@ -417,6 +418,8 @@ zvol_replay_truncate(void *arg1, void *arg2, boolean_t byteswap)
 	lr_truncate_t *lr = arg2;
 	uint64_t offset, length;
 
+	ASSERT3U(lr->lr_common.lrc_reclen, >=, sizeof (*lr));
+
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
@@ -453,6 +456,8 @@ zvol_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	dmu_tx_t *tx;
 	int error;
 
+	ASSERT3U(lr->lr_common.lrc_reclen, >=, sizeof (*lr));
+
 	if (byteswap)
 		byteswap_uint64_array(lr, sizeof (*lr));
 
@@ -480,60 +485,6 @@ zvol_replay_write(void *arg1, void *arg2, boolean_t byteswap)
 	}
 
 	return (error);
-}
-
-/*
- * Replay a TX_CLONE_RANGE ZIL transaction that didn't get committed
- * after a system failure.
- *
- * TODO: For now we drop block cloning transations for ZVOLs as they are
- *       unsupported, but we still need to inform BRT about that as we
- *       claimed them during pool import.
- *       This situation can occur when we try to import a pool from a ZFS
- *       version supporting block cloning for ZVOLs into a system that
- *       has this ZFS version, that doesn't support block cloning for ZVOLs.
- */
-static int
-zvol_replay_clone_range(void *arg1, void *arg2, boolean_t byteswap)
-{
-	char name[ZFS_MAX_DATASET_NAME_LEN];
-	zvol_state_t *zv = arg1;
-	objset_t *os = zv->zv_objset;
-	lr_clone_range_t *lr = arg2;
-	blkptr_t *bp;
-	dmu_tx_t *tx;
-	spa_t *spa;
-	uint_t ii;
-	int error;
-
-	dmu_objset_name(os, name);
-	cmn_err(CE_WARN, "ZFS dropping block cloning transaction for %s.",
-	    name);
-
-	if (byteswap)
-		byteswap_uint64_array(lr, sizeof (*lr));
-
-	tx = dmu_tx_create(os);
-	error = dmu_tx_assign(tx, TXG_WAIT);
-	if (error) {
-		dmu_tx_abort(tx);
-		return (error);
-	}
-
-	spa = os->os_spa;
-
-	for (ii = 0; ii < lr->lr_nbps; ii++) {
-		bp = &lr->lr_bps[ii];
-
-		if (!BP_IS_HOLE(bp)) {
-			zio_free(spa, dmu_tx_get_txg(tx), bp);
-		}
-	}
-
-	(void) zil_replaying(zv->zv_zilog, tx);
-	dmu_tx_commit(tx);
-
-	return (0);
 }
 
 static int
@@ -570,7 +521,7 @@ zil_replay_func_t *const zvol_replay_vector[TX_MAX_TYPE] = {
 	zvol_replay_err,	/* TX_SETSAXATTR */
 	zvol_replay_err,	/* TX_RENAME_EXCHANGE */
 	zvol_replay_err,	/* TX_RENAME_WHITEOUT */
-	zvol_replay_clone_range	/* TX_CLONE_RANGE */
+	zvol_replay_err,	/* TX_CLONE_RANGE */
 };
 
 /*
@@ -698,7 +649,6 @@ zvol_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 	int error;
 
 	ASSERT3P(lwb, !=, NULL);
-	ASSERT3P(zio, !=, NULL);
 	ASSERT3U(size, !=, 0);
 
 	zgd = kmem_zalloc(sizeof (zgd_t), KM_SLEEP);
@@ -717,6 +667,7 @@ zvol_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 		error = dmu_read_by_dnode(zv->zv_dn, offset, size, buf,
 		    DMU_READ_NO_PREFETCH);
 	} else { /* indirect write */
+		ASSERT3P(zio, !=, NULL);
 		/*
 		 * Have to lock the whole block to ensure when it's written out
 		 * and its checksum is being calculated that no one can change
@@ -727,8 +678,8 @@ zvol_get_data(void *arg, uint64_t arg2, lr_write_t *lr, char *buf,
 		offset = P2ALIGN_TYPED(offset, size, uint64_t);
 		zgd->zgd_lr = zfs_rangelock_enter(&zv->zv_rangelock, offset,
 		    size, RL_READER);
-		error = dmu_buf_hold_by_dnode(zv->zv_dn, offset, zgd, &db,
-		    DMU_READ_NO_PREFETCH);
+		error = dmu_buf_hold_noread_by_dnode(zv->zv_dn, offset, zgd,
+		    &db);
 		if (error == 0) {
 			blkptr_t *bp = &lr->lr_blkptr;
 
@@ -918,6 +869,9 @@ zvol_resume(zvol_state_t *zv)
 	 */
 	atomic_dec(&zv->zv_suspend_ref);
 
+	if (zv->zv_flags & ZVOL_REMOVING)
+		cv_broadcast(&zv->zv_removing_cv);
+
 	return (SET_ERROR(error));
 }
 
@@ -953,6 +907,9 @@ zvol_last_close(zvol_state_t *zv)
 	ASSERT(RW_READ_HELD(&zv->zv_suspend_lock));
 	ASSERT(MUTEX_HELD(&zv->zv_state_lock));
 
+	if (zv->zv_flags & ZVOL_REMOVING)
+		cv_broadcast(&zv->zv_removing_cv);
+
 	zvol_shutdown_zv(zv);
 
 	dmu_objset_disown(zv->zv_objset, 1, zv);
@@ -981,7 +938,7 @@ zvol_prefetch_minors_impl(void *arg)
 	job->error = dmu_objset_own(dsname, DMU_OST_ZVOL, B_TRUE, B_TRUE,
 	    FTAG, &os);
 	if (job->error == 0) {
-		dmu_prefetch(os, ZVOL_OBJ, 0, 0, 0, ZIO_PRIORITY_SYNC_READ);
+		dmu_prefetch_dnode(os, ZVOL_OBJ, ZIO_PRIORITY_SYNC_READ);
 		dmu_objset_disown(os, B_TRUE, FTAG);
 	}
 }
@@ -1245,6 +1202,41 @@ zvol_create_minor(const char *name)
  * Remove minors for specified dataset including children and snapshots.
  */
 
+/*
+ * Remove the minor for a given zvol. This will do it all:
+ *  - flag the zvol for removal, so new requests are rejected
+ *  - wait until outstanding requests are completed
+ *  - remove it from lists
+ *  - free it
+ * It's also usable as a taskq task, and smells nice too.
+ */
+static void
+zvol_remove_minor_task(void *arg)
+{
+	zvol_state_t *zv = (zvol_state_t *)arg;
+
+	ASSERT(!RW_LOCK_HELD(&zvol_state_lock));
+	ASSERT(!MUTEX_HELD(&zv->zv_state_lock));
+
+	mutex_enter(&zv->zv_state_lock);
+	while (zv->zv_open_count > 0 || atomic_read(&zv->zv_suspend_ref)) {
+		zv->zv_flags |= ZVOL_REMOVING;
+		cv_wait(&zv->zv_removing_cv, &zv->zv_state_lock);
+	}
+	mutex_exit(&zv->zv_state_lock);
+
+	rw_enter(&zvol_state_lock, RW_WRITER);
+	mutex_enter(&zv->zv_state_lock);
+
+	zvol_remove(zv);
+	zvol_os_clear_private(zv);
+
+	mutex_exit(&zv->zv_state_lock);
+	rw_exit(&zvol_state_lock);
+
+	zvol_os_free(zv);
+}
+
 static void
 zvol_free_task(void *arg)
 {
@@ -1257,11 +1249,13 @@ zvol_remove_minors_impl(const char *name)
 	zvol_state_t *zv, *zv_next;
 	int namelen = ((name) ? strlen(name) : 0);
 	taskqid_t t;
-	list_t free_list;
+	list_t delay_list, free_list;
 
 	if (zvol_inhibit_dev)
 		return;
 
+	list_create(&delay_list, sizeof (zvol_state_t),
+	    offsetof(zvol_state_t, zv_next));
 	list_create(&free_list, sizeof (zvol_state_t),
 	    offsetof(zvol_state_t, zv_next));
 
@@ -1280,9 +1274,24 @@ zvol_remove_minors_impl(const char *name)
 			 * one is currently using this zv
 			 */
 
-			/* If in use, leave alone */
+			/*
+			 * If in use, try to throw everyone off and try again
+			 * later.
+			 */
 			if (zv->zv_open_count > 0 ||
 			    atomic_read(&zv->zv_suspend_ref)) {
+				zv->zv_flags |= ZVOL_REMOVING;
+				t = taskq_dispatch(
+				    zv->zv_objset->os_spa->spa_zvol_taskq,
+				    zvol_remove_minor_task, zv, TQ_SLEEP);
+				if (t == TASKQID_INVALID) {
+					/*
+					 * Couldn't create the task, so we'll
+					 * do it in place once the loop is
+					 * finished.
+					 */
+					list_insert_head(&delay_list, zv);
+				}
 				mutex_exit(&zv->zv_state_lock);
 				continue;
 			}
@@ -1309,7 +1318,11 @@ zvol_remove_minors_impl(const char *name)
 	}
 	rw_exit(&zvol_state_lock);
 
-	/* Drop zvol_state_lock before calling zvol_free() */
+	/* Wait for zvols that we couldn't create a remove task for */
+	while ((zv = list_remove_head(&delay_list)) != NULL)
+		zvol_remove_minor_task(zv);
+
+	/* Free any that we couldn't free in parallel earlier */
 	while ((zv = list_remove_head(&free_list)) != NULL)
 		zvol_os_free(zv);
 }
@@ -1329,33 +1342,38 @@ zvol_remove_minor_impl(const char *name)
 		zv_next = list_next(&zvol_state_list, zv);
 
 		mutex_enter(&zv->zv_state_lock);
-		if (strcmp(zv->zv_name, name) == 0) {
-			/*
-			 * By holding zv_state_lock here, we guarantee that no
-			 * one is currently using this zv
-			 */
-
-			/* If in use, leave alone */
-			if (zv->zv_open_count > 0 ||
-			    atomic_read(&zv->zv_suspend_ref)) {
-				mutex_exit(&zv->zv_state_lock);
-				continue;
-			}
-			zvol_remove(zv);
-
-			zvol_os_clear_private(zv);
-			mutex_exit(&zv->zv_state_lock);
+		if (strcmp(zv->zv_name, name) == 0)
+			/* Found, leave the the loop with zv_lock held */
 			break;
-		} else {
-			mutex_exit(&zv->zv_state_lock);
-		}
+		mutex_exit(&zv->zv_state_lock);
 	}
 
-	/* Drop zvol_state_lock before calling zvol_free() */
+	if (zv == NULL) {
+		rw_exit(&zvol_state_lock);
+		return;
+	}
+
+	ASSERT(MUTEX_HELD(&zv->zv_state_lock));
+
+	if (zv->zv_open_count > 0 || atomic_read(&zv->zv_suspend_ref)) {
+		/*
+		 * In use, so try to throw everyone off, then wait
+		 * until finished.
+		 */
+		zv->zv_flags |= ZVOL_REMOVING;
+		mutex_exit(&zv->zv_state_lock);
+		rw_exit(&zvol_state_lock);
+		zvol_remove_minor_task(zv);
+		return;
+	}
+
+	zvol_remove(zv);
+	zvol_os_clear_private(zv);
+
+	mutex_exit(&zv->zv_state_lock);
 	rw_exit(&zvol_state_lock);
 
-	if (zv != NULL)
-		zvol_os_free(zv);
+	zvol_os_free(zv);
 }
 
 /*

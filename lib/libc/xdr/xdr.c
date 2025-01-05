@@ -37,7 +37,6 @@
 static char *sccsid2 = "@(#)xdr.c 1.35 87/08/12";
 static char *sccsid = "@(#)xdr.c	2.1 88/07/29 4.0 RPCSRC";
 #endif
-#include <sys/cdefs.h>
 /*
  * xdr.c, Generic XDR routines implementation.
  *
@@ -89,12 +88,10 @@ xdr_free(xdrproc_t proc, void *objp)
  * XDR nothing
  */
 bool_t
-xdr_void(void)
+xdr_void(XDR *xdrs __unused, void *ptr __unused)
 {
-
 	return (TRUE);
 }
-
 
 /*
  * XDR integers

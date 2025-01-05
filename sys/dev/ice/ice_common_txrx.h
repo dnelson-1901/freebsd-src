@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2023, Intel Corporation
+/*  Copyright (c) 2024, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -169,7 +169,7 @@ ice_tso_setup(struct ice_tx_queue *txq, if_pkt_info_t pi)
 	txd->qw1 = htole64(type_cmd_tso_mss);
 
 	txd->tunneling_params = htole32(0);
-	txq->tso++;
+	txq->stats.tso++;
 
 	return ((idx + 1) & (txq->desc_count-1));
 }

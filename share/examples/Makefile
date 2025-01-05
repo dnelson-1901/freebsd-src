@@ -11,7 +11,6 @@ LDIRS=	BSD_daemon \
 	IPv6 \
 	bootforth \
 	csh \
-	diskless \
 	drivers \
 	etc \
 	find_interface \
@@ -23,6 +22,7 @@ LDIRS=	BSD_daemon \
 	libvgl \
 	mdoc \
 	netgraph \
+	oci \
 	perfmon \
 	ppi \
 	ppp \
@@ -73,13 +73,6 @@ SE_BOOTFORTH= \
 
 SE_DIRS+=	csh
 SE_CSH=	dot.cshrc
-
-SE_DIRS+=	diskless
-SE_DISKLESS= \
-	ME \
-	README.BOOTP \
-	README.TEMPLATING \
-	clone_root
 
 SE_DIRS+=	drivers
 SE_DRIVERS= \
@@ -206,6 +199,11 @@ SE_NETGRAPH= \
 	virtual.chain \
 	virtual.lan \
 
+SE_DIRS+=	oci
+SE_OCI= \
+	README \
+	Containerfile.pkg
+
 SE_DIRS+=	perfmon
 SE_PERFMON= \
 	Makefile \
@@ -319,11 +317,13 @@ SE_SCSI_TARGET= \
 
 SE_DIRS+=	sound
 SE_SOUND= \
-	basic.c \
-	ossinit.h \
-	ossmidi.h \
-	midi.c \
-	README
+	  sndstat_nv.c \
+	  midi.c
+
+SE_DIRS+=	sound/oss
+SE_SOUND_OSS= \
+	README \
+	audio.c
 
 SE_DIRS+=	sunrpc
 SE_SUNRPC=	Makefile

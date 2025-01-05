@@ -153,8 +153,8 @@ static struct task	unp_defer_task;
 #endif
 static u_long	unpst_sendspace = PIPSIZ;
 static u_long	unpst_recvspace = PIPSIZ;
-static u_long	unpdg_maxdgram = 2*1024;
-static u_long	unpdg_recvspace = 16*1024;	/* support 8KB syslog msgs */
+static u_long	unpdg_maxdgram = 8*1024;	/* support 8KB syslog msgs */
+static u_long	unpdg_recvspace = 16*1024;
 static u_long	unpsp_sendspace = PIPSIZ;	/* really max datagram size */
 static u_long	unpsp_recvspace = PIPSIZ;
 
@@ -511,6 +511,7 @@ uipc_attach(struct socket *so, int proto, struct thread *td)
 	unp->unp_socket = so;
 	so->so_pcb = unp;
 	refcount_init(&unp->unp_refcount, 1);
+	unp->unp_mode = ACCESSPERMS;
 
 	if ((locked = UNP_LINK_WOWNED()) == false)
 		UNP_LINK_WLOCK();
@@ -553,6 +554,7 @@ uipc_bindat(int fd, struct socket *so, struct sockaddr *nam, struct thread *td)
 	struct mount *mp;
 	cap_rights_t rights;
 	char *buf;
+	mode_t mode;
 
 	if (nam->sa_family != AF_UNIX)
 		return (EAFNOSUPPORT);
@@ -585,6 +587,7 @@ uipc_bindat(int fd, struct socket *so, struct sockaddr *nam, struct thread *td)
 		return (EALREADY);
 	}
 	unp->unp_flags |= UNP_BINDING;
+	mode = unp->unp_mode & ~td->td_proc->p_pd->pd_cmask;
 	UNP_PCB_UNLOCK(unp);
 
 	buf = malloc(namelen + 1, M_TEMP, M_WAITOK);
@@ -617,13 +620,24 @@ restart:
 	}
 	VATTR_NULL(&vattr);
 	vattr.va_type = VSOCK;
-	vattr.va_mode = (ACCESSPERMS & ~td->td_proc->p_pd->pd_cmask);
+	vattr.va_mode = mode;
 #ifdef MAC
 	error = mac_vnode_check_create(td->td_ucred, nd.ni_dvp, &nd.ni_cnd,
 	    &vattr);
 #endif
-	if (error == 0)
+	if (error == 0) {
+		/*
+		 * The prior lookup may have left LK_SHARED in cn_lkflags,
+		 * and VOP_CREATE technically only requires the new vnode to
+		 * be locked shared. Most filesystems will return the new vnode
+		 * locked exclusive regardless, but we should explicitly
+		 * specify that here since we require it and assert to that
+		 * effect below.
+		 */
+		nd.ni_cnd.cn_lkflags = (nd.ni_cnd.cn_lkflags & ~LK_SHARED) |
+		    LK_EXCLUSIVE;
 		error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &vattr);
+	}
 	NDFREE_PNBUF(&nd);
 	if (error) {
 		VOP_VPUT_PAIR(nd.ni_dvp, NULL, true);
@@ -716,6 +730,27 @@ uipc_close(struct socket *so)
 		mtx_unlock(vplock);
 		vrele(vp);
 	}
+}
+
+static int
+uipc_chmod(struct socket *so, mode_t mode, struct ucred *cred __unused,
+    struct thread *td __unused)
+{
+	struct unpcb *unp;
+	int error;
+
+	if ((mode & ~ACCESSPERMS) != 0)
+		return (EINVAL);
+
+	error = 0;
+	unp = sotounpcb(so);
+	UNP_PCB_LOCK(unp);
+	if (unp->unp_vnode != NULL || (unp->unp_flags & UNP_BINDING) != 0)
+		error = EINVAL;
+	else
+		unp->unp_mode = mode;
+	UNP_PCB_UNLOCK(unp);
+	return (error);
 }
 
 static int
@@ -1332,8 +1367,10 @@ uipc_sosend_dgram(struct socket *so, struct sockaddr *addr, struct uio *uio,
 	} else {
 		soroverflow_locked(so2);
 		error = ENOBUFS;
-		if (f->m_next->m_type == MT_CONTROL)
-			unp_scan(f->m_next, unp_freerights);
+		if (f->m_next->m_type == MT_CONTROL) {
+			c = f->m_next;
+			f->m_next = NULL;
+		}
 	}
 
 	if (addr != NULL)
@@ -2176,7 +2213,7 @@ unp_disconnect(struct unpcb *unp, struct unpcb *unp2)
 
 	if (m != NULL) {
 		unp_scan(m, unp_freerights);
-		m_freem(m);
+		m_freemp(m);
 	}
 }
 
@@ -3263,7 +3300,7 @@ unp_dispose(struct socket *so)
 
 	if (m != NULL) {
 		unp_scan(m, unp_freerights);
-		m_freem(m);
+		m_freemp(m);
 	}
 }
 
@@ -3339,6 +3376,7 @@ static struct protosw streamproto = {
 	.pr_sockaddr =		uipc_sockaddr,
 	.pr_soreceive =		soreceive_generic,
 	.pr_close =		uipc_close,
+	.pr_chmod =		uipc_chmod,
 };
 
 static struct protosw dgramproto = {
@@ -3363,6 +3401,7 @@ static struct protosw dgramproto = {
 	.pr_sockaddr =		uipc_sockaddr,
 	.pr_soreceive =		uipc_soreceive_dgram,
 	.pr_close =		uipc_close,
+	.pr_chmod =		uipc_chmod,
 };
 
 static struct protosw seqpacketproto = {
@@ -3394,6 +3433,7 @@ static struct protosw seqpacketproto = {
 	.pr_sockaddr =		uipc_sockaddr,
 	.pr_soreceive =		soreceive_generic,	/* XXX: or...? */
 	.pr_close =		uipc_close,
+	.pr_chmod =		uipc_chmod,
 };
 
 static struct domain localdomain = {

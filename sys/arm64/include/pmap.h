@@ -69,16 +69,6 @@ struct md_page {
 	vm_memattr_t		pv_memattr;
 };
 
-/*
- * This structure is used to hold a virtual<->physical address
- * association and is used mostly by bootstrap code
- */
-struct pv_addr {
-	SLIST_ENTRY(pv_addr) pv_list;
-	vm_offset_t	pv_va;
-	vm_paddr_t	pv_pa;
-};
-
 enum pmap_stage {
 	PM_INVALID,
 	PM_STAGE1,
@@ -144,7 +134,7 @@ extern vm_offset_t virtual_end;
 #define	pmap_vm_page_alloc_check(m)
 
 void	pmap_activate_vm(pmap_t);
-void	pmap_bootstrap(vm_paddr_t, vm_size_t);
+void	pmap_bootstrap(vm_size_t);
 int	pmap_change_attr(vm_offset_t va, vm_size_t size, int mode);
 int	pmap_change_prot(vm_offset_t va, vm_size_t size, vm_prot_t prot);
 void	pmap_kenter(vm_offset_t sva, vm_size_t size, vm_paddr_t pa, int mode);
@@ -192,9 +182,8 @@ pmap_vmspace_copy(pmap_t dst_pmap __unused, pmap_t src_pmap __unused)
 #if defined(KASAN) || defined(KMSAN)
 struct arm64_bootparams;
 
-void	pmap_bootstrap_san(vm_paddr_t);
+void	pmap_bootstrap_san(void);
 void	pmap_san_enter(vm_offset_t);
-void	pmap_san_bootstrap(struct arm64_bootparams *);
 #endif
 
 #endif	/* _KERNEL */

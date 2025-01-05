@@ -702,8 +702,7 @@ vnode_pager_input_smlfs(vm_object_t object, vm_page_t m)
 			bp->b_vp = vp;
 			bp->b_bcount = bsize;
 			bp->b_bufsize = bsize;
-			bp->b_runningbufspace = bp->b_bufsize;
-			atomic_add_long(&runningbufspace, bp->b_runningbufspace);
+			(void)runningbufclaim(bp, bp->b_bufsize);
 
 			/* do the input */
 			bp->b_iooffset = dbtob(bp->b_blkno);
@@ -1145,7 +1144,7 @@ vnode_pager_generic_getpages(struct vnode *vp, vm_page_t *m, int count,
 	bp->b_wcred = crhold(curthread->td_ucred);
 	pbgetbo(bo, bp);
 	bp->b_vp = vp;
-	bp->b_bcount = bp->b_bufsize = bp->b_runningbufspace = bytecount;
+	bp->b_bcount = bp->b_bufsize = bytecount;
 	bp->b_iooffset = dbtob(bp->b_blkno);
 	KASSERT(IDX_TO_OFF(m[0]->pindex - bp->b_pages[0]->pindex) ==
 	    (blkno0 - bp->b_blkno) * DEV_BSIZE +
@@ -1155,7 +1154,8 @@ vnode_pager_generic_getpages(struct vnode *vp, vm_page_t *m, int count,
 	    (uintmax_t)m[0]->pindex, (uintmax_t)bp->b_pages[0]->pindex,
 	    (uintmax_t)blkno0, (uintmax_t)bp->b_blkno));
 
-	atomic_add_long(&runningbufspace, bp->b_runningbufspace);
+	(void)runningbufclaim(bp, bp->b_bufsize);
+
 	VM_CNT_INC(v_vnodein);
 	VM_CNT_ADD(v_vnodepgsin, bp->b_npages);
 
@@ -1358,7 +1358,7 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 {
 	vm_object_t object;
 	vm_page_t m;
-	vm_ooffset_t maxblksz, next_offset, poffset, prev_offset;
+	vm_ooffset_t max_offset, next_offset, poffset, prev_offset;
 	struct uio auio;
 	struct iovec aiov;
 	off_t prev_resid, wrsz;
@@ -1433,15 +1433,15 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 	auio.uio_segflg = UIO_NOCOPY;
 	auio.uio_rw = UIO_WRITE;
 	auio.uio_td = NULL;
-	maxblksz = roundup2(poffset + maxsize, DEV_BSIZE);
+	max_offset = roundup2(poffset + maxsize, DEV_BSIZE);
 
-	for (prev_offset = poffset; prev_offset < maxblksz;) {
+	for (prev_offset = poffset; prev_offset < max_offset;) {
 		/* Skip clean blocks. */
-		for (in_hole = true; in_hole && prev_offset < maxblksz;) {
+		for (in_hole = true; in_hole && prev_offset < max_offset;) {
 			m = ma[OFF_TO_IDX(prev_offset - poffset)];
 			for (i = vn_off2bidx(prev_offset);
 			    i < sizeof(vm_page_bits_t) * NBBY &&
-			    prev_offset < maxblksz; i++) {
+			    prev_offset < max_offset; i++) {
 				if (vn_dirty_blk(m, prev_offset)) {
 					in_hole = false;
 					break;
@@ -1453,11 +1453,11 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 			goto write_done;
 
 		/* Find longest run of dirty blocks. */
-		for (next_offset = prev_offset; next_offset < maxblksz;) {
+		for (next_offset = prev_offset; next_offset < max_offset;) {
 			m = ma[OFF_TO_IDX(next_offset - poffset)];
 			for (i = vn_off2bidx(next_offset);
 			    i < sizeof(vm_page_bits_t) * NBBY &&
-			    next_offset < maxblksz; i++) {
+			    next_offset < max_offset; i++) {
 				if (!vn_dirty_blk(m, next_offset))
 					goto start_write;
 				next_offset += DEV_BSIZE;
@@ -1466,12 +1466,13 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 start_write:
 		if (next_offset > poffset + maxsize)
 			next_offset = poffset + maxsize;
+		if (prev_offset == next_offset)
+			goto write_done;
 
 		/*
 		 * Getting here requires finding a dirty block in the
 		 * 'skip clean blocks' loop.
 		 */
-		MPASS(prev_offset < next_offset);
 
 		aiov.iov_base = NULL;
 		auio.uio_iovcnt = 1;
@@ -1690,4 +1691,31 @@ static void
 vnode_pager_getvp(vm_object_t object, struct vnode **vpp, bool *vp_heldp)
 {
 	*vpp = object->handle;
+}
+
+static void
+vnode_pager_clean1(struct vnode *vp, int sync_flags)
+{
+	struct vm_object *obj;
+
+	ASSERT_VOP_LOCKED(vp, "needs lock for writes");
+	obj = vp->v_object;
+	if (obj == NULL)
+		return;
+
+	VM_OBJECT_WLOCK(obj);
+	vm_object_page_clean(obj, 0, 0, sync_flags);
+	VM_OBJECT_WUNLOCK(obj);
+}
+
+void
+vnode_pager_clean_sync(struct vnode *vp)
+{
+	vnode_pager_clean1(vp, OBJPC_SYNC);
+}
+
+void
+vnode_pager_clean_async(struct vnode *vp)
+{
+	vnode_pager_clean1(vp, 0);
 }

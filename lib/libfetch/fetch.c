@@ -427,7 +427,7 @@ fetchParseURL(const char *URL)
 				goto ouch;
 			}
 		}
-		if (n < 1 || n > IPPORT_MAX)
+		if (p != q && (n < 1 || n > IPPORT_MAX))
 			goto ouch;
 		u->port = n;
 		p = q;
@@ -448,7 +448,10 @@ nohost:
 			goto ouch;
 		}
 		u->doc = doc;
-		while (*p != '\0') {
+		/* fragments are reserved for client-side processing, see
+		 * https://www.rfc-editor.org/rfc/rfc9110.html#section-7.1
+		 */
+		while (*p != '\0' && *p != '#') {
 			if (!isspace((unsigned char)*p)) {
 				*doc++ = *p++;
 			} else {

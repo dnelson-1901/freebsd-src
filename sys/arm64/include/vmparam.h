@@ -85,11 +85,13 @@
 #define	VM_FREEPOOL_DIRECT	1
 
 /*
- * Create one free page lists: VM_FREELIST_DEFAULT is for all physical
- * pages.
+ * Create two free page lists: VM_FREELIST_DMA32 is for physical pages that have
+ * physical addresses below 4G, and VM_FREELIST_DEFAULT is for all other
+ * physical pages.
  */
-#define	VM_NFREELIST		1
+#define	VM_NFREELIST		2
 #define	VM_FREELIST_DEFAULT	0
+#define	VM_FREELIST_DMA32	1
 
 /*
  * When PAGE_SIZE is 4KB, an allocation size of 16MB is supported in order
@@ -193,9 +195,21 @@
 #define	DMAP_MIN_PHYSADDR	(dmap_phys_base)
 #define	DMAP_MAX_PHYSADDR	(dmap_phys_max)
 
-/* True if pa is in the dmap range */
-#define	PHYS_IN_DMAP(pa)	((pa) >= DMAP_MIN_PHYSADDR && \
+/*
+ * Checks to see if a physical address is in the DMAP range.
+ * - PHYS_IN_DMAP_RANGE will return true that may be within the DMAP range
+ *   but not accessible through the DMAP, e.g. device memory between two
+ *   DMAP physical address regions.
+ * - PHYS_IN_DMAP will check if DMAP address is mapped before returning true.
+ *
+ * PHYS_IN_DMAP_RANGE should only be used when a check on the address is
+ * performed, e.g. by checking the physical address is within phys_avail,
+ * or checking the virtual address is mapped.
+ */
+#define	PHYS_IN_DMAP_RANGE(pa)	((pa) >= DMAP_MIN_PHYSADDR && \
     (pa) < DMAP_MAX_PHYSADDR)
+#define	PHYS_IN_DMAP(pa)	(PHYS_IN_DMAP_RANGE(pa) && \
+    pmap_klookup(PHYS_TO_DMAP(pa), NULL))
 /* True if va is in the dmap range */
 #define	VIRT_IN_DMAP(va)	((va) >= DMAP_MIN_ADDRESS && \
     (va) < (dmap_max_addr))
@@ -203,7 +217,7 @@
 #define	PMAP_HAS_DMAP	1
 #define	PHYS_TO_DMAP(pa)						\
 ({									\
-	KASSERT(PHYS_IN_DMAP(pa),					\
+	KASSERT(PHYS_IN_DMAP_RANGE(pa),					\
 	    ("%s: PA out of range, PA: 0x%lx", __func__,		\
 	    (vm_paddr_t)(pa)));						\
 	((pa) - dmap_phys_base) + DMAP_MIN_ADDRESS;			\
@@ -259,7 +273,6 @@
 extern vm_paddr_t dmap_phys_base;
 extern vm_paddr_t dmap_phys_max;
 extern vm_offset_t dmap_max_addr;
-extern vm_offset_t vm_max_kernel_address;
 
 #endif
 

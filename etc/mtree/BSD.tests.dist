@@ -21,6 +21,8 @@
         ..
         expr
         ..
+        hostname
+        ..
         ln
         ..
         ls
@@ -150,6 +152,8 @@
                     ..
                     offsetof
                     ..
+                    oformat
+                    ..
                     operators
                     ..
                     pid
@@ -278,6 +282,8 @@
             ..
         ..
     ..
+    include
+    ..
     lib
         atf
             libatf-c
@@ -358,6 +364,8 @@
             ..
             stdlib
             ..
+            stdtime
+            ..
             string
             ..
             sys
@@ -431,9 +439,13 @@
             atf-sh
             ..
         ..
+        nuageinit
+        ..
         rc
         ..
         rtld-elf
+            rtld_deepbind
+            ..
         ..
         tftpd
         ..
@@ -466,6 +478,8 @@
         ping
         ..
         route
+        ..
+        savecore
         ..
         sysctl
         ..
@@ -504,6 +518,10 @@
         audit
         ..
         auditpipe
+        ..
+        cam
+            ctl
+            ..
         ..
         capsicum
         ..
@@ -891,6 +909,8 @@
         ..
         posixshm
         ..
+        sound
+        ..
         sys
         ..
         vfs
@@ -1043,6 +1063,8 @@
         ..
         du
         ..
+        env
+        ..
         factor
         ..
         file2c
@@ -1078,6 +1100,10 @@
         limits
         ..
         locale
+        ..
+        lockf
+        ..
+        lorder
         ..
         m4
         ..
@@ -1123,6 +1149,8 @@
         ..
         tftp
         ..
+        touch
+        ..
         tr
         ..
         truncate
@@ -1154,6 +1182,8 @@
     ..
     usr.sbin
         chown
+        ..
+        ctladm
         ..
         daemon
         ..

@@ -405,7 +405,7 @@ static SYSCTL_NODE(_vfs_cache, OID_AUTO, param, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Name cache parameters");
 
 static u_int __read_mostly	ncsize; /* the size as computed on creation or resizing */
-SYSCTL_UINT(_vfs_cache_param, OID_AUTO, size, CTLFLAG_RW, &ncsize, 0,
+SYSCTL_UINT(_vfs_cache_param, OID_AUTO, size, CTLFLAG_RD, &ncsize, 0,
     "Total namecache capacity");
 
 u_int ncsizefactor = 2;
@@ -530,8 +530,6 @@ STATNODE_ULONG(neg, numneg, "Number of negative cache entries");
 STATNODE_ULONG(count, numcache, "Number of cache entries");
 STATNODE_COUNTER(heldvnodes, numcachehv, "Number of namecache entries with vnodes held");
 STATNODE_COUNTER(drops, numdrops, "Number of dropped entries due to reaching the limit");
-STATNODE_COUNTER(dothits, dothits, "Number of '.' hits");
-STATNODE_COUNTER(dotdothits, dotdothits, "Number of '..' hits");
 STATNODE_COUNTER(miss, nummiss, "Number of cache misses");
 STATNODE_COUNTER(misszap, nummisszap, "Number of cache misses we do not want to cache");
 STATNODE_COUNTER(poszaps, numposzaps,
@@ -542,7 +540,6 @@ STATNODE_COUNTER(negzaps, numnegzaps,
 STATNODE_COUNTER(neghits, numneghits, "Number of cache hits (negative)");
 /* These count for vn_getcwd(), too. */
 STATNODE_COUNTER(fullpathcalls, numfullpathcalls, "Number of fullpath search calls");
-STATNODE_COUNTER(fullpathfail1, numfullpathfail1, "Number of fullpath search errors (ENOTDIR)");
 STATNODE_COUNTER(fullpathfail2, numfullpathfail2,
     "Number of fullpath search errors (VOP_VPTOCNP failures)");
 STATNODE_COUNTER(fullpathfail4, numfullpathfail4, "Number of fullpath search errors (ENOMEM)");
@@ -556,17 +553,14 @@ static SYSCTL_NODE(_vfs_cache, OID_AUTO, debug, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Name cache debugging");
 #define DEBUGNODE_ULONG(name, varname, descr)					\
 	SYSCTL_ULONG(_vfs_cache_debug, OID_AUTO, name, CTLFLAG_RD, &varname, 0, descr);
-#define DEBUGNODE_COUNTER(name, varname, descr)					\
-	static COUNTER_U64_DEFINE_EARLY(varname);				\
-	SYSCTL_COUNTER_U64(_vfs_cache_debug, OID_AUTO, name, CTLFLAG_RD, &varname, \
-	    descr);
-DEBUGNODE_COUNTER(zap_bucket_relock_success, zap_bucket_relock_success,
+static u_long zap_bucket_relock_success;
+DEBUGNODE_ULONG(zap_bucket_relock_success, zap_bucket_relock_success,
     "Number of successful removals after relocking");
-static long zap_bucket_fail;
+static u_long zap_bucket_fail;
 DEBUGNODE_ULONG(zap_bucket_fail, zap_bucket_fail, "");
-static long zap_bucket_fail2;
+static u_long zap_bucket_fail2;
 DEBUGNODE_ULONG(zap_bucket_fail2, zap_bucket_fail2, "");
-static long cache_lock_vnodes_cel_3_failures;
+static u_long cache_lock_vnodes_cel_3_failures;
 DEBUGNODE_ULONG(vnodes_cel_3_failures, cache_lock_vnodes_cel_3_failures,
     "Number of times 3-way vnode locking failed");
 
@@ -990,11 +984,31 @@ SYSCTL_PROC(_vfs_cache, OID_AUTO, nchstats, CTLTYPE_OPAQUE | CTLFLAG_RD |
     CTLFLAG_MPSAFE, 0, 0, sysctl_nchstats, "LU",
     "VFS cache effectiveness statistics");
 
+static int
+sysctl_hitpct(SYSCTL_HANDLER_ARGS)
+{
+	long poshits, neghits, miss, total;
+	long pct;
+
+	poshits = counter_u64_fetch(numposhits);
+	neghits = counter_u64_fetch(numneghits);
+	miss = counter_u64_fetch(nummiss);
+	total = poshits + neghits + miss;
+
+	pct = 0;
+	if (total != 0)
+		pct = ((poshits + neghits) * 100) / total;
+	return (sysctl_handle_int(oidp, 0, pct, req));
+}
+SYSCTL_PROC(_vfs_cache_stats, OID_AUTO, hitpct,
+    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RD, NULL, 0, sysctl_hitpct,
+    "I", "Percentage of hits");
+
 static void
-cache_recalc_neg_min(u_int val)
+cache_recalc_neg_min(void)
 {
 
-	neg_min = (ncsize * val) / 100;
+	neg_min = (ncsize * ncnegminpct) / 100;
 }
 
 static int
@@ -1013,7 +1027,7 @@ sysctl_negminpct(SYSCTL_HANDLER_ARGS)
 	if (val < 0 || val > 99)
 		return (EINVAL);
 	ncnegminpct = val;
-	cache_recalc_neg_min(val);
+	cache_recalc_neg_min();
 	return (0);
 }
 
@@ -1651,6 +1665,7 @@ cache_zap_unlocked_bucket(struct namecache *ncp, struct componentname *cnp,
     struct mtx *blp)
 {
 	struct namecache *rncp;
+	struct mtx *rvlp;
 
 	cache_assert_bucket_unlocked(ncp);
 
@@ -1663,14 +1678,24 @@ cache_zap_unlocked_bucket(struct namecache *ncp, struct componentname *cnp,
 		    !bcmp(rncp->nc_name, cnp->cn_nameptr, rncp->nc_nlen))
 			break;
 	}
-	if (rncp != NULL) {
-		cache_zap_locked(rncp);
-		mtx_unlock(blp);
-		cache_unlock_vnodes(dvlp, vlp);
-		counter_u64_add(zap_bucket_relock_success, 1);
-		return (0);
-	}
 
+	if (rncp == NULL)
+		goto out_mismatch;
+
+	if (!(ncp->nc_flag & NCF_NEGATIVE))
+		rvlp = VP2VNODELOCK(rncp->nc_vp);
+	else
+		rvlp = NULL;
+	if (rvlp != vlp)
+		goto out_mismatch;
+
+	cache_zap_locked(rncp);
+	mtx_unlock(blp);
+	cache_unlock_vnodes(dvlp, vlp);
+	atomic_add_long(&zap_bucket_relock_success, 1);
+	return (0);
+
+out_mismatch:
 	mtx_unlock(blp);
 	cache_unlock_vnodes(dvlp, vlp);
 	return (EAGAIN);
@@ -1742,6 +1767,15 @@ retry_dotdot:
 		return (1);
 	}
 
+	/*
+	 * XXX note that access here is completely unlocked with no provisions
+	 * to keep the hash allocated. If one is sufficiently unlucky a
+	 * parallel cache resize can reallocate the hash, unmap backing pages
+	 * and cause the empty check below to fault.
+	 *
+	 * Fixing this has epsilon priority, but can be done with no overhead
+	 * for this codepath with sufficient effort.
+	 */
 	hash = cache_get_hash(cnp->cn_nameptr, cnp->cn_namelen, dvp);
 	blp = HASH2BUCKETLOCK(hash);
 retry:
@@ -1763,7 +1797,7 @@ retry:
 
 	error = cache_zap_locked_bucket(ncp, cnp, hash, blp);
 	if (__predict_false(error != 0)) {
-		zap_bucket_fail++;
+		atomic_add_long(&zap_bucket_fail, 1);
 		goto retry;
 	}
 	counter_u64_add(numposzaps, 1);
@@ -1783,7 +1817,6 @@ cache_lookup_dot(struct vnode *dvp, struct vnode **vpp, struct componentname *cn
 	int ltype;
 
 	*vpp = dvp;
-	counter_u64_add(dothits, 1);
 	SDT_PROBE3(vfs, namecache, lookup, hit, dvp, ".", *vpp);
 	if (tsp != NULL)
 		timespecclear(tsp);
@@ -1828,7 +1861,6 @@ cache_lookup_dotdot(struct vnode *dvp, struct vnode **vpp, struct componentname 
 		return (0);
 	}
 
-	counter_u64_add(dotdothits, 1);
 retry:
 	dvlp = VP2VNODELOCK(dvp);
 	mtx_lock(dvlp);
@@ -1991,7 +2023,7 @@ negative_success:
 			counter_u64_add(numnegzaps, 1);
 			error = cache_zap_locked_bucket(ncp, cnp, hash, blp);
 			if (__predict_false(error != 0)) {
-				zap_bucket_fail2++;
+				atomic_add_long(&zap_bucket_fail2, 1);
 				goto retry;
 			}
 			cache_free(ncp);
@@ -2189,8 +2221,8 @@ cache_lock_vnodes_cel_3(struct celockstate *cel, struct vnode *vp)
 	} else {
 		if (mtx_trylock(vlp))
 			goto out;
-		cache_lock_vnodes_cel_3_failures++;
 		cache_unlock_vnodes_cel(cel);
+		atomic_add_long(&cache_lock_vnodes_cel_3_failures, 1);
 		if (vlp < cel->vlp[0]) {
 			mtx_lock(vlp);
 			mtx_lock(cel->vlp[0]);
@@ -2597,10 +2629,10 @@ cache_enter_time_flags(struct vnode *dvp, struct vnode *vp, struct componentname
 	cache_enter_time(dvp, vp, cnp, tsp, dtsp);
 }
 
-static u_int
-cache_roundup_2(u_int val)
+static u_long
+cache_roundup_2(u_long val)
 {
-	u_int res;
+	u_long res;
 
 	for (res = 1; res <= val; res <<= 1)
 		continue;
@@ -2616,7 +2648,7 @@ nchinittbl(u_long elements, u_long *hashmask)
 
 	hashsize = cache_roundup_2(elements) / 2;
 
-	hashtbl = malloc((u_long)hashsize * sizeof(*hashtbl), M_VFSCACHE, M_WAITOK);
+	hashtbl = malloc(hashsize * sizeof(*hashtbl), M_VFSCACHE, M_WAITOK);
 	for (i = 0; i < hashsize; i++)
 		CK_SLIST_INIT(&hashtbl[i]);
 	*hashmask = hashsize - 1;
@@ -2653,7 +2685,7 @@ nchinit(void *dummy __unused)
 	VFS_SMR_ZONE_SET(cache_zone_large_ts);
 
 	ncsize = desiredvnodes * ncsizefactor;
-	cache_recalc_neg_min(ncnegminpct);
+	cache_recalc_neg_min();
 	nchashtbl = nchinittbl(desiredvnodes * 2, &nchash);
 	ncbuckethash = cache_roundup_2(mp_ncpus * mp_ncpus) - 1;
 	if (ncbuckethash < 7) /* arbitrarily chosen to avoid having one lock */
@@ -2762,7 +2794,7 @@ cache_changesize(u_long newmaxvnodes)
 	struct namecache *ncp;
 	uint32_t hash;
 	u_long newncsize;
-	int i;
+	u_long i;
 
 	newncsize = newmaxvnodes * ncsizefactor;
 	newmaxvnodes = cache_roundup_2(newmaxvnodes * 2);
@@ -2797,7 +2829,7 @@ cache_changesize(u_long newmaxvnodes)
 		}
 	}
 	ncsize = newncsize;
-	cache_recalc_neg_min(ncnegminpct);
+	cache_recalc_neg_min();
 	cache_changesize_set_new(new_nchashtbl, new_nchash);
 	cache_unlock_all_buckets();
 	cache_unlock_all_vnodes();
@@ -3146,6 +3178,8 @@ kern___realpathat(struct thread *td, int fd, const char *path, char *buf,
 
 	if (nd.ni_vp->v_type == VREG && nd.ni_dvp->v_type != VDIR &&
 	    (nd.ni_vp->v_vflag & VV_ROOT) != 0) {
+		struct vnode *covered_vp;
+
 		/*
 		 * This happens if vp is a file mount. The call to
 		 * vn_fullpath_hardlink can panic if path resolution can't be
@@ -3155,7 +3189,6 @@ kern___realpathat(struct thread *td, int fd, const char *path, char *buf,
 		 * this should have a unique global path since we disallow
 		 * mounting on linked files.
 		 */
-		struct vnode *covered_vp;
 		error = vn_lock(nd.ni_vp, LK_SHARED);
 		if (error != 0)
 			goto out;
@@ -3165,11 +3198,20 @@ kern___realpathat(struct thread *td, int fd, const char *path, char *buf,
 		error = vn_fullpath(covered_vp, &retbuf, &freebuf);
 		vrele(covered_vp);
 	} else {
-		error = vn_fullpath_hardlink(nd.ni_vp, nd.ni_dvp, nd.ni_cnd.cn_nameptr,
-		    nd.ni_cnd.cn_namelen, &retbuf, &freebuf, &size);
+		error = vn_fullpath_hardlink(nd.ni_vp, nd.ni_dvp,
+		    nd.ni_cnd.cn_nameptr, nd.ni_cnd.cn_namelen, &retbuf,
+		    &freebuf, &size);
 	}
 	if (error == 0) {
-		error = copyout(retbuf, buf, size);
+		size_t len;
+
+		len = strlen(retbuf) + 1;
+		if (size < len)
+			error = ENAMETOOLONG;
+		else if (pathseg == UIO_USERSPACE)
+			error = copyout(retbuf, buf, len);
+		else
+			memcpy(buf, retbuf, len);
 		free(freebuf, M_TEMP);
 	}
 out:
@@ -3400,14 +3442,7 @@ vn_fullpath_dir(struct vnode *vp, struct vnode *rdir, char *buf, char **retbuf,
 			vp = vp1;
 			continue;
 		}
-		if (vp->v_type != VDIR) {
-			vrele(vp);
-			counter_u64_add(numfullpathfail1, 1);
-			error = ENOTDIR;
-			SDT_PROBE3(vfs, namecache, fullpath, return,
-			    error, vp, NULL);
-			break;
-		}
+		VNPASS(vp->v_type == VDIR || VN_IS_DOOMED(vp), vp);
 		error = vn_vptocnp(&vp, buf, &buflen);
 		if (error)
 			break;
@@ -4048,7 +4083,7 @@ syscal_vfs_cache_fast_lookup(SYSCTL_HANDLER_ARGS)
 		cache_fast_lookup_enabled_recalc();
 	return (error);
 }
-SYSCTL_PROC(_vfs, OID_AUTO, cache_fast_lookup, CTLTYPE_INT|CTLFLAG_RW|CTLFLAG_MPSAFE,
+SYSCTL_PROC(_vfs_cache_param, OID_AUTO, fast_lookup, CTLTYPE_INT|CTLFLAG_RW|CTLFLAG_MPSAFE,
     &cache_fast_lookup, 0, syscal_vfs_cache_fast_lookup, "IU", "");
 
 /*
@@ -4391,7 +4426,7 @@ cache_can_fplookup(struct cache_fpl *fpl)
 		cache_fpl_aborted_early(fpl);
 		return (false);
 	}
-	if (IN_CAPABILITY_MODE(td)) {
+	if (IN_CAPABILITY_MODE(td) || CAP_TRACING(td)) {
 		cache_fpl_aborted_early(fpl);
 		return (false);
 	}
@@ -4417,7 +4452,7 @@ cache_fplookup_dirfd(struct cache_fpl *fpl, struct vnode **vpp)
 	ndp = fpl->ndp;
 	cnp = fpl->cnp;
 
-	error = fgetvp_lookup_smr(ndp->ni_dirfd, ndp, vpp, &fsearch);
+	error = fgetvp_lookup_smr(ndp, vpp, &fsearch);
 	if (__predict_false(error != 0)) {
 		return (cache_fpl_aborted(fpl));
 	}
@@ -5139,7 +5174,6 @@ cache_fplookup_dot(struct cache_fpl *fpl)
 	fpl->tvp = fpl->dvp;
 	fpl->tvp_seqc = fpl->dvp_seqc;
 
-	counter_u64_add(dothits, 1);
 	SDT_PROBE3(vfs, namecache, lookup, hit, fpl->dvp, ".", fpl->dvp);
 
 	error = 0;
@@ -5228,7 +5262,6 @@ cache_fplookup_dotdot(struct cache_fpl *fpl)
 		return (cache_fpl_aborted(fpl));
 	}
 
-	counter_u64_add(dotdothits, 1);
 	return (0);
 }
 
@@ -5334,12 +5367,14 @@ cache_fplookup_symlink(struct cache_fpl *fpl)
 	struct nameidata *ndp;
 	struct componentname *cnp;
 	struct vnode *dvp, *tvp;
+	struct pwd *pwd;
 	int error;
 
 	ndp = fpl->ndp;
 	cnp = fpl->cnp;
 	dvp = fpl->dvp;
 	tvp = fpl->tvp;
+	pwd = *(fpl->pwd);
 
 	if (cache_fpl_islastcn(ndp)) {
 		if ((cnp->cn_flags & FOLLOW) == 0) {
@@ -5394,6 +5429,9 @@ cache_fplookup_symlink(struct cache_fpl *fpl)
 		if (!cache_fplookup_mp_supported(mp)) {
 			cache_fpl_checkpoint(fpl);
 			return (cache_fpl_partial(fpl));
+		}
+		if (__predict_false(pwd->pwd_adir != pwd->pwd_rdir)) {
+			return (cache_fpl_aborted(fpl));
 		}
 	}
 	return (0);

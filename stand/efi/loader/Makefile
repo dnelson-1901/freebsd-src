@@ -100,10 +100,22 @@ FILESMODE_${LOADER}.efi=	${BINMODE}
 LINKS+=		${BINDIR}/${LOADER}.efi ${BINDIR}/loader.efi
 .endif
 
-LDSCRIPT=	${.CURDIR}/../loader/arch/${MACHINE}/ldscript.${MACHINE}
+LDSCRIPT=	${.CURDIR}/../loader/arch/${MACHINE}/${MACHINE}.ldscript
 LDFLAGS+=	-Wl,-T${LDSCRIPT},-Bsymbolic,-znotext -pie
 .if ${LINKER_TYPE} == "bfd" && ${LINKER_VERSION} >= 23400
 LDFLAGS+=	-Wl,--no-dynamic-linker
+.endif
+
+.include <bsd.linker.mk>
+
+.if ${LINKER_TYPE} == "lld" && \
+    (${LINKER_FREEBSD_VERSION} < 1400007 || \
+    (${LINKER_FREEBSD_VERSION} >= 1500000 && \
+    ${LINKER_FREEBSD_VERSION} < 1500001))
+# When lld is using multiple threads, which it does by default, it can
+# result in non-reproducible output with the custom linker script. Work
+# around this by disabling threading.
+LDFLAGS+=	-Wl,--threads=1
 .endif
 
 CLEANFILES+=	${LOADER}.efi
@@ -117,12 +129,12 @@ ${LOADER}.efi: ${PROG}
 	${OBJCOPY} -j .peheader -j .text -j .sdata -j .data \
 		-j .dynamic -j .dynsym -j .rel.dyn \
 		-j .rela.dyn -j .reloc -j .eh_frame -j set_Xcommand_set \
-		-j set_Xficl_compile_set \
+		-j set_X${LOADER_INTERP}_compile_set \
 		--output-target=${EFI_TARGET} ${.ALLSRC} ${.TARGET}
 
 LIBEFI=		${BOOTOBJ}/efi/libefi/libefi.a
 
-DPADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBSA} ${LDSCRIPT}
-LDADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBSA}
+DPADD=		${LDR_INTERP} ${LIBEFI} ${LIBSAFDT} ${LIBEFI_FDT} ${LIBSA} ${LDSCRIPT}
+LDADD=		${LDR_INTERP} ${LIBEFI} ${LIBSAFDT} ${LIBEFI_FDT} ${LIBSA}
 
 .include <bsd.prog.mk>

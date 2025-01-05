@@ -52,11 +52,13 @@
 #
 
 TYPE="FreeBSD"
-REVISION="14.0"
-BRANCH="ALPHA2"
+REVISION="14.2"
+BRANCH="STABLE"
 if [ -n "${BRANCH_OVERRIDE}" ]; then
 	BRANCH=${BRANCH_OVERRIDE}
 fi
+unset RELEASE
+unset VERSION
 
 if [ -z "${SYSDIR}" ]; then
 	SYSDIR=$(dirname $0)/..
@@ -216,15 +218,6 @@ for dir in /usr/bin /usr/local/bin; do
 	fi
 done
 
-if [ -z "${svnversion}" ] && [ -x /usr/bin/svnliteversion ] ; then
-	/usr/bin/svnliteversion $(realpath ${0}) >/dev/null 2>&1
-	if [ $? -eq 0 ]; then
-		svnversion=/usr/bin/svnliteversion
-	else
-		svnversion=
-	fi
-fi
-
 if findvcs .git; then
 	for dir in /usr/bin /usr/local/bin; do
 		if [ -x "${dir}/git" ] ; then
@@ -264,7 +257,7 @@ if [ -n "$svnversion" ] ; then
 fi
 
 if [ -n "$git_cmd" ] ; then
-	git=$($git_cmd rev-parse --verify --short HEAD 2>/dev/null)
+	git=$($git_cmd rev-parse --verify --short=12 HEAD 2>/dev/null)
 	if [ "$($git_cmd rev-parse --is-shallow-repository)" = false ] ; then
 		git_cnt=$($git_cmd rev-list --first-parent --count HEAD 2>/dev/null)
 		if [ -n "$git_cnt" ] ; then
@@ -316,13 +309,13 @@ $COPYRIGHT
 #define VERSTR "${VERSTR}"
 #define RELSTR "${RELEASE}"
 
-char sccs[sizeof(SCCSSTR) > 128 ? sizeof(SCCSSTR) : 128] = SCCSSTR;
-char version[sizeof(VERSTR) > 256 ? sizeof(VERSTR) : 256] = VERSTR;
-char compiler_version[] = "${compiler_v}";
-char ostype[] = "${TYPE}";
-char osrelease[sizeof(RELSTR) > 32 ? sizeof(RELSTR) : 32] = RELSTR;
-int osreldate = ${RELDATE};
-char kern_ident[] = "${i}";
+const char sccs[sizeof(SCCSSTR) > 128 ? sizeof(SCCSSTR) : 128] = SCCSSTR;
+const char version[sizeof(VERSTR) > 256 ? sizeof(VERSTR) : 256] = VERSTR;
+const char compiler_version[] = "${compiler_v}";
+const char ostype[] = "${TYPE}";
+const char osrelease[sizeof(RELSTR) > 32 ? sizeof(RELSTR) : 32] = RELSTR;
+const int osreldate = ${RELDATE};
+const char kern_ident[] = "${i}";
 EOF
 )
 vers_content_old=$(cat vers.c 2>/dev/null || true)

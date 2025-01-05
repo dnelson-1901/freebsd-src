@@ -19,6 +19,7 @@ MAN=	arch.7 \
 	hostname.7 \
 	intro.7 \
 	maclabel.7 \
+	mitigations.7 \
 	operator.7 \
 	orders.7 \
 	ports.7 \
@@ -45,6 +46,11 @@ MLINKS+= c.7 c99.7
 MLINKS+= c.7 c11.7
 MLINKS+= c.7 c17.7
 MLINKS+= c.7 c2x.7
+
+.if ${MK_INET} != "no"
+MAN+=	networking.7
+MLINKS+= networking.7 wifi.7
+.endif
 
 .if ${MK_TESTS} != "no"
 ATF=	${SRCTOP}/contrib/atf

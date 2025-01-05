@@ -42,6 +42,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/asan.h>
 #include <sys/bitstring.h>
 #include <sys/sysproto.h>
 #include <sys/eventhandler.h>
@@ -624,7 +625,6 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	LIST_INIT(&p2->p_orphans);
 
 	callout_init_mtx(&p2->p_itcallout, &p2->p_mtx, 0);
-	TAILQ_INIT(&p2->p_kqtim_stop);
 
 	/*
 	 * This begins the section where we must prevent the parent
@@ -1029,6 +1029,10 @@ fork1(struct thread *td, struct fork_req *fr)
 				error = ENOMEM;
 				goto fail2;
 			}
+		} else {
+			kasan_mark((void *)td2->td_kstack,
+			    ptoa(td2->td_kstack_pages),
+			    ptoa(td2->td_kstack_pages), 0);
 		}
 	}
 

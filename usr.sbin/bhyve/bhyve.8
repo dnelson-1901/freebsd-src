@@ -22,7 +22,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd May 5, 2023
+.Dd November 20, 2023
 .Dt BHYVE 8
 .Os
 .Sh NAME
@@ -131,7 +131,6 @@ The default value for each of
 and
 .Ar threads
 is 1.
-The current maximum number of guest virtual CPUs is 16.
 If
 .Ar numcpus
 is not specified then it will be calculated from the other arguments.
@@ -145,6 +144,15 @@ and
 If a
 .Ar setting
 is specified more than once the last one has precedence.
+.Pp
+The maximum number of virtual CPUs defaults to the number of active
+physical CPUs in the system available via the
+.Va hw.vmm.maxcpu
+.Xr sysctl 8
+variable.
+The limit can be adjusted via the
+.Va hw.vmm.maxcpu
+loader tunable.
 .It Fl D
 Destroy the VM on guest initiated power-off.
 .It Fl e
@@ -236,7 +244,7 @@ flag description.
 .Sm on
 .Oc
 .Xc
-Set the guest physical memory size
+Set the guest physical memory size.
 This must be the same size that was given to
 .Xr bhyveload 8 .
 .Pp
@@ -366,7 +374,7 @@ PCI 16550 serial device.
 .It Cm lpc
 LPC PCI-ISA bridge with COM1, COM2, COM3, and COM4 16550 serial ports,
 a boot ROM, and,
-optionally, a fwcfg type and the debug/test device.
+optionally, a TPM module, a fwcfg type, and the debug/test device.
 The LPC bridge emulation can only be configured on bus 0.
 .It Cm fbuf
 Raw framebuffer device attached to VNC server.
@@ -408,6 +416,10 @@ Network device backends:
 .Op Cm \&,hook= Ar HOOK
 .Op Cm \&,mac= Ar xx:xx:xx:xx:xx:xx
 .Op Cm \&,mtu= Ar N
+.Xc
+.It
+.Xo
+.Cm slirp,hostfwd= Ar proto : Ar hostaddr : Ar hostport - Ar guestaddr : Ar guestport
 .Xc
 .El
 .Sm on
@@ -451,6 +463,20 @@ and
 must comply with
 .Xr netgraph 4
 addressing rules.
+.Pp
+The slirp backend can be used to provide a NATed network to the guest.
+This backend has poor performance but does not require any network
+configuration on the host system.
+It depends on the
+.Pa net/libslirp
+port.
+The
+.Cm hostfwd
+option takes a 5-tuple describing how connections from the host are to be
+forwarded to the guest.
+Multiple rules can be specified, separated by semicolons.
+Note that semicolons must be escaped or quoted to prevent the shell from
+interpreting them.
 .Pp
 Block storage device backends:
 .Sm off
@@ -540,10 +566,25 @@ process.
 Use the host TTY device for serial port I/O.
 .El
 .Pp
-TPM device backends:
-.Bl -tag -width 10n
-.It Ar type Ns \&, Ns Ar path Ns Op Cm \&, Ns Ar tpm-device-options
 Emulate a TPM device.
+Supported options for
+.Ar type :
+.Bl -tag -width 10n
+.It Cm passthru
+Use a physical TPM device.
+The argument
+.Ar path
+needs to point to a valid TPM device path, i.e.
+.Pa /dev/tpm0 .
+.It Cm swtpm
+Connect to a running
+.Cm swtpm
+instance.
+The argument
+.Ar path
+needs to point to a UNIX domain socket that a
+.Cm swtpm
+process is listening on.
 .El
 .Pp
 The
@@ -553,8 +594,8 @@ are:
 .It Cm version= Ns Ar version
 Version of the TPM device according to the TCG specification.
 Defaults to
-.Cm 2.0
-.El
+.Cm 2.0 ,
+which is the only version currently supported.
 .El
 .Pp
 Boot ROM device backends:

@@ -1524,7 +1524,7 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0, int subtype,
 				do_ht = 1;
 			}
 			if (scan.vhtcap != NULL && scan.vhtopmode != NULL &&
-			    (vap->iv_flags_vht & IEEE80211_FVHT_VHT)) {
+			    (vap->iv_vht_flags & IEEE80211_FVHT_VHT)) {
 				/* XXX state changes? */
 				ieee80211_vht_updateparams(ni,
 				    scan.vhtcap, scan.vhtopmode);
@@ -1694,7 +1694,7 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0, int subtype,
 				 * XXX check if the beacon we recv'd gives
 				 * us what we need and suppress the probe req
 				 */
-				ieee80211_probe_curchan(vap, 1);
+				ieee80211_probe_curchan(vap, true);
 				ic->ic_flags_ext &= ~IEEE80211_FEXT_PROBECHAN;
 			}
 			ieee80211_add_scan(vap, rxchan, &scan, wh,
@@ -1870,7 +1870,7 @@ sta_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0, int subtype,
 			ieee80211_ht_updateparams(ni, htcap, htinfo);
 
 			if ((vhtcap != NULL) && (vhtopmode != NULL) &
-			    (vap->iv_flags_vht & IEEE80211_FVHT_VHT)) {
+			    (vap->iv_vht_flags & IEEE80211_FVHT_VHT)) {
 				/*
 				 * Log if we get a VHT assoc/reassoc response.
 				 * We aren't ready for 2GHz VHT support.

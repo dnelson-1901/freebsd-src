@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2023, Intel Corporation
+/*  Copyright (c) 2024, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -402,7 +402,7 @@ static inline bool ice_is_any_bit_set(ice_bitmap_t *bitmap, u16 size)
 }
 
 /**
- * ice_cp_bitmap - copy bitmaps.
+ * ice_cp_bitmap - copy bitmaps
  * @dst: bitmap destination
  * @src: bitmap to copy from
  * @size: Size of the bitmaps in bits
@@ -445,10 +445,10 @@ ice_bitmap_set(ice_bitmap_t *dst, u16 pos, u16 num_bits)
  * Note that this function assumes it is operating on a bitmap declared using
  * ice_declare_bitmap.
  */
-static inline int
+static inline u16
 ice_bitmap_hweight(ice_bitmap_t *bm, u16 size)
 {
-	int count = 0;
+	u16 count = 0;
 	u16 bit = 0;
 
 	while (size > (bit = ice_find_next_bit(bm, size, bit))) {
@@ -460,7 +460,7 @@ ice_bitmap_hweight(ice_bitmap_t *bm, u16 size)
 }
 
 /**
- * ice_cmp_bitmap - compares two bitmaps.
+ * ice_cmp_bitmap - compares two bitmaps
  * @bmp1: the bitmap to compare
  * @bmp2: the bitmap to compare with bmp1
  * @size: Size of the bitmaps in bits

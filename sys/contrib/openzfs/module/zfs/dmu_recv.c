@@ -1795,17 +1795,19 @@ receive_handle_existing_object(const struct receive_writer_arg *rwa,
 	}
 
 	/*
-	 * The dmu does not currently support decreasing nlevels
-	 * or changing the number of dnode slots on an object. For
-	 * non-raw sends, this does not matter and the new object
-	 * can just use the previous one's nlevels. For raw sends,
-	 * however, the structure of the received dnode (including
-	 * nlevels and dnode slots) must match that of the send
-	 * side. Therefore, instead of using dmu_object_reclaim(),
-	 * we must free the object completely and call
-	 * dmu_object_claim_dnsize() instead.
+	 * The dmu does not currently support decreasing nlevels or changing
+	 * indirect block size if there is already one, same as changing the
+	 * number of of dnode slots on an object.  For non-raw sends this
+	 * does not matter and the new object can just use the previous one's
+	 * parameters.  For raw sends, however, the structure of the received
+	 * dnode (including indirects and dnode slots) must match that of the
+	 * send side.  Therefore, instead of using dmu_object_reclaim(), we
+	 * must free the object completely and call dmu_object_claim_dnsize()
+	 * instead.
 	 */
-	if ((rwa->raw && drro->drr_nlevels < doi->doi_indirection) ||
+	if ((rwa->raw && ((doi->doi_indirection > 1 &&
+	    indblksz != doi->doi_metadata_block_size) ||
+	    drro->drr_nlevels < doi->doi_indirection)) ||
 	    dn_slots != doi->doi_dnodesize >> DNODE_SHIFT) {
 		err = dmu_free_long_object(rwa->os, drro->drr_object);
 		if (err != 0)
@@ -2108,6 +2110,16 @@ receive_object(struct receive_writer_arg *rwa, struct drr_object *drro,
 		dmu_buf_rele(db, FTAG);
 		dnode_rele(dn, FTAG);
 	}
+
+	/*
+	 * If the receive fails, we want the resume stream to start with the
+	 * same record that we last successfully received. There is no way to
+	 * request resume from the object record, but we can benefit from the
+	 * fact that sender always sends object record before anything else,
+	 * after which it will "resend" data at offset 0 and resume normally.
+	 */
+	save_resume_state(rwa, drro->drr_object, 0, tx);
+
 	dmu_tx_commit(tx);
 
 	return (0);
@@ -2341,7 +2353,6 @@ receive_process_write_record(struct receive_writer_arg *rwa,
 	if (rwa->heal) {
 		blkptr_t *bp;
 		dmu_buf_t *dbp;
-		dnode_t *dn;
 		int flags = DB_RF_CANFAIL;
 
 		if (rwa->raw)
@@ -2373,19 +2384,15 @@ receive_process_write_record(struct receive_writer_arg *rwa,
 			dmu_buf_rele(dbp, FTAG);
 			return (err);
 		}
-		dn = dmu_buf_dnode_enter(dbp);
 		/* Make sure the on-disk block and recv record sizes match */
-		if (drrw->drr_logical_size !=
-		    dn->dn_datablkszsec << SPA_MINBLOCKSHIFT) {
+		if (drrw->drr_logical_size != dbp->db_size) {
 			err = ENOTSUP;
-			dmu_buf_dnode_exit(dbp);
 			dmu_buf_rele(dbp, FTAG);
 			return (err);
 		}
 		/* Get the block pointer for the corrupted block */
 		bp = dmu_buf_get_blkptr(dbp);
 		err = do_corrective_recv(rwa, drrw, rrd, bp);
-		dmu_buf_dnode_exit(dbp);
 		dmu_buf_rele(dbp, FTAG);
 		return (err);
 	}
@@ -2530,7 +2537,7 @@ receive_spill(struct receive_writer_arg *rwa, struct drr_spill *drrs,
 	 * size of the provided arc_buf_t.
 	 */
 	if (db_spill->db_size != drrs->drr_length) {
-		dmu_buf_will_fill(db_spill, tx);
+		dmu_buf_will_fill(db_spill, tx, B_FALSE);
 		VERIFY0(dbuf_spill_set_blksz(db_spill,
 		    drrs->drr_length, tx));
 	}
@@ -3379,7 +3386,7 @@ dmu_recv_stream(dmu_recv_cookie_t *drc, offset_t *voffp)
 	 * stream, then we free drc->drc_rrd and exit.
 	 */
 	while (rwa->err == 0) {
-		if (issig(JUSTLOOKING) && issig(FORREAL)) {
+		if (issig()) {
 			err = SET_ERROR(EINTR);
 			break;
 		}

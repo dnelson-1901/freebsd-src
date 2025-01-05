@@ -73,6 +73,9 @@ static const struct {
 	{0x43b61022, 0x00, "AMD X399",		0},
 	{0x43b51022, 0x00, "AMD 300 Series",	0}, /* X370 */
 	{0x43b71022, 0x00, "AMD 300 Series",	0}, /* B350 */
+	{0x43c81022, 0x00, "AMD 400 Series",	0}, /* B450 */
+	{0x43eb1022, 0x00, "AMD 500 Series",	0},
+	{0x43f61022, 0x00, "AMD 600 Series",	0}, /* X670 */
 	{0x78001022, 0x00, "AMD Hudson-2",	0},
 	{0x78011022, 0x00, "AMD Hudson-2",	0},
 	{0x78021022, 0x00, "AMD Hudson-2",	0},
@@ -83,6 +86,7 @@ static const struct {
 	{0x79021022, 0x00, "AMD KERNCZ",	0},
 	{0x79031022, 0x00, "AMD KERNCZ",	0},
 	{0x79041022, 0x00, "AMD KERNCZ",	0},
+	{0x79161022, 0x00, "AMD KERNCZ (RAID)",	0},
 	{0x06011b21, 0x00, "ASMedia ASM1060",	AHCI_Q_NOCCS|AHCI_Q_NOAUX},
 	{0x06021b21, 0x00, "ASMedia ASM1060",	AHCI_Q_NOCCS|AHCI_Q_NOAUX},
 	{0x06111b21, 0x00, "ASMedia ASM1061",	AHCI_Q_NOCCS|AHCI_Q_NOAUX},
@@ -396,7 +400,6 @@ ahci_pci_ctlr_reset(device_t dev)
 static int
 ahci_probe(device_t dev)
 {
-	char buf[64];
 	int i, valid = 0;
 	uint32_t devid = pci_get_devid(dev);
 	uint8_t revid = pci_get_revid(dev);
@@ -427,22 +430,20 @@ ahci_probe(device_t dev)
 			    (ahci_ids[i].quirks & AHCI_Q_NOFORCE) &&
 			    (pci_read_config(dev, 0xdf, 1) & 0x40) == 0)
 				return (ENXIO);
-			snprintf(buf, sizeof(buf), "%s AHCI SATA controller",
+			device_set_descf(dev, "%s AHCI SATA controller",
 			    ahci_ids[i].name);
-			device_set_desc_copy(dev, buf);
 			return (BUS_PROBE_DEFAULT);
 		}
 	}
 	if (valid != 1)
 		return (ENXIO);
-	device_set_desc_copy(dev, "AHCI SATA controller");
+	device_set_desc(dev, "AHCI SATA controller");
 	return (BUS_PROBE_DEFAULT);
 }
 
 static int
 ahci_ata_probe(device_t dev)
 {
-	char buf[64];
 	int i;
 	uint32_t devid = pci_get_devid(dev);
 	uint8_t revid = pci_get_revid(dev);
@@ -453,13 +454,12 @@ ahci_ata_probe(device_t dev)
 	for (i = 0; ahci_ids[i].id != 0; i++) {
 		if (ahci_ids[i].id == devid &&
 		    ahci_ids[i].rev <= revid) {
-			snprintf(buf, sizeof(buf), "%s AHCI SATA controller",
+			device_set_descf(dev, "%s AHCI SATA controller",
 			    ahci_ids[i].name);
-			device_set_desc_copy(dev, buf);
 			return (BUS_PROBE_DEFAULT);
 		}
 	}
-	device_set_desc_copy(dev, "AHCI SATA controller");
+	device_set_desc(dev, "AHCI SATA controller");
 	return (BUS_PROBE_DEFAULT);
 }
 

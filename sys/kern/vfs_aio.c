@@ -68,6 +68,7 @@
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
 #include <vm/vm_object.h>
+#include <vm/vnode_pager.h>
 #include <vm/uma.h>
 #include <sys/aio.h>
 
@@ -229,6 +230,9 @@ typedef struct oaiocb {
 #define	KAIOCB_CLEARED		0x10
 #define	KAIOCB_FINISHED		0x20
 
+/* ioflags */
+#define	KAIOCB_IO_FOFFSET	0x01
+
 /*
  * AIO process info
  */
@@ -343,13 +347,13 @@ static int	filt_lio(struct knote *kn, long hint);
 static uma_zone_t kaio_zone, aiocb_zone, aiolio_zone;
 
 /* kqueue filters for aio */
-static struct filterops aio_filtops = {
+static const struct filterops aio_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_aioattach,
 	.f_detach = filt_aiodetach,
 	.f_event = filt_aio,
 };
-static struct filterops lio_filtops = {
+static const struct filterops lio_filtops = {
 	.f_isfd = 0,
 	.f_attach = filt_lioattach,
 	.f_detach = filt_liodetach,
@@ -555,7 +559,7 @@ aio_free_entry(struct kaiocb *job)
 		fdrop(job->fd_file, curthread);
 	crfree(job->cred);
 	if (job->uiop != &job->uio)
-		free(job->uiop, M_IOV);
+		freeuio(job->uiop);
 	uma_zfree(aiocb_zone, job);
 	AIO_LOCK(ki);
 
@@ -718,7 +722,6 @@ static int
 aio_fsync_vnode(struct thread *td, struct vnode *vp, int op)
 {
 	struct mount *mp;
-	vm_object_t obj;
 	int error;
 
 	for (;;) {
@@ -726,12 +729,7 @@ aio_fsync_vnode(struct thread *td, struct vnode *vp, int op)
 		if (error != 0)
 			break;
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
-		obj = vp->v_object;
-		if (obj != NULL) {
-			VM_OBJECT_WLOCK(obj);
-			vm_object_page_clean(obj, 0, 0, 0);
-			VM_OBJECT_WUNLOCK(obj);
-		}
+		vnode_pager_clean_async(vp);
 		if (op == LIO_DSYNC)
 			error = VOP_FDATASYNC(vp, td);
 		else
@@ -795,12 +793,14 @@ aio_process_rw(struct kaiocb *job)
 		if (job->uiop->uio_resid == 0)
 			error = 0;
 		else
-			error = fo_read(fp, job->uiop, fp->f_cred, FOF_OFFSET,
-			    td);
+			error = fo_read(fp, job->uiop, fp->f_cred,
+			    (job->ioflags & KAIOCB_IO_FOFFSET) != 0 ? 0 :
+			    FOF_OFFSET, td);
 	} else {
 		if (fp->f_type == DTYPE_VNODE)
 			bwillwrite();
-		error = fo_write(fp, job->uiop, fp->f_cred, FOF_OFFSET, td);
+		error = fo_write(fp, job->uiop, fp->f_cred, (job->ioflags &
+		    KAIOCB_IO_FOFFSET) != 0 ? 0 : FOF_OFFSET, td);
 	}
 	msgrcv_end = td->td_ru.ru_msgrcv;
 	msgsnd_end = td->td_ru.ru_msgsnd;
@@ -1555,13 +1555,15 @@ aio_aqueue(struct thread *td, struct aiocb *ujob, struct aioliojob *lj,
 
 	/* Get the opcode. */
 	if (type == LIO_NOP) {
-		switch (job->uaiocb.aio_lio_opcode) {
+		switch (job->uaiocb.aio_lio_opcode & ~LIO_FOFFSET) {
 		case LIO_WRITE:
 		case LIO_WRITEV:
 		case LIO_NOP:
 		case LIO_READ:
 		case LIO_READV:
-			opcode = job->uaiocb.aio_lio_opcode;
+			opcode = job->uaiocb.aio_lio_opcode & ~LIO_FOFFSET;
+			if ((job->uaiocb.aio_lio_opcode & LIO_FOFFSET) != 0)
+				job->ioflags |= KAIOCB_IO_FOFFSET;
 			break;
 		default:
 			error = EINVAL;
@@ -1734,7 +1736,7 @@ err3:
 	knlist_delete(&job->klist, curthread, 0);
 err2:
 	if (job->uiop != &job->uio)
-		free(job->uiop, M_IOV);
+		freeuio(job->uiop);
 	uma_zfree(aiocb_zone, job);
 err1:
 	ops->store_error(ujob, error);

@@ -41,6 +41,7 @@
 #include <sys/zfs_ioctl.h>
 #include <sys/zfs_znode.h>
 #include <sys/dsl_crypt.h>
+#include <sys/simd.h>
 
 #include "zfs_prop.h"
 #include "zfs_deleg.h"
@@ -345,6 +346,13 @@ zfs_prop_init(void)
 		{ NULL }
 	};
 
+	static const zprop_index_t prefetch_table[] = {
+		{ "none",	ZFS_PREFETCH_NONE },
+		{ "metadata",	ZFS_PREFETCH_METADATA },
+		{ "all",	ZFS_PREFETCH_ALL },
+		{ NULL }
+	};
+
 	static const zprop_index_t sync_table[] = {
 		{ "standard",	ZFS_SYNC_STANDARD },
 		{ "always",	ZFS_SYNC_ALWAYS },
@@ -453,6 +461,10 @@ zfs_prop_init(void)
 	    ZFS_CACHE_ALL, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT | ZFS_TYPE_VOLUME,
 	    "all | none | metadata", "SECONDARYCACHE", cache_table, sfeatures);
+	zprop_register_index(ZFS_PROP_PREFETCH, "prefetch",
+	    ZFS_PREFETCH_ALL, PROP_INHERIT,
+	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_SNAPSHOT | ZFS_TYPE_VOLUME,
+	    "none | metadata | all", "PREFETCH", prefetch_table, sfeatures);
 	zprop_register_index(ZFS_PROP_LOGBIAS, "logbias", ZFS_LOGBIAS_LATENCY,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "latency | throughput", "LOGBIAS", logbias_table, sfeatures);
@@ -778,11 +790,12 @@ zfs_name_to_prop(const char *propname)
 boolean_t
 zfs_prop_user(const char *name)
 {
-	int i;
+	int i, len;
 	char c;
 	boolean_t foundsep = B_FALSE;
 
-	for (i = 0; i < strlen(name); i++) {
+	len = strlen(name);
+	for (i = 0; i < len; i++) {
 		c = name[i];
 		if (!zprop_valid_char(c))
 			return (B_FALSE);
@@ -1057,6 +1070,7 @@ zcommon_init(void)
 		return (error);
 
 	fletcher_4_init();
+	simd_stat_init();
 
 	return (0);
 }
@@ -1064,6 +1078,7 @@ zcommon_init(void)
 void
 zcommon_fini(void)
 {
+	simd_stat_fini();
 	fletcher_4_fini();
 	kfpu_fini();
 }

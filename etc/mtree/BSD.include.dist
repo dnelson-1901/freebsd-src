@@ -18,6 +18,8 @@
         v1
             __algorithm
             ..
+            __atomic
+            ..
             __bit
             ..
             __charconv
@@ -28,9 +30,15 @@
             ..
             __concepts
             ..
+            __condition_variable
+            ..
+            __configuration
+            ..
             __coroutine
             ..
             __debug_utils
+            ..
+            __exception
             ..
             __expected
             ..
@@ -46,21 +54,45 @@
             ..
             __iterator
             ..
+            __locale_dir
+                locale_base_api
+                ..
+            ..
+            __math
+            ..
+            __mdspan
+            ..
             __memory
             ..
             __memory_resource
             ..
+            __mutex
+            ..
             __numeric
+            ..
+            __ostream
+            ..
+            __pstl
+                backends
+                ..
+                cpu_algos
+                ..
             ..
             __random
             ..
             __ranges
             ..
+            __stop_token
+            ..
             __string
             ..
-            __thread
+            __system_error
             ..
-            __tuple_dir
+            __thread
+                support
+                ..
+            ..
+            __tuple
             ..
             __type_traits
             ..
@@ -69,6 +101,8 @@
             __variant
             ..
             experimental
+                __simd
+                ..
             ..
             ext
             ..

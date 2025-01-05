@@ -1,4 +1,4 @@
-Updating Information for users of FreeBSD-CURRENT.
+Updating Information for users of FreeBSD stable/14.
 
 This file is maintained and copyrighted by M. Warner Losh <imp@freebsd.org>.
 See end of file for further details.  For commonly done items, please see the
@@ -12,8 +12,95 @@ Items affecting the ports and packages system can be found in
 /usr/ports/UPDATING.  Please read that file before updating system packages
 and/or ports.
 
-20230818:
-	__FreeBSD_version 1400095 after the branching stable/14 from main.
+20240419:
+	Clang, llvm, lld, lldb, compiler-rt, libc++, libunwind and openmp have
+	been upgraded to 18.1.6. It is important that you run `make delete-old`
+	as described in the COMMON ITEMS section, otherwise several libc++
+	headers that are obsolete and need to be removed can cause compilation
+	errors in C++ programs.
+
+20240415:
+	MFC e0f3dc82727f: If you have an arm64 system that uses ACPI, you will
+	need to update your loader.efi in the ESP when you update past this
+	point.  Detection of ACPI was moved earlier in the binary so the scripts
+	could use it, but old binaries don't have this, so we default to 'no
+	ACPI' in this case.
+
+20240218:
+	MFC of 713db49d06de changed 'struct ieee80211vap' internals in net80211.
+	Given we do not have enough spares and the struct is allocated by
+	drivers, all wireless drivers have to be recompiled.
+	__FreeBSD_version is updated to 1400509 to track this change.
+
+20240207:
+	sendmail 8.18.1 has been imported and merged.  This version enforces
+	stricter RFC compliance by default, especially with respect to line
+	endings.  This may cause issues with receiving messages from
+	non-compliant MTAs; please see the first 8.18.1 release note in
+	contrib/sendmail/RELEASE_NOTES for mitigations.
+
+20240202:
+	Loader now also read configuration files listed in local_loader_conf_files.
+	Files listed here are the last ones read. And /boot/loader.conf.local was
+	moved from loader_conf_files to local_loader_conf_files leaving only
+	loader.conf and device.hints in loader_conf_files by default.
+
+	The following sequencing is applied:
+
+	1. Bootstrap:
+	    /boot/defaults/loader.conf
+
+	2. Read loader_conf_files files:
+	    /boot/device.hints
+	    /boot/loader.conf
+
+	3. Read loader_conf_dirs files:
+	    /boot/loader.conf.d/*.conf
+
+	4. And finally, rread local_loader_conf_files files:
+	    /boot/loader.conf.local
+
+20240119:
+	Commit d34f4baaf138 changed the internal interface between
+	the nfscommon and nfscl modules.  As such, both need to be
+	rebuilt from sources.  Therefore, bump __FreeBSD_version
+	to 1400506.
+
+20231229:
+	Commit 925d9b3abac2 modified the internal API between
+	the nfscommon and nfscl modules.
+	As such, both of these modules need to be rebuilt from
+	sources.  Therefore, the __FreeBSD_version has been bumped
+	to 1400503.
+
+20231224:
+	Commits acc704b36192 and b8e137d8d32d both modified the
+	internal API between the kgssapi and krpc modules.
+	As such, both of these modules need to be rebuilt from
+	sources.
+	As such, __FreeBSD_version has been bumped to 1400502.
+
+20231113:
+	The WITHOUT_LLD_IS_LD option has been removed.  When LLD is enabled
+	it is always installed as /usr/bin/ld.
+
+20230924:
+	Enable splitting out pkgbase manpages into separate packages by
+	default. To disable this, set WITHOUT_MANSPLITPKG=yes in src.conf.
+
+
+20230924:
+	Move standard include files to the clibs-dev package and move clang
+	internal libraries and headers to clang and clang-dev. Upgrading systems
+	installed using pkgbase past this change involves extra steps to allow
+	for these file moves:
+
+		pkg upgrade -y FreeBSD-utilities
+		pkg upgrade -y FreeBSD-utilities-dev
+		pkg upgrade -y
+
+20230824:
+	__FreeBSD_version 1400097 after the branching stable/14 from main.
 
 20230817:
 	Serial communication (in boot loaders, kernel, and userland) has
@@ -182,6 +269,12 @@ and/or ports.
 	after upgrading to restore all the component that were previously
 	installed.
 
+20221002:
+	OPIE has been removed from the base system.  If needed, it can
+	be installed from ports (security/opie) or packages (opie).
+	Otherwise, make sure that your PAM policies do not reference
+	pam_opie or pam_opieaccess.
+
 20220610:
 	LinuxKPI pm.h changes require an update to the latest drm-kmod version
 	before re-compiling to avoid errors.
@@ -225,6 +318,10 @@ and/or ports.
 	belongs.  Consequently, users may experience surprising results with
 	such names when roaming to different homenets.
 
+20211118:
+	Mips has been removed from universe builds. It will be removed from the
+	tree shortly.
+
 20211110:
 	Commit b8d60729deef changed the TCP congestion control framework so
 	that any of the included congestion control modules could be
@@ -237,10 +334,6 @@ and/or ports.
 	as the default. If no congestion control option is built into the
 	kernel and you are including networking, the kernel compile will
 	fail. Also if no default is declared the kernel compile will fail.
-
-20211118:
-	Mips has been removed from universe builds. It will be removed from the
-	tree shortly.
 
 20211106:
 	Commit f0c9847a6c47 changed the arguments for VOP_ALLOCATE.
@@ -1842,6 +1935,8 @@ COMMON ITEMS:
 	make -DALWAYS_CHECK_MAKE buildkernel KERNCONF=YOUR_KERNEL_HERE
 	make -DALWAYS_CHECK_MAKE installkernel KERNCONF=YOUR_KERNEL_HERE
 
+	If you are running kernel modules from ports, see FOOTNOTE [1].
+
 	To test a kernel once
 	---------------------
 	If you just want to boot a kernel once (because you are not sure
@@ -1858,8 +1953,7 @@ COMMON ITEMS:
 	<make sure you have good level 0 dumps>
 	make buildworld
 	make buildkernel KERNCONF=YOUR_KERNEL_HERE
-	make installkernel KERNCONF=YOUR_KERNEL_HERE
-							[1]
+	make installkernel KERNCONF=YOUR_KERNEL_HERE	[1]
 	<reboot in single user>				[3]
 	etcupdate -p					[5]
 	make installworld
@@ -1877,7 +1971,7 @@ COMMON ITEMS:
 	<make sure you have good level 0 dumps>
 	<boot into -stable>
 	make buildworld
-	make buildkernel KERNCONF=YOUR_KERNEL_HERE
+	make buildkernel KERNCONF=YOUR_KERNEL_HERE	[1]
 	<maybe newfs current's root partition>
 	<mount current's root partition on directory ${CURRENT_ROOT}>
 	make installworld DESTDIR=${CURRENT_ROOT} -DDB_FROM_SRC
@@ -1896,8 +1990,7 @@ COMMON ITEMS:
 	<make sure you have good level 0 dumps>
 	make buildworld					[9]
 	make buildkernel KERNCONF=YOUR_KERNEL_HERE	[8]
-	make installkernel KERNCONF=YOUR_KERNEL_HERE
-							[1]
+	make installkernel KERNCONF=YOUR_KERNEL_HERE	[1]
 	<reboot in single user>				[3]
 	etcupdate -p					[5]
 	make installworld
@@ -1917,8 +2010,10 @@ COMMON ITEMS:
 	messages there.  If in doubt, please track -stable which has
 	much fewer pitfalls.
 
-	[1] If you have third party modules, such as vmware, you should disable
-	them at this point so they don't crash your system on
+FOOTNOTES:
+
+	[1] If you have third party modules, such as drm-kmod or vmware, you
+	should disable them at this point so they don't crash your system on
 	reboot. Alternatively, you should rebuild all the modules you have in
 	your system and install them as well.  If you are running -current, you
 	should seriously consider placing all sources to all the modules for

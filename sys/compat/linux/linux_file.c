@@ -636,8 +636,8 @@ linux_faccessat2(struct thread *td, struct linux_faccessat2_args *args)
 {
 	int flags, unsupported;
 
-	/* XXX. AT_SYMLINK_NOFOLLOW is not supported by kern_accessat */
-	unsupported = args->flags & ~(LINUX_AT_EACCESS | LINUX_AT_EMPTY_PATH);
+	unsupported = args->flags & ~(LINUX_AT_EACCESS | LINUX_AT_EMPTY_PATH  |
+	    LINUX_AT_SYMLINK_NOFOLLOW);
 	if (unsupported != 0) {
 		linux_msg(td, "faccessat2 unsupported flag 0x%x", unsupported);
 		return (EINVAL);
@@ -647,6 +647,8 @@ linux_faccessat2(struct thread *td, struct linux_faccessat2_args *args)
 	    AT_EACCESS;
 	flags |= (args->flags & LINUX_AT_EMPTY_PATH) == 0 ? 0 :
 	    AT_EMPTY_PATH;
+	flags |= (args->flags & LINUX_AT_SYMLINK_NOFOLLOW) == 0 ? 0 :
+	    AT_SYMLINK_NOFOLLOW;
 	return (linux_do_accessat(td, args->dfd, args->filename, args->amode,
 	    flags));
 }
@@ -1038,7 +1040,7 @@ linux_preadv(struct thread *td, struct linux_preadv_args *uap)
 	if (error != 0)
 		return (error);
 	error = kern_preadv(td, uap->fd, auio, offset);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -1065,7 +1067,7 @@ linux_pwritev(struct thread *td, struct linux_pwritev_args *uap)
 	if (error != 0)
 		return (error);
 	error = kern_pwritev(td, uap->fd, auio, offset);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (linux_enobufs2eagain(td, uap->fd, error));
 }
 
@@ -1872,6 +1874,6 @@ linux_writev(struct thread *td, struct linux_writev_args *args)
 	if (error != 0)
 		return (error);
 	error = kern_writev(td, args->fd, auio);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (linux_enobufs2eagain(td, args->fd, error));
 }

@@ -130,6 +130,12 @@ struct jailsys_flags {
 	unsigned	 new;
 };
 
+/*
+ * Handle jail teardown in a dedicated thread to avoid deadlocks from
+ * vnet_destroy().
+ */
+TASKQUEUE_DEFINE_THREAD(jail_remove);
+
 /* allprison, allprison_racct and lastprid are protected by allprison_lock. */
 struct	sx allprison_lock;
 SX_SYSINIT(allprison_lock, &allprison_lock, "allprison");
@@ -534,7 +540,7 @@ sys_jail_set(struct thread *td, struct jail_set_args *uap)
 	if (error)
 		return (error);
 	error = kern_jail_set(td, auio, uap->flags);
-	free(auio, M_IOV);
+	freeuio(auio);
 	return (error);
 }
 
@@ -2163,7 +2169,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 				    optuio->uio_iov[errmsg_pos].iov_base,
 				    errmsg_len);
 			else
-				copyout(errmsg,
+				(void)copyout(errmsg,
 				    optuio->uio_iov[errmsg_pos].iov_base,
 				    errmsg_len);
 		}
@@ -2264,8 +2270,8 @@ sys_jail_get(struct thread *td, struct jail_get_args *uap)
 	error = kern_jail_get(td, auio, uap->flags);
 	if (error == 0)
 		error = copyout(auio->uio_iov, uap->iovp,
-		    uap->iovcnt * sizeof (struct iovec));
-	free(auio, M_IOV);
+		    uap->iovcnt * sizeof(struct iovec));
+	freeuio(auio);
 	return (error);
 }
 
@@ -2548,7 +2554,7 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 				    optuio->uio_iov[errmsg_pos].iov_base,
 				    errmsg_len);
 			else
-				copyout(errmsg,
+				(void)copyout(errmsg,
 				    optuio->uio_iov[errmsg_pos].iov_base,
 				    errmsg_len);
 		}
@@ -2868,7 +2874,7 @@ prison_free(struct prison *pr)
 		 * Don't remove the last reference in this context,
 		 * in case there are locks held.
 		 */
-		taskqueue_enqueue(taskqueue_thread, &pr->pr_task);
+		taskqueue_enqueue(taskqueue_jail_remove, &pr->pr_task);
 	}
 }
 
@@ -2942,7 +2948,7 @@ prison_proc_free(struct prison *pr)
 		     pr->pr_id));
 		pr->pr_flags |= PR_COMPLETE_PROC;
 		mtx_unlock(&pr->pr_mtx);
-		taskqueue_enqueue(taskqueue_thread, &pr->pr_task);
+		taskqueue_enqueue(taskqueue_jail_remove, &pr->pr_task);
 	}
 }
 
@@ -3051,8 +3057,7 @@ prison_proc_iterate(struct prison *pr, void (*cb)(struct proc *, void *),
 	FOREACH_PROC_IN_SYSTEM(p) {
 		PROC_LOCK(p);
 		if (p->p_state != PRS_NEW && p->p_ucred != NULL) {
-			for (ppr = p->p_ucred->cr_prison;
-			    ppr != &prison0;
+			for (ppr = p->p_ucred->cr_prison; ppr != NULL;
 			    ppr = ppr->pr_parent) {
 				if (ppr == pr) {
 					cb(p, cbarg);
@@ -3938,6 +3943,7 @@ prison_priv_check(struct ucred *cred, int priv)
 		 */
 	case PRIV_SEEOTHERGIDS:
 	case PRIV_SEEOTHERUIDS:
+	case PRIV_SEEJAILPROC:
 
 		/*
 		 * Jail implements inter-process debugging limits already, so
@@ -4392,6 +4398,10 @@ SYSCTL_PROC(_security_jail, OID_AUTO, mount_allowed,
     CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
     NULL, PR_ALLOW_MOUNT, sysctl_jail_default_allow, "I",
     "Processes in jail can mount/unmount jail-friendly file systems (deprecated)");
+SYSCTL_PROC(_security_jail, OID_AUTO, mlock_allowed,
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+    NULL, PR_ALLOW_MLOCK, sysctl_jail_default_allow, "I",
+    "Processes in jail can lock/unlock physical pages in memory");
 
 static int
 sysctl_jail_default_level(SYSCTL_HANDLER_ARGS)
@@ -4419,6 +4429,35 @@ SYSCTL_PROC(_security_jail, OID_AUTO, devfs_ruleset,
     &jail_default_devfs_rsnum, offsetof(struct prison, pr_devfs_rsnum),
     sysctl_jail_default_level, "I",
     "Ruleset for the devfs filesystem in jail (deprecated)");
+
+SYSCTL_NODE(_security_jail, OID_AUTO, children, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "Limits and stats of child jails");
+
+static int
+sysctl_jail_children(SYSCTL_HANDLER_ARGS)
+{
+	struct prison *pr;
+	int i;
+
+	pr = req->td->td_ucred->cr_prison;
+
+	switch (oidp->oid_kind & CTLTYPE) {
+	case CTLTYPE_INT:
+		i = *(int *)((char *)pr + arg2);
+		return (SYSCTL_OUT(req, &i, sizeof(i)));
+	}
+
+	return (0);
+}
+
+SYSCTL_PROC(_security_jail_children, OID_AUTO, max,
+    CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE,
+    NULL, offsetof(struct prison, pr_childmax), sysctl_jail_children,
+    "I", "Maximum number of child jails");
+SYSCTL_PROC(_security_jail_children, OID_AUTO, cur,
+    CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE,
+    NULL, offsetof(struct prison, pr_childcount), sysctl_jail_children,
+    "I", "Current number of child jails");
 
 /*
  * Nodes to describe jail parameters.  Maximum length of string parameters

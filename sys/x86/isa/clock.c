@@ -411,7 +411,6 @@ startrtclock(void)
 void
 cpu_initclocks(void)
 {
-#ifdef EARLY_AP_STARTUP
 	struct thread *td;
 	int i;
 
@@ -434,13 +433,6 @@ cpu_initclocks(void)
 	if (sched_is_bound(td))
 		sched_unbind(td);
 	thread_unlock(td);
-#else
-	tsc_calibrate();
-#ifdef DEV_APIC
-	lapic_calibrate_timer();
-#endif
-	cpu_initclocks_bsp();
-#endif
 }
 
 static int
@@ -645,9 +637,6 @@ static device_method_t attimer_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		attimer_probe),
 	DEVMETHOD(device_attach,	attimer_attach),
-	DEVMETHOD(device_detach,	bus_generic_detach),
-	DEVMETHOD(device_shutdown,	bus_generic_shutdown),
-	DEVMETHOD(device_suspend,	bus_generic_suspend),
 	DEVMETHOD(device_resume,	attimer_resume),
 	{ 0, 0 }
 };

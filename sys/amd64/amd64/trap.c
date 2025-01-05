@@ -109,6 +109,7 @@ void trap_check(struct trapframe *frame);
 void dblfault_handler(struct trapframe *frame);
 
 static int trap_pfault(struct trapframe *, bool, int *, int *);
+static void trap_diag(struct trapframe *, vm_offset_t);
 static void trap_fatal(struct trapframe *, vm_offset_t);
 #ifdef KDTRACE_HOOKS
 static bool trap_user_dtrace(struct trapframe *,
@@ -151,6 +152,13 @@ static const char *const trap_msg[] = {
 	[31] =			UNKNOWN,			/* reserved */
 	[T_DTRACE_RET] =	"DTrace pid return trap",
 };
+
+static const char *
+traptype_to_msg(u_int type)
+{
+	return (type < nitems(trap_msg) ? trap_msg[type] :
+	    "unknown/reserved trap");
+}
 
 static int uprintf_signal;
 SYSCTL_INT(_machdep, OID_AUTO, uprintf_signal, CTLFLAG_RWTUN,
@@ -437,6 +445,20 @@ trap(struct trapframe *frame)
 
 		KASSERT(cold || td->td_ucred != NULL,
 		    ("kernel trap doesn't have ucred"));
+
+		/*
+		 * Most likely, EFI RT faulted.  This check prevents
+		 * kdb from handling breakpoints set on the BIOS text,
+		 * if such option is ever needed.
+		 */
+		if ((td->td_pflags2 & TDP2_EFIRT) != 0 &&
+		    curpcb->pcb_onfault != NULL && type != T_PAGEFLT) {
+			trap_diag(frame, 0);
+			printf("EFI RT fault %s\n", traptype_to_msg(type));
+			frame->tf_rip = (long)curpcb->pcb_onfault;
+			return;
+		}
+
 		switch (type) {
 		case T_PAGEFLT:			/* page fault */
 			(void)trap_pfault(frame, false, NULL, NULL);
@@ -626,7 +648,7 @@ trap(struct trapframe *frame)
 	ksi.ksi_addr = (void *)addr;
 	if (uprintf_signal) {
 		uprintf("pid %d comm %s: signal %d err %#lx code %d type %d "
-		    "addr %#lx rsp %#lx rip %#lx rax %#lx"
+		    "addr %#lx rsp %#lx rip %#lx rax %#lx "
 		    "<%02x %02x %02x %02x %02x %02x %02x %02x>\n",
 		    p->p_pid, p->p_comm, signo, frame->tf_err, ucode, type,
 		    addr, frame->tf_rsp, frame->tf_rip, frame->tf_rax,
@@ -863,6 +885,10 @@ trap_pfault(struct trapframe *frame, bool usermode, int *signo, int *ucode)
 after_vmfault:
 	if (td->td_intr_nesting_level == 0 &&
 	    curpcb->pcb_onfault != NULL) {
+		if ((td->td_pflags2 & TDP2_EFIRT) != 0) {
+			trap_diag(frame, eva);
+			printf("EFI RT page fault\n");
+		}
 		frame->tf_rip = (long)curpcb->pcb_onfault;
 		return (0);
 	}
@@ -871,15 +897,12 @@ after_vmfault:
 }
 
 static void
-trap_fatal(struct trapframe *frame, vm_offset_t eva)
+trap_diag(struct trapframe *frame, vm_offset_t eva)
 {
 	int code, ss;
 	u_int type;
 	struct soft_segment_descriptor softseg;
 	struct user_segment_descriptor *gdt;
-#ifdef KDB
-	bool handled;
-#endif
 
 	code = frame->tf_err;
 	type = frame->tf_trapno;
@@ -939,8 +962,20 @@ trap_fatal(struct trapframe *frame, vm_offset_t eva)
 	printf("r13: %016lx r14: %016lx r15: %016lx\n", frame->tf_r13,
 	    frame->tf_r14, frame->tf_r15);
 
+	printf("trap number		= %d\n", type);
+}
+
+static void
+trap_fatal(struct trapframe *frame, vm_offset_t eva)
+{
+	u_int type;
+
+	type = frame->tf_trapno;
+	trap_diag(frame, eva);
 #ifdef KDB
 	if (debugger_on_trap) {
+		bool handled;
+
 		kdb_why = KDB_WHY_TRAP;
 		handled = kdb_trap(type, 0, frame);
 		kdb_why = KDB_WHY_UNSET;
@@ -948,9 +983,7 @@ trap_fatal(struct trapframe *frame, vm_offset_t eva)
 			return;
 	}
 #endif
-	printf("trap number		= %d\n", type);
-	panic("%s", type < nitems(trap_msg) ? trap_msg[type] :
-	    "unknown/reserved trap");
+	panic("%s", traptype_to_msg(type));
 }
 
 #ifdef KDTRACE_HOOKS
@@ -1032,10 +1065,10 @@ cpu_fetch_syscall_args_fallback(struct thread *td, struct syscall_args *sa)
 		regcnt--;
 	}
 
- 	if (sa->code >= p->p_sysent->sv_size)
- 		sa->callp = &p->p_sysent->sv_table[0];
-  	else
- 		sa->callp = &p->p_sysent->sv_table[sa->code];
+	if (sa->code >= p->p_sysent->sv_size)
+		sa->callp = &nosys_sysent;
+	else
+		sa->callp = &p->p_sysent->sv_table[sa->code];
 
 	KASSERT(sa->callp->sy_narg <= nitems(sa->args),
 	    ("Too many syscall arguments!"));
@@ -1045,7 +1078,7 @@ cpu_fetch_syscall_args_fallback(struct thread *td, struct syscall_args *sa)
 	if (sa->callp->sy_narg > regcnt) {
 		params = (caddr_t)frame->tf_rsp + sizeof(register_t);
 		error = copyin(params, &sa->args[regcnt],
-	    	    (sa->callp->sy_narg - regcnt) * sizeof(sa->args[0]));
+		    (sa->callp->sy_narg - regcnt) * sizeof(sa->args[0]));
 		if (__predict_false(error != 0))
 			return (error);
 	}
@@ -1188,12 +1221,9 @@ amd64_syscall(struct thread *td, int traced)
 
 	kmsan_mark(td->td_frame, sizeof(*td->td_frame), KMSAN_STATE_INITED);
 
-#ifdef DIAGNOSTIC
-	if (!TRAPF_USERMODE(td->td_frame)) {
-		panic("syscall");
-		/* NOT REACHED */
-	}
-#endif
+	KASSERT(TRAPF_USERMODE(td->td_frame),
+	    ("%s: not from user mode", __func__));
+
 	syscallenter(td);
 
 	/*

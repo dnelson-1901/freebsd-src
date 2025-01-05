@@ -55,7 +55,6 @@ struct acpi_softc {
     int			acpi_enabled;
     int			acpi_sstate;
     int			acpi_sleep_disabled;
-    int			acpi_resources_reserved;
 
     struct sysctl_ctx_list acpi_sysctl_ctx;
     struct sysctl_oid	*acpi_sysctl_tree;
@@ -87,6 +86,7 @@ struct acpi_device {
     void			*ad_private;
     int				ad_flags;
     int				ad_cls_class;
+    int				ad_domain;
 
     ACPI_BUFFER			dsd;	/* Device Specific Data */
     const ACPI_OBJECT	*dsd_pkg;
@@ -225,12 +225,27 @@ extern struct mtx			acpi_mutex;
  * ACPI_Q_MADT_IRQ0: Specifies that ISA IRQ 0 is wired up to pin 0 of the
  *	first APIC and that the MADT should force that by ignoring the PC-AT
  *	compatible flag and ignoring overrides that redirect IRQ 0 to pin 2.
+ * ACPI_Q_AEI_NOPULL: Specifies that _AEI objects incorrectly designate pins
+ *	as "PullUp" and they should be treated as "NoPull" instead.
  */
 extern int	acpi_quirks;
 #define ACPI_Q_OK		0
 #define ACPI_Q_BROKEN		(1 << 0)
 #define ACPI_Q_TIMER		(1 << 1)
 #define ACPI_Q_MADT_IRQ0	(1 << 2)
+#define ACPI_Q_AEI_NOPULL	(1 << 3)
+
+#if defined(__amd64__) || defined(__i386__)
+/*
+ * Certain Intel BIOSes have buggy AML that specify an IRQ that is
+ * edge-sensitive and active-lo.  Normally, edge-sensitive IRQs should
+ * be active-hi.  If this value is non-zero, edge-sensitive ISA IRQs
+ * are forced to be active-hi instead.  At least some AMD systems use
+ * active-lo edge-sensitive ISA IRQs, so this setting is only enabled
+ * by default on systems with Intel CPUs.
+ */
+extern int	acpi_override_isa_irq_polarity;
+#endif
 
 /*
  * Plug and play information for device matching.  Matching table format
@@ -255,6 +270,12 @@ extern int	acpi_quirks;
 #define ACPI_IVAR_UNUSED	0x101	/* Unused/reserved. */
 #define ACPI_IVAR_PRIVATE	0x102
 #define ACPI_IVAR_FLAGS		0x103
+#define	ACPI_IVAR_DOMAIN	0x104
+
+/*
+ * ad_domain NUMA domain special value.
+ */
+#define	ACPI_DEV_DOMAIN_UNKNOWN	(-1)
 
 /*
  * Accessor functions for our ivars.  Default value for BUS_READ_IVAR is
@@ -280,6 +301,7 @@ static __inline void varp ## _set_ ## var(device_t dev, type t)	\
 __ACPI_BUS_ACCESSOR(acpi, handle, ACPI, HANDLE, ACPI_HANDLE)
 __ACPI_BUS_ACCESSOR(acpi, private, ACPI, PRIVATE, void *)
 __ACPI_BUS_ACCESSOR(acpi, flags, ACPI, FLAGS, int)
+__ACPI_BUS_ACCESSOR(acpi, domain, ACPI, DOMAIN, int)
 
 void acpi_fake_objhandler(ACPI_HANDLE h, void *data);
 static __inline device_t
@@ -463,8 +485,7 @@ EVENTHANDLER_DECLARE(acpi_video_event, acpi_event_handler_t);
 /* Device power control. */
 ACPI_STATUS	acpi_pwr_wake_enable(ACPI_HANDLE consumer, int enable);
 ACPI_STATUS	acpi_pwr_switch_consumer(ACPI_HANDLE consumer, int state);
-int		acpi_device_pwr_for_sleep(device_t bus, device_t dev,
-		    int *dstate);
+acpi_pwr_for_sleep_t	acpi_device_pwr_for_sleep;
 int		acpi_set_powerstate(device_t child, int state);
 
 /* APM emulation */
@@ -572,6 +593,7 @@ void		acpi_pxm_parse_tables(void);
 void		acpi_pxm_set_mem_locality(void);
 void		acpi_pxm_set_cpu_locality(void);
 int		acpi_pxm_get_cpu_locality(int apic_id);
+int		acpi_pxm_parse(device_t dev);
 
 /*
  * Map a PXM to a VM domain.
@@ -579,9 +601,7 @@ int		acpi_pxm_get_cpu_locality(int apic_id);
  * Returns the VM domain ID if found, or -1 if not found / invalid.
  */
 int		acpi_map_pxm_to_vm_domainid(int pxm);
-int		acpi_get_cpus(device_t dev, device_t child, enum cpu_sets op,
-		    size_t setsize, cpuset_t *cpuset);
-int		acpi_get_domain(device_t dev, device_t child, int *domain);
+bus_get_cpus_t		acpi_get_cpus;
 
 #ifdef __aarch64__
 /*

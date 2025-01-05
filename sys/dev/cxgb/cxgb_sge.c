@@ -1838,7 +1838,7 @@ check_desc_avail(adapter_t *adap, struct sge_txq *q,
 	 * the control queue is only used for binding qsets which happens
 	 * at init time so we are guaranteed enough descriptors
 	 */
-	if (__predict_false(mbufq_len(&q->sendq))) {
+	if (__predict_false(!mbufq_empty(&q->sendq))) {
 addq_exit:	(void )mbufq_enqueue(&q->sendq, m);
 		return 1;
 	}
@@ -1954,7 +1954,7 @@ again:	reclaim_completed_tx_imm(q);
 		}
 		q->in_use++;
 	}
-	if (mbufq_len(&q->sendq)) {
+	if (!mbufq_empty(&q->sendq)) {
 		setbit(&qs->txq_stopped, TXQ_CTRL);
 
 		if (should_restart_tx(q) &&
@@ -2422,11 +2422,8 @@ t3_sge_alloc_qset(adapter_t *sc, u_int id, int nports, int irq_vec_idx,
 	q->port = pi;
 	q->adap = sc;
 
-	if ((q->txq[TXQ_ETH].txq_mr = buf_ring_alloc(cxgb_txq_buf_ring_size,
-	    M_DEVBUF, M_WAITOK, &q->lock)) == NULL) {
-		device_printf(sc->dev, "failed to allocate mbuf ring\n");
-		goto err;
-	}
+	q->txq[TXQ_ETH].txq_mr = buf_ring_alloc(cxgb_txq_buf_ring_size,
+	    M_DEVBUF, M_WAITOK, &q->lock);
 	if ((q->txq[TXQ_ETH].txq_ifq = malloc(sizeof(struct ifaltq), M_DEVBUF,
 	    M_NOWAIT | M_ZERO)) == NULL) {
 		device_printf(sc->dev, "failed to allocate ifq\n");

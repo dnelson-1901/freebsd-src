@@ -406,7 +406,7 @@ sctp_process_init_ack(struct mbuf *m, int iphlen, int offset,
 	op_err = sctp_arethere_unrecognized_parameters(m,
 	    (offset + sizeof(struct sctp_init_chunk)),
 	    &abort_flag, (struct sctp_chunkhdr *)cp,
-	    &nat_friendly, &cookie_found);
+	    &nat_friendly, &cookie_found, NULL);
 	if (abort_flag) {
 		/* Send an abort and notify peer */
 		sctp_abort_association(stcb->sctp_ep, stcb, m, iphlen,
@@ -2329,7 +2329,7 @@ sctp_handle_cookie_echo(struct mbuf *m, int iphlen, int offset,
 	}
 	ep = &(*inp_p)->sctp_ep;
 	/* which cookie is it? */
-	if ((cookie->time_entered.tv_sec < (long)ep->time_of_secret_change) &&
+	if ((cookie->time_entered.tv_sec < ep->time_of_secret_change) &&
 	    (ep->current_secret_number != ep->last_secret_number)) {
 		/* it's the old cookie */
 		(void)sctp_hmac_m(SCTP_HMAC,
@@ -2352,7 +2352,7 @@ sctp_handle_cookie_echo(struct mbuf *m, int iphlen, int offset,
 	/* compare the received digest with the computed digest */
 	if (timingsafe_bcmp(calc_sig, sig, SCTP_SIGNATURE_SIZE) != 0) {
 		/* try the old cookie? */
-		if ((cookie->time_entered.tv_sec == (long)ep->time_of_secret_change) &&
+		if ((cookie->time_entered.tv_sec == ep->time_of_secret_change) &&
 		    (ep->current_secret_number != ep->last_secret_number)) {
 			/* compute digest with old */
 			(void)sctp_hmac_m(SCTP_HMAC,
@@ -3510,23 +3510,19 @@ sctp_handle_stream_reset_response(struct sctp_tcb *stcb,
 						asoc->strmout[i].state = SCTP_STREAM_OPEN;
 					}
 					asoc->streamoutcnt += num_stream;
-					sctp_notify_stream_reset_add(stcb, stcb->asoc.streamincnt, stcb->asoc.streamoutcnt, 0);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_ADD, stcb, 0, NULL, SCTP_SO_NOT_LOCKED);
 				} else if (action == SCTP_STREAM_RESET_RESULT_DENIED) {
-					sctp_notify_stream_reset_add(stcb, stcb->asoc.streamincnt, stcb->asoc.streamoutcnt,
-					    SCTP_STREAM_CHANGE_DENIED);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_ADD, stcb, SCTP_STREAM_CHANGE_DENIED, NULL, SCTP_SO_NOT_LOCKED);
 				} else {
-					sctp_notify_stream_reset_add(stcb, stcb->asoc.streamincnt, stcb->asoc.streamoutcnt,
-					    SCTP_STREAM_CHANGE_FAILED);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_ADD, stcb, SCTP_STREAM_CHANGE_FAILED, NULL, SCTP_SO_NOT_LOCKED);
 				}
 			} else if (type == SCTP_STR_RESET_ADD_IN_STREAMS) {
 				if (asoc->stream_reset_outstanding)
 					asoc->stream_reset_outstanding--;
 				if (action == SCTP_STREAM_RESET_RESULT_DENIED) {
-					sctp_notify_stream_reset_add(stcb, stcb->asoc.streamincnt, stcb->asoc.streamoutcnt,
-					    SCTP_STREAM_CHANGE_DENIED);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_ADD, stcb, SCTP_STREAM_CHANGE_DENIED, NULL, SCTP_SO_NOT_LOCKED);
 				} else if (action != SCTP_STREAM_RESET_RESULT_PERFORMED) {
-					sctp_notify_stream_reset_add(stcb, stcb->asoc.streamincnt, stcb->asoc.streamoutcnt,
-					    SCTP_STREAM_CHANGE_FAILED);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_ADD, stcb, SCTP_STREAM_CHANGE_DENIED, NULL, SCTP_SO_NOT_LOCKED);
 				}
 			} else if (type == SCTP_STR_RESET_TSN_REQUEST) {
 				/**
@@ -3572,13 +3568,11 @@ sctp_handle_stream_reset_response(struct sctp_tcb *stcb,
 
 					sctp_reset_out_streams(stcb, 0, (uint16_t *)NULL);
 					sctp_reset_in_stream(stcb, 0, (uint16_t *)NULL);
-					sctp_notify_stream_reset_tsn(stcb, stcb->asoc.sending_seq, (stcb->asoc.mapping_array_base_tsn + 1), 0);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_TSN, stcb, 0, NULL, SCTP_SO_NOT_LOCKED);
 				} else if (action == SCTP_STREAM_RESET_RESULT_DENIED) {
-					sctp_notify_stream_reset_tsn(stcb, stcb->asoc.sending_seq, (stcb->asoc.mapping_array_base_tsn + 1),
-					    SCTP_ASSOC_RESET_DENIED);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_TSN, stcb, SCTP_ASSOC_RESET_DENIED, NULL, SCTP_SO_NOT_LOCKED);
 				} else {
-					sctp_notify_stream_reset_tsn(stcb, stcb->asoc.sending_seq, (stcb->asoc.mapping_array_base_tsn + 1),
-					    SCTP_ASSOC_RESET_FAILED);
+					sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_TSN, stcb, SCTP_ASSOC_RESET_FAILED, NULL, SCTP_SO_NOT_LOCKED);
 				}
 			}
 			/* get rid of the request and get the request flags */
@@ -3707,7 +3701,7 @@ sctp_handle_str_reset_request_tsn(struct sctp_tcb *stcb,
 			sctp_reset_out_streams(stcb, 0, (uint16_t *)NULL);
 			sctp_reset_in_stream(stcb, 0, (uint16_t *)NULL);
 			asoc->last_reset_action[0] = SCTP_STREAM_RESET_RESULT_PERFORMED;
-			sctp_notify_stream_reset_tsn(stcb, asoc->sending_seq, (asoc->mapping_array_base_tsn + 1), 0);
+			sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_TSN, stcb, 0, NULL, SCTP_SO_NOT_LOCKED);
 		}
 		sctp_add_stream_reset_result_tsn(chk, seq, asoc->last_reset_action[0],
 		    asoc->last_sending_seq[0], asoc->last_base_tsnsent[0]);
@@ -3872,7 +3866,7 @@ sctp_handle_str_reset_add_strm(struct sctp_tcb *stcb, struct sctp_tmit_chunk *ch
 			/* update the size */
 			stcb->asoc.streamincnt = num_stream;
 			stcb->asoc.last_reset_action[0] = SCTP_STREAM_RESET_RESULT_PERFORMED;
-			sctp_notify_stream_reset_add(stcb, stcb->asoc.streamincnt, stcb->asoc.streamoutcnt, 0);
+			sctp_ulp_notify(SCTP_NOTIFY_STR_RESET_ADD, stcb, 0, NULL, SCTP_SO_NOT_LOCKED);
 		}
 		sctp_add_stream_reset_result(chk, seq, asoc->last_reset_action[0]);
 		asoc->str_reset_seq_in++;
@@ -4237,6 +4231,8 @@ sctp_handle_packet_dropped(struct sctp_pktdrop_chunk *cp,
 				SCTP_STAT_INCR(sctps_pdrpmbda);
 			}
 		} else {
+			desc.tsn_ifany = htonl(0);
+			memset(desc.data_bytes, 0, SCTP_NUM_DB_TO_VERIFY);
 			if (pktdrp_flags & SCTP_FROM_MIDDLE_BOX) {
 				SCTP_STAT_INCR(sctps_pdrpmbct);
 			}

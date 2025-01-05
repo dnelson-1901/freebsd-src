@@ -34,13 +34,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-#if 0
-#if defined(LIBC_SCCS) && !defined(lint)
-static char sccsid[] = "from @(#)strtoul.c	8.1 (Berkeley) 6/4/93";
-#endif /* LIBC_SCCS and not lint */
-__FBSDID("FreeBSD: src/lib/libc/stdlib/strtoumax.c,v 1.8 2002/09/06 11:23:59 tjr Exp ");
-#endif
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
@@ -85,6 +78,13 @@ wcstoumax_l(const wchar_t * __restrict nptr, wchar_t ** __restrict endptr,
 		c = s[1];
 		s += 2;
 		base = 16;
+	}
+	if ((base == 0 || base == 2) &&
+	    c == L'0' && (*s == L'b' || *s == L'B') &&
+	    (s[1] >= L'0' && s[1] <= L'1')) {
+		c = s[1];
+		s += 2;
+		base = 2;
 	}
 	if (base == 0)
 		base = c == L'0' ? 8 : 10;

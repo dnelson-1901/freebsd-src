@@ -32,7 +32,6 @@
 #if defined(LIBC_SCCS) && !defined(lint)
 static char sccsid[] = "@(#)getservent.c	8.1 (Berkeley) 6/4/93";
 #endif /* LIBC_SCCS and not lint */
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -941,7 +940,7 @@ fin:
 	return (res);
 }
 
-int
+static int
 serv_marshal_func(char *buffer, size_t *buffer_size, void *retval, va_list ap,
     void *cache_mdata)
 {
@@ -1042,7 +1041,7 @@ serv_marshal_func(char *buffer, size_t *buffer_size, void *retval, va_list ap,
 	return (NS_SUCCESS);
 }
 
-int
+static int
 serv_unmarshal_func(char *buffer, size_t buffer_size, void *retval, va_list ap,
     void *cache_mdata)
 {

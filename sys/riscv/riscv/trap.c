@@ -74,6 +74,8 @@
 #include <ddb/db_sym.h>
 #endif
 
+void intr_irq_handler(struct trapframe *tf);
+
 int (*dtrace_invop_jump_addr)(struct trapframe *);
 
 /* Called from exception.S */
@@ -115,7 +117,7 @@ cpu_fetch_syscall_args(struct thread *td)
 	}
 
 	if (__predict_false(sa->code >= p->p_sysent->sv_size))
-		sa->callp = &p->p_sysent->sv_table[0];
+		sa->callp = &nosys_sysent;
 	else
 		sa->callp = &p->p_sysent->sv_table[sa->code];
 
@@ -149,7 +151,10 @@ print_with_symbol(const char *name, uint64_t value)
 		sym = db_search_symbol(value, DB_STGY_ANY, &offset);
 		if (sym != C_DB_SYM_NULL) {
 			db_symbol_values(sym, &sym_name, &sym_value);
-			printf(" (%s + 0x%lx)", sym_name, offset);
+			if (offset != 0)
+				printf(" (%s + 0x%lx)", sym_name, offset);
+			else
+				printf(" (%s)", sym_name);
 		}
 	}
 #endif
@@ -183,6 +188,7 @@ dump_regs(struct trapframe *frame)
 	print_with_symbol("tp", frame->tf_tp);
 	print_with_symbol("sepc", frame->tf_sepc);
 	printf("sstatus: 0x%016lx\n", frame->tf_sstatus);
+	printf("stval  : 0x%016lx\n", frame->tf_stval);
 }
 
 static void
@@ -223,11 +229,6 @@ page_fault_handler(struct trapframe *frame, int usermode)
 	pcb = td->td_pcb;
 	stval = frame->tf_stval;
 
-	if (td->td_critnest != 0 || td->td_intr_nesting_level != 0 ||
-	    WITNESS_CHECK(WARN_SLEEPOK | WARN_GIANTOK, NULL,
-	    "Kernel page fault") != 0)
-		goto fatal;
-
 	if (usermode) {
 		if (!VIRT_IS_VALID(stval)) {
 			call_trapsignal(td, SIGSEGV, SEGV_MAPERR, (void *)stval,
@@ -240,7 +241,8 @@ page_fault_handler(struct trapframe *frame, int usermode)
 		 * Enable interrupts for the duration of the page fault. For
 		 * user faults this was done already in do_trap_user().
 		 */
-		intr_enable();
+		if ((frame->tf_sstatus & SSTATUS_SIE) != 0)
+			intr_enable();
 
 		if (stval >= VM_MIN_KERNEL_ADDRESS) {
 			map = kernel_map;
@@ -263,6 +265,11 @@ page_fault_handler(struct trapframe *frame, int usermode)
 
 	if (VIRT_IS_VALID(va) && pmap_fault(map->pmap, va, ftype))
 		goto done;
+
+	if (td->td_critnest != 0 || td->td_intr_nesting_level != 0 ||
+	    WITNESS_CHECK(WARN_SLEEPOK | WARN_GIANTOK, NULL,
+	    "Kernel page fault") != 0)
+		goto fatal;
 
 	error = vm_fault_trap(map, va, ftype, VM_FAULT_NORMAL, &sig, &ucode);
 	if (error != KERN_SUCCESS) {
@@ -295,7 +302,7 @@ fatal:
 			return;
 	}
 #endif
-	panic("Fatal page fault at %#lx: %#016lx", frame->tf_sepc, stval);
+	panic("Fatal page fault at %#lx: %#lx", frame->tf_sepc, stval);
 }
 
 void
@@ -313,7 +320,7 @@ do_trap_supervisor(struct trapframe *frame)
 	exception = frame->tf_scause & SCAUSE_CODE;
 	if ((frame->tf_scause & SCAUSE_INTR) != 0) {
 		/* Interrupt */
-		riscv_cpu_intr(frame);
+		intr_irq_handler(frame);
 		return;
 	}
 
@@ -322,7 +329,7 @@ do_trap_supervisor(struct trapframe *frame)
 		return;
 #endif
 
-	CTR4(KTR_TRAP, "%s: exception=%lu, sepc=%lx, stval=%lx", __func__,
+	CTR4(KTR_TRAP, "%s: exception=%lu, sepc=%#lx, stval=%#lx", __func__,
 	    exception, frame->tf_sepc, frame->tf_stval);
 
 	switch (exception) {
@@ -330,13 +337,14 @@ do_trap_supervisor(struct trapframe *frame)
 	case SCAUSE_STORE_ACCESS_FAULT:
 	case SCAUSE_INST_ACCESS_FAULT:
 		dump_regs(frame);
-		panic("Memory access exception at 0x%016lx\n", frame->tf_sepc);
+		panic("Memory access exception at %#lx: %#lx",
+		    frame->tf_sepc, frame->tf_stval);
 		break;
 	case SCAUSE_LOAD_MISALIGNED:
 	case SCAUSE_STORE_MISALIGNED:
 	case SCAUSE_INST_MISALIGNED:
 		dump_regs(frame);
-		panic("Misaligned address exception at %#016lx: %#016lx\n",
+		panic("Misaligned address exception at %#lx: %#lx",
 		    frame->tf_sepc, frame->tf_stval);
 		break;
 	case SCAUSE_STORE_PAGE_FAULT:
@@ -354,16 +362,18 @@ do_trap_supervisor(struct trapframe *frame)
 		kdb_trap(exception, 0, frame);
 #else
 		dump_regs(frame);
-		panic("No debugger in kernel.\n");
+		panic("No debugger in kernel.");
 #endif
 		break;
 	case SCAUSE_ILLEGAL_INSTRUCTION:
 		dump_regs(frame);
-		panic("Illegal instruction at 0x%016lx\n", frame->tf_sepc);
+		panic("Illegal instruction 0x%0*lx at %#lx",
+		    (frame->tf_stval & 0x3) != 0x3 ? 4 : 8,
+		    frame->tf_stval, frame->tf_sepc);
 		break;
 	default:
 		dump_regs(frame);
-		panic("Unknown kernel exception %lx trap value %lx\n",
+		panic("Unknown kernel exception %#lx trap value %#lx",
 		    exception, frame->tf_stval);
 	}
 }
@@ -391,12 +401,12 @@ do_trap_user(struct trapframe *frame)
 	exception = frame->tf_scause & SCAUSE_CODE;
 	if ((frame->tf_scause & SCAUSE_INTR) != 0) {
 		/* Interrupt */
-		riscv_cpu_intr(frame);
+		intr_irq_handler(frame);
 		return;
 	}
 	intr_enable();
 
-	CTR4(KTR_TRAP, "%s: exception=%lu, sepc=%lx, stval=%lx", __func__,
+	CTR4(KTR_TRAP, "%s: exception=%lu, sepc=%#lx, stval=%#lx", __func__,
 	    exception, frame->tf_sepc, frame->tf_stval);
 
 	switch (exception) {
@@ -446,7 +456,7 @@ do_trap_user(struct trapframe *frame)
 		break;
 	default:
 		dump_regs(frame);
-		panic("Unknown userland exception %lx, trap value %lx\n",
+		panic("Unknown userland exception %#lx, trap value %#lx",
 		    exception, frame->tf_stval);
 	}
 }

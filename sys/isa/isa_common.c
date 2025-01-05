@@ -570,7 +570,7 @@ isa_probe_children(device_t dev)
 		    strcmp(kern_ident, "GENERIC") == 0 &&
 		    device_is_attached(child))
 			device_printf(child,
-			    "non-PNP ISA device will be removed from GENERIC in FreeBSD 14.\n");
+			    "non-PNP ISA device will be removed from GENERIC in FreeBSD 15.\n");
 	}
 
 	/*
@@ -620,6 +620,12 @@ isa_add_child(device_t dev, u_int order, const char *name, int unit)
 	device_set_ivars(child, idev);
 
 	return (child);
+}
+
+static void
+isa_child_deleted(device_t dev, device_t child)
+{
+	free(device_get_ivars(child), M_ISADEV);
 }
 
 static int
@@ -1060,6 +1066,7 @@ static device_method_t isa_methods[] = {
 
 	/* Bus interface */
 	DEVMETHOD(bus_add_child,	isa_add_child),
+	DEVMETHOD(bus_child_deleted,	isa_child_deleted),
 	DEVMETHOD(bus_print_child,	isa_print_child),
 	DEVMETHOD(bus_probe_nomatch,	isa_probe_nomatch),
 	DEVMETHOD(bus_read_ivar,	isa_read_ivar),

@@ -776,7 +776,7 @@ fetch_check_params () {
 
 	if ! [ -z "${TARGETRELEASE}" ]; then
 		echo -n "`basename $0`: "
-		echo -n "-r option is meaningless with 'fetch' command.  "
+		echo -n "'-r' option is meaningless with 'fetch' command.  "
 		echo "(Did you mean 'upgrade' instead?)"
 		exit 1
 	fi
@@ -784,8 +784,8 @@ fetch_check_params () {
 	# Check that we have updates ready to install
 	if [ -f ${BDHASH}-install/kerneldone -a $FORCEFETCH -eq 0 ]; then
 		echo "You have a partially completed upgrade pending"
-		echo "Run '$0 install' first."
-		echo "Run '$0 fetch -F' to proceed anyway."
+		echo "Run '`basename $0` [options] install' first."
+		echo "Run '`basename $0` [options] fetch -F' to proceed anyway."
 		exit 1
 	fi
 }
@@ -798,7 +798,7 @@ upgrade_check_params () {
 	NKERNCONF=${KERNCONF}
 
 	# We need TARGETRELEASE set
-	_TARGETRELEASE_z="Release target must be specified via -r option."
+	_TARGETRELEASE_z="Release target must be specified via '-r' option."
 	if [ -z "${TARGETRELEASE}" ]; then
 		echo -n "`basename $0`: "
 		echo "${_TARGETRELEASE_z}"
@@ -863,7 +863,7 @@ install_check_params () {
 	if ! [ -L ${BDHASH}-install ]; then
 		echo "No updates are available to install."
 		if [ $ISFETCHED -eq 0 ]; then
-			echo "Run '$0 fetch' first."
+			echo "Run '`basename $0` [options] fetch' first."
 			exit 2
 		fi
 		exit 0
@@ -871,7 +871,7 @@ install_check_params () {
 	if ! [ -f ${BDHASH}-install/INDEX-OLD ] ||
 	    ! [ -f ${BDHASH}-install/INDEX-NEW ]; then
 		echo "Update manifest is corrupt -- this should never happen."
-		echo "Re-run '$0 fetch'."
+		echo "Re-run '`basename $0` [options] fetch'."
 		exit 1
 	fi
 
@@ -916,7 +916,7 @@ install_create_be () {
 			echo -n "Creating snapshot of existing boot environment... "
 			VERSION=`freebsd-version -ku | sort -V | tail -n 1`
 			TIMESTAMP=`date +"%Y-%m-%d_%H%M%S"`
-			bectl create ${VERSION}_${TIMESTAMP}
+			bectl create -r ${VERSION}_${TIMESTAMP}
 			if [ $? -eq 0 ]; then
 				echo "done.";
 			else
@@ -973,7 +973,7 @@ IDS_check_params () {
 
 	_SERVERNAME_z=\
 "SERVERNAME must be given via command line or configuration file."
-	_KEYPRINT_z="Key must be given via -k option or configuration file."
+	_KEYPRINT_z="Key must be given via '-k' option or configuration file."
 	_KEYPRINT_bad="Invalid key fingerprint: "
 	_WORKDIR_bad="Directory does not exist or is not writable: "
 
@@ -1046,16 +1046,36 @@ IDS_check_params () {
 	fetch_setup_verboselevel
 }
 
+# Packaged base and freebsd-update are incompatible.  Exit with an error if
+# packaged base is in use.
+check_pkgbase()
+{
+	# Packaged base requires that pkg is bootstrapped.
+	if ! pkg -c ${BASEDIR} -N >/dev/null 2>/dev/null; then
+		return
+	fi
+	# uname(1) is used by pkg to determine ABI, so it should exist.
+	# If it comes from a package then this system uses packaged base.
+	if ! pkg -c ${BASEDIR} which /usr/bin/uname >/dev/null; then
+		return
+	fi
+	cat <<EOF
+freebsd-update is incompatible with the use of packaged base.  Please see
+https://wiki.freebsd.org/PkgBase for more information.
+EOF
+	exit 1
+}
+
 #### Core functionality -- the actual work gets done here
 
 # Use an SRV query to pick a server.  If the SRV query doesn't provide
 # a useful answer, use the server name specified by the user.
 # Put another way... look up _http._tcp.${SERVERNAME} and pick a server
 # from that; or if no servers are returned, use ${SERVERNAME}.
-# This allows a user to specify "portsnap.freebsd.org" (in which case
-# portsnap will select one of the mirrors) or "portsnap5.tld.freebsd.org"
-# (in which case portsnap will use that particular server, since there
-# won't be an SRV entry for that name).
+# This allows a user to specify "update.FreeBSD.org" (in which case
+# freebsd-update will select one of the mirrors) or "update1.freebsd.org"
+# (in which case freebsd-update will use that particular server, since
+# there won't be an SRV entry for that name).
 #
 # We ignore the Port field, since we are always going to use port 80.
 
@@ -1202,10 +1222,10 @@ fetch_progress () {
 continuep () {
 	while read -p "Does this look reasonable (y/n)? " CONTINUE; do
 		case "${CONTINUE}" in
-		y*)
+		[yY]*)
 			return 0
 			;;
-		n*)
+		[nN]*)
 			return 1
 			;;
 		esac
@@ -2326,7 +2346,7 @@ upgrade_guess_components () {
 WARNING: This system is running a "${KCOMP}" kernel, which is not a
 kernel configuration distributed as part of FreeBSD ${RELNUM}.
 This kernel will not be updated: you MUST update the kernel manually
-before running "$0 install".
+before running '`basename $0` [options] install'.
 			EOF
 		fi
 
@@ -2544,7 +2564,11 @@ Press Enter to edit this file in ${EDITOR} and resolve the conflicts
 manually...
 			EOF
 			while true; do
-				read dummy </dev/tty
+				read response </dev/tty
+				if expr "${response}" : '[Aa][Cc][Cc][Ee][Pp][Tt]' > /dev/null; then
+					echo
+					break
+				fi
 				${EDITOR} `pwd`/merge/new/${F} < /dev/tty
 
 				if ! grep -qE '^(<<<<<<<|=======|>>>>>>>)([[:space:]].*)?$' $(pwd)/merge/new/${F} ; then
@@ -2555,7 +2579,8 @@ manually...
 Merge conflict markers remain in: ${F}
 These must be resolved for the system to be functional.
 
-Press Enter to return to editing this file.
+Press Enter to return to editing this file, or type "ACCEPT" to carry on with
+these lines remaining in the file.
 				EOF
 			done
 		done < failed.merges
@@ -2765,7 +2790,7 @@ upgrade_run () {
 
 	# Remind the user that they need to run "freebsd-update install"
 	# to install the downloaded bits, in case they didn't RTFM.
-	echo "To install the downloaded upgrades, run \"$0 install\"."
+	echo "To install the downloaded upgrades, run '`basename $0` [options] install'."
 }
 
 # Make sure that all the file hashes mentioned in $@ have corresponding
@@ -2783,7 +2808,7 @@ install_verify () {
 		if ! [ -f files/${HASH}.gz ]; then
 			echo -n "Update files missing -- "
 			echo "this should never happen."
-			echo "Re-run '$0 fetch'."
+			echo "Re-run '`basename $0` [options] fetch'."
 			return 1
 		fi
 	done < filelist
@@ -2890,8 +2915,17 @@ backup_kernel () {
 	(cd ${BASEDIR}/${KERNELDIR} && find . -type f $FINDFILTER -exec \
 	    cp -pl '{}' ${BASEDIR}/${BACKUPKERNELDIR}/'{}' \;)
 
-	# Re-enable patchname expansion.
+	# Re-enable pathname expansion.
 	set +f
+}
+
+# Check for and remove an existing directory that conflicts with the file or
+# symlink that we are going to install.
+dir_conflict () {
+	if [ -d "$1" ]; then
+		echo "Removing conflicting directory $1"
+		rm -rf -- "$1"
+	fi
 }
 
 # Install new files
@@ -2903,11 +2937,18 @@ install_from_index () {
 	    while read FPATH TYPE OWNER GROUP PERM FLAGS HASH LINK; do
 		case ${TYPE} in
 		d)
-			# Create a directory
+			# Create a directory.  A file may change to a directory
+			# on upgrade (PR273661).  If that happens, remove the
+			# file first.
+			if [ -e "${BASEDIR}/${FPATH}" ] && \
+			    ! [ -d "${BASEDIR}/${FPATH}" ]; then
+				rm -f -- "${BASEDIR}/${FPATH}"
+			fi
 			install -d -o ${OWNER} -g ${GROUP}		\
 			    -m ${PERM} ${BASEDIR}/${FPATH}
 			;;
 		f)
+			dir_conflict "${BASEDIR}/${FPATH}"
 			if [ -z "${LINK}" ]; then
 				# Create a file, without setting flags.
 				gunzip < files/${HASH}.gz > ${HASH}
@@ -2920,6 +2961,7 @@ install_from_index () {
 			fi
 			;;
 		L)
+			dir_conflict "${BASEDIR}/${FPATH}"
 			# Create a symlink
 			ln -sfh ${HASH} ${BASEDIR}/${FPATH}
 			;;
@@ -2956,10 +2998,14 @@ install_delete () {
 			rmdir ${BASEDIR}/${FPATH}
 			;;
 		f)
-			rm ${BASEDIR}/${FPATH}
+			if [ -f "${BASEDIR}/${FPATH}" ]; then
+				rm "${BASEDIR}/${FPATH}"
+			fi
 			;;
 		L)
-			rm ${BASEDIR}/${FPATH}
+			if [ -L "${BASEDIR}/${FPATH}" ]; then
+				rm "${BASEDIR}/${FPATH}"
+			fi
 			;;
 		esac
 	done < killfiles
@@ -2998,7 +3044,7 @@ install_files () {
 			cat <<-EOF
 
 Kernel updates have been installed.  Please reboot and run
-"$0 install" again to finish installing updates.
+'`basename $0` [options] install' again to finish installing updates.
 			EOF
 			exit 0
 		fi
@@ -3036,9 +3082,10 @@ Kernel updates have been installed.  Please reboot and run
 		install_from_index INDEX-NEW || return 1
 		install_delete INDEX-OLD INDEX-NEW || return 1
 
-		# Restart sshd if running (PR263489).  Note that this does not
-		# affect child sshd processes handling existing sessions.
-		if service sshd status >/dev/null 2>/dev/null; then
+		# Restart host sshd if running (PR263489).  Note that this does
+		# not affect child sshd processes handling existing sessions.
+		if [ "$BASEDIR" = / ] && \
+		    service sshd status >/dev/null 2>/dev/null; then
 			echo
 			echo "Restarting sshd after upgrade"
 			service sshd restart
@@ -3084,8 +3131,8 @@ Kernel updates have been installed.  Please reboot and run
 
 Completing this upgrade requires removing old shared object files.
 Please rebuild all installed 3rd party software (e.g., programs
-installed from the ports tree) and then run "$0 install"
-again to finish installing updates.
+installed from the ports tree) and then run
+'`basename $0` [options] install' again to finish installing updates.
 			EOF
 			rm newfiles
 			exit 0
@@ -3169,6 +3216,11 @@ rollback_setup_rollback () {
 
 # Install old files, delete new files, and update linker.hints
 rollback_files () {
+	# Create directories first.  They may be needed by files we will
+	# install in subsequent steps (PR273950).
+	awk -F \| '{if ($2 == "d") print }' $1/INDEX-OLD > INDEX-OLD
+	install_from_index INDEX-OLD || return 1
+
 	# Install old shared library files which don't have the same path as
 	# a new shared library file.
 	grep -vE '^/boot/' $1/INDEX-NEW |
@@ -3425,6 +3477,7 @@ cmd_cron () {
 	    [ ${VERBOSELEVEL} = "debug" ]; then
 		mail -s "`hostname` security updates" ${MAILTO} < ${TMPFILE}
 	fi
+	ISFETCHED=1
 
 	rm ${TMPFILE}
 }
@@ -3459,7 +3512,7 @@ cmd_updatesready () {
 	fi
 
 	echo "There are updates available to install."
-	echo "Run '$0 install' to proceed."
+	echo "Run '`basename $0` [options] install' to proceed."
 }
 
 # Install downloaded updates.
@@ -3507,6 +3560,9 @@ export LC_ALL=C
 
 # Clear environment variables that may affect operation of tools that we use.
 unset GREP_OPTIONS
+
+# Disallow use with packaged base.
+check_pkgbase
 
 get_params $@
 for COMMAND in ${COMMANDS}; do

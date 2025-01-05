@@ -46,10 +46,11 @@
 #include "config.h"
 #include "debug.h"
 #include "console.h"
-#include "inout.h"
 #include "pci_emul.h"
 #include "rfb.h"
-#include "vga.h"
+#ifdef __amd64__
+#include "amd64/vga.h"
+#endif
 
 /*
  * bhyve Framebuffer device emulation.
@@ -231,7 +232,8 @@ pci_fbuf_baraddr(struct pci_devinst *pi, int baridx, int enabled,
 		if (vm_mmap_memseg(pi->pi_vmctx, address, VM_FRAMEBUFFER, 0,
 		    FB_SIZE, prot) != 0)
 			EPRINTLN("pci_fbuf: mmap_memseg failed");
-		sc->fbaddr = address;
+		else
+			sc->fbaddr = address;
 	}
 }
 

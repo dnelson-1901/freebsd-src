@@ -25,8 +25,6 @@
  * SUCH DAMAGE.
  */
 
-#include "opt_netlink.h"
-
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
@@ -52,8 +50,10 @@
 #include <netlink/route/route_var.h>
 
 /* Standard bits: built-in the kernel */
-SYSCTL_NODE(_net, OID_AUTO, netlink, CTLFLAG_RD, 0, "");
-SYSCTL_NODE(_net_netlink, OID_AUTO, debug, CTLFLAG_RD | CTLFLAG_MPSAFE, 0, "");
+SYSCTL_NODE(_net, OID_AUTO, netlink, CTLFLAG_RD, 0,
+    "RFC3549 Netlink network state socket family");
+SYSCTL_NODE(_net_netlink, OID_AUTO, debug, CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
+    "Netlink per-subsystem debug levels");
 
 MALLOC_DEFINE(M_NETLINK, "netlink", "Memory used for netlink packets");
 

@@ -39,6 +39,7 @@
 #include <sys/malloc.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
+#include <sys/reboot.h>
 #include <sys/sbuf.h>
 #include <sys/sched.h>
 #include <sys/sx.h>
@@ -1222,7 +1223,7 @@ g_mirror_start(struct bio *bp)
 }
 
 /*
- * Return TRUE if the given request is colliding with a in-progress
+ * Return true if the given request is colliding with a in-progress
  * synchronization request.
  */
 static bool
@@ -1254,7 +1255,7 @@ g_mirror_sync_collision(struct g_mirror_softc *sc, struct bio *bp)
 }
 
 /*
- * Return TRUE if the given sync request is colliding with a in-progress regular
+ * Return true if the given sync request is colliding with a in-progress regular
  * request.
  */
 static bool
@@ -3546,7 +3547,7 @@ g_mirror_shutdown_post_sync(void *arg, int howto)
 	struct g_mirror_softc *sc;
 	int error;
 
-	if (KERNEL_PANICKED())
+	if ((howto & RB_NOSYNC) != 0)
 		return;
 
 	mp = arg;

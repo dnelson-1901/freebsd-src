@@ -38,7 +38,6 @@
 #include <netinet/tcp_fsm.h>
 
 #ifdef _KERNEL
-#include "opt_kern_tls.h"
 #include <net/vnet.h>
 #include <sys/mbuf.h>
 #include <sys/ktls.h>
@@ -89,6 +88,9 @@
 #define TCP_EI_BITS_2MS_TIMER	0x400	/* 2 MSL timer expired */
 
 #if defined(_KERNEL) || defined(_WANT_TCPCB)
+#include <sys/_callout.h>
+#include <sys/osd.h>
+
 #include <netinet/cc/cc.h>
 
 /* TCP segment queue entry */
@@ -459,6 +461,11 @@ struct tcpcb {
 	/* TCP Fast Open */
 	uint8_t t_tfo_client_cookie_len; /* TFO client cookie length */
 	uint32_t t_end_info_status;	/* Status flag of end info */
+	sbintime_t t_challenge_ack_end;	/* End of the challenge ack epoch */
+	uint32_t t_challenge_ack_cnt;	/* Number of challenge ACKs sent in
+					 * current epoch
+					 */
+
 	unsigned int *t_tfo_pending;	/* TFO server pending counter */
 	union {
 		uint8_t client[TCP_FASTOPEN_MAX_COOKIE_LEN];
@@ -502,6 +509,13 @@ struct tcptemp {
 	struct	tcphdr tt_t;
 };
 
+/* SACK scoreboard update status */
+typedef enum {
+	SACK_NOCHANGE = 0,
+	SACK_CHANGE,
+	SACK_NEWLOSS
+} sackstatus_t;
+
 /* Enable TCP/UDP tunneling port */
 #define TCP_TUNNELING_PORT_MIN		0
 #define TCP_TUNNELING_PORT_MAX		65535
@@ -527,6 +541,7 @@ struct tcptemp {
 /* Flags for tcp functions */
 #define	TCP_FUNC_BEING_REMOVED	0x01   	/* Can no longer be referenced */
 #define	TCP_FUNC_OUTPUT_CANDROP	0x02   	/* tfb_tcp_output may ask tcp_drop */
+#define	TCP_FUNC_DEFAULT_OK	0x04   	/* Can be used as default */
 
 /**
  * If defining the optional tcp_timers, in the
@@ -539,13 +554,10 @@ struct tcptemp {
  * stop_all function that loops through and calls
  * tcp_timer_stop() with each of your defined timers.
  *
- * Adding a tfb_tcp_handoff_ok function allows the socket
- * option to change stacks to query you even if the
- * connection is in a later stage. You return 0 to
- * say you can take over and run your stack, you return
- * non-zero (an error number) to say no you can't.
- * If the function is undefined you can only change
- * in the early states (before connect or listen).
+ * tfb_tcp_handoff_ok is a mandatory function allowing
+ * to query a stack, if it can take over a tcpcb.
+ * You return 0 to say you can take over and run your stack,
+ * you return non-zero (an error number) to say no you can't.
  *
  * tfb_tcp_fb_init is used to allow the new stack to
  * setup its control block. Among the things it must
@@ -631,6 +643,9 @@ struct tcp_function_block {
 	uint32_t  tfb_flags;
 	uint8_t	tfb_id;
 };
+
+/* Maximum number of names each TCP function block can be registered with. */
+#define	TCP_FUNCTION_NAME_NUM_MAX	8
 
 struct tcp_function {
 	TAILQ_ENTRY(tcp_function)	tf_next;
@@ -810,10 +825,12 @@ tcp_packets_this_ack(struct tcpcb *tp, tcp_seq ack)
 #define	ENTER_RECOVERY(t_flags) t_flags |= (TF_CONGRECOVERY | TF_FASTRECOVERY)
 #define	EXIT_RECOVERY(t_flags) t_flags &= ~(TF_CONGRECOVERY | TF_FASTRECOVERY)
 
-#if defined(_KERNEL) && !defined(TCP_RFC7413)
+#if defined(_KERNEL)
+#if !defined(TCP_RFC7413)
 #define	IS_FASTOPEN(t_flags)		(false)
 #else
 #define	IS_FASTOPEN(t_flags)		(t_flags & TF_FASTOPEN)
+#endif
 #endif
 
 #define	BYTES_THIS_ACK(tp, th)	(th->th_ack - tp->snd_una)
@@ -847,6 +864,7 @@ tcp_packets_this_ack(struct tcpcb *tp, tcp_seq ack)
 #define	TF2_MBUF_QUEUE_READY	0x00020000 /* Inputs can be queued */
 #define	TF2_DONT_SACK_QUEUE	0x00040000 /* Don't wake on sack */
 #define	TF2_CANNOT_DO_ECN	0x00080000 /* The stack does not do ECN */
+#define	TF2_NO_ISS_CHECK	0x00400000 /* Don't check SEG.ACK against ISS */
 
 /*
  * Structure to hold TCP options that are only used during segment
@@ -917,10 +935,10 @@ struct in_conninfo;
  * and thus an "ALPHA" of 0.875.  rttvar has 2 bits to the right of the
  * binary point, and is smoothed with an ALPHA of 0.75.
  */
-#define	TCP_RTT_SCALE		32	/* multiplier for srtt; 3 bits frac. */
-#define	TCP_RTT_SHIFT		5	/* shift for srtt; 3 bits frac. */
-#define	TCP_RTTVAR_SCALE	16	/* multiplier for rttvar; 2 bits */
-#define	TCP_RTTVAR_SHIFT	4	/* shift for rttvar; 2 bits */
+#define	TCP_RTT_SCALE		32	/* multiplier for srtt; 5 bits frac. */
+#define	TCP_RTT_SHIFT		5	/* shift for srtt; 5 bits frac. */
+#define	TCP_RTTVAR_SCALE	16	/* multiplier for rttvar; 4 bits */
+#define	TCP_RTTVAR_SHIFT	4	/* shift for rttvar; 4 bits */
 #define	TCP_DELTA_SHIFT		2	/* see tcp_input.c */
 
 /*
@@ -1098,8 +1116,11 @@ struct	tcpstat {
 	uint64_t tcps_tlpresends;	/* number of tlp resends */
 	uint64_t tcps_tlpresend_bytes;	/* number of bytes resent by tlp */
 
+	/* SEG.ACK validation failures */
+	uint64_t tcps_rcvghostack;	/* received ACK for data never sent */
+	uint64_t tcps_rcvacktooold;	/* received ACK for data too long ago */
 
-	uint64_t _pad[4];		/* 4 TBD placeholder for STABLE */
+	uint64_t _pad[2];		/* 2 TBD placeholder for STABLE */
 };
 
 #define	tcps_rcvmemdrop	tcps_rcvreassfull	/* compat */
@@ -1257,6 +1278,8 @@ VNET_DECLARE(int, tcp_log_in_vain);
 VNET_DECLARE(int, drop_synfin);
 VNET_DECLARE(int, path_mtu_discovery);
 VNET_DECLARE(int, tcp_abc_l_var);
+VNET_DECLARE(uint32_t, tcp_ack_war_cnt);
+VNET_DECLARE(uint32_t, tcp_ack_war_time_window);
 VNET_DECLARE(int, tcp_autorcvbuf_max);
 VNET_DECLARE(int, tcp_autosndbuf_inc);
 VNET_DECLARE(int, tcp_autosndbuf_max);
@@ -1280,6 +1303,7 @@ VNET_DECLARE(int, tcp_ecn_maxretries);
 VNET_DECLARE(int, tcp_initcwnd_segments);
 VNET_DECLARE(int, tcp_insecure_rst);
 VNET_DECLARE(int, tcp_insecure_syn);
+VNET_DECLARE(int, tcp_insecure_ack);
 VNET_DECLARE(uint32_t, tcp_map_entries_limit);
 VNET_DECLARE(uint32_t, tcp_map_split_limit);
 VNET_DECLARE(int, tcp_minmss);
@@ -1301,12 +1325,13 @@ VNET_DECLARE(struct inpcbinfo, tcbinfo);
 
 #define	V_tcp_do_lrd			VNET(tcp_do_lrd)
 #define	V_tcp_do_prr			VNET(tcp_do_prr)
-#define	V_tcp_do_prr_conservative	VNET(tcp_do_prr_conservative)
 #define	V_tcp_do_newcwv			VNET(tcp_do_newcwv)
 #define	V_drop_synfin			VNET(drop_synfin)
 #define	V_path_mtu_discovery		VNET(path_mtu_discovery)
 #define	V_tcbinfo			VNET(tcbinfo)
 #define	V_tcp_abc_l_var			VNET(tcp_abc_l_var)
+#define	V_tcp_ack_war_cnt		VNET(tcp_ack_war_cnt)
+#define	V_tcp_ack_war_time_window	VNET(tcp_ack_war_time_window)
 #define	V_tcp_autorcvbuf_max		VNET(tcp_autorcvbuf_max)
 #define	V_tcp_autosndbuf_inc		VNET(tcp_autosndbuf_inc)
 #define	V_tcp_autosndbuf_max		VNET(tcp_autosndbuf_max)
@@ -1327,6 +1352,7 @@ VNET_DECLARE(struct inpcbinfo, tcbinfo);
 #define	V_tcp_initcwnd_segments		VNET(tcp_initcwnd_segments)
 #define	V_tcp_insecure_rst		VNET(tcp_insecure_rst)
 #define	V_tcp_insecure_syn		VNET(tcp_insecure_syn)
+#define	V_tcp_insecure_ack		VNET(tcp_insecure_ack)
 #define	V_tcp_map_entries_limit		VNET(tcp_map_entries_limit)
 #define	V_tcp_map_split_limit		VNET(tcp_map_split_limit)
 #define	V_tcp_minmss			VNET(tcp_minmss)
@@ -1350,6 +1376,7 @@ VNET_DECLARE(struct hhook_head *, tcp_hhh[HHOOK_TCP_LAST + 1]);
 #define	V_tcp_hhh		VNET(tcp_hhh)
 #endif
 
+void	tcp_account_for_send(struct tcpcb *, uint32_t, uint8_t, uint8_t, bool);
 int	 tcp_addoptions(struct tcpopt *, u_char *);
 struct tcpcb *
 	 tcp_close(struct tcpcb *);
@@ -1446,11 +1473,12 @@ void	 tcp_mss_update(struct tcpcb *, int, int, struct hc_metrics_lite *,
 void	 tcp_mss(struct tcpcb *, int);
 int	 tcp_mssopt(struct in_conninfo *);
 struct tcpcb *
-	 tcp_newtcpcb(struct inpcb *);
+	 tcp_newtcpcb(struct inpcb *, struct tcpcb *);
 int	 tcp_default_output(struct tcpcb *);
 void	 tcp_state_change(struct tcpcb *, int);
 void	 tcp_respond(struct tcpcb *, void *,
 	    struct tcphdr *, struct mbuf *, tcp_seq, tcp_seq, uint16_t);
+void	 tcp_send_challenge_ack(struct tcpcb *, struct tcphdr *, struct mbuf *);
 bool	 tcp_twcheck(struct inpcb *, struct tcpopt *, struct tcphdr *,
 	    struct mbuf *, int);
 void	 tcp_setpersist(struct tcpcb *);
@@ -1481,15 +1509,16 @@ extern	struct protosw tcp6_protosw;		/* shared for TOE */
 uint32_t tcp_new_ts_offset(struct in_conninfo *);
 tcp_seq	 tcp_new_isn(struct in_conninfo *);
 
-int	 tcp_sack_doack(struct tcpcb *, struct tcpopt *, tcp_seq);
+sackstatus_t
+	 tcp_sack_doack(struct tcpcb *, struct tcpopt *, tcp_seq);
 int	 tcp_dsack_block_exists(struct tcpcb *);
 void	 tcp_update_dsack_list(struct tcpcb *, tcp_seq, tcp_seq);
 void	 tcp_update_sack_list(struct tcpcb *tp, tcp_seq rcv_laststart, tcp_seq rcv_lastend);
 void	 tcp_clean_dsack_blocks(struct tcpcb *tp);
 void	 tcp_clean_sackreport(struct tcpcb *tp);
-void	 tcp_sack_adjust(struct tcpcb *tp);
+int	 tcp_sack_adjust(struct tcpcb *tp);
 struct sackhole *tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt);
-void	 tcp_do_prr_ack(struct tcpcb *, struct tcphdr *, struct tcpopt *);
+void	 tcp_do_prr_ack(struct tcpcb *, struct tcphdr *, struct tcpopt *, sackstatus_t);
 void	 tcp_lost_retransmission(struct tcpcb *, struct tcphdr *);
 void	 tcp_sack_partialack(struct tcpcb *, struct tcphdr *);
 void	 tcp_free_sackholes(struct tcpcb *tp);
@@ -1581,30 +1610,6 @@ tcp_set_flags(struct tcphdr *th, uint16_t flags)
 {
         th->th_x2    = (flags >> 8) & 0x0f;
         th->th_flags = flags & 0xff;
-}
-
-static inline void
-tcp_account_for_send(struct tcpcb *tp, uint32_t len, uint8_t is_rxt,
-    uint8_t is_tlp, bool hw_tls)
-{
-	if (is_tlp) {
-		tp->t_sndtlppack++;
-		tp->t_sndtlpbyte += len;
-	}
-	/* To get total bytes sent you must add t_snd_rxt_bytes to t_sndbytes */
-	if (is_rxt)
-		tp->t_snd_rxt_bytes += len;
-	else
-		tp->t_sndbytes += len;
-
-#ifdef KERN_TLS
-	if (hw_tls && is_rxt && len != 0) {
-		uint64_t rexmit_percent = (1000ULL * tp->t_snd_rxt_bytes) / (10ULL * (tp->t_snd_rxt_bytes + tp->t_sndbytes));
-		if (rexmit_percent > ktls_ifnet_max_rexmit_pct)
-			ktls_disable_ifnet(tp);
-	}
-#endif
-
 }
 #endif /* _KERNEL */
 

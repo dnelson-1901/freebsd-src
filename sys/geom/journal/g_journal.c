@@ -26,34 +26,36 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/bio.h>
+#include <sys/eventhandler.h>
 #include <sys/kernel.h>
-#include <sys/module.h>
+#include <sys/kthread.h>
 #include <sys/limits.h>
 #include <sys/lock.h>
-#include <sys/mutex.h>
-#include <sys/bio.h>
-#include <sys/sysctl.h>
+#include <sys/module.h>
 #include <sys/malloc.h>
 #include <sys/mount.h>
-#include <sys/eventhandler.h>
+#include <sys/mutex.h>
 #include <sys/proc.h>
-#include <sys/kthread.h>
+#include <sys/reboot.h>
+#include <sys/sbuf.h>
 #include <sys/sched.h>
+#include <sys/sysctl.h>
 #include <sys/taskqueue.h>
 #include <sys/vnode.h>
-#include <sys/sbuf.h>
+
 #ifdef GJ_MEMDEBUG
 #include <sys/stack.h>
 #include <sys/kdb.h>
 #endif
+
 #include <vm/vm.h>
 #include <vm/vm_kern.h>
+
 #include <geom/geom.h>
 #include <geom/geom_dbg.h>
-
 #include <geom/journal/g_journal.h>
 
 FEATURE(geom_journal, "GEOM journaling support");
@@ -129,7 +131,7 @@ g_journal_record_entries_sysctl(SYSCTL_HANDLER_ARGS)
 SYSCTL_PROC(_kern_geom_journal, OID_AUTO, record_entries,
     CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_MPSAFE, NULL, 0,
     g_journal_record_entries_sysctl, "I",
-    "Maximum number of entires in one journal record");
+    "Maximum number of entries in one journal record");
 SYSCTL_UINT(_kern_geom_journal, OID_AUTO, optimize, CTLFLAG_RW,
     &g_journal_do_optimize, 0, "Try to combine bios on flush and copy");
 
@@ -2654,13 +2656,14 @@ static eventhandler_tag g_journal_event_shutdown = NULL;
 static eventhandler_tag g_journal_event_lowmem = NULL;
 
 static void
-g_journal_shutdown(void *arg, int howto __unused)
+g_journal_shutdown_post_sync(void *arg, int howto)
 {
 	struct g_class *mp;
 	struct g_geom *gp, *gp2;
 
-	if (KERNEL_PANICKED())
+	if ((howto & RB_NOSYNC) != 0)
 		return;
+
 	mp = arg;
 	g_topology_lock();
 	LIST_FOREACH_SAFE(gp, &mp->geom, geom, gp2) {
@@ -2737,7 +2740,7 @@ g_journal_init(struct g_class *mp)
 		    (g_journal_cache_limit / 100) * g_journal_cache_switch;
 	}
 	g_journal_event_shutdown = EVENTHANDLER_REGISTER(shutdown_post_sync,
-	    g_journal_shutdown, mp, EVENTHANDLER_PRI_FIRST);
+	    g_journal_shutdown_post_sync, mp, EVENTHANDLER_PRI_FIRST);
 	if (g_journal_event_shutdown == NULL)
 		GJ_DEBUG(0, "Warning! Cannot register shutdown event.");
 	g_journal_event_lowmem = EVENTHANDLER_REGISTER(vm_lowmem,

@@ -42,6 +42,7 @@
 #include <sys/module.h>
 #include <sys/proc.h>
 #include <sys/rman.h>
+#include <sys/sysctl.h>
 #include <sys/timeet.h>
 
 #include <isa/rtc.h>
@@ -61,7 +62,7 @@
 /* tunable to detect a power loss of the rtc */
 static bool atrtc_power_lost = false;
 SYSCTL_BOOL(_machdep, OID_AUTO, atrtc_power_lost, CTLFLAG_RD, &atrtc_power_lost,
-    false, "RTC lost power on last power cycle (probably caused by an emtpy cmos battery)");
+    false, "RTC lost power on last power cycle (probably caused by an empty cmos battery)");
 
 /*
  * atrtc_lock protects low-level access to individual hardware registers.
@@ -638,9 +639,6 @@ static device_method_t atrtc_isa_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		atrtc_probe),
 	DEVMETHOD(device_attach,	atrtc_isa_attach),
-	DEVMETHOD(device_detach,	bus_generic_detach),
-	DEVMETHOD(device_shutdown,	bus_generic_shutdown),
-	DEVMETHOD(device_suspend,	bus_generic_suspend),
 		/* XXX stop statclock? */
 	DEVMETHOD(device_resume,	atrtc_resume),
 

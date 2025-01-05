@@ -36,8 +36,6 @@ static const char copyright[] =
 #if 0
 static char sccsid[] = "@(#)ifconfig.c	8.2 (Berkeley) 2/16/94";
 #endif
-static const char rcsid[] =
-  "$FreeBSD$";
 #endif /* not lint */
 
 #include <sys/param.h>
@@ -324,14 +322,10 @@ cmpifaddrs(struct ifaddrs *a, struct ifaddrs *b, struct ifa_queue *q)
 static void freeformat(void)
 {
 
-	if (f_inet != NULL)
-		free(f_inet);
-	if (f_inet6 != NULL)
-		free(f_inet6);
-	if (f_ether != NULL)
-		free(f_ether);
-	if (f_addr != NULL)
-		free(f_addr);
+	free(f_inet);
+	free(f_inet6);
+	free(f_ether);
+	free(f_addr);
 }
 
 static void setformat(char *input)
@@ -341,9 +335,18 @@ static void setformat(char *input)
 	formatstr = strdup(input);
 	while ((category = strsep(&formatstr, ",")) != NULL) {
 		modifier = strchr(category, ':');
-		if (modifier == NULL || modifier[1] == '\0') {
-			warnx("Skipping invalid format specification: %s\n",
-			    category);
+		if (modifier == NULL) {
+			if (strcmp(category, "default") == 0) {
+				freeformat();
+			} else if (strcmp(category, "cidr") == 0) {
+				free(f_inet);
+				f_inet = strdup(category);
+				free(f_inet6);
+				f_inet6 = strdup(category);
+			} else {
+				warnx("Skipping invalid format: %s\n",
+				    category);
+			}
 			continue;
 		}
 
@@ -351,14 +354,19 @@ static void setformat(char *input)
 		modifier[0] = '\0';
 		modifier++;
 
-		if (strcmp(category, "addr") == 0)
+		if (strcmp(category, "addr") == 0) {
+			free(f_addr);
 			f_addr = strdup(modifier);
-		else if (strcmp(category, "ether") == 0)
+		} else if (strcmp(category, "ether") == 0) {
+			free(f_ether);
 			f_ether = strdup(modifier);
-		else if (strcmp(category, "inet") == 0)
+		} else if (strcmp(category, "inet") == 0) {
+			free(f_inet);
 			f_inet = strdup(modifier);
-		else if (strcmp(category, "inet6") == 0)
+		} else if (strcmp(category, "inet6") == 0) {
+			free(f_inet6);
 			f_inet6 = strdup(modifier);
+		}
 	}
 	free(formatstr);
 }
@@ -467,7 +475,7 @@ args_parse(struct ifconfig_args *args, int argc, char *argv[])
 	int c;
 
 	/* Parse leading line options */
-	strlcpy(options, "G:adf:j:klmnuv", sizeof(options));
+	strlcpy(options, "G:adDf:j:klmnuv", sizeof(options));
 	for (p = opts; p != NULL; p = p->next)
 		strlcat(options, p->opt, sizeof(options));
 	while ((c = getopt(argc, argv, options)) != -1) {
@@ -477,6 +485,9 @@ args_parse(struct ifconfig_args *args, int argc, char *argv[])
 			break;
 		case 'd':	/* restrict scan to "down" interfaces */
 			args->downonly = true;
+			break;
+		case 'D':	/* Print driver name */
+			args->drivername = true;
 			break;
 		case 'f':
 			if (optarg == NULL)
@@ -619,8 +630,6 @@ main(int ac, char *av[])
 		.args = args,
 		.io_s = -1,
 	};
-
-	f_inet = f_inet6 = f_ether = f_addr = NULL;
 
 	lifh = ifconfig_open();
 	if (lifh == NULL)
@@ -2010,6 +2019,8 @@ static struct cmd basic_cmds[] = {
 	DEF_CMD_ARG("descr",			setifdescr),
 	DEF_CMD("-description",	0,		unsetifdescr),
 	DEF_CMD("-descr",	0,		unsetifdescr),
+	DEF_CMD("allmulti",	IFF_PALLMULTI,	setifflags),
+	DEF_CMD("-allmulti",	IFF_PALLMULTI,	clearifflags),
 	DEF_CMD("promisc",	IFF_PPROMISC,	setifflags),
 	DEF_CMD("-promisc",	IFF_PPROMISC,	clearifflags),
 	DEF_CMD("add",		IFF_UP,		notealias),

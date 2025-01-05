@@ -116,6 +116,9 @@
 	mtx_assert(&(__sc)->lock, MA_OWNED);	\
 	mtx_unlock(&(__sc)->lock);		\
 } while (0)
+#define	DPNI_LOCK_ASSERT(__sc) do {		\
+	mtx_assert(&(__sc)->lock, MA_OWNED);	\
+} while (0)
 
 #define DPAA2_TX_RING(sc, chan, tc) \
 	(&(sc)->channels[(chan)]->txc_queue.tx_rings[(tc)])
@@ -135,8 +138,9 @@ MALLOC_DEFINE(M_DPAA2_TXB, "dpaa2_txb", "DPAA2 DMA-mapped buffer (Tx)");
 #define DPNI_IRQ_LINK_CHANGED	1 /* Link state changed */
 #define DPNI_IRQ_EP_CHANGED	2 /* DPAA2 endpoint dis/connected */
 
-/* Default maximum frame length. */
-#define DPAA2_ETH_MFL		(ETHER_MAX_LEN - ETHER_CRC_LEN)
+/* Default maximum RX frame length w/o CRC. */
+#define	DPAA2_ETH_MFL		(ETHER_MAX_LEN_JUMBO + ETHER_VLAN_ENCAP_LEN - \
+    ETHER_CRC_LEN)
 
 /* Minimally supported version of the DPNI API. */
 #define DPNI_VER_MAJOR		7
@@ -545,11 +549,6 @@ dpaa2_ni_attach(device_t dev)
 
 	/* Allocate network interface */
 	ifp = if_alloc(IFT_ETHER);
-	if (ifp == NULL) {
-		device_printf(dev, "%s: failed to allocate network interface\n",
-		    __func__);
-		goto err_exit;
-	}
 	sc->ifp = ifp;
 	if_initname(ifp, DPAA2_NI_IFNAME, device_get_unit(sc->dev));
 
@@ -590,11 +589,6 @@ dpaa2_ni_attach(device_t dev)
 	/* Create a taskqueue thread to release new buffers to the pool. */
 	sc->bp_taskq = taskqueue_create(tq_name, M_WAITOK,
 	    taskqueue_thread_enqueue, &sc->bp_taskq);
-	if (sc->bp_taskq == NULL) {
-		device_printf(dev, "%s: failed to allocate task queue: %s\n",
-		    __func__, tq_name);
-		goto close_ni;
-	}
 	taskqueue_start_threads(&sc->bp_taskq, 1, PI_NET, "%s", tq_name);
 
 	/* sc->cleanup_taskq = taskqueue_create("dpaa2_ch cleanup", M_WAITOK, */
@@ -1341,21 +1335,11 @@ dpaa2_ni_setup_tx_flow(device_t dev, struct dpaa2_ni_fq *fq)
 		for (uint64_t j = 0; j < DPAA2_NI_BUFS_PER_TX; j++) {
 			buf = malloc(sizeof(struct dpaa2_buf), M_DPAA2_TXB,
 			    M_WAITOK);
-			if (buf == NULL) {
-				device_printf(dev, "%s: malloc() failed (buf)\n",
-				    __func__);
-				return (ENOMEM);
-			}
 			/* Keep DMA tag and Tx ring linked to the buffer */
 			DPAA2_BUF_INIT_TAGOPT(buf, ch->tx_dmat, tx);
 
 			buf->sgt = malloc(sizeof(struct dpaa2_buf), M_DPAA2_TXB,
 			    M_WAITOK);
-			if (buf->sgt == NULL) {
-				device_printf(dev, "%s: malloc() failed (sgt)\n",
-				    __func__);
-				return (ENOMEM);
-			}
 			/* Link SGT to DMA tag and back to its Tx buffer */
 			DPAA2_BUF_INIT_TAGOPT(buf->sgt, ch->sgt_dmat, buf);
 
@@ -2269,6 +2253,16 @@ dpaa2_ni_miibus_statchg(device_t dev)
 	if (sc->fixed_link || sc->mii == NULL) {
 		return;
 	}
+	if ((if_getdrvflags(sc->ifp) & IFF_DRV_RUNNING) == 0) {
+		/*
+		 * We will receive calls and adjust the changes but
+		 * not have setup everything (called before dpaa2_ni_init()
+		 * really).  This will then setup the link and internal
+		 * sc->link_state and not trigger the update once needed,
+		 * so basically dpmac never knows about it.
+		 */
+		return;
+	}
 
 	/*
 	 * Note: ifp link state will only be changed AFTER we are called so we
@@ -2344,21 +2338,31 @@ err_exit:
  * @brief Callback function to process media change request.
  */
 static int
-dpaa2_ni_media_change(if_t ifp)
+dpaa2_ni_media_change_locked(struct dpaa2_ni_softc *sc)
 {
-	struct dpaa2_ni_softc *sc = if_getsoftc(ifp);
 
-	DPNI_LOCK(sc);
+	DPNI_LOCK_ASSERT(sc);
 	if (sc->mii) {
 		mii_mediachg(sc->mii);
 		sc->media_status = sc->mii->mii_media.ifm_media;
 	} else if (sc->fixed_link) {
-		if_printf(ifp, "%s: can't change media in fixed mode\n",
+		if_printf(sc->ifp, "%s: can't change media in fixed mode\n",
 		    __func__);
 	}
-	DPNI_UNLOCK(sc);
 
 	return (0);
+}
+
+static int
+dpaa2_ni_media_change(if_t ifp)
+{
+	struct dpaa2_ni_softc *sc = if_getsoftc(ifp);
+	int error;
+
+	DPNI_LOCK(sc);
+	error = dpaa2_ni_media_change_locked(sc);
+	DPNI_UNLOCK(sc);
+	return (error);
 }
 
 /**
@@ -2443,16 +2447,19 @@ dpaa2_ni_init(void *arg)
 	}
 
 	DPNI_LOCK(sc);
+	/* Announce we are up and running and can queue packets. */
+	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, IFF_DRV_OACTIVE);
+
 	if (sc->mii) {
-		mii_mediachg(sc->mii);
+		/*
+		 * mii_mediachg() will trigger a call into
+		 * dpaa2_ni_miibus_statchg() to setup link state.
+		 */
+		dpaa2_ni_media_change_locked(sc);
 	}
 	callout_reset(&sc->mii_callout, hz, dpaa2_ni_media_tick, sc);
 
-	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, IFF_DRV_OACTIVE);
 	DPNI_UNLOCK(sc);
-
-	/* Force link-state update to initilize things. */
-	dpaa2_ni_miibus_statchg(dev);
 
 	(void)DPAA2_CMD_NI_CLOSE(dev, child, DPAA2_CMD_TK(&cmd, ni_token));
 	(void)DPAA2_CMD_RC_CLOSE(dev, child, DPAA2_CMD_TK(&cmd, rc_token));
@@ -2555,8 +2562,10 @@ dpaa2_ni_ioctl(if_t ifp, u_long c, caddr_t data)
 		DPNI_UNLOCK(sc);
 
 		/* Update maximum frame length. */
-		error = DPAA2_CMD_NI_SET_MFL(dev, child, &cmd,
-		    mtu + ETHER_HDR_LEN);
+		mtu += ETHER_HDR_LEN;
+		if (if_getcapenable(ifp) & IFCAP_VLAN_MTU)
+			mtu += ETHER_VLAN_ENCAP_LEN;
+		error = DPAA2_CMD_NI_SET_MFL(dev, child, &cmd, mtu);
 		if (error) {
 			device_printf(dev, "%s: failed to update maximum frame "
 			    "length: error=%d\n", __func__, error);
@@ -2926,6 +2935,8 @@ dpaa2_ni_tx(struct dpaa2_ni_softc *sc, struct dpaa2_channel *ch,
 	KASSERT(buf->opt == tx, ("%s: unexpected Tx ring", __func__));
 	KASSERT(btx->fq->chan == ch, ("%s: unexpected channel", __func__));
 #endif /* INVARIANTS */
+
+	BPF_MTAP(sc->ifp, m);
 
 	error = bus_dmamap_load_mbuf_sg(buf->dmat, buf->dmap, m, segs, &nsegs,
 	    BUS_DMA_NOWAIT);

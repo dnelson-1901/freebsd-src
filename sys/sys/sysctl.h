@@ -395,14 +395,14 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 #define	SYSCTL_CONST_STRING(parent, nbr, name, access, arg, descr)	\
 	SYSCTL_OID(parent, nbr, name, CTLTYPE_STRING | CTLFLAG_MPSAFE | (access),\
 	    __DECONST(char *, arg), 0, sysctl_handle_string, "A", descr); \
-	CTASSERT(!(access & CTLFLAG_WR));				\
+	CTASSERT(!((access) & CTLFLAG_WR));				\
 	CTASSERT(((access) & CTLTYPE) == 0 ||				\
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_STRING)
 
 #define	SYSCTL_ADD_CONST_STRING(ctx, parent, nbr, name, access, arg, descr) \
 ({									\
 	char *__arg = __DECONST(char *, arg);				\
-	CTASSERT(!(access & CTLFLAG_WR));				\
+	CTASSERT(!((access) & CTLFLAG_WR));				\
 	CTASSERT(((access) & CTLTYPE) == 0 ||				\
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_STRING);	\
 	sysctl_add_oid(ctx, parent, nbr, name, CTLTYPE_STRING | 	\
@@ -927,6 +927,12 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 #define	FEATURE(name, desc)						\
 	SYSCTL_INT_WITH_LABEL(_kern_features, OID_AUTO, name,		\
 	    CTLFLAG_RD | CTLFLAG_CAPRD, SYSCTL_NULL_INT_PTR, 1, desc, "feature")
+/* Same for the dynamic registration. */
+#define	FEATURE_ADD(name, desc)						\
+	sysctl_add_oid(NULL, SYSCTL_CHILDREN(&sysctl___kern_features),	\
+	    OID_AUTO, name,						\
+	    CTLFLAG_RD | CTLFLAG_CAPRD | CTLTYPE_INT | CTLFLAG_MPSAFE,	\
+	    NULL, 1, sysctl_handle_int, "I", desc, "feature");
 
 #endif /* _KERNEL */
 
@@ -1036,6 +1042,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 #define	KERN_PROC_NFDS		43	/* number of open file descriptors */
 #define	KERN_PROC_SIGFASTBLK	44	/* address of fastsigblk magic word */
 #define	KERN_PROC_VM_LAYOUT	45	/* virtual address space layout info */
+#define	KERN_PROC_RLIMIT_USAGE	46	/* array of rlim_t */
 
 /*
  * KERN_IPC identifiers
@@ -1149,10 +1156,10 @@ SYSCTL_DECL(_regression);
 SYSCTL_DECL(_security);
 SYSCTL_DECL(_security_bsd);
 
-extern char	machine[];
-extern char	osrelease[];
-extern char	ostype[];
-extern char	kern_ident[];
+extern const char	machine[];
+extern const char	osrelease[];
+extern const char	ostype[];
+extern const char	kern_ident[];
 
 /* Dynamic oid handling */
 struct sysctl_oid *sysctl_add_oid(struct sysctl_ctx_list *clist,

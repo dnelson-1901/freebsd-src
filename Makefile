@@ -175,8 +175,10 @@ TGTS=	all all-man buildenv buildenvvars buildetc buildkernel buildworld \
 	_build-tools _build-metadata _cross-tools _includes _libraries \
 	builddtb xdev xdev-build xdev-install \
 	xdev-links native-xtools native-xtools-install stageworld stagekernel \
-	stage-packages stage-packages-kernel stage-packages-world \
-	create-packages-world create-packages-kernel create-packages \
+	stage-packages stage-packages-kernel stage-packages-world stage-packages-source \
+	create-packages-world create-packages-kernel \
+	create-packages-kernel-repo create-packages-world-repo \
+	create-packages-source create-packages \
 	update-packages packages installconfig real-packages real-update-packages \
 	sign-packages package-pkg print-dir test-system-compiler test-system-linker \
 	test-includes
@@ -234,6 +236,7 @@ META_TGT_WHITELIST+=	build${libcompat}
 .ORDER: buildkernel installkernel.debug
 .ORDER: buildkernel reinstallkernel
 .ORDER: buildkernel reinstallkernel.debug
+.ORDER: kernel-toolchain buildkernel
 
 # Only sanitize PATH on FreeBSD.
 # PATH may include tools that are required to cross-build

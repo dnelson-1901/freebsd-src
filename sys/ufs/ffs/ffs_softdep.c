@@ -2635,7 +2635,8 @@ softdep_mount(struct vnode *devvp,
 
 	if ((fs->fs_flags & FS_SUJ) &&
 	    (error = journal_mount(mp, fs, cred)) != 0) {
-		printf("Failed to start journal: %d\n", error);
+		printf("%s: failed to start journal: %d\n",
+		    mp->mnt_stat.f_mntonname, error);
 		softdep_unmount(mp);
 		return (error);
 	}
@@ -2645,10 +2646,18 @@ softdep_mount(struct vnode *devvp,
 	ACQUIRE_LOCK(ump);
 	ump->softdep_flags |= FLUSH_STARTING;
 	FREE_LOCK(ump);
-	kproc_kthread_add(&softdep_flush, mp, &bufdaemonproc,
+	error = kproc_kthread_add(&softdep_flush, mp, &bufdaemonproc,
 	    &ump->softdep_flushtd, 0, 0, "softdepflush", "%s worker",
 	    mp->mnt_stat.f_mntonname);
 	ACQUIRE_LOCK(ump);
+	if (error != 0) {
+		printf("%s: failed to start softdepflush thread: %d\n",
+		    mp->mnt_stat.f_mntonname, error);
+		ump->softdep_flags &= ~FLUSH_STARTING;
+		FREE_LOCK(ump);
+		softdep_unmount(mp);
+		return (error);
+	}
 	while ((ump->softdep_flags & FLUSH_STARTING) != 0) {
 		msleep(&ump->softdep_flushtd, LOCK_PTR(ump), PVM, "sdstart",
 		    hz / 2);
@@ -3625,6 +3634,7 @@ softdep_process_journal(struct mount *mp,
 	int cnt;
 	int off;
 	int devbsize;
+	int savef;
 
 	ump = VFSTOUFS(mp);
 	if (ump->um_softdep == NULL || ump->um_softdep->sd_jblocks == NULL)
@@ -3636,6 +3646,8 @@ softdep_process_journal(struct mount *mp,
 	fs = ump->um_fs;
 	jblocks = ump->softdep_jblocks;
 	devbsize = ump->um_devvp->v_bufobj.bo_bsize;
+	savef = curthread_pflags_set(TDP_NORUNNINGBUF);
+
 	/*
 	 * We write anywhere between a disk block and fs block.  The upper
 	 * bound is picked to prevent buffer cache fragmentation and limit
@@ -3854,12 +3866,15 @@ softdep_process_journal(struct mount *mp,
 	 */
 	if (flags == 0 && jblocks->jb_suspended) {
 		if (journal_unsuspend(ump))
-			return;
+			goto out;
 		FREE_LOCK(ump);
 		VFS_SYNC(mp, MNT_NOWAIT);
 		ffs_sbupdate(ump, MNT_WAIT, 0);
 		ACQUIRE_LOCK(ump);
 	}
+
+out:
+	curthread_pflags_restore(savef);
 }
 
 /*
@@ -10048,7 +10063,7 @@ handle_workitem_remove(struct dirrem *dirrem, int flags)
 		KASSERT(ip->i_nlink >= 0, ("handle_workitem_remove: file ino "
 		    "%ju negative i_nlink %d", (intmax_t)ip->i_number,
 		    ip->i_nlink));
-		DIP_SET(ip, i_nlink, ip->i_nlink);
+		DIP_SET_NLINK(ip, ip->i_nlink);
 		UFS_INODE_SET_FLAG(ip, IN_CHANGE);
 		if (ip->i_nlink < ip->i_effnlink)
 			panic("handle_workitem_remove: bad file delta");
@@ -10071,7 +10086,7 @@ handle_workitem_remove(struct dirrem *dirrem, int flags)
 	ip->i_nlink -= 2;
 	KASSERT(ip->i_nlink >= 0, ("handle_workitem_remove: directory ino "
 	    "%ju negative i_nlink %d", (intmax_t)ip->i_number, ip->i_nlink));
-	DIP_SET(ip, i_nlink, ip->i_nlink);
+	DIP_SET_NLINK(ip, ip->i_nlink);
 	UFS_INODE_SET_FLAG(ip, IN_CHANGE);
 	if (ip->i_nlink < ip->i_effnlink)
 		panic("handle_workitem_remove: bad dir delta");

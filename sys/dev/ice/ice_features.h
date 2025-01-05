@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2023, Intel Corporation
+/*  Copyright (c) 2024, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -69,6 +69,10 @@ enum feat_list {
 	ICE_FEATURE_HAS_PBA,
 	ICE_FEATURE_DCB,
 	ICE_FEATURE_TX_BALANCE,
+	ICE_FEATURE_DUAL_NAC,
+	ICE_FEATURE_TEMP_SENSOR,
+	ICE_FEATURE_NEXT_CLUSTER_ID,
+	ICE_FEATURE_PHY_STATISTICS,
 	/* Must be last entry */
 	ICE_FEATURE_COUNT
 };

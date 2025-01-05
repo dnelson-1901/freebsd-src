@@ -14,6 +14,7 @@ COMMON_H = \
 	zfs_fletcher.h \
 	zfs_namecheck.h \
 	zfs_prop.h \
+	zfs_valstr.h \
 	\
 	sys/abd.h \
 	sys/abd_impl.h \
@@ -33,6 +34,7 @@ COMMON_H = \
 	sys/bqueue.h \
 	sys/btree.h \
 	sys/brt.h \
+	sys/brt_impl.h \
 	sys/dataset_kstats.h \
 	sys/dbuf.h \
 	sys/ddt.h \

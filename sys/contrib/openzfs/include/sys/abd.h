@@ -30,6 +30,7 @@
 #include <sys/debug.h>
 #include <sys/zfs_refcount.h>
 #include <sys/uio.h>
+#include <sys/abd_os.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,19 +59,8 @@ typedef struct abd {
 #endif
 	kmutex_t	abd_mtx;
 	union {
-		struct abd_scatter {
-			uint_t		abd_offset;
-#if defined(__FreeBSD__) && defined(_KERNEL)
-			void    *abd_chunks[1]; /* actually variable-length */
-#else
-			uint_t		abd_nents;
-			struct scatterlist *abd_sgl;
-#endif
-		} abd_scatter;
-		struct abd_linear {
-			void		*abd_buf;
-			struct scatterlist *abd_sgl; /* for LINEAR_PAGE */
-		} abd_linear;
+		struct abd_scatter	abd_scatter;
+		struct abd_linear	abd_linear;
 		struct abd_gang {
 			list_t abd_gang_chain;
 		} abd_gang;
@@ -210,14 +200,6 @@ abd_get_size(abd_t *abd)
 
 void abd_init(void);
 void abd_fini(void);
-
-/*
- * Linux ABD bio functions
- */
-#if defined(__linux__) && defined(_KERNEL)
-unsigned int abd_bio_map_off(struct bio *, abd_t *, unsigned int, size_t);
-unsigned long abd_nr_pages_off(abd_t *, unsigned int, size_t);
-#endif
 
 #ifdef __cplusplus
 }

@@ -501,6 +501,11 @@ linux_to_bsd_ip6_sockopt(int opt)
 		    "unsupported IPv6 socket option IPV6_RECVFRAGSIZE (%d)",
 		    opt);
 		return (-2);
+	case LINUX_IPV6_RECVERR:
+		LINUX_RATELIMIT_MSG_OPT1(
+		    "unsupported IPv6 socket option IPV6_RECVERR (%d), you can not get extended reliability info in linux programs",
+		    opt);
+		return (-2);
 
 	/* unknown sockopts */
 	default:
@@ -2110,6 +2115,14 @@ linux_setsockopt(struct thread *td, struct linux_setsockopt_args *args)
 		name = linux_to_bsd_ip_sockopt(args->optname);
 		break;
 	case IPPROTO_IPV6:
+		if (args->optname == LINUX_IPV6_RECVERR &&
+		    linux_ignore_ip_recverr) {
+			/*
+			 * XXX: This is a hack to unbreak DNS resolution
+			 *	with glibc 2.30 and above.
+			 */
+			return (0);
+		}
 		name = linux_to_bsd_ip6_sockopt(args->optname);
 		break;
 	case IPPROTO_TCP:
@@ -2524,6 +2537,13 @@ sendfile_sendfile(struct thread *td, struct file *fp, l_int out,
 		current_offset = *offset;
 	error = fo_sendfile(fp, out, NULL, NULL, current_offset, count,
 	    sbytes, 0, td);
+	if (error == EAGAIN && *sbytes > 0) {
+		/*
+		 * The socket is non-blocking and we didn't finish sending.
+		 * Squash the error, since that's what Linux does.
+		 */
+		error = 0;
+	}
 	if (error == 0) {
 		current_offset += *sbytes;
 		if (offset != NULL)

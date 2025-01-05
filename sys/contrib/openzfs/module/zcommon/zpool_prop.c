@@ -431,6 +431,12 @@ vdev_prop_init(void)
 	zprop_register_number(VDEV_PROP_IO_T, "io_t", UINT64_MAX,
 	    PROP_DEFAULT, ZFS_TYPE_VDEV, "<seconds>", "IO_T", B_FALSE,
 	    sfeatures);
+	zprop_register_number(VDEV_PROP_SLOW_IO_N, "slow_io_n", UINT64_MAX,
+	    PROP_DEFAULT, ZFS_TYPE_VDEV, "<events>", "SLOW_IO_N", B_FALSE,
+	    sfeatures);
+	zprop_register_number(VDEV_PROP_SLOW_IO_T, "slow_io_t", UINT64_MAX,
+	    PROP_DEFAULT, ZFS_TYPE_VDEV, "<seconds>", "SLOW_IO_T", B_FALSE,
+	    sfeatures);
 
 	/* default index (boolean) properties */
 	zprop_register_index(VDEV_PROP_REMOVING, "removing", 0,
@@ -467,11 +473,12 @@ vdev_name_to_prop(const char *propname)
 boolean_t
 vdev_prop_user(const char *name)
 {
-	int i;
+	int i, len;
 	char c;
 	boolean_t foundsep = B_FALSE;
 
-	for (i = 0; i < strlen(name); i++) {
+	len = strlen(name);
+	for (i = 0; i < len; i++) {
 		c = name[i];
 		if (!zprop_valid_char(c))
 			return (B_FALSE);

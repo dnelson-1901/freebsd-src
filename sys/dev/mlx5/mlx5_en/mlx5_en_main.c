@@ -3399,6 +3399,41 @@ mlx5e_set_rx_mode(if_t ifp)
 	queue_work(priv->wq, &priv->set_rx_mode_work);
 }
 
+static bool
+mlx5e_is_ratelimit_capable(struct mlx5_core_dev *mdev)
+{
+#ifdef RATELIMIT
+	if (MLX5_CAP_GEN(mdev, qos) &&
+	    MLX5_CAP_QOS(mdev, packet_pacing))
+		return (true);
+#endif
+	return (false);
+}
+
+static bool
+mlx5e_is_tlstx_capable(struct mlx5_core_dev *mdev)
+{
+#ifdef KERN_TLS
+	if (MLX5_CAP_GEN(mdev, tls_tx) != 0 &&
+	    MLX5_CAP_GEN(mdev, log_max_dek) != 0)
+		return (true);
+#endif
+	return (false);
+}
+
+static bool
+mlx5e_is_tlsrx_capable(struct mlx5_core_dev *mdev)
+{
+#ifdef KERN_TLS
+	if (MLX5_CAP_GEN(mdev, tls_rx) != 0 &&
+	    MLX5_CAP_GEN(mdev, log_max_dek) != 0 &&
+	    MLX5_CAP_FLOWTABLE_NIC_RX(mdev,
+	    ft_field_support.outer_ip_version) != 0)
+		return (true);
+#endif
+	return (false);
+}
+
 static int
 mlx5e_ioctl(if_t ifp, u_long command, caddr_t data)
 {
@@ -3502,6 +3537,20 @@ mlx5e_ioctl(if_t ifp, u_long command, caddr_t data)
 		drv_ioctl_data = (struct siocsifcapnv_driver_data *)data;
 		PRIV_LOCK(priv);
 siocsifcap_driver:
+		if (!mlx5e_is_tlstx_capable(priv->mdev)) {
+			drv_ioctl_data->reqcap &= ~(IFCAP_TXTLS4 |
+			    IFCAP_TXTLS6);
+		}
+		if (!mlx5e_is_tlsrx_capable(priv->mdev)) {
+		        drv_ioctl_data->reqcap &= ~(
+			    IFCAP2_BIT(IFCAP2_RXTLS4) |
+			    IFCAP2_BIT(IFCAP2_RXTLS6));
+		}
+		if (!mlx5e_is_ratelimit_capable(priv->mdev)) {
+			drv_ioctl_data->reqcap &= ~(IFCAP_TXTLS_RTLMT |
+			    IFCAP_TXRTLMT);
+		}
+
 		mask = drv_ioctl_data->reqcap ^ if_getcapenable(ifp);
 
 		if (mask & IFCAP_TXCSUM) {
@@ -3674,6 +3723,11 @@ out:
 		/* Check if module is present before doing an access */
 		module_status = mlx5_query_module_status(priv->mdev, module_num);
 		if (module_status != MLX5_MODULE_STATUS_PLUGGED_ENABLED) {
+			if (bootverbose)
+				mlx5_en_err(ifp,
+				    "Query module %d status: not plugged (%d), "
+				    "eeprom reading is not supported\n",
+				    module_num, module_status);
 			error = EINVAL;
 			goto err_i2c;
 		}
@@ -4485,10 +4539,6 @@ mlx5e_create_ifp(struct mlx5_core_dev *mdev)
 	    M_MLX5EN, mlx5_dev_domainset(mdev), M_WAITOK | M_ZERO);
 
 	ifp = priv->ifp = if_alloc_dev(IFT_ETHER, mdev->pdev->dev.bsddev);
-	if (ifp == NULL) {
-		mlx5_core_err(mdev, "if_alloc() failed\n");
-		goto err_free_priv;
-	}
 	/* setup all static fields */
 	if (mlx5e_priv_static_init(priv, mdev, mdev->priv.eq_table.num_comp_vectors)) {
 		mlx5_core_err(mdev, "mlx5e_priv_static_init() failed\n");
@@ -4517,13 +4567,18 @@ mlx5e_create_ifp(struct mlx5_core_dev *mdev)
 	if_setcapabilitiesbit(ifp, IFCAP_TSO | IFCAP_VLAN_HWTSO, 0);
 	if_setcapabilitiesbit(ifp, IFCAP_HWSTATS | IFCAP_HWRXTSTMP, 0);
 	if_setcapabilitiesbit(ifp, IFCAP_MEXTPG, 0);
-	if_setcapabilitiesbit(ifp, IFCAP_TXTLS4 | IFCAP_TXTLS6, 0);
-#ifdef RATELIMIT
-	if_setcapabilitiesbit(ifp, IFCAP_TXRTLMT | IFCAP_TXTLS_RTLMT, 0);
-#endif
+	if (mlx5e_is_tlstx_capable(mdev))
+		if_setcapabilitiesbit(ifp, IFCAP_TXTLS4 | IFCAP_TXTLS6, 0);
+	if (mlx5e_is_tlsrx_capable(mdev))
+		if_setcapabilities2bit(ifp, IFCAP2_BIT(IFCAP2_RXTLS4) |
+		    IFCAP2_BIT(IFCAP2_RXTLS6), 0);
+	if (mlx5e_is_ratelimit_capable(mdev)) {
+		if_setcapabilitiesbit(ifp, IFCAP_TXRTLMT, 0);
+		if (mlx5e_is_tlstx_capable(mdev))
+			if_setcapabilitiesbit(ifp, IFCAP_TXTLS_RTLMT, 0);
+	}
 	if_setcapabilitiesbit(ifp, IFCAP_VXLAN_HWCSUM | IFCAP_VXLAN_HWTSO, 0);
-	if_setcapabilities2bit(ifp, IFCAP2_BIT(IFCAP2_RXTLS4) |
-	    IFCAP2_BIT(IFCAP2_RXTLS6), 0);
+
 	if_setsndtagallocfn(ifp, mlx5e_snd_tag_alloc);
 #ifdef RATELIMIT
 	if_setratelimitqueryfn(ifp, mlx5e_ratelimit_query);
@@ -4828,8 +4883,6 @@ err_free_sysctl:
 
 err_free_ifp:
 	if_free(ifp);
-
-err_free_priv:
 	free(priv, M_MLX5EN);
 	return (NULL);
 }

@@ -135,6 +135,8 @@ static vop_setextattr_t	ffs_setextattr;
 static vop_vptofh_t	ffs_vptofh;
 static vop_vput_pair_t	ffs_vput_pair;
 
+vop_fplookup_vexec_t ufs_fplookup_vexec;
+
 /* Global vfs data structures for ufs. */
 struct vop_vector ffs_vnodeops1 = {
 	.vop_default =		&ufs_vnodeops,
@@ -151,7 +153,7 @@ struct vop_vector ffs_vnodeops1 = {
 	.vop_write =		ffs_write,
 	.vop_vptofh =		ffs_vptofh,
 	.vop_vput_pair =	ffs_vput_pair,
-	.vop_fplookup_vexec =	VOP_EAGAIN,
+	.vop_fplookup_vexec =	ufs_fplookup_vexec,
 	.vop_fplookup_symlink =	VOP_EAGAIN,
 };
 VFS_VOP_VECTOR_REGISTER(ffs_vnodeops1);
@@ -192,7 +194,7 @@ struct vop_vector ffs_vnodeops2 = {
 	.vop_setextattr =	ffs_setextattr,
 	.vop_vptofh =		ffs_vptofh,
 	.vop_vput_pair =	ffs_vput_pair,
-	.vop_fplookup_vexec =	VOP_EAGAIN,
+	.vop_fplookup_vexec =	ufs_fplookup_vexec,
 	.vop_fplookup_symlink =	VOP_EAGAIN,
 };
 VFS_VOP_VECTOR_REGISTER(ffs_vnodeops2);
@@ -979,8 +981,15 @@ ffs_write(
 		 * validated the pages.
 		 */
 		if (error != 0 && (bp->b_flags & B_CACHE) == 0 &&
-		    fs->fs_bsize == xfersize)
-			vfs_bio_clrbuf(bp);
+		    fs->fs_bsize == xfersize) {
+			if (error == EFAULT && LIST_EMPTY(&bp->b_dep)) {
+				bp->b_flags |= B_INVAL | B_RELBUF | B_NOCACHE;
+				brelse(bp);
+				break;
+			} else {
+				vfs_bio_clrbuf(bp);
+			}
+		}
 
 		vfs_bio_set_flags(bp, ioflag);
 
@@ -1913,6 +1922,8 @@ ffs_vptofh(
 {
 	struct inode *ip;
 	struct ufid *ufhp;
+	_Static_assert(sizeof(struct ufid) <= sizeof(struct fid),
+	    "struct ufid cannot be larger than struct fid");
 
 	ip = VTOI(ap->a_vp);
 	ufhp = (struct ufid *)ap->a_fhp;

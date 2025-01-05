@@ -1283,8 +1283,9 @@ vdev_raidz_matrix_reconstruct(raidz_row_t *rr, int n, int nmissing,
 static void
 vdev_raidz_reconstruct_general(raidz_row_t *rr, int *tgts, int ntgts)
 {
-	int n, i, c, t, tt;
-	int nmissing_rows;
+	int i, c, t, tt;
+	unsigned int n;
+	unsigned int nmissing_rows;
 	int missing_rows[VDEV_RAIDZ_MAXPARITY];
 	int parity_map[VDEV_RAIDZ_MAXPARITY];
 	uint8_t *p, *pp;
@@ -1785,7 +1786,7 @@ vdev_raidz_checksum_error(zio_t *zio, raidz_col_t *rc, abd_t *bad_data)
 static int
 raidz_checksum_verify(zio_t *zio)
 {
-	zio_bad_cksum_t zbc = {{{0}}};
+	zio_bad_cksum_t zbc = {0};
 	raidz_map_t *rm = zio->io_vsd;
 
 	int ret = zio_checksum_error(zio, &zbc);

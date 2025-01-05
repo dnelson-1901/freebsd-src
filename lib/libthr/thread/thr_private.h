@@ -37,7 +37,6 @@
  */
 #include <sys/types.h>
 #include <sys/time.h>
-#include <sys/cdefs.h>
 #include <sys/queue.h>
 #include <sys/param.h>
 #include <sys/cpuset.h>
@@ -261,7 +260,6 @@ struct pthread_atfork {
 };
 
 struct pthread_attr {
-#define pthread_attr_start_copy	sched_policy
 	int	sched_policy;
 	int	sched_inherit;
 	int	prio;
@@ -271,7 +269,6 @@ struct pthread_attr {
 	void	*stackaddr_attr;
 	size_t	stacksize_attr;
 	size_t	guardsize_attr;
-#define pthread_attr_end_copy	cpuset
 	cpuset_t	*cpuset;
 	size_t	cpusetsize;
 };
@@ -565,8 +562,12 @@ struct pthread {
 
 	/* Deferred threads from pthread_cond_signal. */
 	unsigned int 		*defer_waiters[MAX_DEFER_WAITERS];
-#define _pthread_endzero	wake_addr
 
+	/* rtld thread-local dlerror message and seen control */
+	char			dlerror_msg[512];
+	int			dlerror_seen;
+
+#define _pthread_endzero	wake_addr
 	struct wake_addr	*wake_addr;
 #define WAKE_ADDR(td)           ((td)->wake_addr)
 
@@ -575,10 +576,6 @@ struct pthread {
 
 	/* pthread_set/get_name_np */
 	char			*name;
-
-	/* rtld thread-local dlerror message and seen control */
-	char			dlerror_msg[512];
-	int			dlerror_seen;
 };
 
 #define THR_SHOULD_GC(thrd) 						\
@@ -1105,6 +1102,8 @@ int __Tthr_mutex_lock(pthread_mutex_t *);
 int __Tthr_mutex_trylock(pthread_mutex_t *);
 bool __thr_get_main_stack_base(char **base);
 bool __thr_get_main_stack_lim(size_t *lim);
+int _Tthr_sigqueue(pthread_t pthread, int sig, const union sigval value);
+void _thr_resolve_machdep(void);
 
 __END_DECLS
 __NULLABILITY_PRAGMA_POP

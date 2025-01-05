@@ -141,7 +141,6 @@ SYSCTL_INT(_debug, OID_AUTO, bootverbose, CTLFLAG_RW, &bootverbose, 0,
  * - 1, 'compiled in but verbose by default' (default)
  */
 int	verbose_sysinit = VERBOSE_SYSINIT;
-TUNABLE_INT("debug.verbose_sysinit", &verbose_sysinit);
 #endif
 
 #ifdef INVARIANTS
@@ -163,9 +162,11 @@ SYSINIT(placeholder, SI_SUB_DUMMY, SI_ORDER_ANY, NULL, NULL);
 SET_DECLARE(sysinit_set, struct sysinit);
 
 /*
- * The sysinit list itself.  Items are removed as they are run.
+ * The sysinit lists.  Items are moved to sysinit_done_list when done.
  */
-static SLIST_HEAD(sysinitlist, sysinit) sysinit_list;
+static STAILQ_HEAD(sysinitlist, sysinit) sysinit_list;
+static struct sysinitlist sysinit_done_list =
+    STAILQ_HEAD_INITIALIZER(sysinit_done_list);
 
 /*
  * Compare two sysinits; return -1, 0, or 1 if a comes before, at the same time
@@ -194,12 +195,12 @@ sysinit_mklist(struct sysinitlist *list, struct sysinit **set,
 
 	TSENTER();
 	TSENTER2("listify");
-	SLIST_INIT(list);
+	STAILQ_INIT(list);
 	for (sipp = set; sipp < set_end; sipp++)
-		SLIST_INSERT_HEAD(list, *sipp, next);
+		STAILQ_INSERT_TAIL(list, *sipp, next);
 	TSEXIT2("listify");
 	TSENTER2("mergesort");
-	SLIST_MERGESORT(list, NULL, sysinit_compar, sysinit, next);
+	STAILQ_MERGESORT(list, NULL, sysinit_compar, sysinit, next);
 	TSEXIT2("mergesort");
 	TSEXIT();
 }
@@ -218,9 +219,9 @@ sysinit_add(struct sysinit **set, struct sysinit **set_end)
 	sysinit_mklist(&new_list, set, set_end);
 
 	/* Merge the new list into the existing one. */
-	TSENTER2("SLIST_MERGE");
-	SLIST_MERGE(&sysinit_list, &new_list, NULL, sysinit_compar, sysinit, next);
-	TSEXIT2("SLIST_MERGE");
+	TSENTER2("STAILQ_MERGE");
+	STAILQ_MERGE(&sysinit_list, &new_list, NULL, sysinit_compar, sysinit, next);
+	TSEXIT2("STAILQ_MERGE");
 
 	TSEXIT();
 }
@@ -272,8 +273,9 @@ mi_startup(void)
 	/* Construct and sort sysinit list. */
 	sysinit_mklist(&sysinit_list, SET_BEGIN(sysinit_set), SET_LIMIT(sysinit_set));
 
-	last = SI_SUB_COPYRIGHT;
+	last = SI_SUB_DUMMY;
 #if defined(VERBOSE_SYSINIT)
+	TUNABLE_INT_FETCH("debug.verbose_sysinit", &verbose_sysinit);
 	verbose = 0;
 #if !defined(DDB)
 	printf("VERBOSE_SYSINIT: DDB not enabled, symbol lookups disabled.\n");
@@ -284,11 +286,12 @@ mi_startup(void)
 	 * Perform each system initialization task from the ordered list.  Note
 	 * that if sysinit_list is modified (e.g. by a KLD) we will nonetheless
 	 * always perform the earlist-sorted sysinit at each step; using the
-	 * SLIST_FOREACH macro would result in items being skipped if inserted
+	 * STAILQ_FOREACH macro would result in items being skipped if inserted
 	 * earlier than the "current item".
 	 */
-	while ((sip = SLIST_FIRST(&sysinit_list)) != NULL) {
-		SLIST_REMOVE_HEAD(&sysinit_list, next);
+	while ((sip = STAILQ_FIRST(&sysinit_list)) != NULL) {
+		STAILQ_REMOVE_HEAD(&sysinit_list, next);
+		STAILQ_INSERT_TAIL(&sysinit_done_list, sip, next);
 
 		if (sip->subsystem == SI_SUB_DUMMY)
 			continue;	/* skip dummy task(s)*/
@@ -299,7 +302,7 @@ mi_startup(void)
 #if defined(VERBOSE_SYSINIT)
 		if (sip->subsystem > last && verbose_sysinit != 0) {
 			verbose = 1;
-			printf("subsystem %x\n", last);
+			printf("subsystem %x\n", sip->subsystem);
 		}
 		if (verbose) {
 #if defined(DDB)
@@ -346,13 +349,13 @@ mi_startup(void)
 }
 
 static void
-print_caddr_t(void *data)
+print_caddr_t(const void *data)
 {
-	printf("%s", (char *)data);
+	printf("%s", (const char *)data);
 }
 
 static void
-print_version(void *data __unused)
+print_version(const void *data __unused)
 {
 	int len;
 
@@ -364,36 +367,36 @@ print_version(void *data __unused)
 	printf("%s\n", compiler_version);
 }
 
-SYSINIT(announce, SI_SUB_COPYRIGHT, SI_ORDER_FIRST, print_caddr_t,
+C_SYSINIT(announce, SI_SUB_COPYRIGHT, SI_ORDER_FIRST, print_caddr_t,
     copyright);
-SYSINIT(trademark, SI_SUB_COPYRIGHT, SI_ORDER_SECOND, print_caddr_t,
+C_SYSINIT(trademark, SI_SUB_COPYRIGHT, SI_ORDER_SECOND, print_caddr_t,
     trademark);
-SYSINIT(version, SI_SUB_COPYRIGHT, SI_ORDER_THIRD, print_version, NULL);
+C_SYSINIT(version, SI_SUB_COPYRIGHT, SI_ORDER_THIRD, print_version, NULL);
 
 #ifdef WITNESS
-static char wit_warn[] =
+static const char wit_warn[] =
      "WARNING: WITNESS option enabled, expect reduced performance.\n";
-SYSINIT(witwarn, SI_SUB_COPYRIGHT, SI_ORDER_FOURTH,
+C_SYSINIT(witwarn, SI_SUB_COPYRIGHT, SI_ORDER_FOURTH,
    print_caddr_t, wit_warn);
-SYSINIT(witwarn2, SI_SUB_LAST, SI_ORDER_FOURTH,
+C_SYSINIT(witwarn2, SI_SUB_LAST, SI_ORDER_FOURTH,
    print_caddr_t, wit_warn);
 #endif
 
 #ifdef DIAGNOSTIC
-static char diag_warn[] =
+static const char diag_warn[] =
      "WARNING: DIAGNOSTIC option enabled, expect reduced performance.\n";
-SYSINIT(diagwarn, SI_SUB_COPYRIGHT, SI_ORDER_FIFTH,
+C_SYSINIT(diagwarn, SI_SUB_COPYRIGHT, SI_ORDER_FIFTH,
     print_caddr_t, diag_warn);
-SYSINIT(diagwarn2, SI_SUB_LAST, SI_ORDER_FIFTH,
+C_SYSINIT(diagwarn2, SI_SUB_LAST, SI_ORDER_FIFTH,
     print_caddr_t, diag_warn);
 #endif
 
 #if __SIZEOF_LONG__ == 4
-static char ilp32_warn[] =
+static const char ilp32_warn[] =
     "WARNING: 32-bit kernels are deprecated and may be removed in FreeBSD 15.0.\n";
-SYSINIT(ilp32warn, SI_SUB_COPYRIGHT, SI_ORDER_FIFTH,
+C_SYSINIT(ilp32warn, SI_SUB_COPYRIGHT, SI_ORDER_FIFTH,
     print_caddr_t, ilp32_warn);
-SYSINIT(ilp32warn2, SI_SUB_LAST, SI_ORDER_FIFTH,
+C_SYSINIT(ilp32warn2, SI_SUB_LAST, SI_ORDER_FIFTH,
     print_caddr_t, ilp32_warn);
 #endif
 
@@ -784,6 +787,7 @@ start_init(void *dummy)
 		 */
 		KASSERT((td->td_pflags & TDP_EXECVMSPC) == 0,
 		    ("nested execve"));
+		memset(td->td_frame, 0, sizeof(*td->td_frame));
 		oldvmspace = p->p_vmspace;
 		error = kern_execve(td, &args, NULL, oldvmspace);
 		KASSERT(error != 0,
@@ -904,7 +908,12 @@ DB_SHOW_COMMAND_FLAGS(sysinit, db_show_sysinit, DB_CMD_MEMSAFE)
 	db_printf("SYSINIT vs Name(Ptr)\n");
 	db_printf("  Subsystem  Order\n");
 	db_printf("  Function(Name)(Arg)\n");
-	SLIST_FOREACH(sip, &sysinit_list, next) {
+	STAILQ_FOREACH(sip, &sysinit_done_list, next) {
+		db_show_print_syinit(sip, true);
+		if (db_pager_quit)
+			return;
+	}
+	STAILQ_FOREACH(sip, &sysinit_list, next) {
 		db_show_print_syinit(sip, true);
 		if (db_pager_quit)
 			break;

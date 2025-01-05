@@ -92,7 +92,10 @@ SYSCTL_INT(_debug_kasan, OID_AUTO, panic_on_violation, CTLFLAG_RDTUN,
     &panic_on_violation, 0,
     "Panic if an invalid access is detected");
 
-static bool kasan_enabled __read_mostly = false;
+#define kasan_enabled (!kasan_disabled)
+static bool kasan_disabled __read_mostly = true;
+SYSCTL_BOOL(_debug_kasan, OID_AUTO, disabled, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
+    &kasan_disabled, 0, "KASAN is disabled");
 
 /* -------------------------------------------------------------------------- */
 
@@ -136,7 +139,7 @@ kasan_init(void)
 	kasan_md_init();
 
 	/* Now officially enabled. */
-	kasan_enabled = true;
+	kasan_disabled = false;
 }
 
 void
@@ -180,7 +183,7 @@ kasan_code_name(uint8_t code)
 
 #define	REPORT(f, ...) do {				\
 	if (panic_on_violation) {			\
-		kasan_enabled = false;			\
+		kasan_disabled = true;			\
 		panic(f, __VA_ARGS__);			\
 	} else {					\
 		struct stack st;			\
@@ -391,6 +394,9 @@ kasan_shadow_check(unsigned long addr, size_t size, bool write,
 	bool valid;
 
 	if (__predict_false(!kasan_enabled))
+		return;
+	if (__predict_false(curthread != NULL &&
+	    (curthread->td_pflags2 & TDP2_SAN_QUIET) != 0))
 		return;
 	if (__predict_false(size == 0))
 		return;
@@ -814,11 +820,13 @@ ASAN_ATOMIC_FUNC_TESTANDCLEAR(32, uint32_t);
 ASAN_ATOMIC_FUNC_TESTANDCLEAR(64, uint64_t);
 ASAN_ATOMIC_FUNC_TESTANDCLEAR(int, u_int);
 ASAN_ATOMIC_FUNC_TESTANDCLEAR(long, u_long);
+ASAN_ATOMIC_FUNC_TESTANDCLEAR(ptr, uintptr_t);
 
 ASAN_ATOMIC_FUNC_TESTANDSET(32, uint32_t);
 ASAN_ATOMIC_FUNC_TESTANDSET(64, uint64_t);
 ASAN_ATOMIC_FUNC_TESTANDSET(int, u_int);
 ASAN_ATOMIC_FUNC_TESTANDSET(long, u_long);
+ASAN_ATOMIC_FUNC_TESTANDSET(ptr, uintptr_t);
 
 ASAN_ATOMIC_FUNC_SWAP(32, uint32_t);
 ASAN_ATOMIC_FUNC_SWAP(64, uint64_t);

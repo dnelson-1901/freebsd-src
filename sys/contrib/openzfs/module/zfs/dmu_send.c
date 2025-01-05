@@ -1124,8 +1124,6 @@ send_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
 	if (sta->os->os_encrypted &&
 	    !BP_IS_HOLE(bp) && !BP_USES_CRYPT(bp)) {
 		spa_log_error(spa, zb, &bp->blk_birth);
-		zfs_panic_recover("unencrypted block in encrypted "
-		    "object set %llu", dmu_objset_id(sta->os));
 		return (SET_ERROR(EIO));
 	}
 
@@ -2554,7 +2552,7 @@ dmu_send_impl(struct dmu_send_params *dspp)
 	while (err == 0 && !range->eos_marker) {
 		err = do_dump(&dsc, range);
 		range = get_next_range(&srt_arg->q, range);
-		if (issig(JUSTLOOKING) && issig(FORREAL))
+		if (issig())
 			err = SET_ERROR(EINTR);
 	}
 

@@ -29,11 +29,6 @@
  * SUCH DAMAGE.
  */
 
-#ifndef lint
-static const char rcsid[] =
-  "$FreeBSD$";
-#endif /* not lint */
-
 #include <sys/param.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -360,7 +355,7 @@ in_delete_first_nl(if_ctx *ctx)
 	ifahdr->ifa_family = AF_INET;
 	ifahdr->ifa_index = ifindex;
 
-	if (!snl_finalize_msg(&nw) || !snl_send_message(ss, hdr))
+	if (! (hdr = snl_finalize_msg(&nw)) || !snl_send_message(ss, hdr))
 		return (EINVAL);
 
 	nlmsg_seq = hdr->nlmsg_seq;
@@ -391,7 +386,7 @@ in_delete_first_nl(if_ctx *ctx)
 	ifahdr->ifa_index = ifindex;
 	snl_add_msg_attr_ip4(&nw, IFA_LOCAL, &addr);
 
-	if (!snl_finalize_msg(&nw) || !snl_send_message(ss, hdr))
+	if (! (hdr = snl_finalize_msg(&nw)) || !snl_send_message(ss, hdr))
 		return (EINVAL);
 	memset(&e, 0, sizeof(e));
 	snl_read_reply_code(ss, hdr->nlmsg_seq, &e);
@@ -431,7 +426,7 @@ in_exec_nl(if_ctx *ctx, unsigned long action, void *data)
 		snl_add_msg_attr_u32(&nw, IFAF_VHID, pdata->vhid);
 	snl_end_attr_nested(&nw, off);
 
-	if (!snl_finalize_msg(&nw) || !snl_send_message(ctx->io_ss, hdr))
+	if (! (hdr = snl_finalize_msg(&nw)) || !snl_send_message(ctx->io_ss, hdr))
 		return (0);
 
 	struct snl_errmsg_data e = {};
@@ -445,7 +440,7 @@ in_exec_nl(if_ctx *ctx, unsigned long action, void *data)
 static void
 in_setdefaultmask_nl(void)
 {
-        struct in_px *px = sintab_nl[ADDR];
+	struct in_px *px = sintab_nl[ADDR];
 
 	in_addr_t i = ntohl(px->addr.s_addr);
 
@@ -456,11 +451,11 @@ in_setdefaultmask_nl(void)
 	 * we should return an error rather than warning.
 	 */
 	if (IN_CLASSA(i))
-		px->plen = IN_CLASSA_NSHIFT;
+		px->plen = 32 - IN_CLASSA_NSHIFT;
 	else if (IN_CLASSB(i))
-		px->plen = IN_CLASSB_NSHIFT;
+		px->plen = 32 - IN_CLASSB_NSHIFT;
 	else
-		px->plen = IN_CLASSC_NSHIFT;
+		px->plen = 32 - IN_CLASSC_NSHIFT;
 	px->maskset = true;
 }
 #endif
