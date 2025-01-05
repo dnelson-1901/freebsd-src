@@ -2528,14 +2528,20 @@ device_probe(device_t dev)
 
 	if (!(dev->flags & DF_ENABLED)) {
 		if (bootverbose) {
+			struct sbuf pnpsb, locsb;
 			char pnpstr[32]="?";
 			char locstr[32]="?";
 
-			bus_child_pnpinfo_str(dev, pnpstr, sizeof(pnpstr));
-			bus_child_location_str(dev, locstr, sizeof(locstr));
+			sbuf_new(&pnpsb, pnpstr, sizeof(pnpstr), SBUF_FIXEDLEN);
+			sbuf_new(&locsb, locstr, sizeof(locstr), SBUF_FIXEDLEN);
+			bus_child_pnpinfo(dev, &pnpsb);
+			bus_child_location(dev, &locsb);
+			sbuf_finish(&pnpsb);
+			sbuf_finish(&locsb);
+
 			device_print_prettyname(dev);
 			printf("%s %s not probed (disabled)\n",
-				pnpstr, locstr);
+				sbuf_data(&pnpsb), sbuf_data(&locsb));
 		}
 		return (-1);
 	}
