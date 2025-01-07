@@ -7658,8 +7658,8 @@ arc_init(void)
 
 	arc_register_hotplug();
 
-	kprintf (" Final arc_c_min=%lld, arc_c_max=%lld, arc_meta_limit=%lld\n", 
-		(long long)arc_c_min, (long long)arc_c_max, (long long)arc_meta_limit);
+	kprintf (" Final arc_c_min=%lld, arc_c_max=%lld\n", 
+		(long long)arc_c_min, (long long)arc_c_max);
 
 	arc_state_init();
 
