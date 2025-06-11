@@ -78,6 +78,9 @@ struct acpi_softc {
     struct apm_clone_data *acpi_clone;		/* Pseudo-dev for devd(8). */
     STAILQ_HEAD(,apm_clone_data) apm_cdevs;	/* All apm/apmctl/acpi cdevs. */
     struct callout	susp_force_to;		/* Force suspend if no acks. */
+
+    /* System Resources */
+    struct resource_list sysres_rl;
 };
 
 struct acpi_device {
@@ -227,6 +230,10 @@ extern struct mtx			acpi_mutex;
  *	compatible flag and ignoring overrides that redirect IRQ 0 to pin 2.
  * ACPI_Q_AEI_NOPULL: Specifies that _AEI objects incorrectly designate pins
  *	as "PullUp" and they should be treated as "NoPull" instead.
+ * ACPI_Q_CLEAR_PME_ON_DETACH: Specifies that PCIM_PSTAT_(PME & ~PMEENABLE)
+ *	should be written to the power status register as part of ACPI Eject.
+ * ACPI_Q_DELAY_BEFORE_EJECT_RESCAN: Specifies that we need a short (10ms)
+ *	delay after _EJ0 returns before rescanning the PCI bus.
  */
 extern int	acpi_quirks;
 #define ACPI_Q_OK		0
@@ -234,6 +241,8 @@ extern int	acpi_quirks;
 #define ACPI_Q_TIMER		(1 << 1)
 #define ACPI_Q_MADT_IRQ0	(1 << 2)
 #define ACPI_Q_AEI_NOPULL	(1 << 3)
+#define ACPI_Q_CLEAR_PME_ON_DETACH	(1 << 4)
+#define ACPI_Q_DELAY_BEFORE_EJECT_RESCAN	(1 << 5)
 
 #if defined(__amd64__) || defined(__i386__)
 /*
@@ -461,9 +470,6 @@ ACPI_STATUS	acpi_lookup_irq_resource(device_t dev, int rid,
 		    struct resource *res, ACPI_RESOURCE *acpi_res);
 ACPI_STATUS	acpi_parse_resources(device_t dev, ACPI_HANDLE handle,
 		    struct acpi_parse_resource_set *set, void *arg);
-struct resource *acpi_alloc_sysres(device_t child, int type, int *rid,
-		    rman_res_t start, rman_res_t end, rman_res_t count,
-		    u_int flags);
 
 /* ACPI event handling */
 UINT32		acpi_event_power_button_sleep(void *context);

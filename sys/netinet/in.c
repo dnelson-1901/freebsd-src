@@ -59,6 +59,7 @@
 #include <net/if_llatbl.h>
 #include <net/if_private.h>
 #include <net/if_types.h>
+#include <net/if_bridgevar.h>
 #include <net/route.h>
 #include <net/route/nhop.h>
 #include <net/route/route_ctl.h>
@@ -129,10 +130,10 @@ static struct sx in_control_sx;
 SX_SYSINIT(in_control_sx, &in_control_sx, "in_control");
 
 /*
- * Return 1 if an internet address is for a ``local'' host
+ * Return true if an internet address is for a ``local'' host
  * (one to which we have a connection).
  */
-int
+bool
 in_localaddr(struct in_addr in)
 {
 	u_long i = ntohl(in.s_addr);
@@ -142,14 +143,14 @@ in_localaddr(struct in_addr in)
 
 	CK_STAILQ_FOREACH(ia, &V_in_ifaddrhead, ia_link) {
 		if ((i & ia->ia_subnetmask) == ia->ia_subnet)
-			return (1);
+			return (true);
 	}
 
-	return (0);
+	return (false);
 }
 
 /*
- * Return 1 if an internet address is for the local host and configured
+ * Return true if an internet address is for the local host and configured
  * on one of its interfaces.
  */
 bool
@@ -187,9 +188,9 @@ in_localip_fib(struct in_addr in, uint16_t fib)
 }
 
 /*
- * Return 1 if an internet address is configured on an interface.
+ * Return true if an internet address is configured on an interface.
  */
-int
+bool
 in_ifhasaddr(struct ifnet *ifp, struct in_addr in)
 {
 	struct ifaddr *ifa;
@@ -202,10 +203,10 @@ in_ifhasaddr(struct ifnet *ifp, struct in_addr in)
 			continue;
 		ia = (struct in_ifaddr *)ifa;
 		if (ia->ia_addr.sin_addr.s_addr == in.s_addr)
-			return (1);
+			return (true);
 	}
 
-	return (0);
+	return (false);
 }
 
 /*
@@ -273,18 +274,19 @@ in_findlocal(uint32_t fibnum, bool loopback_ok)
  * that may not be forwarded, or whether datagrams to that destination
  * may be forwarded.
  */
-int
+bool
 in_canforward(struct in_addr in)
 {
 	u_long i = ntohl(in.s_addr);
 
-	if (IN_MULTICAST(i) || IN_LINKLOCAL(i) || IN_LOOPBACK(i))
-		return (0);
+	if (IN_MULTICAST(i) || IN_LINKLOCAL(i) || IN_LOOPBACK(i) ||
+	    in_nullhost(in))
+		return (false);
 	if (IN_EXPERIMENTAL(i) && !V_ip_allow_net240)
-		return (0);
+		return (false);
 	if (IN_ZERONET(i) && !V_ip_allow_net0)
-		return (0);
-	return (1);
+		return (false);
+	return (true);
 }
 
 /*
@@ -497,6 +499,13 @@ in_aifaddr_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp, struct ucred *cred
 	if (error != 0)
 		return (error);
 #endif
+
+	/*
+	 * Check if bridge wants to allow adding addrs to member interfaces.
+	 */
+	if (ifp->if_bridge && bridge_member_ifaddrs_p &&
+	    !bridge_member_ifaddrs_p())
+		return (EINVAL);
 
 	/*
 	 * See whether address already exist.

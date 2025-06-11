@@ -615,6 +615,7 @@ bsd_set_freq(void *priv, struct hostapd_freq_params *freq)
 		mode = IFM_IEEE80211_11B;
 	} else {
 		mode =
+			freq->vht_enabled ? IFM_IEEE80211_VHT5G :
 			freq->ht_enabled ? IFM_IEEE80211_11NA :
 			IFM_IEEE80211_11A;
 	}
@@ -1767,9 +1768,9 @@ bsd_global_init(void *ctx)
 	global->ctx = ctx;
 	dl_list_init(&global->ifaces);
 
-	global->sock = socket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	global->sock = socket(PF_LOCAL, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (global->sock < 0) {
-		wpa_printf(MSG_ERROR, "socket[PF_INET,SOCK_DGRAM]: %s",
+		wpa_printf(MSG_ERROR, "socket[PF_LOCAL,SOCK_DGRAM]: %s",
 			   strerror(errno));
 		goto fail1;
 	}

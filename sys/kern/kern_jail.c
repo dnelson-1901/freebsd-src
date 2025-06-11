@@ -226,6 +226,7 @@ static struct bool_flags pr_flag_allow[NBBY * NBPW] = {
 #ifdef VIMAGE
 	{"allow.nfsd", "allow.nonfsd", PR_ALLOW_NFSD},
 #endif
+	{"allow.routing", "allow.norouting", PR_ALLOW_ROUTING},
 };
 static unsigned pr_allow_all = PR_ALLOW_ALL_STATIC;
 const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
@@ -1701,9 +1702,18 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			    sizeof(pr->pr_osrelease));
 
 #ifdef VIMAGE
-		/* Allocate a new vnet if specified. */
-		pr->pr_vnet = (pr_flags & PR_VNET)
-		    ? vnet_alloc() : ppr->pr_vnet;
+		/*
+		 * Allocate a new vnet if specified.
+		 *
+		 * Set PR_VNET now if so, so that the vnet is disposed of
+		 * properly when the jail is destroyed.
+		 */
+		if (pr_flags & PR_VNET) {
+			pr->pr_flags |= PR_VNET;
+			pr->pr_vnet = vnet_alloc();
+		} else {
+			pr->pr_vnet = ppr->pr_vnet;
+		}
 #endif
 		/*
 		 * Allocate a dedicated cpuset for each jail.
@@ -3173,9 +3183,12 @@ prison_deref(struct prison *pr, int flags)
 					 * Removing a prison frees references
 					 * from its parent.
 					 */
+					ppr = pr->pr_parent;
+					pr->pr_parent = NULL;
 					mtx_unlock(&pr->pr_mtx);
+
+					pr = ppr;
 					flags &= ~PD_LOCKED;
-					pr = pr->pr_parent;
 					flags |= PD_DEREF | PD_DEUREF;
 					continue;
 				}
@@ -3202,7 +3215,7 @@ prison_deref(struct prison *pr, int flags)
 	 */
 	TAILQ_FOREACH_SAFE(rpr, &freeprison, pr_list, tpr) {
 #ifdef VIMAGE
-		if (rpr->pr_vnet != rpr->pr_parent->pr_vnet)
+		if (rpr->pr_flags & PR_VNET)
 			vnet_destroy(rpr->pr_vnet);
 #endif
 		if (rpr->pr_root != NULL)
@@ -3927,6 +3940,7 @@ prison_priv_check(struct ucred *cred, int priv)
 		 * Allow jailed processes to manipulate process UNIX
 		 * credentials in any way they see fit.
 		 */
+	case PRIV_CRED_SETCRED:
 	case PRIV_CRED_SETUID:
 	case PRIV_CRED_SETEUID:
 	case PRIV_CRED_SETGID:
@@ -4128,6 +4142,16 @@ prison_priv_check(struct ucred *cred, int priv)
 		if (cred->cr_prison->pr_allow & PR_ALLOW_READ_MSGBUF)
 			return (0);
 		return (EPERM);
+
+		/*
+		 * Conditionally allow privileged process in the jail to modify
+		 * the routing table.
+		 */
+	case PRIV_NET_ROUTE:
+		if (cred->cr_prison->pr_allow & PR_ALLOW_ROUTING)
+			return (0);
+		else
+			return (EPERM);
 
 	default:
 		/*
@@ -4591,6 +4615,8 @@ SYSCTL_JAIL_PARAM(_allow, suser, CTLTYPE_INT | CTLFLAG_RW,
 SYSCTL_JAIL_PARAM(_allow, nfsd, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Mountd/nfsd may run in the jail");
 #endif
+SYSCTL_JAIL_PARAM(_allow, routing, CTLTYPE_INT | CTLFLAG_RW,
+    "B", "Jail may modify routing table");
 
 SYSCTL_JAIL_PARAM_SUBNODE(allow, mount, "Jail mount/unmount permission flags");
 SYSCTL_JAIL_PARAM(_allow_mount, , CTLTYPE_INT | CTLFLAG_RW,

@@ -610,8 +610,9 @@ rack_swap_beta_values(struct tcp_rack *rack, uint8_t flex8)
 {
 	struct sockopt sopt;
 	struct cc_newreno_opts opt;
-	struct newreno old;
 	struct tcpcb *tp;
+	uint32_t old_beta;
+	uint32_t old_beta_ecn;
 	int error, failed = 0;
 
 	tp = rack->rc_tp;
@@ -640,33 +641,34 @@ rack_swap_beta_values(struct tcp_rack *rack, uint8_t flex8)
 		failed = 3;
 		goto out;
 	}
-	old.beta = opt.val;
+	old_beta = opt.val;
 	opt.name = CC_NEWRENO_BETA_ECN;
 	error = CC_ALGO(tp)->ctl_output(&tp->t_ccv, &sopt, &opt);
 	if (error)  {
 		failed = 4;
 		goto out;
 	}
-	old.beta_ecn = opt.val;
+	old_beta_ecn = opt.val;
 
 	/* Now lets set in the values we have stored */
 	sopt.sopt_dir = SOPT_SET;
 	opt.name = CC_NEWRENO_BETA;
-	opt.val = rack->r_ctl.rc_saved_beta.beta;
+	opt.val = rack->r_ctl.rc_saved_beta;
 	error = CC_ALGO(tp)->ctl_output(&tp->t_ccv, &sopt, &opt);
 	if (error)  {
 		failed = 5;
 		goto out;
 	}
 	opt.name = CC_NEWRENO_BETA_ECN;
-	opt.val = rack->r_ctl.rc_saved_beta.beta_ecn;
+	opt.val = rack->r_ctl.rc_saved_beta_ecn;
 	error = CC_ALGO(tp)->ctl_output(&tp->t_ccv, &sopt, &opt);
 	if (error) {
 		failed = 6;
 		goto out;
 	}
 	/* Save off the values for restoral */
-	memcpy(&rack->r_ctl.rc_saved_beta, &old, sizeof(struct newreno));
+	rack->r_ctl.rc_saved_beta = old_beta;
+	rack->r_ctl.rc_saved_beta_ecn = old_beta_ecn;
 out:
 	if (rack_verbose_logging && tcp_bblogging_on(rack->rc_tp)) {
 		union tcp_log_stackspecific log;
@@ -674,13 +676,13 @@ out:
 		struct newreno *ptr;
 
 		ptr = ((struct newreno *)tp->t_ccv.cc_data);
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.timeStamp = tcp_get_usecs(&tv);
 		log.u_bbr.flex1 = ptr->beta;
 		log.u_bbr.flex2 = ptr->beta_ecn;
 		log.u_bbr.flex3 = ptr->newreno_flags;
-		log.u_bbr.flex4 = rack->r_ctl.rc_saved_beta.beta;
-		log.u_bbr.flex5 = rack->r_ctl.rc_saved_beta.beta_ecn;
+		log.u_bbr.flex4 = rack->r_ctl.rc_saved_beta;
+		log.u_bbr.flex5 = rack->r_ctl.rc_saved_beta_ecn;
 		log.u_bbr.flex6 = failed;
 		log.u_bbr.flex7 = rack->gp_ready;
 		log.u_bbr.flex7 <<= 1;
@@ -2645,7 +2647,7 @@ rack_log_retran_reason(struct tcp_rack *rack, struct rack_sendmap *rsm, uint32_t
 			return;
 		}
 log_anyway:
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = tsused;
 		log.u_bbr.flex2 = thresh;
 		log.u_bbr.flex3 = rsm->r_flags;
@@ -2674,7 +2676,7 @@ rack_log_to_start(struct tcp_rack *rack, uint32_t cts, uint32_t to, int32_t slot
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = rack->rc_tp->t_srtt;
 		log.u_bbr.flex2 = to;
 		log.u_bbr.flex3 = rack->r_ctl.rc_hpts_flags;
@@ -2713,7 +2715,7 @@ rack_log_to_event(struct tcp_rack *rack, int32_t to_num, struct rack_sendmap *rs
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.flex8 = to_num;
 		log.u_bbr.flex1 = rack->r_ctl.rc_rack_min_rtt;
@@ -2750,7 +2752,7 @@ rack_log_map_chg(struct tcpcb *tp, struct tcp_rack *rack,
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex8 = flag;
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.cur_del_rate = (uint64_t)prev;
@@ -2795,7 +2797,7 @@ rack_log_rtt_upd(struct tcpcb *tp, struct tcp_rack *rack, uint32_t t, uint32_t l
 	if (tcp_bblogging_on(tp)) {
 		union tcp_log_stackspecific log;
 		struct timeval tv;
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.flex1 = t;
 		log.u_bbr.flex2 = len;
@@ -2967,7 +2969,7 @@ rack_log_progress_event(struct tcp_rack *rack, struct tcpcb *tp, uint32_t tick, 
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.flex1 = line;
 		log.u_bbr.flex2 = tick;
@@ -2993,7 +2995,7 @@ rack_log_type_bbrsnd(struct tcp_rack *rack, uint32_t len, uint32_t slot, uint32_
 	if (rack_verbose_logging && tcp_bblogging_on(rack->rc_tp)) {
 		union tcp_log_stackspecific log;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.flex1 = slot;
 		if (rack->rack_no_prr)
@@ -3094,7 +3096,7 @@ rack_log_type_just_return(struct tcp_rack *rack, uint32_t cts, uint32_t tlen, ui
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.flex1 = slot;
 		log.u_bbr.flex2 = rack->r_ctl.rc_hpts_flags;
@@ -3127,7 +3129,7 @@ rack_log_to_cancel(struct tcp_rack *rack, int32_t hpts_removed, int line, uint32
 	if (tcp_bblogging_on(rack->rc_tp)) {
 		union tcp_log_stackspecific log;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.flex1 = line;
 		log.u_bbr.flex2 = rack->r_ctl.rc_last_output_to;
@@ -3169,7 +3171,7 @@ rack_log_alt_to_to_cancel(struct tcp_rack *rack,
 			/* No you can't use 1, its for the real to cancel */
 			return;
 		}
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.timeStamp = tcp_get_usecs(&tv);
 		log.u_bbr.flex1 = flex1;
 		log.u_bbr.flex2 = flex2;
@@ -3194,7 +3196,7 @@ rack_log_to_processing(struct tcp_rack *rack, uint32_t cts, int32_t ret, int32_t
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = timers;
 		log.u_bbr.flex2 = ret;
 		log.u_bbr.flex3 = rack->r_ctl.rc_timer_exp;
@@ -3224,7 +3226,7 @@ rack_log_to_prr(struct tcp_rack *rack, int frm, int orig_cwnd, int line)
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = rack->r_ctl.rc_prr_out;
 		log.u_bbr.flex2 = rack->r_ctl.rc_prr_recovery_fs;
 		if (rack->rack_no_prr)
@@ -3258,7 +3260,7 @@ rack_log_sad(struct tcp_rack *rack, int event)
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = rack->r_ctl.sack_count;
 		log.u_bbr.flex2 = rack->r_ctl.ack_count;
 		log.u_bbr.flex3 = rack->r_ctl.sack_moved_extra;
@@ -4098,7 +4100,7 @@ rack_log_rtt_shrinks(struct tcp_rack *rack, uint32_t us_cts,
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = line;
 		log.u_bbr.flex2 = rack->r_ctl.rc_time_probertt_starts;
 		log.u_bbr.flex3 = rack->r_ctl.rc_lower_rtt_us_cts;
@@ -5395,7 +5397,7 @@ rack_ack_received(struct tcpcb *tp, struct tcp_rack *rack, uint32_t th_ack, uint
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.timeStamp = tcp_get_usecs(&tv);
 		log.u_bbr.flex1 = th_ack;
 		log.u_bbr.flex2 = tp->t_ccv.flags;
@@ -5588,7 +5590,7 @@ do_rack_check_for_unclamp(struct tcpcb *tp, struct tcp_rack *rack)
 				union tcp_log_stackspecific log;
 				struct timeval tv;
 
-				memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+				memset(&log, 0, sizeof(log));
 				log.u_bbr.timeStamp = tcp_get_usecs(&tv);
 				log.u_bbr.flex3 = rnds;
 				log.u_bbr.flex4 = rack_unclamp_round_thresh;
@@ -5769,7 +5771,7 @@ reset_to_iw:
 				union tcp_log_stackspecific log;
 				struct timeval tv;
 
-				memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+				memset(&log, 0, sizeof(log));
 				log.u_bbr.timeStamp = tcp_get_usecs(&tv);
 				log.u_bbr.flex1 = new_cwnd;
 				log.u_bbr.flex2 = new_ssthresh;
@@ -5836,7 +5838,7 @@ rack_post_recovery(struct tcpcb *tp, uint32_t th_ack)
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.timeStamp = tcp_get_usecs(&tv);
 		log.u_bbr.flex1 = th_ack;
 		log.u_bbr.flex2 = tp->t_ccv.flags;
@@ -6677,7 +6679,7 @@ rack_log_hpts_diag(struct tcp_rack *rack, uint32_t cts,
 	if (rack_verbose_logging && tcp_bblogging_on(rack->rc_tp)) {
 		union tcp_log_stackspecific log;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = diag->p_nxt_slot;
 		log.u_bbr.flex2 = diag->p_cur_slot;
 		log.u_bbr.flex3 = diag->slot_req;
@@ -6716,7 +6718,7 @@ rack_log_wakeup(struct tcpcb *tp, struct tcp_rack *rack, struct sockbuf *sb, uin
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.flex1 = sb->sb_flags;
 		log.u_bbr.flex2 = len;
 		log.u_bbr.flex3 = sb->sb_state;
@@ -9516,7 +9518,7 @@ do_rest_ofb:
 					union tcp_log_stackspecific log;
 					struct timeval tv;
 
-					memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+					memset(&log, 0, sizeof(log));
 					log.u_bbr.flex1 = end;
 					log.u_bbr.flex2 = start;
 					log.u_bbr.flex3 = rsm->r_end;
@@ -14625,7 +14627,7 @@ rack_log_chg_info(struct tcpcb *tp, struct tcp_rack *rack, uint8_t mod,
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.timeStamp = tcp_get_usecs(&tv);
 		log.u_bbr.flex8 = mod;
 		log.u_bbr.flex1 = flex1;
@@ -15058,7 +15060,7 @@ rack_init(struct tcpcb *tp, void **ptr)
 	rack->rc_new_rnd_needed = 1;
 	rack->r_ctl.rc_split_limit = V_tcp_map_split_limit;
 	/* We want abe like behavior as well */
-	rack->r_ctl.rc_saved_beta.newreno_flags |= CC_NEWRENO_BETA_ECN_ENABLED;
+
 	rack->r_ctl.rc_reorder_fade = rack_reorder_fade;
 	rack->rc_allow_data_af_clo = rack_ignore_data_after_close;
 	rack->r_ctl.rc_tlp_threshold = rack_tlp_thresh;
@@ -15094,13 +15096,13 @@ rack_init(struct tcpcb *tp, void **ptr)
 	rack->rc_user_set_max_segs = rack_hptsi_segments;
 	rack->rc_force_max_seg = 0;
 	TAILQ_INIT(&rack->r_ctl.opt_list);
-	rack->r_ctl.rc_saved_beta.beta = V_newreno_beta_ecn;
-	rack->r_ctl.rc_saved_beta.beta_ecn = V_newreno_beta_ecn;
+	rack->r_ctl.rc_saved_beta = V_newreno_beta_ecn;
+	rack->r_ctl.rc_saved_beta_ecn = V_newreno_beta_ecn;
 	if (rack_hibeta_setting) {
 		rack->rack_hibeta = 1;
 		if ((rack_hibeta_setting >= 50) &&
 		    (rack_hibeta_setting <= 100)) {
-			rack->r_ctl.rc_saved_beta.beta = rack_hibeta_setting;
+			rack->r_ctl.rc_saved_beta = rack_hibeta_setting;
 			rack->r_ctl.saved_hibeta = rack_hibeta_setting;
 		}
 	} else {
@@ -15519,7 +15521,7 @@ rack_fini(struct tcpcb *tp, int32_t tcb_is_purged)
 			union tcp_log_stackspecific log;
 			struct timeval tv;
 
-			memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+			memset(&log, 0, sizeof(log));
 			log.u_bbr.flex8 = 10;
 			log.u_bbr.flex1 = rack->r_ctl.rc_num_maps_alloced;
 			log.u_bbr.flex2 = rack->rc_free_cnt;
@@ -15629,12 +15631,6 @@ rack_timer_audit(struct tcpcb *tp, struct tcp_rack *rack, struct sockbuf *sb)
 			if (tmr_up == PACE_TMR_DELACK)
 				/* We are supposed to have delayed ack up and we do */
 				return;
-		} else if (sbavail(&tptosocket(tp)->so_snd) && (tmr_up == PACE_TMR_RXT)) {
-			/*
-			 * if we hit enobufs then we would expect the possibility
-			 * of nothing outstanding and the RXT up (and the hptsi timer).
-			 */
-			return;
 		} else if (((V_tcp_always_keepalive ||
 			     rack->rc_inp->inp_socket->so_options & SO_KEEPALIVE) &&
 			    (tp->t_state <= TCPS_CLOSING)) &&
@@ -15759,7 +15755,7 @@ rack_log_input_packet(struct tcpcb *tp, struct tcp_rack *rack, struct tcp_ackent
 			tcp_req = tcp_req_find_req_for_seq(tp, ae->ack);
 		}
 #endif
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		if (rack->rack_no_prr == 0)
 			log.u_bbr.flex1 = rack->r_ctl.rc_prr_sndcnt;
@@ -16853,7 +16849,7 @@ rack_do_segment_nounlock(struct tcpcb *tp, struct mbuf *m, struct tcphdr *th,
 			tcp_req = tcp_req_find_req_for_seq(tp, th->th_ack);
 		}
 #endif
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		if (rack->rack_no_prr == 0)
 			log.u_bbr.flex1 = rack->r_ctl.rc_prr_sndcnt;
@@ -17686,7 +17682,6 @@ rack_get_pacing_delay(struct tcp_rack *rack, struct tcpcb *tp, uint32_t len, str
 {
 	uint64_t srtt;
 	int32_t slot = 0;
-	int32_t minslot = 0;
 	int can_start_hw_pacing = 1;
 	int err;
 	int pace_one;
@@ -17705,7 +17700,7 @@ rack_get_pacing_delay(struct tcp_rack *rack, struct tcpcb *tp, uint32_t len, str
 		 * the peer to have a gap in data sending.
 		 */
 		uint64_t cwnd, tr_perms = 0;
-		int32_t reduce = 0;
+		int32_t reduce;
 
 	old_method:
 		/*
@@ -17742,7 +17737,8 @@ rack_get_pacing_delay(struct tcp_rack *rack, struct tcpcb *tp, uint32_t len, str
 				slot -= reduce;
 			} else
 				slot = 0;
-		}
+		} else
+			reduce = 0;
 		slot *= HPTS_USEC_IN_MSEC;
 		if (rack->rc_pace_to_cwnd) {
 			uint64_t rate_wanted = 0;
@@ -18017,11 +18013,6 @@ rack_get_pacing_delay(struct tcp_rack *rack, struct tcpcb *tp, uint32_t len, str
 					rack->r_ctl.last_hw_bw_req = rate_wanted;
 				}
 			}
-		}
-		if (minslot && (minslot > slot)) {
-			rack_log_pacing_delay_calc(rack, minslot, slot, rack->r_ctl.crte->rate, bw_est, lentim,
-						   98, __LINE__, NULL, 0);
-			slot = minslot;
 		}
 	done_w_hdwr:
 		if (rack_limit_time_with_srtt &&
@@ -18350,7 +18341,7 @@ rack_log_fsb(struct tcp_rack *rack, struct tcpcb *tp, struct socket *so, uint32_
 		union tcp_log_stackspecific log;
 		struct timeval tv;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		log.u_bbr.flex1 = error;
 		log.u_bbr.flex2 = flags;
@@ -18615,7 +18606,7 @@ rack_log_queue_level(struct tcpcb *tp, struct tcp_rack *rack,
 	err = in_pcbquery_txrlevel(rack->rc_inp, &p_queue);
 	err = in_pcbquery_txrtlmt(rack->rc_inp,	&p_rate);
 #endif
-	memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+	memset(&log, 0, sizeof(log));
 	log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 	log.u_bbr.flex1 = p_rate;
 	log.u_bbr.flex2 = p_queue;
@@ -19068,7 +19059,7 @@ rack_fast_rsm_output(struct tcpcb *tp, struct tcp_rack *rack, struct rack_sendma
 			counter_u64_add(rack_collapsed_win_rxt, 1);
 			counter_u64_add(rack_collapsed_win_rxt_bytes, (rsm->r_end - rsm->r_start));
 		}
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		if (rack->rack_no_prr)
 			log.u_bbr.flex1 = 0;
@@ -19091,7 +19082,7 @@ rack_fast_rsm_output(struct tcpcb *tp, struct tcp_rack *rack, struct rack_sendma
 		log.u_bbr.pkts_out = tp->t_maxseg;
 		log.u_bbr.timeStamp = cts;
 		log.u_bbr.inflight = ctf_flight_size(rack->rc_tp, rack->r_ctl.rc_sacked);
-		if (rsm && (rsm->r_rtr_cnt > 0)) {
+		if (rsm->r_rtr_cnt > 0) {
 			/*
 			 * When we have a retransmit we want to log the
 			 * burst at send and flight at send from before.
@@ -19228,11 +19219,7 @@ rack_fast_rsm_output(struct tcpcb *tp, struct tcp_rack *rack, struct rack_sendma
 	crtsc = get_cyclecount();
 	if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 		tp->tcp_cnt_counters[SND_OUT_DATA] += cnt_thru;
-	}
-	if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 		tp->tcp_proc_time[SND_OUT_DATA] += (crtsc - ts_val);
-	}
-	if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 		tp->tcp_cnt_counters[CNT_OF_MSS_OUT] += ((len + segsiz - 1) / segsiz);
 	}
 	sched_unpin();
@@ -19631,7 +19618,7 @@ again:
 	if (tcp_bblogging_on(rack->rc_tp)) {
 		union tcp_log_stackspecific log;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		if (rack->rack_no_prr)
 			log.u_bbr.flex1 = 0;
@@ -19705,7 +19692,6 @@ again:
 	}
 	rack_log_output(tp, &to, len, tp->snd_max, flags, error, rack_to_usec_ts(tv),
 			NULL, add_flag, s_mb, s_soff, rack->r_ctl.fsb.hw_tls, segsiz);
-	m = NULL;
 	if (tp->snd_una == tp->snd_max) {
 		rack->r_ctl.rc_tlp_rxt_last_time = cts;
 		rack_log_progress_event(rack, tp, ticks, PROGRESS_START, __LINE__);
@@ -19774,11 +19760,7 @@ again:
 	crtsc = get_cyclecount();
 	if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 		tp->tcp_cnt_counters[SND_OUT_DATA] += cnt_thru;
-	}
-	if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 		tp->tcp_proc_time[SND_OUT_DATA] += (crtsc - ts_val);
-	}
-	if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 		tp->tcp_cnt_counters[CNT_OF_MSS_OUT] += ((tot_len + segsiz - 1) / segsiz);
 	}
 	sched_unpin();
@@ -20109,8 +20091,6 @@ rack_output(struct tcpcb *tp)
 		crtsc = get_cyclecount();
 		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_proc_time[SND_BLOCKED] += (crtsc - ts_val);
-		}
-		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_cnt_counters[SND_BLOCKED]++;
 		}
 		sched_unpin();
@@ -20166,10 +20146,11 @@ rack_output(struct tcpcb *tp)
 	     (tp->t_state == TCPS_SYN_SENT)) &&
 	    SEQ_GT(tp->snd_max, tp->snd_una) && /* initial SYN or SYN|ACK sent */
 	    (tp->t_rxtshift == 0)) {              /* not a retransmit */
-		cwnd_to_use = rack->r_ctl.cwnd_to_use = tp->snd_cwnd;
-		so = inp->inp_socket;
-		sb = &so->so_snd;
-		goto just_return_nolock;
+		rack_start_hpts_timer(rack, tp, cts, 0, 0, 0);
+#ifdef TCP_ACCOUNTING
+		sched_unpin();
+#endif
+		return (0);
 	}
 	/*
 	 * Determine length of data that should be transmitted, and flags
@@ -20204,7 +20185,8 @@ rack_output(struct tcpcb *tp)
 				rack_exit_probertt(rack, cts);
 			}
 		}
-	}
+	} else
+		tot_idle = 0;
 	if (rack_use_fsb &&
 	    (rack->r_ctl.fsb.tcp_ip_hdr) &&
 	    (rack->r_fsb_inited == 0) &&
@@ -21252,19 +21234,13 @@ just_return_nolock:
 		crtsc = get_cyclecount();
 		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_cnt_counters[SND_OUT_DATA]++;
-		}
-		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_proc_time[SND_OUT_DATA] += (crtsc - ts_val);
-		}
-		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_cnt_counters[CNT_OF_MSS_OUT] += ((tot_len_this_send + segsiz - 1) / segsiz);
 		}
 	} else {
 		crtsc = get_cyclecount();
 		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_cnt_counters[SND_LIMITED]++;
-		}
-		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_proc_time[SND_LIMITED] += (crtsc - ts_val);
 		}
 	}
@@ -21434,8 +21410,6 @@ send:
 			crtsc = get_cyclecount();
 			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_cnt_counters[SND_OUT_FAIL]++;
-			}
-			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_proc_time[SND_OUT_FAIL] += (crtsc - ts_val);
 			}
 			sched_unpin();
@@ -22012,7 +21986,7 @@ send:
 	if (tcp_bblogging_on(rack->rc_tp)) {
 		union tcp_log_stackspecific log;
 
-		memset(&log.u_bbr, 0, sizeof(log.u_bbr));
+		memset(&log, 0, sizeof(log));
 		log.u_bbr.inhpts = tcp_in_hpts(rack->rc_tp);
 		if (rack->rack_no_prr)
 			log.u_bbr.flex1 = 0;
@@ -22404,8 +22378,6 @@ nomore:
 			crtsc = get_cyclecount();
 			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_cnt_counters[SND_OUT_FAIL]++;
-			}
-			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_proc_time[SND_OUT_FAIL] += (crtsc - ts_val);
 			}
 			sched_unpin();
@@ -22459,8 +22431,6 @@ nomore:
 			crtsc = get_cyclecount();
 			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_cnt_counters[SND_OUT_FAIL]++;
-			}
-			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_proc_time[SND_OUT_FAIL] += (crtsc - ts_val);
 			}
 			sched_unpin();
@@ -22468,6 +22438,7 @@ nomore:
 			return (error);
 		case ENETUNREACH:
 			counter_u64_add(rack_saw_enetunreach, 1);
+			/* FALLTHROUGH */
 		case EHOSTDOWN:
 		case EHOSTUNREACH:
 		case ENETDOWN:
@@ -22483,8 +22454,6 @@ nomore:
 			crtsc = get_cyclecount();
 			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_cnt_counters[SND_OUT_FAIL]++;
-			}
-			if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 				tp->tcp_proc_time[SND_OUT_FAIL] += (crtsc - ts_val);
 			}
 			sched_unpin();
@@ -22658,18 +22627,12 @@ skip_all_send:
 	if (tot_len_this_send) {
 		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_cnt_counters[SND_OUT_DATA]++;
-		}
-		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_proc_time[SND_OUT_DATA] += crtsc;
-		}
-		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_cnt_counters[CNT_OF_MSS_OUT] += ((tot_len_this_send + segsiz - 1) /segsiz);
 		}
 	} else {
 		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_cnt_counters[SND_OUT_ACK]++;
-		}
-		if (tp->t_flags2 & TF2_TCP_ACCOUNTING) {
 			tp->tcp_proc_time[SND_OUT_ACK] += crtsc;
 		}
 	}
@@ -23042,7 +23005,7 @@ rack_process_option(struct tcpcb *tp, struct tcp_rack *rack, int sopt_name,
 
 	switch (sopt_name) {
 	case TCP_RACK_SET_RXT_OPTIONS:
-		if ((optval >= 0) && (optval <= 2)) {
+		if (optval <= 2) {
 			rack_init_retransmit_value(rack, optval);
 		} else {
 			/*
@@ -23089,7 +23052,7 @@ rack_process_option(struct tcpcb *tp, struct tcp_rack *rack, int sopt_name,
 				rack->r_ctl.saved_hibeta = optval;
 				if (rack->rc_pacing_cc_set)
 					rack_undo_cc_pacing(rack);
-				rack->r_ctl.rc_saved_beta.beta = optval;
+				rack->r_ctl.rc_saved_beta = optval;
 			}
 			if (rack->rc_pacing_cc_set == 0)
 				rack_set_cc_pacing(rack);
@@ -23126,7 +23089,7 @@ rack_process_option(struct tcpcb *tp, struct tcp_rack *rack, int sopt_name,
 			 * Not pacing yet so set it into our local
 			 * rack pcb storage.
 			 */
-			rack->r_ctl.rc_saved_beta.beta = optval;
+			rack->r_ctl.rc_saved_beta = optval;
 		}
 		break;
 	case TCP_RACK_TIMER_SLOP:
@@ -23167,8 +23130,7 @@ rack_process_option(struct tcpcb *tp, struct tcp_rack *rack, int sopt_name,
 			 * Not pacing yet so set it into our local
 			 * rack pcb storage.
 			 */
-			rack->r_ctl.rc_saved_beta.beta_ecn = optval;
-			rack->r_ctl.rc_saved_beta.newreno_flags = CC_NEWRENO_BETA_ECN_ENABLED;
+			rack->r_ctl.rc_saved_beta_ecn = optval;
 		}
 		break;
 	case TCP_DEFER_OPTIONS:
@@ -23718,7 +23680,6 @@ rack_process_option(struct tcpcb *tp, struct tcp_rack *rack, int sopt_name,
 	return (error);
 }
 
-
 static void
 rack_apply_deferred_options(struct tcp_rack *rack)
 {
@@ -24088,7 +24049,7 @@ rack_get_sockopt(struct tcpcb *tp, struct sockopt *sopt)
 		if (strcmp(tp->t_cc->name, CCALGONAME_NEWRENO) != 0)
 			error = EINVAL;
 		else if (rack->rc_pacing_cc_set == 0)
-			optval = rack->r_ctl.rc_saved_beta.beta;
+			optval = rack->r_ctl.rc_saved_beta;
 		else {
 			/*
 			 * Reach out into the CC data and report back what
@@ -24101,19 +24062,18 @@ rack_get_sockopt(struct tcpcb *tp, struct sockopt *sopt)
 				error = EINVAL;
 		}
 		break;
-		/*
-		 * Beta_ecn is the congestion control value for NewReno that influences how
-		 * much of a backoff happens when a ECN mark is detected. It is normally set
-		 * to 80 for 80% i.e. the cwnd is reduced by 20% of its previous value when
-		 * you exit recovery. Note that classic ECN has a beta of 50, it is only
-		 * ABE Ecn that uses this "less" value, but we do too with pacing :)
-		 */
-
+	/*
+	 * Beta_ecn is the congestion control value for NewReno that influences how
+	 * much of a backoff happens when a ECN mark is detected. It is normally set
+	 * to 80 for 80% i.e. the cwnd is reduced by 20% of its previous value when
+	 * you exit recovery. Note that classic ECN has a beta of 50, it is only
+	 * ABE Ecn that uses this "less" value, but we do too with pacing :)
+	 */
 	case TCP_RACK_PACING_BETA_ECN:
 		if (strcmp(tp->t_cc->name, CCALGONAME_NEWRENO) != 0)
 			error = EINVAL;
 		else if (rack->rc_pacing_cc_set == 0)
-			optval = rack->r_ctl.rc_saved_beta.beta_ecn;
+			optval = rack->r_ctl.rc_saved_beta_ecn;
 		else {
 			/*
 			 * Reach out into the CC data and report back what

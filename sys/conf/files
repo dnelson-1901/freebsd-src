@@ -2479,6 +2479,11 @@ dev/mrsas/mrsas.c		optional mrsas
 dev/mrsas/mrsas_cam.c		optional mrsas
 dev/mrsas/mrsas_ioctl.c		optional mrsas
 dev/mrsas/mrsas_fp.c		optional mrsas
+dev/mpi3mr/mpi3mr.c		optional mpi3mr
+dev/mpi3mr/mpi3mr_pci.c		optional mpi3mr
+dev/mpi3mr/mpi3mr_app.c		optional mpi3mr
+dev/mpi3mr/mpi3mr_cam.c		optional mpi3mr \
+	compile-with "${LINUXKPI_C}"
 dev/msk/if_msk.c		optional msk
 dev/mvs/mvs.c			optional mvs
 dev/mvs/mvs_if.m		optional mvs
@@ -3905,6 +3910,7 @@ kern/subr_stack.c		optional ddb | stack | ktr
 kern/subr_stats.c		optional stats
 kern/subr_taskqueue.c		standard
 kern/subr_terminal.c		optional vt
+kern/subr_ticks.S		standard
 kern/subr_trap.c		standard
 kern/subr_turnstile.c		standard
 kern/subr_uio.c			standard
@@ -5158,10 +5164,11 @@ security/mac/mac_sysv_sem.c	optional mac
 security/mac/mac_sysv_shm.c	optional mac
 security/mac/mac_vfs.c		optional mac
 security/mac_biba/mac_biba.c	optional mac_biba
-security/mac_ddb/mac_ddb.c	optional mac_ddb
 security/mac_bsdextended/mac_bsdextended.c	optional mac_bsdextended
 security/mac_bsdextended/ugidfw_system.c	optional mac_bsdextended
 security/mac_bsdextended/ugidfw_vnode.c		optional mac_bsdextended
+security/mac_ddb/mac_ddb.c	optional mac_ddb
+security/mac_do/mac_do.c	optional mac_do
 security/mac_ifoff/mac_ifoff.c	optional mac_ifoff
 security/mac_ipacl/mac_ipacl.c	optional mac_ipacl
 security/mac_lomac/mac_lomac.c	optional mac_lomac

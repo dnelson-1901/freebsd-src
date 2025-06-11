@@ -38,6 +38,7 @@ ATF_TESTS_SH+=	altq \
 		sctp \
 		set_skip \
 		set_tos \
+		snmp \
 		src_track \
 		syncookie \
 		synproxy \
@@ -54,7 +55,9 @@ TEST_METADATA+= execenv_jail_params="vnet allow.raw_sockets"
 
 PROGS=	divapp
 
-${PACKAGE}FILES+=	CVE-2019-5597.py \
+${PACKAGE}FILES+=	\
+			bsnmpd.conf \
+			CVE-2019-5597.py \
 			CVE-2019-5598.py \
 			daytime_inetd.conf \
 			echo_inetd.conf \
@@ -62,17 +65,22 @@ ${PACKAGE}FILES+=	CVE-2019-5597.py \
 			frag-overindex.py \
 			frag-overlimit.py \
 			frag-overreplace.py \
+			frag-overhole.py \
+			frag-adjhole.py \
 			pfsync_defer.py \
 			pft_ether.py \
 			rdr-srcport.py \
 			utils.subr
 
+${PACKAGE}FILESMODE_bsnmpd.conf=		0555
 ${PACKAGE}FILESMODE_CVE-2019-5597.py=	0555
 ${PACKAGE}FILESMODE_CVE-2019-5598.py=	0555
 ${PACKAGE}FILESMODE_fragcommon.py=	0555
 ${PACKAGE}FILESMODE_frag-overindex.py=	0555
 ${PACKAGE}FILESMODE_frag-overlimit.py=	0555
 ${PACKAGE}FILESMODE_frag-overreplace.py=	0555
+${PACKAGE}FILESMODE_frag-overhole.py=	0555
+${PACKAGE}FILESMODE_frag-adjhole.py=	0555
 ${PACKAGE}FILESMODE_pfsync_defer.py=	0555
 ${PACKAGE}FILESMODE_pft_ether.py=	0555
 

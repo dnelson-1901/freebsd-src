@@ -1041,6 +1041,8 @@
         ..
         cmp
         ..
+        column
+        ..
         compress
         ..
         cpio
@@ -1107,6 +1109,8 @@
         ..
         m4
         ..
+        mail
+        ..
         mkimg
         ..
         mktemp
@@ -1146,6 +1150,8 @@
         tail
         ..
         tar
+        ..
+        tee
         ..
         tftp
         ..
@@ -1212,6 +1218,10 @@
         sa
         ..
         syslogd
+        ..
+        sysrc
+        ..
+        traceroute
         ..
     ..
 ..

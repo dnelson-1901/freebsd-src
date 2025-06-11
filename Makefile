@@ -96,7 +96,7 @@
 #
 # Once you have installed the necessary cross toolchain, simply pass
 # CROSS_TOOLCHAIN=${TARGET_ARCH}-gccN while building with the above steps,
-# e.g., `make buildworld CROSS_TOOLCHAIN=amd64-gcc6`.
+# e.g., `make buildworld CROSS_TOOLCHAIN=amd64-gcc13`.
 #
 # The ${TARGET_ARCH}-gccN packages are provided as flavors of the
 # devel/freebsd-gccN ports.
@@ -551,14 +551,16 @@ TARGET_ARCHES_${target}= ${MACHINE_ARCH_LIST_${target}}
 .endfor
 
 .if defined(USE_GCC_TOOLCHAINS)
-TOOLCHAINS_amd64=	amd64-gcc12
-TOOLCHAINS_arm=		armv6-gcc12 armv7-gcc12
-TOOLCHAIN_armv7=	armv7-gcc12
-TOOLCHAINS_arm64=	aarch64-gcc12
-TOOLCHAINS_i386=	i386-gcc12
-TOOLCHAINS_powerpc=	powerpc-gcc12 powerpc64-gcc12
-TOOLCHAIN_powerpc64=	powerpc64-gcc12
-TOOLCHAINS_riscv=	riscv64-gcc12
+_DEFAULT_GCC_VERSION=	gcc14
+_GCC_VERSION=		${"${USE_GCC_TOOLCHAINS:Mgcc*}" != "":?${USE_GCC_TOOLCHAINS}:${_DEFAULT_GCC_VERSION}}
+TOOLCHAINS_amd64=	amd64-${_GCC_VERSION}
+TOOLCHAINS_arm=		armv6-${_GCC_VERSION} armv7-${_GCC_VERSION}
+TOOLCHAIN_armv7=	armv7-${_GCC_VERSION}
+TOOLCHAINS_arm64=	aarch64-${_GCC_VERSION}
+TOOLCHAINS_i386=	i386-${_GCC_VERSION}
+TOOLCHAINS_powerpc=	powerpc-${_GCC_VERSION} powerpc64-${_GCC_VERSION}
+TOOLCHAIN_powerpc64=	powerpc64-${_GCC_VERSION}
+TOOLCHAINS_riscv=	riscv64-${_GCC_VERSION}
 .endif
 
 # If a target is using an external toolchain, set MAKE_PARAMS to enable use

@@ -103,6 +103,9 @@
 #define	STATUS_GOOD	1
 #define	STATUS_UNKNOWN	2
 
+#define LOG_OPTIONS  LOG_PERROR
+#define LOG_FACILITY LOG_DAEMON
+
 static cap_channel_t *capsyslog;
 static fileargs_t *capfa;
 static bool checkfor, compress, uncompress, clear, force, keep;	/* flags */
@@ -1418,6 +1421,7 @@ init_caps(int argc, char **argv)
 		exit(1);
 	}
 	cap_close(capcas);
+	cap_openlog(capsyslog, "savecore", LOG_OPTIONS, LOG_FACILITY);
 }
 
 static void
@@ -1445,7 +1449,7 @@ main(int argc, char **argv)
 	savedir = ".";
 	comp_desired = KERNELDUMP_COMP_NONE;
 
-	openlog("savecore", LOG_PERROR, LOG_DAEMON);
+	openlog("savecore", LOG_OPTIONS, LOG_FACILITY);
 	signal(SIGINFO, infohandler);
 
 	argc = xo_parse_args(argc, argv);

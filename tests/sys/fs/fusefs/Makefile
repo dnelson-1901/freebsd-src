@@ -57,6 +57,7 @@ GTESTS+=	xattr
 .for p in ${GTESTS}
 SRCS.$p+=	${p}.cc
 SRCS.$p+=	getmntopts.c
+SRCS.$p+=	mntopts.h
 SRCS.$p+=	mockfs.cc
 SRCS.$p+=	utils.cc
 .endfor
@@ -66,7 +67,6 @@ TEST_METADATA.default_permissions_privileged+=	required_user="root"
 TEST_METADATA.mknod+=	required_user="root"
 TEST_METADATA.nfs+=	required_user="root"
 
-# TODO: drastically increase timeout after test development is mostly complete
 TEST_METADATA+= timeout=10
 
 FUSEFS=		${SRCTOP}/sys/fs/fuse
@@ -90,8 +90,13 @@ CXXWARNFLAGS+=	-Wno-vla-cxx-extension
 CXXFLAGS+=	-I${SRCTOP}/tests
 CXXFLAGS+=	-I${FUSEFS}
 CXXFLAGS+=	-I${MOUNT}
-.PATH:		${MOUNT}
 CXXSTD=		c++14
+
+.for f in getmntopts.c mntopts.h
+CLEANFILES+=	${f}
+${f}: ${MOUNT}/${f} .NOMETA
+	ln -sf ${.ALLSRC} ${.TARGET}
+.endfor
 
 LIBADD+=	pthread
 LIBADD+=	gmock gtest

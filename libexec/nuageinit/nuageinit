@@ -2,7 +2,7 @@
 ---
 -- SPDX-License-Identifier: BSD-2-Clause-FreeBSD
 --
--- Copyright(c) 2022 Baptiste Daroussin <bapt@FreeBSD.org>
+-- Copyright(c) 2022-2025 Baptiste Daroussin <bapt@FreeBSD.org>
 
 local nuage = require("nuage")
 local ucl = require("ucl")
@@ -95,7 +95,6 @@ local function config2_network(p)
 		mylinks[v["id"]] = ifaces[s]
 	end
 
-	nuage.mkdir_p(root .. "/etc/rc.conf.d")
 	local network = open_config("network")
 	local routing = open_config("routing")
 	local ipv6 = {}
@@ -308,7 +307,6 @@ if line == "#cloud-config" then
 	end
 	if obj.network then
 		local ifaces = get_ifaces()
-		nuage.mkdir_p(root .. "/etc/rc.conf.d")
 		local network = open_config("network")
 		local routing = open_config("routing")
 		local ipv6 = {}
@@ -354,6 +352,17 @@ if line == "#cloud-config" then
 		network:close()
 		routing:close()
 	end
+	if obj.ssh_pwauth ~= nil then
+		local value = "no"
+		if obj.ssh_pwauth then
+			value = "yes"
+		end
+		nuage.update_sshd_config("PasswordAuthentication", value)
+	end
+	if obj.chpasswd ~= nil then
+		nuage.chpasswd(obj.chpasswd)
+	end
+
 else
 	local res, err = os.execute(path .. "/" .. ud)
 	if not res then

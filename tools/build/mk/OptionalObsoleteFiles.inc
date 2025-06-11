@@ -127,6 +127,7 @@ OLD_FILES+=etc/autofs/special_media
 OLD_FILES+=etc/autofs/special_noauto
 OLD_FILES+=etc/autofs/special_null
 OLD_FILES+=etc/auto_master
+OLD_FILES+=etc/devd/autofs.conf
 OLD_FILES+=etc/rc.d/automount
 OLD_FILES+=etc/rc.d/automountd
 OLD_FILES+=etc/rc.d/autounmountd
@@ -877,6 +878,15 @@ OLD_FILES+=rescue/ccdconfig
 OLD_FILES+=sbin/ccdconfig
 OLD_FILES+=usr/share/man/man4/ccd.4.gz
 OLD_FILES+=usr/share/man/man8/ccdconfig.8.gz
+.endif
+
+.if ${MK_CLANG} == no && ${MK_CLANG_FORMAT} == no && ${MK_LLDB} == no
+OLD_LIBS+=usr/lib/libprivateclang.so.19
+.endif
+
+.if ${MK_CLANG_EXTRAS} == no && ${MK_CLANG} == no && ${MK_LLDB} == no && \
+    ${MK_LLD} == no && ${MK_LLVM_BINUTILS} == no && ${MK_LLVM_COV} == no
+OLD_LIBS+=usr/lib/libprivatellvm.so.19
 .endif
 
 .if ${MK_CLANG} == no && ${MK_LLVM_BINUTILS} == no
@@ -3703,6 +3713,7 @@ OLD_FILES+=usr/bin/ld.lld
 .if ${MK_LLDB} == no
 OLD_FILES+=usr/bin/lldb
 OLD_FILES+=usr/bin/lldb-server
+OLD_LIBS+=usr/lib/libprivatelldb.so.19
 OLD_FILES+=usr/share/man/man1/lldb-server.1.gz
 OLD_FILES+=usr/share/man/man1/lldb.1.gz
 .endif

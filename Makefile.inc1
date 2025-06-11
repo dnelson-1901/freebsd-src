@@ -581,9 +581,14 @@ PKG_VERSION:=	${_PKG_REVISION}${EXTRA_REVISION:C/[[:space:]]//g}
 .endif
 .endif	# !defined(PKG_VERSION)
 
+.if make(*package*)
 .if !defined(PKG_TIMESTAMP)
+.if !empty(GIT_CMD) && exists(${GIT_CMD}) && exists(${SRCDIR}/.git)
+SOURCE_DATE_EPOCH!=	${GIT_CMD} -C ${SRCDIR} show -s --format=%ct HEAD
+.else
 TIMEEPOCHNOW=		%s
 SOURCE_DATE_EPOCH=	${TIMEEPOCHNOW:gmtime}
+.endif
 .else
 SOURCE_DATE_EPOCH=	${PKG_TIMESTAMP}
 .endif
@@ -594,6 +599,7 @@ PKG_WWW?=		https://www.FreeBSD.org
 .export PKG_NAME_PREFIX
 .export PKG_MAINTAINER
 .export PKG_WWW
+.endif
 
 .if !defined(_MKSHOWCONFIG)
 _CPUTYPE!=	MAKEFLAGS= CPUTYPE=${_TARGET_CPUTYPE} ${MAKE} -f /dev/null \
@@ -796,6 +802,7 @@ TMAKE=		\
 # TOOLS_PREFIX set in BMAKE
 XMAKE=		${BMAKE} \
 		TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} \
+		MK_CLANG=${MK_CLANG_BOOTSTRAP} \
 		MK_LLDB=no \
 		MK_LLVM_BINUTILS=no \
 		MK_TESTS=no
@@ -1478,7 +1485,7 @@ distributeworld installworld stageworld: _installcheck_world .PHONY
 	    -p ${DESTDIR}/${DISTDIR}/${dist}${TESTSBASE} >/dev/null
 .if ${MK_DEBUG_FILES} != "no"
 	${DESTDIR_MTREE} -f ${.CURDIR}/etc/mtree/BSD.tests.dist \
-	    -p ${DESTDIR}/${DISTDIR}/${dist}/usr/lib/debug/${TESTSBASE} >/dev/null
+	    -p ${DESTDIR}/${DISTDIR}/${dist}/usr/lib/debug${TESTSBASE} >/dev/null
 .endif
 .endif
 .if defined(NO_ROOT)
@@ -2292,7 +2299,7 @@ real-sign-packages:	_pkgbootstrap .PHONY
 .if ${PKG_BIN_VERSION} < 11700
 	printf "packing_format = \"${PKG_FORMAT}\";\n" >> ${WSTAGEDIR}/meta
 .endif
-	@${PKG_CMD} -o ABI=${PKG_ABI} repo -o OSVERSION="${SRCRELDATE}" \
+	@${PKG_CMD} -o ABI=${PKG_ABI} -o OSVERSION="${SRCRELDATE}" repo \
 		-m ${WSTAGEDIR}/meta \
 		-o ${REPODIR}/${PKG_ABI}/${PKG_VERSION} \
 		${REPODIR}/${PKG_ABI}/${PKG_VERSION} \
@@ -2863,7 +2870,7 @@ _elftctools=	lib/libelftc \
 .endif
 
 .if ${MK_CLANG_BOOTSTRAP} != "no"
-_clang=		usr.bin/clang
+_clang=		usr.bin/clang/clang
 .endif
 .if ${MK_LLD_BOOTSTRAP} != "no"
 _lld=		usr.bin/clang/lld

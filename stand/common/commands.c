@@ -276,7 +276,7 @@ command_commandlist(int argc __unused, char *argv[] __unused)
 		if (res)
 			break;
 		if ((*cmdp)->c_name != NULL && (*cmdp)->c_desc != NULL) {
-			asprintf(&line, "  %-15s  %s\n",
+			asprintf(&line, "  %-20s  %s\n",
 			    (*cmdp)->c_name, (*cmdp)->c_desc);
 			res = pager_output(line);
 			free(line);

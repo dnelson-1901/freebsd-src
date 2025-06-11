@@ -1,4 +1,4 @@
-/* $OpenBSD: cipher.c,v 1.120 2023/10/10 06:49:54 tb Exp $ */
+/* $OpenBSD: cipher.c,v 1.123 2024/08/23 04:51:00 deraadt Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -277,7 +277,7 @@ cipher_init(struct sshcipher_ctx **ccp, const struct sshcipher *cipher,
 #endif
 
 	*ccp = NULL;
-	if ((cc = calloc(sizeof(*cc), 1)) == NULL)
+	if ((cc = calloc(1, sizeof(*cc))) == NULL)
 		return SSH_ERR_ALLOC_FAIL;
 
 	cc->plaintext = (cipher->flags & CFLAG_NONE) != 0;
@@ -394,7 +394,7 @@ cipher_crypt(struct sshcipher_ctx *cc, u_int seqnr, u_char *dest,
 		if (!EVP_CIPHER_CTX_ctrl(cc->evp, EVP_CTRL_GCM_IV_GEN,
 		    1, lastiv))
 			return SSH_ERR_LIBCRYPTO_ERROR;
-		/* set tag on decyption */
+		/* set tag on decryption */
 		if (!cc->encrypt &&
 		    !EVP_CIPHER_CTX_ctrl(cc->evp, EVP_CTRL_GCM_SET_TAG,
 		    authlen, (u_char *)src + aadlen + len))
