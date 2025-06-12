@@ -139,7 +139,10 @@ LIBADD+=	dl
 # Build with LTO
 CFLAGS+=	-flto=thin
 CXXFLAGS+=	-flto=thin
-LDFLAGS+=	-fuse-ld=lld
+LDFLAGS+= \
+	-fuse-ld=lld \
+	-Wl,--thinlto-cache-dir=${HOME}/.ccache/lto \
+	-Wl,--thinlto-cache-policy=cache_size_bytes=2g:prune_after=8760h
 # force lto-aware ar, nm and ranlib so we can put lto objects in .a files
 AR=		llvm-ar
 NM=		llvm-nm
