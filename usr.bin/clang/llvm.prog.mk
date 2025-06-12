@@ -14,8 +14,8 @@ LIBPRIV=
 LIBEXT=		a
 .else
 LIBDEPS+=	llvm
-LIBPRIV=	private
-LIBEXT=		so
+LIBPRIV=	# private
+LIBEXT=		a # so
 LIBADD+=	z
 LIBADD+=	zstd
 .endif

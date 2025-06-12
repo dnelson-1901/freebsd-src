@@ -2,7 +2,8 @@
 .include <bsd.init.mk>
 .include "../clang.pre.mk"
 
-.if defined(TOOLS_PREFIX)
+# Always build static libraries for performance
+.if 1 || defined(TOOLS_PREFIX)
 # Build static library during cross-tools stage
 LIB=		clang
 INTERNALLIB=
@@ -867,7 +868,7 @@ SRCS+=		${SRCS_ALL:O}
 
 LIBDEPS+=	llvm
 
-.if defined(TOOLS_PREFIX)
+.if 1 || defined(TOOLS_PREFIX)
 LIBPRIV=
 LIBEXT=		a
 .else

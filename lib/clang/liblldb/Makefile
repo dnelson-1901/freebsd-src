@@ -1,11 +1,12 @@
-
 .include <bsd.init.mk>
 .include "../lldb.pre.mk"
 
 PACKAGE=	lldb
-SHLIB_CXX=	lldb
-SHLIB_MAJOR=	19
-PRIVATELIB=
+LIB=		lldb
+INTERNALLIB=
+#SHLIB_CXX=	lldb
+#SHLIB_MAJOR=	19
+#PRIVATELIB=
 
 SHARED_CXXFLAGS+=	-UPIC # To avoid compile errors
 
@@ -754,8 +755,8 @@ SRCS+=		Version/Version.cpp
 LIBDEPS+=	clang
 LIBDEPS+=	llvm
 
-LIBPRIV=	private
-LIBEXT=		so
+LIBPRIV=	# private
+LIBEXT=		a # so
 
 .for lib in ${LIBDEPS}
 DPADD+=		${OBJTOP}/lib/clang/lib${lib}/lib${LIBPRIV}${lib}.${LIBEXT}

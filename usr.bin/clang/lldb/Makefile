@@ -16,8 +16,8 @@ LIBDEPS+=	lldb
 LIBDEPS+=	clang
 LIBDEPS+=	llvm
 
-LIBPRIV=	private
-LIBEXT=		so
+LIBPRIV=	# private
+LIBEXT=		a # so
 
 .for lib in ${LIBDEPS}
 DPADD+=		${OBJTOP}/lib/clang/lib${lib}/lib${LIBPRIV}${lib}.${LIBEXT}

@@ -2,12 +2,14 @@
 .include <bsd.init.mk>
 .include "../llvm.pre.mk"
 
-.if defined(TOOLS_PREFIX)
+# Always build static libraries for performance
+.if 1 || defined(TOOLS_PREFIX)
 # Build static library during cross-tools stage
 LIB=		llvm
 INTERNALLIB=
 .else
 PACKAGE=	clang
+LIB=		llvm
 SHLIB_CXX=	llvm
 SHLIB_MAJOR=	19
 PRIVATELIB=

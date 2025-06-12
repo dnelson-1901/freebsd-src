@@ -88,8 +88,8 @@ LIBDEPS+=	llvm
 LIBPRIV=
 LIBEXT=		a
 .else
-LIBPRIV=	private
-LIBEXT=		so
+LIBPRIV=	# private
+LIBEXT=		a # so
 .endif
 
 .for lib in ${LIBDEPS}
