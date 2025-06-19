@@ -231,12 +231,12 @@ cmd_rehash()
 {
 
 	if [ -e "$CERTDESTDIR" ] ; then
-		perform find "$CERTDESTDIR" \( -type f -or -type l \) -delete
+		perform find "$CERTDESTDIR" -type l -name "????????.[0-9]" -delete
 	else
 		perform install -d -m 0755 "$CERTDESTDIR"
 	fi
 	if [ -e "$UNTRUSTDESTDIR" ] ; then
-		perform find "$UNTRUSTDESTDIR" \( -type f -or -type l \) -delete
+		perform find "$UNTRUSTDESTDIR" -type l -name "????????.[0-9]" -delete
 	else
 		perform install -d -m 0755 "$UNTRUSTDESTDIR"
 	fi
