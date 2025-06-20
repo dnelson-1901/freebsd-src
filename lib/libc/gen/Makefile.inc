@@ -506,8 +506,11 @@ MLINKS+=recv.2 recvmmsg.2
 MLINKS+=rtld_get_var.3 \
 	rtld_set_var.3
 MLINKS+=scandir.3 alphasort.3 \
-	scandir.3 scandirat.3 \
+	scandir.3 fscandir.3 \
+	scandir.3 fscandir_b.3 \
 	scandir.3 scandir_b.3 \
+	scandir.3 scandirat.3 \
+	scandir.3 scandirat_b.3 \
 	scandir.3 versionsort.3
 MLINKS+=sem_open.3 sem_close.3 \
 	sem_open.3 sem_unlink.3
