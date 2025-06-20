@@ -27,7 +27,7 @@
 .\"
 .\"     @(#)scandir.3	8.1 (Berkeley) 6/4/93
 .\"
-.Dd June 19, 2025
+.Dd June 20, 2025
 .Dt SCANDIR 3
 .Os
 .Sh NAME
@@ -104,7 +104,8 @@ entries using
 It returns the number of entries in the array.
 A pointer to the array of directory entries is stored in the location
 referenced by
-.Fa namelist .
+.Fa namelist
+(even if no entries were selected).
 .Pp
 The
 .Fa select
