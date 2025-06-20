@@ -19,6 +19,7 @@ atf_test_case label
 atf_test_case report_identical
 atf_test_case non_regular_file
 atf_test_case binary
+atf_test_case dirloop
 
 simple_body()
 {
@@ -284,6 +285,21 @@ binary_body()
 	atf_check -o inline:"176c\nx\n.\n" -s exit:1 diff -ae A B
 }
 
+dirloop_head()
+{
+	atf_set "timeout" "10"
+}
+dirloop_body()
+{
+	atf_check mkdir -p a/foo/bar
+	atf_check ln -s .. a/foo/bar/up
+	atf_check cp -a a b
+	atf_check \
+	    -e match:"a/foo/bar/up: Directory loop detected" \
+	    -e match:"b/foo/bar/up: Directory loop detected" \
+	    diff -r a b
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case simple
@@ -306,4 +322,5 @@ atf_init_test_cases()
 	atf_add_test_case report_identical
 	atf_add_test_case non_regular_file
 	atf_add_test_case binary
+	atf_add_test_case dirloop
 }
