@@ -83,7 +83,7 @@ scandir_dirp(DIR *dirp, struct dirent ***namelist,
 	if (names == NULL)
 		return (-1);
 
-	while ((d = readdir(dirp)) != NULL) {
+	while (errno = 0, (d = readdir(dirp)) != NULL) {
 		if (select != NULL && !SELECT(d))
 			continue;	/* just selected names */
 		/*
@@ -110,6 +110,13 @@ scandir_dirp(DIR *dirp, struct dirent ***namelist,
 		}
 		names[numitems++] = p;
 	}
+	/*
+	 * Since we can't simultaneously return both -1 and a count, we
+	 * must either suppress the error or discard the partial result.
+	 * The latter seems the lesser of two evils.
+	 */
+	if (errno != 0)
+		goto fail;
 	if (numitems && dcomp != NULL)
 #ifdef I_AM_SCANDIR_B
 		qsort_b(names, numitems, sizeof(struct dirent *), (void*)dcomp);
@@ -122,7 +129,8 @@ scandir_dirp(DIR *dirp, struct dirent ***namelist,
 
 fail:
 	serrno = errno;
-	free(p);
+	if (numitems == 0 || names[numitems - 1] != p)
+		free(p);
 	while (numitems > 0)
 		free(names[--numitems]);
 	free(names);
