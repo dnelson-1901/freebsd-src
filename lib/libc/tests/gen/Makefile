@@ -13,6 +13,7 @@ ATF_TESTS_C+=		getentropy_test
 ATF_TESTS_C+=		getmntinfo_test
 ATF_TESTS_C+=		glob2_test
 ATF_TESTS_C+=		makecontext_test
+ATF_TESTS_C+=		opendir_test
 ATF_TESTS_C+=		popen_test
 ATF_TESTS_C+=		posix_spawn_test
 ATF_TESTS_C+=		realpath2_test
