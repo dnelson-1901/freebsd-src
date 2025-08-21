@@ -8,7 +8,8 @@ SYNOPSIS
 
 DESCRIPTION
        The zdump program prints the current time in each timezone named on the
-       command line.
+       command line.  A timezone of - is treated as if it were /dev/stdin;
+       this can be used to pipe TZif data into zdump.
 
 OPTIONS
        --version
