@@ -1,3 +1,6 @@
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
 .\" Copyright (c) 2013 Peter Grehan
 .\" All rights reserved.
 .\"
@@ -121,7 +124,7 @@ The xAPIC mode is the default setting so this option is redundant.
 It will be deprecated in a future version.
 .It Fl C
 Include guest memory in core file.
-.It Fl c Op Ar setting ...
+.It Fl c Oo Oo Cm cpus= Oc Ns Ar numcpus Oc Ns Oo Cm ,sockets= Ns Ar n Oc Ns Oo Cm ,cores= Ns Ar n Oc Ns Oo Cm ,threads= Ns Ar n Oc
 Number of guest virtual CPUs
 and/or the CPU topology.
 The default value for each of
