@@ -28,6 +28,8 @@
 
 #include "namespace.h"
 #include <dirent.h>
+#include <errno.h>
+#include <stddef.h>
 #include "un-namespace.h"
 
 #include "gen-private.h"
@@ -35,5 +37,9 @@
 int
 dirfd(DIR *dirp)
 {
+	if (dirp == NULL || _dirfd(dirp) < 0) {
+		errno = EINVAL;
+		return (-1);
+	}
 	return (_dirfd(dirp));
 }
