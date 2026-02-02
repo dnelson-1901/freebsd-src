@@ -44,6 +44,5 @@ __SCCSID("@(#)opendir.c	8.8 (Berkeley) 5/1/95");
 DIR *
 opendir(const char *name)
 {
-
 	return (__opendir2(name, DTF_HIDEW | DTF_NODUP));
 }
