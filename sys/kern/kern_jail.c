@@ -232,6 +232,9 @@ static struct bool_flags pr_flag_allow[NBBY * NBPW] = {
 	{"allow.nfsd", "allow.nonfsd", PR_ALLOW_NFSD},
 #endif
 	{"allow.routing", "allow.norouting", PR_ALLOW_ROUTING},
+	{"allow.unprivileged_parent_tampering",
+	    "allow.nounprivileged_parent_tampering",
+	    PR_ALLOW_UNPRIV_PARENT_TAMPER},
 };
 static unsigned pr_allow_all = PR_ALLOW_ALL_STATIC;
 const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
@@ -239,7 +242,8 @@ const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
 #define	JAIL_DEFAULT_ALLOW		(PR_ALLOW_SET_HOSTNAME | \
 					 PR_ALLOW_RESERVED_PORTS | \
 					 PR_ALLOW_UNPRIV_DEBUG | \
-					 PR_ALLOW_SUSER)
+					 PR_ALLOW_SUSER | \
+					 PR_ALLOW_UNPRIV_PARENT_TAMPER)
 #define	JAIL_DEFAULT_ENFORCE_STATFS	2
 #define	JAIL_DEFAULT_DEVFS_RSNUM	0
 static unsigned jail_default_allow = JAIL_DEFAULT_ALLOW;
@@ -3987,6 +3991,7 @@ prison_priv_check(struct ucred *cred, int priv)
 	case PRIV_DEBUG_DIFFCRED:
 	case PRIV_DEBUG_SUGID:
 	case PRIV_DEBUG_UNPRIV:
+	case PRIV_DEBUG_DIFFJAIL:
 
 		/*
 		 * Allow jail to set various resource limits and login
@@ -4019,8 +4024,10 @@ prison_priv_check(struct ucred *cred, int priv)
 		 */
 	case PRIV_SCHED_DIFFCRED:
 	case PRIV_SCHED_CPUSET:
+	case PRIV_SCHED_DIFFJAIL:
 	case PRIV_SIGNAL_DIFFCRED:
 	case PRIV_SIGNAL_SUGID:
+	case PRIV_SIGNAL_DIFFJAIL:
 
 		/*
 		 * Allow jailed processes to write to sysctls marked as jail
@@ -4630,6 +4637,10 @@ SYSCTL_JAIL_PARAM(_allow, read_msgbuf, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may read the kernel message buffer");
 SYSCTL_JAIL_PARAM(_allow, unprivileged_proc_debug, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Unprivileged processes may use process debugging facilities");
+SYSCTL_JAIL_PARAM(_allow, unprivileged_parent_tampering,
+    CTLTYPE_INT | CTLFLAG_RW, "B",
+    "Unprivileged parent jail processes may tamper with same-uid processes"
+    " (signal/debug/cpuset)");
 SYSCTL_JAIL_PARAM(_allow, suser, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Processes in jail with uid 0 have privilege");
 #ifdef VIMAGE
