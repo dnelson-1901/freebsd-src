@@ -257,7 +257,15 @@ struct prison_racct {
 #define	PR_ALLOW_KMEM_ACCESS		0x00010000	/* reserved, not used yet */
 #define	PR_ALLOW_NFSD			0x00020000
 #define	PR_ALLOW_ROUTING		0x00040000
+
+/*
+ * PR_ALLOW_PRISON0 are the allow flags that we apply by default to prison0,
+ * while PR_ALLOW_ALL_STATIC are all of the allow bits that we have allocated at
+ * build time.  PR_ALLOW_ALL_STATIC should contain any bit above that we expect
+ * to be used on the system, while PR_ALLOW_PRISON0 will be some subset of that.
+ */
 #define	PR_ALLOW_ALL_STATIC		0x000787ff
+#define	PR_ALLOW_PRISON0		(PR_ALLOW_ALL_STATIC)
 
 /*
  * PR_ALLOW_DIFFERENCES determines which flags are able to be
