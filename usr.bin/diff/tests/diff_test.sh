@@ -22,6 +22,8 @@ atf_test_case binary
 atf_test_case dirloop
 atf_test_case bigc
 atf_test_case bigu
+atf_test_case prleak
+atf_test_case same
 
 simple_body()
 {
