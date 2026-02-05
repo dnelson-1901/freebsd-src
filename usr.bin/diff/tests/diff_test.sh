@@ -20,6 +20,8 @@ atf_test_case report_identical
 atf_test_case non_regular_file
 atf_test_case binary
 atf_test_case dirloop
+atf_test_case bigc
+atf_test_case bigu
 
 simple_body()
 {
@@ -300,6 +302,32 @@ dirloop_body()
 	    diff -r a b
 }
 
+bigc_head()
+{
+	atf_set "descr" "Context diff with very large context"
+}
+bigc_body()
+{
+	echo $'x\na\ny' >a
+	echo $'x\nb\ny' >b
+	atf_check -s exit:2 -e ignore diff -C$(((1<<31)-1)) a b
+	atf_check -s exit:1 -o match:'--- 1,3 ---' \
+	    diff -C$(((1<<31)-2)) a b
+}
+
+bigu_head()
+{
+	atf_set "descr" "Unified diff with very large context"
+}
+bigu_body()
+{
+	echo $'x\na\ny' >a
+	echo $'x\nb\ny' >b
+	atf_check -s exit:2 -e ignore diff -U$(((1<<31)-1)) a b
+	atf_check -s exit:1 -o match:'^@@ -1,3 \+1,3 @@$' \
+	    diff -U$(((1<<31)-2)) a b
+}
+
 atf_init_test_cases()
 {
 	atf_add_test_case simple
@@ -323,4 +351,6 @@ atf_init_test_cases()
 	atf_add_test_case non_regular_file
 	atf_add_test_case binary
 	atf_add_test_case dirloop
+	atf_add_test_case bigc
+	atf_add_test_case bigu
 }
