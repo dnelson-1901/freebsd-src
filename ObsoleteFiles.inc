@@ -51,6 +51,10 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20260204: replaced with ATF test
+OLD_FILES+=usr/tests/usr.bin/m4/legacy_test
+OLD_FILES+=usr/tests/usr.bin/m4/regress.sh
+
 # 20251218: Remove old MLINK to apmconf(8)
 OLD_FILES+=usr/share/man/man8/apmconf.8.gz
 
