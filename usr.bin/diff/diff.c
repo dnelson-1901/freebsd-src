@@ -126,10 +126,9 @@ static bool do_color(void);
 int
 main(int argc, char **argv)
 {
-	const char *errstr = NULL;
-	char *ep, **oargv;
-	long  l;
-	int   ch, dflags, lastch, gotstdin, prevoptind, newarg;
+	const char *errstr;
+	char **oargv;
+	int ch, dflags, lastch, gotstdin, prevoptind, newarg;
 
 	oargv = argv;
 	gotstdin = 0;
@@ -166,10 +165,13 @@ main(int argc, char **argv)
 			cflag = true;
 			diff_format = D_CONTEXT;
 			if (optarg != NULL) {
-				l = strtol(optarg, &ep, 10);
-				if (*ep != '\0' || l < 0 || l >= INT_MAX)
+				diff_context = (int) strtonum(optarg,
+				    1, INT_MAX, &errstr);
+				if (errstr != NULL) {
+					warnx("context size is %s: %s",
+					    errstr, optarg);
 					usage();
-				diff_context = (int)l;
+				}
 			}
 			break;
 		case 'd':
@@ -265,10 +267,13 @@ main(int argc, char **argv)
 				conflicting_format();
 			diff_format = D_UNIFIED;
 			if (optarg != NULL) {
-				l = strtol(optarg, &ep, 10);
-				if (*ep != '\0' || l < 0 || l >= INT_MAX)
+				diff_context = (int) strtonum(optarg,
+				    0, INT_MAX, &errstr);
+				if (errstr != NULL) {
+					warnx("context size is %s: %s",
+					    errstr, optarg);
 					usage();
-				diff_context = (int)l;
+				}
 			}
 			break;
 		case 'w':
@@ -276,8 +281,10 @@ main(int argc, char **argv)
 			break;
 		case 'W':
 			width = (int) strtonum(optarg, 1, INT_MAX, &errstr);
-			if (errstr)
-				errx(1, "width is %s: %s", errstr, optarg);
+			if (errstr != NULL) {
+				warnx("width is %s: %s", errstr, optarg);
+				usage();
+			}
 			break;
 		case 'X':
 			read_excludes_file(optarg);
@@ -315,8 +322,10 @@ main(int argc, char **argv)
 			break;
 		case OPT_TSIZE:
 			tabsize = (int) strtonum(optarg, 1, INT_MAX, &errstr);
-			if (errstr)
-				errx(1, "tabsize is %s: %s", errstr, optarg);
+			if (errstr != NULL) {
+				warnx("tabsize is %s: %s", errstr, optarg);
+				usage();
+			}
 			break;
 		case OPT_STRIPCR:
 			dflags |= D_STRIPCR;
@@ -331,9 +340,12 @@ main(int argc, char **argv)
 				colorflag = COLORFLAG_ALWAYS;
 			else if (strncmp(optarg, "never", 5) == 0)
 				colorflag = COLORFLAG_NEVER;
-			else
-				errx(2, "unsupported --color value '%s' (must be always, auto, or never)",
-					optarg);
+			else {
+				warnx("unsupported --color value "
+				    "(must be always, auto, or never): "
+				    "%s", optarg);
+				usage();
+			}
 			break;
 		case OPT_NO_DEREFERENCE:
 			noderef = true;
