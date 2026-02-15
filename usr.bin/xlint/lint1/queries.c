@@ -1,4 +1,4 @@
-/*	$NetBSD: queries.c,v 1.19 2023/07/03 15:29:42 rillig Exp $	*/
+/*	$NetBSD: queries.c,v 1.36 2025/09/14 11:14:00 rillig Exp $	*/
 # 3 "queries.c"
 
 /*
@@ -11,11 +11,14 @@
  *	Understanding how C works internally, by making the usual arithmetic
  *	conversions visible.
  *
- * 	Finding code that intentionally suppresses a regular lint warning,
- * 	such as casts between arithmetic types.
+ *	Finding code that intentionally suppresses a regular lint warning,
+ *	such as casts between arithmetic types.
  */
 
-/* lint1-extra-flags: -q 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 -X 351 */
+/* lint1-extra-flags: -q 1,2,3,4,5,6,7,8,9,10 */
+/* lint1-extra-flags: -q 11,12,13,14,15,16,17,18,19,20 */
+/* lint1-extra-flags: -q 21,22,23,24 */
+/* lint1-extra-flags: -X 351 */
 
 typedef unsigned char u8_t;
 typedef unsigned short u16_t;
@@ -34,6 +37,7 @@ typedef double _Complex c64_t;
 typedef char *str_t;
 typedef const char *cstr_t;
 typedef volatile char *vstr_t;
+typedef typeof(sizeof 0) size_t;
 
 _Bool cond;
 
@@ -67,6 +71,12 @@ c64_t c64;
 char *str;
 const char *cstr;
 volatile char *vstr;
+const volatile char *cvstr;
+
+void *void_ptr;
+const void *const_void_ptr;
+char *char_ptr;
+int *int_ptr;
 
 int
 Q1(double dbl)
@@ -93,15 +103,15 @@ Q3(int i, unsigned u)
 	i = u;
 
 	/* expect+2: implicit conversion changes sign from 'unsigned char' to 'int' [Q3] */
-	/* expect+1: implicit conversion changes sign from 'int' to 'unsigned short' [Q3] */
+	/* expect+1: implicit conversion changes sign from 'int promoted from unsigned char' to 'unsigned short' [Q3] */
 	u16 += u8;
 	/* expect+2: implicit conversion changes sign from 'unsigned short' to 'int' [Q3] */
-	/* expect+1: implicit conversion changes sign from 'int' to 'unsigned int' [Q3] */
+	/* expect+1: implicit conversion changes sign from 'int promoted from unsigned short' to 'unsigned int' [Q3] */
 	u32 += u16;
 }
 
 unsigned long long
-Q4(signed char *ptr, int i, unsigned long long ull)
+Q4(signed char *ptr, int i, unsigned long long ull, size_t sz)
 {
 
 	/*
@@ -122,9 +132,11 @@ Q4(signed char *ptr, int i, unsigned long long ull)
 	u32 &= s32;
 
 	/* expect+3: implicit conversion changes sign from 'unsigned char' to 'int' [Q3] */
-	/* expect+2: usual arithmetic conversion for '&' from 'int' to 'unsigned int' [Q4] */
-	/* expect+1: implicit conversion changes sign from 'int' to 'unsigned int' [Q3] */
+	/* expect+2: usual arithmetic conversion for '&' from 'int promoted from unsigned char' to 'unsigned int' [Q4] */
+	/* expect+1: implicit conversion changes sign from 'int promoted from unsigned char' to 'unsigned int' [Q3] */
 	u32 = u32 & u8;
+
+	s8 = ptr[sz];
 
 	/*
 	 * The conversion from 'signed char' to 'int' is done by the integer
@@ -271,10 +283,10 @@ Q7(void)
 	/* expect+1: redundant cast from 'pointer to char' to 'pointer to char' before assignment [Q7] */
 	str = (str_t)str;
 	str = (str_t)cstr;
-	/* expect+1: warning: operands of '=' have incompatible pointer types to 'char' and 'const char' [128] */
+	/* expect+1: warning: operator '=' discards 'const' from 'pointer to const char' [128] */
 	str = (cstr_t)str;
 	/* expect+2: no-op cast from 'pointer to const char' to 'pointer to const char' [Q6] */
-	/* expect+1: warning: operands of '=' have incompatible pointer types to 'char' and 'const char' [128] */
+	/* expect+1: warning: operator '=' discards 'const' from 'pointer to const char' [128] */
 	str = (cstr_t)cstr;
 	/* expect+1: no-op cast from 'pointer to char' to 'pointer to char' [Q6] */
 	cstr = (str_t)str;
@@ -288,10 +300,10 @@ Q7(void)
 	/* expect+1: redundant cast from 'pointer to char' to 'pointer to char' before assignment [Q7] */
 	str = (str_t)str;
 	str = (str_t)vstr;
-	/* expect+1: warning: operands of '=' have incompatible pointer types to 'char' and 'volatile char' [128] */
+	/* expect+1: warning: operator '=' discards 'volatile' from 'pointer to volatile char' [128] */
 	str = (vstr_t)str;
 	/* expect+2: no-op cast from 'pointer to volatile char' to 'pointer to volatile char' [Q6] */
-	/* expect+1: warning: operands of '=' have incompatible pointer types to 'char' and 'volatile char' [128] */
+	/* expect+1: warning: operator '=' discards 'volatile' from 'pointer to volatile char' [128] */
 	str = (vstr_t)vstr;
 	/* expect+1: no-op cast from 'pointer to char' to 'pointer to char' [Q6] */
 	vstr = (str_t)str;
@@ -300,6 +312,13 @@ Q7(void)
 	/* expect+2: no-op cast from 'pointer to volatile char' to 'pointer to volatile char' [Q6] */
 	/* expect+1: redundant cast from 'pointer to volatile char' to 'pointer to volatile char' before assignment [Q7] */
 	vstr = (vstr_t)vstr;
+
+	/* expect+1: warning: operator '=' discards 'const volatile' from 'pointer to const volatile char' [128] */
+	str = cvstr;
+	/* expect+1: warning: operator '=' discards 'volatile' from 'pointer to const volatile char' [128] */
+	cstr = cvstr;
+	/* expect+1: warning: operator '=' discards 'const' from 'pointer to const volatile char' [128] */
+	vstr = cvstr;
 }
 
 /*
@@ -311,7 +330,12 @@ Q8(void)
 {
 
 	u16 = 0;
+	/* expect+1: octal number '000000' [Q8] */
 	u16 = 000000;
+	/* expect+1: octal number '0123' [Q8] */
+	u16 = 0123ULL;
+	u16 = 1;
+	u16 = 10;
 	/* expect+1: octal number '0644' [Q8] */
 	u16 = 0644;
 	/* expect+1: octal number '0000644' [Q8] */
@@ -351,13 +375,13 @@ Q9(int x)
 		return (0.0);
 	case 9:
 		return
-# 355 "queries.c" 3 4
+# 379 "queries.c" 3 4
 		((void *)0)
-# 357 "queries.c"
-		/* expect+1: warning: illegal combination of integer 'int' and pointer 'pointer to void' [183] */
+# 381 "queries.c"
+		/* expect+1: warning: invalid combination of integer 'int' and pointer 'pointer to void' for 'return' [183] */
 		;
 	case 10:
-		/* expect+1: warning: illegal combination of integer 'int' and pointer 'pointer to void' [183] */
+		/* expect+1: warning: invalid combination of integer 'int' and pointer 'pointer to void' for 'return' [183] */
 		return (void *)(0);
 	default:
 		return 0;
@@ -398,9 +422,9 @@ Q12(void)
 		return;
 
 	/* expect+5: implicit conversion changes sign from 'unsigned char' to 'int' [Q3] */
-	/* expect+4: implicit conversion changes sign from 'int' to 'unsigned short' [Q3] */
+	/* expect+4: implicit conversion changes sign from 'int promoted from unsigned char' to 'unsigned short' [Q3] */
 	/* expect+3: implicit conversion changes sign from 'unsigned short' to 'int' [Q3] */
-	/* expect+2: implicit conversion changes sign from 'int' to 'unsigned int' [Q3] */
+	/* expect+2: implicit conversion changes sign from 'int promoted from unsigned short' to 'unsigned int' [Q3] */
 	/* expect+1: comma operator with types 'unsigned short' and 'unsigned int' [Q12] */
 	u16 += u8, u32 += u16;
 }
@@ -443,14 +467,105 @@ Q15(void)
 	ptr_from_uint = &ptr_from_uint;
 	ptr_from_long = &ptr_from_long;
 
+	void_ptr = (void *)0;
+	const_void_ptr = (const void *)0;
+
 	/* expect+1: implicit conversion from integer 0 to pointer 'pointer to void' [Q15] */
 	return 0;
 }
 
 /*
- * Since queries do not affect the exit status, force a warning to make this
- * test conform to the general expectation that a test that produces output
- * exits non-successfully.
+ * Even though C99 6.2.2p4 allows a 'static' declaration followed by a
+ * non-'static' declaration, it may look confusing.
  */
-/* expect+1: warning: static variable 'unused' unused [226] */
-static int unused;
+static void Q16(void);
+/* expect+3: 'Q16' was declared 'static', now non-'static' [Q16] */
+/* expect+2: warning: static function 'Q16' unused [236] */
+void
+Q16(void)
+{
+}
+
+/* expect+1: invisible character U+0009 in character constant [Q17] */
+char Q17_char[] = { ' ', '\0', '	' };
+/* expect+1: invisible character U+0009 in string literal [Q17] */
+char Q17_char_string[] = " \0	";
+/* expect+1: invisible character U+0009 in character constant [Q17] */
+int Q17_wide[] = { L' ', L'\0', L'	' };
+/* expect+1: invisible character U+0009 in string literal [Q17] */
+int Q17_wide_string[] = L" \0	";
+
+/* For Q18, see queries_schar.c and queries_uchar.c. */
+
+void
+convert_from_integer_to_floating(void)
+{
+	/* expect+1: implicit conversion from integer 'unsigned int' to floating point 'float' [Q19] */
+	f32 = 0xffff0000;
+	/* expect+1: implicit conversion from integer 'unsigned int' to floating point 'float' [Q19] */
+	f32 = 0xffffffff;
+	/* expect+1: implicit conversion from integer 'int' to floating point 'float' [Q19] */
+	f32 = s32;
+	/* expect+1: implicit conversion from integer 'unsigned int' to floating point 'float' [Q19] */
+	f32 = u32;
+	/* expect+1: implicit conversion from integer 'int' to floating point 'double' [Q19] */
+	f64 = s32;
+	/* expect+1: implicit conversion from integer 'unsigned int' to floating point 'double' [Q19] */
+	f64 = u32;
+	/* expect+1: implicit conversion from integer 'long long' to floating point 'double' [Q19] */
+	f64 = s64;
+	/* expect+1: implicit conversion from integer 'unsigned long long' to floating point 'double' [Q19] */
+	f64 = u64;
+
+	f32 = 0.0F;
+	f32 = 0.0;
+	f64 = 0.0;
+
+	f64 = (double)0;
+	f64 = (double)u32;
+}
+
+// C allows implicit narrowing conversions from a void pointer to an arbitrary
+// object pointer. C++ doesn't allow this conversion since it is narrowing.
+void
+Q20_void_pointer_conversion(void)
+{
+	/* expect+1: warning: operator '=' discards 'const' from 'pointer to const void' [128] */
+	void_ptr = const_void_ptr;
+	const_void_ptr = void_ptr;
+	/* expect+1: implicit narrowing conversion from void pointer to 'pointer to int' [Q20] */
+	int_ptr = void_ptr;
+	/* expect+1: redundant cast from 'pointer to void' to 'pointer to int' before assignment [Q7] */
+	int_ptr = (int *)void_ptr;
+	/* expect+1: implicit narrowing conversion from void pointer to 'pointer to char' [Q20] */
+	char_ptr = void_ptr;
+	void_ptr = char_ptr;
+	/* expect+1: implicit narrowing conversion from void pointer to 'pointer to int' [Q20] */
+	int_ptr = void_ptr;
+	/* expect+1: warning: invalid combination of 'pointer to int' and 'pointer to char', op '=' [124] */
+	int_ptr = char_ptr;
+	/* expect+1: warning: invalid combination of 'pointer to char' and 'pointer to int', op '=' [124] */
+	char_ptr = int_ptr;
+
+	int_ptr = (void *)0;
+}
+
+/*
+ * Q21, Q22, Q23 and Q24 detect typedefs for struct and union types and
+ * pointers to them. By using the tagged types directly instead of their
+ * typedefs, it may be possible to save including some system headers.
+ */
+
+struct struct_tag {
+};
+union union_tag {
+};
+
+/* expect+2: typedef 'struct_typedef' of struct type 'struct struct_tag' [Q21] */
+/* expect+1: typedef 'struct_ptr' of pointer to struct type 'pointer to struct struct_tag' [Q23] */
+typedef struct struct_tag struct_typedef, *struct_ptr;
+/* expect+2: typedef 'union_typedef' of union type 'union union_tag' [Q22] */
+/* expect+1: typedef 'union_ptr' of pointer to union type 'pointer to union union_tag' [Q24] */
+typedef union union_tag union_typedef, *union_ptr;
+typedef int int_typedef, *int_pointer;
+typedef void (function_typedef)(int), (*function_ptr)(int);

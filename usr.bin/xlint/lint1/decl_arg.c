@@ -1,4 +1,4 @@
-/*	$NetBSD: decl_arg.c,v 1.12 2023/08/02 18:51:25 rillig Exp $	*/
+/*	$NetBSD: decl_arg.c,v 1.17 2025/01/03 03:14:47 rillig Exp $	*/
 # 3 "decl_arg.c"
 
 /*
@@ -23,15 +23,16 @@ void type_qualifier_pointer(const number *const);
 /*
  * Just some unrealistic coverage for the grammar rule 'arg_declaration'.
  */
-/* expect+6: warning: parameter 'an_int' unused in function 'old_style' [231] */
-/* expect+5: warning: parameter 'a_const_int' unused in function 'old_style' [231] */
-/* expect+4: warning: parameter 'a_number' unused in function 'old_style' [231] */
-/* expect+3: warning: parameter 'a_function' unused in function 'old_style' [231] */
-/* expect+2: warning: parameter 'a_struct' unused in function 'old_style' [231] */
 extern void
+/* expect+6: warning: function definition for 'old_style' with identifier list is obsolete in C23 [384] */
+/* expect+5: warning: parameter 'an_int' unused in function 'old_style' [231] */
+/* expect+4: warning: parameter 'a_const_int' unused in function 'old_style' [231] */
+/* expect+3: warning: parameter 'a_number' unused in function 'old_style' [231] */
+/* expect+2: warning: parameter 'a_function' unused in function 'old_style' [231] */
+/* expect+1: warning: parameter 'a_struct' unused in function 'old_style' [231] */
 old_style(an_int, a_const_int, a_number, a_function, a_struct)
-/* expect+2: warning: empty declaration [2] */
-/* expect+1: error: only 'register' is valid as storage class in parameter [9] */
+/* expect+2: error: only 'register' is valid as storage class in parameter [9] */
+/* expect+1: warning: empty declaration [2] */
 static;
 /* expect+1: error: syntax error '"' [249] */
 static "error";
@@ -61,6 +62,7 @@ struct a_struct { int member; } a_struct;
  * 'notype_direct_declarator'.
  */
 extern int
+/* expect+1: warning: function definition for 'cover_notype_direct_decl' with identifier list is obsolete in C23 [384] */
 cover_notype_direct_decl(arg)
 int arg;
 /* expect+1: error: declared parameter 'name' is missing [53] */
@@ -71,8 +73,8 @@ const (parenthesized_name);
 const array[];
 /* expect+1: error: declared parameter 'array_size' is missing [53] */
 const array_size[1+1+1];
-/* expect+2: error: declared parameter 'multi_array' is missing [53] */
-/* expect+1: error: null dimension [17] */
+/* expect+2: error: null dimension [17] */
+/* expect+1: error: declared parameter 'multi_array' is missing [53] */
 const multi_array[][][][][][];
 /* expect+1: error: declared parameter 'function' is missing [53] */
 const function(void);
@@ -95,10 +97,30 @@ const
 	return arg;
 }
 
-void test_varargs_attribute(
+// The attribute 'unused' belongs to the parameter.
+// The attribute 'format' belongs to the function type.
+void
+param_func_attr_unused(
     void (*pr)(const char *, ...)
+	__attribute__((__unused__))
 	__attribute__((__format__(__printf__, 1, 2)))
-);
+)
+{
+}
+
+// The attribute 'unused' belongs to the parameter.
+// The attribute 'format' belongs to the function type.
+void
+param_func_attr_printf(
+    void (*pr)(const char *, ...)
+	__attribute__((__unused__))
+	__attribute__((__format__(__printf__, 1, 2)))
+)
+{
+	// GCC and Clang already warn about the malformed format string,
+	// so there is nothing left to do for lint.
+	pr("%");
+}
 
 /*
  * XXX: To cover the grammar rule 'direct_notype_param_decl', the parameters
@@ -135,6 +157,7 @@ void cover_asm_or_symbolrename_symbolrename(void)
 
 
 double
+/* expect+1: warning: function definition for 'f' with identifier list is obsolete in C23 [384] */
 f(e, s, r, a, t, n)
 	/* expect+1: error: only 'register' is valid as storage class in parameter [9] */
 	extern double e;

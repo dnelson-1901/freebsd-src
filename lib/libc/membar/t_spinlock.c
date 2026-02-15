@@ -1,4 +1,4 @@
-/*	$NetBSD: t_spinlock.c,v 1.4 2022/08/12 11:21:44 riastradh Exp $	*/
+/*	$NetBSD: t_spinlock.c,v 1.6 2026/01/04 11:48:02 jmcneill Exp $	*/
 
 /*-
  * Copyright (c) 2022 The NetBSD Foundation, Inc.
@@ -27,7 +27,7 @@
  */
 
 #include <sys/cdefs.h>
-__RCSID("$NetBSD: t_spinlock.c,v 1.4 2022/08/12 11:21:44 riastradh Exp $");
+__RCSID("$NetBSD: t_spinlock.c,v 1.6 2026/01/04 11:48:02 jmcneill Exp $");
 
 #include <sys/types.h>
 

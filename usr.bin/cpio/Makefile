@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.4 2020/01/19 17:36:57 christos Exp $
+# $NetBSD: Makefile,v 1.6 2026/01/30 19:03:37 jakllsch Exp $
 
 NOMAN=
 
@@ -27,7 +27,7 @@ SRCS.h_cpio= \
 test_main.c \
 test_utils.c \
 cmdline.c \
-err.c \
+lafe_err.c \
 test_0.c \
 test_basic.c \
 test_cmdline.c \
@@ -112,3 +112,5 @@ CLEANFILES+=list.h
 
 list.h: ${SRCS.h_cpio} Makefile
 	${TOOL_GREP} -h '^DEFINE_TEST(' ${.ALLSRC} > ${.TARGET}
+
+COPTS.test_main.c+=	${CC_WNO_STRINGOP_OVERFLOW}

@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.34 2023/07/04 15:06:36 riastradh Exp $
+# $NetBSD: Makefile,v 1.36 2025/09/18 03:36:01 mrg Exp $
 
 .include <bsd.own.mk>
 
@@ -23,6 +23,7 @@ TESTS_C+=	t_system
 
 TESTS_SH+=	t_atexit
 TESTS_SH+=	t_getopt
+TESTS_SH+=	t_sort
 
 MKMAN=no
 
@@ -30,6 +31,7 @@ BINDIR=		${TESTSDIR}
 
 PROGS+=		h_atexit
 PROGS+=		h_getopt h_getopt_long
+PROGS+=		h_sort
 
 CFLAGS.t_posix_memalign.c+=	-fno-builtin-posix_memalign
 CFLAGS.t_posix_memalign.c+=	-fno-builtin-aligned_alloc
@@ -40,5 +42,7 @@ DPADD.t_strtod+=		${LIBM}
 
 LDADD.t_getenv_thread=	-lpthread
 LDADD.t_mktemp+=	-Wl,--no-fatal-warnings
+
+COPTS.h_getopt_long.c+=	${CC_WNO_CALLOC_TRANSPOSED_ARGS}
 
 .include <bsd.test.mk>

@@ -1,4 +1,4 @@
-# $NetBSD: t_vnd.sh,v 1.12 2022/11/30 17:50:00 martin Exp $
+# $NetBSD: t_vnd.sh,v 1.16 2025/04/19 02:07:43 rin Exp $
 #
 # Copyright (c) 2006, 2007, 2008 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -29,7 +29,8 @@
 #
 
 vnddev=vnd3
-vnd=/dev/${vnddev}
+rvnd=/dev/r${vnddev}a
+vnd=/dev/${vnddev}a
 
 atf_test_case basic cleanup
 basic_head() {
@@ -37,16 +38,30 @@ basic_head() {
 	atf_set "require.user" "root"
 }
 basic_body() {
+	if [ $(uname -p) = vax ]; then
+		atf_skip "port-vax/59287 vnd(4) can cause kernel crash"
+	fi
+
 	test_mount
 
-	atf_check -s eq:0 -o ignore -e ignore \
+	atf_check -s exit:0 -o ignore -e ignore \
 	    dd if=/dev/zero of=disk.img bs=1m count=10
-	atf_check -s eq:0 -o empty -e empty vndconfig -c ${vnddev} disk.img
+	atf_check -s exit:0 -o empty -e empty vndconfig -c ${vnddev} disk.img
 
-	atf_check -s eq:0 -o ignore -e ignore newfs -I ${vnd}
+	atf_check -s exit:0 -o ignore -e ignore disklabel -i -I ${vnddev} << EOF
+a
+4.2BSD
+0
+$
+W
+y
+Q
+EOF
+	atf_check -s exit:0 -o ignore -e ignore newfs -I ${rvnd}
 
-	atf_check -s eq:0 -o empty -e empty mkdir mnt
-	atf_check -s eq:0 -o empty -e empty mount ${vnd} mnt
+
+	atf_check -s exit:0 -o empty -e empty mkdir mnt
+	atf_check -s exit:0 -o empty -e empty mount ${vnd} mnt
 
 	echo "Creating test files"
 	for f in $(jot -w %u 100 | uniq); do
@@ -60,8 +75,8 @@ basic_body() {
 		    atf_fail "Invalid checksum for file ${f}"
 	done
 
-	atf_check -s eq:0 -o empty -e empty umount mnt
-	atf_check -s eq:0 -o empty -e empty vndconfig -u ${vnddev}
+	atf_check -s exit:0 -o empty -e empty umount mnt
+	atf_check -s exit:0 -o empty -e empty vndconfig -u ${vnddev}
 
 	test_unmount
 	touch done

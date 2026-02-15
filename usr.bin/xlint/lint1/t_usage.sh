@@ -1,4 +1,4 @@
-# $NetBSD: t_usage.sh,v 1.11 2023/08/03 18:48:42 rillig Exp $
+# $NetBSD: t_usage.sh,v 1.28 2025/08/31 20:43:27 rillig Exp $
 #
 # Copyright (c) 2023 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -39,13 +39,13 @@ suppress_messages_body()
 
 	# The largest known message.
 	atf_check \
-	    "$lint1" -X 355 code.c /dev/null
+	    "$lint1" -X 386 code.c /dev/null
 
 	# Larger than the largest known message.
 	atf_check \
 	    -s 'exit:1' \
-	    -e "inline:lint1: invalid message ID '356'\n" \
-	    "$lint1" -X 356 code.c /dev/null
+	    -e "inline:lint1: invalid message ID '387'\n" \
+	    "$lint1" -X 387 code.c /dev/null
 
 	# Whitespace is not allowed before a message ID.
 	atf_check \
@@ -89,13 +89,13 @@ enable_queries_body()
 
 	# The largest known query.
 	atf_check \
-	    "$lint1" -q 15 code.c /dev/null
+	    "$lint1" -q 24 code.c /dev/null
 
 	# Larger than the largest known query.
 	atf_check \
 	    -s 'exit:1' \
-	    -e "inline:lint1: invalid query ID '16'\n" \
-	    "$lint1" -q 16 code.c /dev/null
+	    -e "inline:lint1: invalid query ID '25'\n" \
+	    "$lint1" -q 25 code.c /dev/null
 
 	# Whitespace is not allowed before a query ID.
 	atf_check \

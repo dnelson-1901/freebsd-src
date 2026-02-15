@@ -1,4 +1,4 @@
-# $NetBSD: Makefile,v 1.15 2020/06/21 07:06:05 lukem Exp $
+# $NetBSD: Makefile,v 1.22 2025/10/18 20:27:23 riastradh Exp $
 
 NOMAN=		# defined
 
@@ -17,6 +17,8 @@ CPPFLAGS.t_condwait.c+=	-I${.CURDIR}/../libc/gen
 TESTS_SH+=	t_atexit
 TESTS_C+=	t_barrier
 TESTS_SH+=	t_cancel
+TESTS_C+=	t_cancellation
+TESTS_C+=	t_compat_cancel
 TESTS_C+=	t_cond
 TESTS_C+=	t_condwait
 TESTS_C+=	t_detach
@@ -37,11 +39,17 @@ TESTS_C+=	t_sigmask
 TESTS_C+=	t_sigsuspend
 TESTS_C+=	t_siglongjmp
 TESTS_C+=	t_sleep
+TESTS_C+=	t_stack
 TESTS_C+=	t_swapcontext
 TESTS_SH+=	t_thread_local_dtor
 TESTS_C+=	t_timedmutex
 
 LDADD.t_sem+=	-lrt
+LDADD.t_cancellation+=	-lrt
+LDADD.t_compat_cancel+=	-lrt
+CPPFLAGS.t_compat_cancel.c+=	-I${NETBSDSRCDIR}/lib/libc
+CPPFLAGS.t_compat_cancel.c+=	-I${NETBSDSRCDIR}/sys
+LDFLAGS.t_compat_cancel+=	-Wl,--no-fatal-warnings # intend compat use
 
 BINDIR=		${TESTSDIR}
 PROGS=		h_atexit
@@ -60,6 +68,7 @@ SRCS.h_thread_local_dtor= h_thread_local_dtor.cpp
 FILESDIR=	${TESTSDIR}
 FILES=		d_mach
 
-SUBDIR=		dlopen
+TESTS_SUBDIRS+=	dlopen
+TESTS_SUBDIRS+=	weak
 
 .include <bsd.test.mk>

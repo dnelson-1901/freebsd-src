@@ -1,4 +1,4 @@
-# $NetBSD: t_pubkey.sh,v 1.7 2023/05/08 17:46:06 christos Exp $
+# $NetBSD: t_pubkey.sh,v 1.9 2025/08/27 10:38:21 martin Exp $
 #
 # Copyright (c) 2008, 2009, 2010 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -29,6 +29,7 @@ atf_test_case dsa
 dsa_head()
 {
 	atf_set "descr" "Checks DSA cipher"
+	atf_set "timeout" "1800"
 }
 dsa_body()
 {

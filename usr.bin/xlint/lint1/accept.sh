@@ -1,5 +1,5 @@
 #! /bin/sh
-# $NetBSD: accept.sh,v 1.14 2023/07/08 10:01:17 rillig Exp $
+# $NetBSD: accept.sh,v 1.18 2025/02/27 06:48:29 rillig Exp $
 #
 # Copyright (c) 2021 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -26,13 +26,20 @@
 # POSSIBILITY OF SUCH DAMAGE.
 #
 
-# usage: accept.sh <pattern>...
+# usage: accept.sh [-u] <pattern>...
 #
 #	Run one or more lint tests, saving their output in the corresponding
 #	.exp files, for incorporating the messages into the .c files as
 #	'expect' comments.
 
 set -eu
+
+atf_get_srcdir() {
+	echo "."
+}
+atf_test_case() {
+	:
+}
 
 : "${archsubdir:=$(make -v ARCHSUBDIR)}"
 . './t_integration.sh'		# for configure_test_case
@@ -79,7 +86,7 @@ for pattern in "$@"; do
 			continue
 		fi
 
-		if [ -f "$exp_file" ] && cmp -s "$exp_tmp_file"  "$exp_file"; then
+		if [ -f "$exp_file" ] && cmp -s "$exp_tmp_file" "$exp_file"; then
 			rm "$exp_tmp_file"
 		else
 			mv "$exp_tmp_file" "$exp_file"
@@ -90,7 +97,7 @@ for pattern in "$@"; do
 		elif [ "$ln_file" = '/dev/null' ]; then
 			rm "$ln_tmp_file"
 		else
-			if tr -d ' \t' < "$ln_file" > "$ln_file.trimmed.tmp" &&
+			if tr -d ' \t' < "$ln_file" | sed '/^$/d' > "$ln_file.trimmed.tmp" &&
 			    tr -d ' \t' < "$ln_tmp_file" > "$ln_tmp_file.trimmed.tmp" &&
 			    cmp -s "$ln_file.trimmed.tmp" "$ln_tmp_file.trimmed.tmp"; then
 				rm "$ln_tmp_file"

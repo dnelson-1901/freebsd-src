@@ -1,4 +1,4 @@
-/*	$NetBSD: init.c,v 1.15 2023/03/28 14:44:34 rillig Exp $	*/
+/*	$NetBSD: init.c,v 1.18 2025/04/12 15:49:49 rillig Exp $	*/
 # 3 "init.c"
 
 /*
@@ -106,7 +106,7 @@ extern int extern_var = 1;
 int defined_var = 1;
 /* expect+1: warning: static variable 'static_var' unused [226] */
 static int static_var = 1;
-/* expect+1: error: illegal storage class [8] */
+/* expect+1: error: invalid storage class [8] */
 register int register_var = 1;
 /* expect+1: error: cannot initialize typedef 'typedef_var' [25] */
 typedef int typedef_var = 1;
@@ -123,3 +123,80 @@ struct {
 } points_of_unknown_size[] = {
 	3, 4,
 };
+
+void
+init_string_via_assignment(void)
+{
+	const char *cs_match = "";
+	const int *ws_match = L"";
+
+	/* expect+1: warning: invalid combination of 'pointer to const char' and 'pointer to int', op 'init' [124] */
+	const char *cs_mismatch = L"";
+	/* expect+1: warning: invalid combination of 'pointer to const int' and 'pointer to char', op 'init' [124] */
+	const int *ws_mismatch = "";
+}
+
+void
+init_pointer_in_struct(void)
+{
+	struct cs_ws {
+		const char *cs;
+		const int *ws;
+	};
+
+	struct cs_ws type_match = {
+		"",
+		L"",
+	};
+
+	struct cs_ws type_mismatch = {
+		/* expect+1: warning: invalid combination of 'pointer to const char' and 'pointer to int', op 'init' [124] */
+		L"",
+		/* expect+1: warning: invalid combination of 'pointer to const int' and 'pointer to char', op 'init' [124] */
+		"",
+	};
+
+	struct cs_ws extra_braces = {
+		{ "" },
+		{ L"" },
+	};
+}
+
+
+void
+init_array_in_struct(void)
+{
+	struct cs_ws {
+		const char cs[10];
+		const int ws[10];
+	};
+
+	struct cs_ws type_match = {
+		"",
+		L"",
+	};
+
+	struct cs_ws type_mismatch = {
+		/* expect+1: warning: invalid combination of integer 'char' and pointer 'pointer to int' for 'init' [183] */
+		L"",
+		/* expect+1: warning: invalid combination of integer 'char' and pointer 'pointer to char' for 'init' [183] */
+		"",
+	};
+
+	struct cs_ws no_terminating_null = {
+		"0123456789",
+		L"0123456789",
+	};
+
+	struct cs_ws too_many_characters = {
+		/* expect+1: warning: string literal too long (11) for target array (10) [187] */
+		"0123456789X",
+		/* expect+1: warning: string literal too long (11) for target array (10) [187] */
+		L"0123456789X",
+	};
+
+	struct cs_ws extra_braces = {
+		{ "" },
+		{ L"" },
+	};
+}

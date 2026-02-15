@@ -1,4 +1,4 @@
-/*	$NetBSD: expr_fold.c,v 1.10 2023/07/09 11:01:27 rillig Exp $	*/
+/*	$NetBSD: expr_fold.c,v 1.17 2025/04/10 20:37:48 rillig Exp $	*/
 # 3 "expr_fold.c"
 
 /*
@@ -59,20 +59,19 @@ fold_uminus(void)
 	/* The '-' is an operator, it is not part of the integer constant. */
 	take_int(-2147483648);
 
-	/* expect+2: warning: operator '+' produces integer overflow [141] */
-	/* expect+1: warning: operator '-' produces integer overflow [141] */
+	/* expect+1: warning: '2147483647 + 1' overflows 'int' [141] */
 	take_int(-(2147483647 + 1));
-	/* expect+1: warning: operator '-' produces integer overflow [141] */
+	/* expect+1: warning: '-(-2147483648)' overflows 'int' [141] */
 	take_int(-(-2147483647 - 1));
 	/* expect+1: warning: conversion of 'long' to 'int' is out of range, arg #1 [295] */
 	take_int(-(4294967295));
 
 	take_uint(-(0));
-	/* expect+1: warning: conversion of negative constant to unsigned type, arg #1 [296] */
+	/* expect+1: warning: conversion of negative constant -2147483647 to unsigned type 'unsigned int', arg #1 [296] */
 	take_uint(-(2147483647));
-	/* expect+1: warning: conversion of negative constant to unsigned type, arg #1 [296] */
+	/* expect+1: warning: conversion of negative constant -2147483648 to unsigned type 'unsigned int', arg #1 [296] */
 	take_uint(-(2147483648));
-	/* expect+1: warning: conversion of negative constant to unsigned type, arg #1 [296] */
+	/* expect+1: warning: conversion of negative constant -4294967295 to unsigned type 'unsigned int', arg #1 [296] */
 	take_uint(-(4294967295));
 }
 
@@ -86,13 +85,13 @@ fold_compl(void)
 	/* expect+1: warning: conversion of 'long' to 'int' is out of range, arg #1 [295] */
 	take_int(~(4294967295));
 
-	/* expect+1: warning: conversion of negative constant to unsigned type, arg #1 [296] */
+	/* expect+1: warning: conversion of negative constant -1 to unsigned type 'unsigned int', arg #1 [296] */
 	take_uint(~(0));
-	/* expect+1: warning: conversion of negative constant to unsigned type, arg #1 [296] */
+	/* expect+1: warning: conversion of negative constant -2147483648 to unsigned type 'unsigned int', arg #1 [296] */
 	take_uint(~(2147483647));
-	/* expect+1: warning: conversion of negative constant to unsigned type, arg #1 [296] */
+	/* expect+1: warning: conversion of negative constant -2147483649 to unsigned type 'unsigned int', arg #1 [296] */
 	take_uint(~(2147483648));
-	/* expect+1: warning: conversion of negative constant to unsigned type, arg #1 [296] */
+	/* expect+1: warning: conversion of negative constant -4294967296 to unsigned type 'unsigned int', arg #1 [296] */
 	take_uint(~(4294967295));
 }
 
@@ -100,23 +99,21 @@ void
 fold_mult(void)
 {
 	take_int(32767 * 65536);
-	/* expect+1: warning: operator '*' produces integer overflow [141] */
+	/* expect+1: warning: '32768 * 65536' overflows 'int' [141] */
 	take_int(32768 * 65536);
-	/* expect+1: warning: operator '*' produces integer overflow [141] */
+	/* expect+1: warning: '65536 * 65536' overflows 'int' [141] */
 	take_int(65536 * 65536);
 
 	take_uint(32767 * 65536U);
 	take_uint(32768 * 65536U);
-	/* expect+1: warning: operator '*' produces integer overflow [141] */
+	/* expect+1: warning: '65536 * 65536' overflows 'unsigned int' [141] */
 	take_uint(65536 * 65536U);
 }
 
 void
 fold_div(void)
 {
-	/* expect+3: error: division by 0 [139] */
-	/* XXX: The following message is redundant. */
-	/* expect+1: warning: operator '/' produces integer overflow [141] */
+	/* expect+1: error: division by 0 [139] */
 	take_int(0 / 0);
 
 	/* expect+1: warning: conversion of 'long' to 'int' is out of range, arg #1 [295] */
@@ -141,13 +138,13 @@ fold_mod(void)
 void
 fold_plus(void)
 {
-	/* expect+1: warning: operator '+' produces integer overflow [141] */
+	/* expect+1: warning: '2147483647 + 1' overflows 'int' [141] */
 	take_int(2147483647 + 1);
 
 	/* Assume two's complement, so no overflow. */
 	take_int(-2147483647 + -1);
 
-	/* expect+1: warning: operator '+' produces integer overflow [141] */
+	/* expect+1: warning: '-2147483647 + -2' overflows 'int' [141] */
 	take_int(-2147483647 + -2);
 
 	/*
@@ -164,28 +161,27 @@ fold_plus(void)
 void
 fold_minus(void)
 {
-	/* expect+1: warning: operator '-' produces integer overflow [141] */
+	/* expect+1: warning: '2147483647 - -1' overflows 'int' [141] */
 	take_int(2147483647 - -1);
 	/* Assume two's complement. */
 	take_int(-2147483647 - 1);
-	/* expect+1: warning: operator '-' produces integer overflow [141] */
+	/* expect+1: warning: '-2147483647 - 2' overflows 'int' [141] */
 	take_int(-2147483647 - 2);
 
 	take_int(0 - 2147483648);
-	/* expect+1: warning: operator '-' produces integer overflow [141] */
+	/* expect+1: warning: '0 - 2147483648' overflows 'unsigned int' [141] */
 	take_uint(0 - 2147483648U);
 }
 
 void
 fold_shl(void)
 {
-	/* expect+1: warning: operator '<<' produces integer overflow [141] */
+	/* expect+1: warning: '16777216 << 24' overflows 'int' [141] */
 	take_int(1 << 24 << 24);
 
-	/* expect+1: warning: operator '<<' produces integer overflow [141] */
+	/* expect+1: warning: '16777216 << 24' overflows 'unsigned int' [141] */
 	take_uint(1U << 24 << 24);
 
-	/* FIXME: undefined behavior in 'fold' at 'uint64_t << 104'. */
 	/* expect+1: warning: shift amount 104 is greater than bit-size 32 of 'unsigned int' [122] */
 	take_uint(1U << 24 << 104);
 }
@@ -197,7 +193,6 @@ fold_shr(void)
 
 	take_int(16777216 >> 25);
 
-	/* FIXME: undefined behavior in 'fold' at 'uint64_t >> 104'. */
 	/* expect+1: warning: shift amount 104 is greater than bit-size 32 of 'int' [122] */
 	take_int(16777216 >> 104);
 }
@@ -280,7 +275,6 @@ fold_bitor(void)
  */
 struct ctassert5_struct {
 	unsigned int member:
-	    /*CONSTCOND*/
 	    0xfffffffeU
 	    <=
 		((1ULL << 63) + 1 < 1 ? ~(1ULL << 63) : ~0ULL) / 0xfffffe00U
@@ -296,7 +290,6 @@ struct ctassert5_struct {
 void
 unary_minus_overflow(unsigned long long val)
 {
-	/* expect+1: warning: operator '-' produces integer overflow [141] */
 	if (val > -(unsigned long long)(-0x7fffffffffffffffL - 1))
 		return;
 }

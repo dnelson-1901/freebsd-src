@@ -1,4 +1,4 @@
-/*	$NetBSD: expr_sizeof.c,v 1.14 2023/08/05 10:13:39 rillig Exp $	*/
+/*	$NetBSD: expr_sizeof.c,v 1.20 2026/02/03 20:41:38 rillig Exp $	*/
 # 3 "expr_sizeof.c"
 
 /*
@@ -175,7 +175,7 @@ sizeof_errors(void)
 	 * A 'void array' gets replaced with an 'int array' before
 	 * type_size_in_bits gets to see it, thus the 256 * 4 = 1024.
 	 */
-	/* expect+2: error: illegal use of 'void' [18] */
+	/* expect+2: error: invalid use of 'void' [18] */
 	/* expect+1: error: negative array dimension (-1024) [20] */
 	typedef int sizeof_void_array[-(int)sizeof(void[256])];
 
@@ -199,3 +199,61 @@ struct s24 {
 };
 /* expect+1: error: negative array dimension (-24) [20] */
 typedef int sizeof_s24[-(int)sizeof(struct s24)];
+
+void
+sizeof_array_parameter(short arr[12345])
+{
+	// The size of an array parameter is the size of the decayed pointer.
+	// Subtracting 'sizeof(void *)' makes the test platform-independent.
+	typedef int sizeof_arr[-(int)(sizeof arr - sizeof(void *))];
+
+	// The 2 comes from 'sizeof(short)', as the type 'array[size] of elem'
+	// decays into the type 'pointer to elem', not 'pointer to array[size]
+	// of elem'.
+	/* expect+1: error: negative array dimension (-2) [20] */
+	typedef int sizeof_arr_elem[-(int)(sizeof *arr)];
+}
+
+
+void
+sequence_of_structs(void)
+{
+	typedef unsigned char uint8_t;
+	typedef unsigned short uint16_t;
+	typedef unsigned int uint32_t;
+	typedef unsigned long long uint64_t;
+
+	union fp_addr {
+		uint64_t fa_64;
+		struct {
+			uint32_t fa_off;
+			uint16_t fa_seg;
+			uint16_t fa_opcode;
+		} fa_32;
+	} __packed _Alignas(4);
+
+	struct fpacc87 {
+		uint64_t f87_mantissa;
+		uint16_t f87_exp_sign;
+	} __packed _Alignas(2);
+
+	struct fpaccfx {
+		struct fpacc87 r _Alignas(16);
+	};
+
+	struct save87 {
+		uint16_t s87_cw _Alignas(4);
+		uint16_t s87_sw _Alignas(4);
+		uint16_t s87_tw _Alignas(4);
+		union fp_addr s87_ip;
+		union fp_addr s87_dp;
+		struct fpacc87 s87_ac[8];
+	};
+
+	/* expect+1: error: negative array dimension (-20) [20] */
+	typedef int o1[-(int)((unsigned long)(&(((struct save87 *)0)->s87_dp)))];
+	/* expect+1: error: negative array dimension (-28) [20] */
+	typedef int o2[-(int)((unsigned long)(&(((struct save87 *)0)->s87_ac)))];
+	/* expect+1: error: negative array dimension (-108) [20] */
+	typedef int reveal[-(int)sizeof(struct save87)];
+}

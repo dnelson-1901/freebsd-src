@@ -1,4 +1,4 @@
-# $NetBSD: Makefile.inc,v 1.11 2023/05/08 17:46:06 christos Exp $
+# $NetBSD: Makefile.inc,v 1.14 2025/10/19 00:59:59 riastradh Exp $
 
 .include <bsd.own.mk>
 .include "../Makefile.inc"
@@ -29,7 +29,9 @@ CRYPTODIST=	${NETBSDSRCDIR}/crypto
 .PATH: ${OPENSSLSRC}/crypto/${HELPER_DIR}
 .endif
 PROGDPLIBS+=	cryptotest ${OPENSSLSRC}/../lib/libcryptotest
+.if ${HELPER_NAME} != "threadstest"
 PROGDPLIBS+=	crypto ${OPENSSLSRC}/../lib/libcrypto
+.endif
 DPADD+=		${LIBCRYPT}
 LDADD+=		-lcrypt
 

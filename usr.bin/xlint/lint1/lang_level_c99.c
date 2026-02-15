@@ -1,16 +1,21 @@
-/*	$NetBSD: lang_level_c99.c,v 1.2 2023/08/06 19:44:50 rillig Exp $	*/
+/*	$NetBSD: lang_level_c99.c,v 1.6 2024/11/05 04:53:28 rillig Exp $	*/
 # 3 "lang_level_c99.c"
 
 /*
- * Tests that are specific to the C99 language level, in particular, features
- * that were added in C99.
+ * Tests that are specific to the C99 language level, in particular:
  *
- * In the below comments, [-] means unsupported and [x] means supported.
+ *	* syntax elements that were added in C99
+ *	* lint diagnostics that differ between the C90 and C99 language levels
+ *	* lint diagnostics that differ between the C99 and C11 language levels
  */
 
 /* lint1-flags: -S -w -X 351 */
 
-/* C99 Foreword */
+/*
+ * Features that were added in the C99 standard, as listed in the C99 foreword.
+ *
+ * In the below comments, [-] means unsupported and [x] means supported.
+ */
 
 // [-] restricted character set support via digraphs and <iso646.h>
 //
@@ -141,10 +146,23 @@ hexadecimal_floating_point_constants(void)
 // [x] compound literals
 //
 // See d_c99_compound_literal_comma.c.
+struct short_rect {
+	short top, left, bottom, right;
+};
+
+struct short_rect *rect_location(void);
+
+void
+compound_literal(void)
+{
+	struct short_rect me = (struct short_rect){ 1, 2, 3, 4 };
+	me.left = me.left;
+	*rect_location() = (struct short_rect){ 1, 2, 3, 4 };
+}
 
 // [x] designated initializers
 //
-// See d_c99_init.c.
+// See init_c99.c.
 
 // [x] // comments
 //
@@ -171,6 +189,18 @@ call_implicitly_declared_function(void)
 // [x] mixed declarations and code
 
 // [x] new block scopes for selection and iteration statements
+void
+for_scope(void)
+{
+	// A for loop may have a declaration in its first part.
+	for (int i = 0; i < 10; i++)
+		continue;
+
+	// Test that the scope of the previous i has ended.
+	for (int i = 0; i < 10; i++)
+		continue;
+}
+
 
 // [?] integer constant type rules
 //
@@ -262,6 +292,21 @@ const const int duplicate_type_qualifier = 2;
 // [x] __func__ predefined identifier
 //
 // Yes, see 'fallback_symbol'.
+const char *
+function_name(void)
+{
+	/* expect+1: error: negative array dimension (-14) [20] */
+	typedef int reveal_size[-(int)sizeof(__func__)];
+	return __func__;
+}
+
+
+// Since tree.c 1.504 from 2023-01-29 and before tree.c 1.591 from 2024-01-07,
+// lint crashed because there was no "current function", even though the
+// "block level" was not 0.
+/* expect+1: error: '__func__' undefined [99] */
+typedef int func_outside_function(int[sizeof(__func__)]);
+
 
 // [x] va_copy macro
 //

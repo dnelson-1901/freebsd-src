@@ -1,4 +1,4 @@
-#       $NetBSD: t_tcpip.sh,v 1.23 2023/08/05 13:13:37 riastradh Exp $
+#       $NetBSD: t_tcpip.sh,v 1.26 2025/04/25 22:51:29 riastradh Exp $
 #
 # Copyright (c) 2011 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -88,12 +88,12 @@ start_sshd() {
 	    cp $(atf_get_srcdir)/ssh_host_key .
 	atf_check -s ignore -o empty -e ignore \
 	    cp $(atf_get_srcdir)/ssh_host_key.pub .
-	atf_check -s eq:0 -o empty -e empty chmod 400 ssh_host_key
-	atf_check -s eq:0 -o empty -e empty chmod 444 ssh_host_key.pub
+	atf_check -s exit:0 -o empty -e empty chmod 400 ssh_host_key
+	atf_check -s exit:0 -o empty -e empty chmod 444 ssh_host_key.pub
 
 # Start in debugging mode so we don't have parent<->child privsep stuff
         env LD_PRELOAD=/usr/lib/librumphijack.so \
-	    /usr/sbin/sshd -d -e -E out -f ./sshd_config &
+	    /usr/sbin/sshd -d -e -E "$(pwd)/out" -f ./sshd_config &
 #	while [ ! -f sshd.pid ]; do
 #		sleep 0.01
 #	done
@@ -101,14 +101,14 @@ start_sshd() {
 	sleep 1
 
 	echo "Setting up SSH client configuration"
-	atf_check -s eq:0 -o empty -e empty \
+	atf_check -s exit:0 -o empty -e empty \
 	    ssh-keygen -f ssh_user_key -t rsa -b 1024 -N "" -q
-	atf_check -s eq:0 -o empty -e empty \
+	atf_check -s exit:0 -o empty -e empty \
 	    cp ssh_user_key.pub authorized_keys
 	echo "127.0.0.1,localhost,::1 " \
 	    "$(cat $(atf_get_srcdir)/ssh_host_key.pub)" >known_hosts || \
 	    atf_fail "Failed to create known_hosts"
-	atf_check -s eq:0 -o empty -e empty chmod 600 authorized_keys
+	atf_check -s exit:0 -o empty -e empty chmod 600 authorized_keys
 	sed -e "s,@SRCDIR@,$(atf_get_srcdir),g" -e "s,@WORKDIR@,$(pwd),g" \
 	    $(atf_get_srcdir)/ssh_config.in >ssh_config || \
 	    atf_fail "Failed to create ssh_config"
@@ -136,6 +136,25 @@ ssh_body()
 	jot 11 | xargs touch
 	jot 11 12 | xargs mkdir
 	cd ..
+
+	# From the PR (https://gnats.NetBSD.org/59278):
+	#
+	# > The LDAP problem has been fixed, but the new sshd-session
+	# > wants to exec sshd-auth with stdin/out the network socket so the
+	# > hijack code tries to dup(128, 0) and fails in:
+	# >
+	# >	if (fd_isrump(oldd)) {
+	# >		int (*op_close)(int) = GETSYSCALL(host, CLOSE);
+	# >
+	# >		/* only allow fd 0-2 for cross-kernel dup */
+	# >		if (!(newd >= 0 && newd <= 2 && !fd_isrump(newd))) {
+	# >			errno = EBADF; <-----
+	# >			return -1;
+	# >		}
+	# >
+	# > The server client portion of the test works without rump...
+	#
+	atf_expect_fail "PR bin/59278: failing since openssh 10.0 update"
 
 	# ignore stderr for now, prints environment in debug mode
 	atf_check -s exit:0 -o save:ssh.out -e ignore			\

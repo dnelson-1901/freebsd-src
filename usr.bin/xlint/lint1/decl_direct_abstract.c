@@ -1,4 +1,4 @@
-/*	$NetBSD: decl_direct_abstract.c,v 1.10 2023/08/02 21:11:35 rillig Exp $	*/
+/*	$NetBSD: decl_direct_abstract.c,v 1.12 2024/01/28 08:17:27 rillig Exp $	*/
 # 3 "decl_direct_abstract.c"
 
 /*
@@ -57,7 +57,7 @@ function_returning_pointer(void)
 {
 	// GCC says 'error: cast specifies function type'.
 	// Clang says 'char (short *(*)(long))'.
-	/* expect+1: error: invalid cast from 'struct incompatible' to 'function(pointer to function(long) returning pointer to short) returning char' [147] */
+	/* expect+1: ... 'function(pointer to function(long) returning pointer to short) returning char' ... */
 	x = (char(short *(long)))x;
 
 	/* expect+1: warning: nested 'extern' declaration of 'f2' [352] */
@@ -215,3 +215,12 @@ int prototype_named_32_return_04[-1000 - (int)sizeof(a04(a32 arg))];
 /* expect+2: error: cannot take size/alignment of function type 'function(struct typedef a32) returning struct typedef a08' [144] */
 /* expect+1: error: negative array dimension (-1000) [20] */
 int prototype_named_32_return_08[-1000 - (int)sizeof(a08(a32 arg))];
+
+void
+abstract_decl_param_list_with_attributes(void)
+{
+	typedef int unspecified_parameters(void (*)() __attribute__(()));
+	typedef int no_parameters(void (*)(void) __attribute__(()));
+	typedef int single_parameter(void (*)(int) __attribute__(()));
+	typedef int several_parameters(void (*)(int, int) __attribute__(()));
+}

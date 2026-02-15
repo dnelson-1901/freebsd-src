@@ -1,4 +1,4 @@
-/*	$NetBSD: msg_129.c,v 1.8 2023/08/02 18:51:25 rillig Exp $	*/
+/*	$NetBSD: msg_129.c,v 1.11 2025/09/17 19:25:23 rillig Exp $	*/
 # 3 "msg_129.c"
 
 // Test for message: expression has null effect [129]
@@ -28,6 +28,71 @@ uint8_buffer_write_uint32(uint8_t *c, uint32_t l)
 	    *(c++) = (uint8_t)((l >> 8L) & 0xff),
 	    *(c++) = (uint8_t)((l >> 16L) & 0xff),
 	    *(c++) = (uint8_t)((l >> 24L) & 0xff));
+}
+
+void
+operator_and(_Bool cond)
+{
+	cond && side_effect();
+	// ... is an abbreviation for ...
+	if (cond)
+		side_effect();
+	// This pattern is much more common in shell or Perl than in C.
+
+	/* expect+1: warning: expression has null effect [129] */
+	side_effect() && cond;
+}
+
+void
+operator_or(_Bool cond)
+{
+	cond || side_effect();
+	// ... is an abbreviation for ...
+	if (!cond)
+		side_effect();
+	// This pattern is much more common in shell or Perl than in C.
+
+	/* expect+1: warning: expression has null effect [129] */
+	side_effect() || cond;
+}
+
+void
+operator_quest_colon(void)
+{
+	side_effect() ? side_effect() : side_effect();
+
+	/* expect+1: warning: expression has null effect [129] */
+	side_effect() ? side_effect() : 0;
+
+	/* expect+1: warning: expression has null effect [129] */
+	side_effect() ? 0 : side_effect();
+
+	/* expect+1: warning: expression has null effect [129] */
+	side_effect() ? 0 : 1;
+
+	0 ? side_effect() : side_effect();
+
+	/* expect+1: warning: expression has null effect [129] */
+	0 ? side_effect() : 0;
+
+	/* expect+1: warning: expression has null effect [129] */
+	0 ? 0 : side_effect();
+
+	/* expect+1: warning: expression has null effect [129] */
+	0 ? 0 : 1;
+
+	1 ? side_effect() : side_effect();
+
+	/* expect+1: warning: expression has null effect [129] */
+	1 ? side_effect() : 0;
+
+	/* expect+1: warning: expression has null effect [129] */
+	1 ? 0 : side_effect();
+
+	/* expect+1: warning: expression has null effect [129] */
+	1 ? 1 : 0;
+
+	0 ? (void)1 : (void)0;
 }
 
 void
@@ -64,7 +129,7 @@ legitimate_use_cases(int arg)
 	 */
 	(void)local;
 
-	/* This is a short-hand notation for a do-nothing command. */
+	/* This is a shorthand notation for a do-nothing command. */
 	(void)0;
 
 	/*
@@ -78,7 +143,8 @@ legitimate_use_cases(int arg)
 	/*
 	 * This variant of the do-nothing command is commonly used in
 	 * preprocessor macros since it works nicely with if-else and if-then
-	 * statements.  It is longer than the above variant though.
+	 * statements.  It is longer than the above variant, and it is not
+	 * embeddable into an expression.
 	 */
 	do {
 	} while (0);
@@ -93,4 +159,32 @@ legitimate_use_cases(int arg)
 	/* Double casts are unusual enough to warrant a warning. */
 	/* expect+1: warning: expression has null effect [129] */
 	(void)(void)0;
+}
+
+int
+return_statement_expression(int arg)
+{
+	({
+		int local = arg;
+		local + 4;
+	/* expect+1: warning: expression has null effect [129] */
+	});
+
+	if (arg == 1)
+		return ({
+			int local = arg;
+			// Before cgram.y 1.513 from 2024-10-29, lint wrongly
+			// warned that this expression would have a null effect.
+			local;
+		});
+
+	if (arg == 2)
+		return ({
+			int local = arg;
+			// Before cgram.y 1.513 from 2024-10-29, lint wrongly
+			// warned that this expression would have a null effect.
+			local + 4;
+		});
+
+	return 0;
 }

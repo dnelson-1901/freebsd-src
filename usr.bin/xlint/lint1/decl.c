@@ -1,4 +1,4 @@
-/*	$NetBSD: decl.c,v 1.26 2023/08/01 19:52:15 rillig Exp $	*/
+/*	$NetBSD: decl.c,v 1.36 2025/09/14 12:27:42 rillig Exp $	*/
 # 3 "decl.c"
 
 /*
@@ -68,7 +68,7 @@ declarators(void)
 
 	/* expect+1: warning: converting 'pointer to char' to incompatible 'pointer to double' for argument 1 [153] */
 	sink(pc);
-	/* expect+1: warning: illegal combination of pointer 'pointer to double' and integer 'char', arg #1 [154] */
+	/* expect+1: warning: invalid combination of pointer 'pointer to double' and integer 'char', arg #1 [154] */
 	sink(c);
 	/* expect+1: warning: converting 'pointer to pointer to char' to incompatible 'pointer to double' for argument 1 [153] */
 	sink(ppc);
@@ -169,10 +169,10 @@ __thread int thread_int;
 /* expect+1: error: syntax error 'int' [249] */
 __thread__ int thread_int;
 
-/* expect+4: error: old-style declaration; add 'int' [1] */
-/* expect+2: warning: static function 'cover_func_declarator' unused [236] */
 static
+/* expect+1: warning: static function 'cover_func_declarator' unused [236] */
 cover_func_declarator(void)
+/* expect+1: error: old-style declaration; add 'int' [1] */
 {
 }
 
@@ -224,7 +224,7 @@ symbol_type_in_unnamed_bit_field_member(void)
 	struct s {
 		// Since there is no name in the declarator, the next symbol
 		// after the ':' must not be interpreted as a member name, but
-		// instead as a variable, type or function (FVFT).
+		// instead as a variable, type or function (SK_VCFT).
 		unsigned int :bits;
 		int named_member;
 	};
@@ -241,3 +241,103 @@ get_x(struct point3d { struct point3d_number { int v; } x, y, z; } arg)
 	static struct point3d_number z;
 	return arg.x.v + local.x.v + z.v;
 }
+
+// Expressions of the form '(size_t)&null_ptr->member' are used by several
+// C implementations to implement the offsetof macro.
+void
+offsetof_on_array_member(void)
+{
+	typedef struct {
+		int padding, plain, arr[2];
+	} s1;
+
+	// Bit-fields must have a constant number of bits.
+	struct s2 {
+		unsigned int off_plain:(unsigned long)&((s1 *)0)->plain;
+		unsigned int off_arr:(unsigned long)&((s1 *)0)->arr;
+		unsigned int off_arr_0:(unsigned long)&((s1 *)0)->arr[0];
+		unsigned int off_arr_3:(unsigned long)&((s1 *)0)->arr[3];
+	};
+
+	// Arrays may be variable-width, but the diagnostic reveals the size.
+	/* expect+1: error: negative array dimension (-4) [20] */
+	typedef int off_plain[-(int)(unsigned long)&((s1 *)0)->plain];
+	/* expect+1: error: negative array dimension (-8) [20] */
+	typedef int off_arr[-(int)(unsigned long)&((s1 *)0)->arr];
+	/* expect+1: error: negative array dimension (-8) [20] */
+	typedef int off_arr_0[-(int)(unsigned long)&((s1 *)0)->arr[0]];
+	/* expect+1: error: negative array dimension (-20) [20] */
+	typedef int off_arr_3[-(int)(unsigned long)&((s1 *)0)->arr[3]];
+}
+
+/* PR bin/39639: writing "long double" gave "long int" */
+int
+long_double_vs_long_int(long double *a, long int *b)
+{
+	/* expect+1: warning: invalid combination of 'pointer to long double' and 'pointer to long', op '==' [124] */
+	return a == b;
+}
+
+struct zero_sized_array {
+	int member[0];
+};
+
+void
+type_name_as_member_name(void)
+{
+	typedef char h[10];
+
+	typedef struct {
+		int i;
+		char *c;
+	} fh;
+
+	struct foo {
+		fh h;
+		struct {
+			int x;
+			int y;
+		} fl;
+	};
+}
+
+
+// When query 16 is not enabled, don't produce a 'previous declaration' message
+// without a preceding main diagnostic.
+static void static_function(void) __attribute__((__used__));
+
+// The definition is without 'static'.
+void
+static_function(void)
+{
+}
+
+
+typedef void (*fprint_function)(int, const char *, ...);
+typedef fprint_function (*change_logger)
+    (fprint_function, fprint_function, fprint_function, fprint_function);
+
+// Provoke a long type name to test reallocation in type_name.
+/* expect+1: error: redeclaration of 'static_function' with type 'function(pointer to function(pointer to function(int, pointer to const char, ...) returning void, pointer to function(int, pointer to const char, ...) returning void, pointer to function(int, pointer to const char, ...) returning void, pointer to function(int, pointer to const char, ...) returning void) returning pointer to function(int, pointer to const char, ...) returning void) returning void', expected 'function(void) returning void' [347] */
+void static_function(change_logger);
+
+
+void no_prototype_declaration();
+void prototype_declaration(void);
+
+// TODO: Warn about the missing 'void', for C99 and later.
+void
+no_prototype_definition()
+{
+}
+
+void
+prototype_definition(void)
+{
+}
+
+/* These integer overflows in '<<' expressions are detected by KUBSAN. */
+/* expect+1: warning: constant -0x8000000000000000 too large for 'int' [56] */
+typedef int shl_overflow_positive[1LL << 32 << 31];
+/* expect+1: warning: constant -0x8000000000000000 too large for 'int' [56] */
+typedef int shl_overflow_negative[-1LL << 32 << 31];

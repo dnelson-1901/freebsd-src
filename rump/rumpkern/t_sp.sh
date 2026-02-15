@@ -1,4 +1,4 @@
-#	$NetBSD: t_sp.sh,v 1.17 2020/09/01 18:40:09 gson Exp $
+#	$NetBSD: t_sp.sh,v 1.21 2025/04/02 14:37:44 riastradh Exp $
 #
 # Copyright (c) 2010 The NetBSD Foundation, Inc.
 # All rights reserved.
@@ -66,6 +66,20 @@ test_case signal signal
 # test_case reconnect reconnect
 test_case_skip reconnect kern/55304 "leftover rump_server"
 
+RUN_CLIENT='
+	if "$@"; then
+		exit 0
+	else
+		status=$?
+	fi
+	RUMP_SERVER=unix://commsock rump.halt
+	echo Post-halt stdout:
+	cat stdout
+	echo Post-halt stderr: >&2
+	cat stderr >&2
+	exit $status
+'
+
 basic()
 {
 	export RUMP_SERVER=unix://commsock
@@ -105,9 +119,21 @@ sigsafe()
 {
 
 	export RUMP_SERVER=unix://commsock
-	atf_check -s exit:0 rump_server ${RUMP_SERVER}
-	atf_check -s exit:0 $(atf_get_srcdir)/h_client/h_sigcli
-
+	export RUMP_STDOUT="$(pwd)/stdout"
+	export RUMP_STDERR="$(pwd)/stderr"
+	export RUMPUSER_DEBUG=1
+	atf_check -s exit:0 rump_server -v ${RUMP_SERVER}
+	echo Pre-test stdout:
+	cat stdout
+	echo Pre-test stderr: >&2
+	cat stderr >&2
+	atf_check -s exit:0 sh -c "$RUN_CLIENT" -- \
+	    "$(atf_get_srcdir)"/h_client/h_sigcli
+	if [ -f rump_server.core ]; then
+		gdb -ex bt /usr/bin/rump_server rump_server.core
+		# Extract kernel logs including a panic message
+		strings rump_server.core |grep -E '^\[.+\] '
+	fi
 }
 
 signal()
