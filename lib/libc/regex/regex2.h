@@ -105,6 +105,7 @@ typedef unsigned long sopno;
 #define	OEOS	(22L<<OPSHIFT)	/* end subj.	-			*/
 #define	OWBND	(23L<<OPSHIFT)	/* word bound	-			*/
 #define	ONWBND	(24L<<OPSHIFT)	/* not bound	-			*/
+#define OICHAR	(25L<<OPSHIFT)  /* both cases ochar			*/
 
 /*
  * Structures for [] character-set representation.
@@ -199,3 +200,12 @@ struct re_guts {
 #define	OUT	(CHAR_MIN - 1)	/* a non-character value */
 #define	IGN	(CHAR_MIN - 2)
 #define ISWORD(c)       (iswalnum((uch)(c)) || (c) == '_')
+
+int icasecmp(const char *s1,  const char *s2, size_t len);
+
+#define XCOMP(g, c1 , c2) \
+	 ((g->cflags & REG_ICASE) ? (towlower(c1) != towlower(c2)) : \
+	 ((c1) != (c2)))
+#define XXMEMCMP(g, s1, s2, len) \
+	((g->cflags & REG_ICASE)  ? icasecmp(s1, s2, len) : \
+	 memcmp(s1, s2, len))
