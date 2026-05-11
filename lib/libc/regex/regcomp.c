@@ -1394,10 +1394,21 @@ ordinary(struct parse *p, wint_t ch)
 {
 	cset *cs;
 
-	if ((p->g->cflags&REG_ICASE) && iswalpha(ch) && othercase(ch) != ch)
-		bothcases(p, ch);
-	else if ((ch & OPDMASK) == ch)
-		EMIT(OCHAR, ch);
+	int isb;
+	isb = ((p->g->cflags&REG_ICASE) && iswalpha(ch) && othercase(ch) != ch);
+	if ((ch & OPDMASK) == ch) {
+		if (!isb) 
+			EMIT(OCHAR, ch);
+		else {
+			/* is icase */
+			if ((ch & 0x7f) == ch)
+				EMIT(OICHAR, tolower(ch));
+			else {
+			 /* wide char case insensitive */
+				 bothcases(p, ch);
+			}
+		}
+	}
 	else {
 		/*
 		 * Kludge: character is too big to fit into an OCHAR operand.
@@ -1877,6 +1888,7 @@ findmust(struct parse *p, struct re_guts *g)
 	do {
 		s = *scan++;
 		switch (OP(s)) {
+		case OICHAR:
 		case OCHAR:		/* sequence member */
 			if (newlen == 0) {		/* new sequence */
 				memset(&mbs, 0, sizeof(mbs));
@@ -2003,8 +2015,12 @@ findmust(struct parse *p, struct re_guts *g)
 	scan = start;
 	memset(&mbs, 0, sizeof(mbs));
 	while (cp < g->must + g->mlen) {
-		while (OP(s = *scan++) != OCHAR)
-			continue;
+
+		s = *scan++;
+		while (OP(s) != OCHAR && OP(s) != OICHAR) {
+			s = *scan++;
+		}
+
 		clen = wcrtomb(cp, OPND(s), &mbs);
 		assert(clen != (size_t)-1);
 		cp += clen;
@@ -2124,8 +2140,11 @@ computejumps(struct parse *p, struct re_guts *g)
 	 * (notice that we match right to left, so that last character
 	 * is the first one that would be matched).
 	 */
-	for (mindex = 0; mindex < g->mlen; mindex++)
+	for (mindex = 0; mindex < g->mlen; mindex++) {
 		g->charjump[(int)g->must[mindex]] = g->mlen - mindex - 1;
+		if (g->cflags & REG_ICASE)
+			g->charjump[othercase((int)g->must[mindex])] = g->mlen - mindex - 1;
+	}
 }
 
 /*
@@ -2141,6 +2160,7 @@ computejumps(struct parse *p, struct re_guts *g)
  * Notice that all values here are minus (g->mlen-1), because of the way
  * the search algorithm works.
  */
+
 static void
 computematchjumps(struct parse *p, struct re_guts *g)
 {
@@ -2184,7 +2204,7 @@ computematchjumps(struct parse *p, struct re_guts *g)
 		 * substring.
 		 */
 		while (suffix < g->mlen
-		    && g->must[mindex] != g->must[suffix]) {
+		    && XCOMP(g, g->must[mindex], g->must[suffix])) {
 			g->matchjump[suffix] = MIN(g->matchjump[suffix],
 			    g->mlen - mindex - 1);
 			suffix = pmatches[suffix];
@@ -2245,4 +2265,28 @@ pluscount(struct parse *p, struct re_guts *g)
 	if (plusnest != 0)
 		g->iflags |= BAD;
 	return(maxnest);
+}
+
+/**
+ * Compare two UTF-8 strings case-insensitively
+ *
+ * @param s1 First UTF-8 string
+ * @param s2 Second UTF-8 string
+ * @param len Length of second string in bytes
+ * @return 0 if equal, <0 if s1 < s2, >0 if s1 > s2, -2 on error
+ */
+int icasecmp(const char *s1,  const char *s2, size_t len) {
+
+    int i = 0;
+
+    while (i < len) {
+
+        if (tolower(s1[i]) != tolower(s2[i])) {
+            return (s1[i] < s2[i]) ? -1 : 1;
+        }
+        i++;
+    }
+
+    // If we've reached the end of both strings, they're equal
+    return 0;
 }

@@ -241,9 +241,8 @@ matcher(struct re_guts *g,
 				/* We depend on not being used for
 				 * for strings of length 1
 				 */
-				while (*--dp == *--pp && pp != mustfirst);
-
-				if (*dp == *pp)
+				while (!XCOMP(g, *--dp, *--pp) && pp != mustfirst);
+				if (!XCOMP(g, *dp,  *pp))
 					break;
 
 				/* Jump to next possible match */
@@ -256,9 +255,9 @@ matcher(struct re_guts *g,
 				return(REG_NOMATCH);
 		} else {
 			for (dp = start; dp < stop; dp++)
-				if (*dp == g->must[0] &&
+				if (!XCOMP(g, *dp, g->must[0]) &&
 				    stop - dp >= g->mlen &&
-				    memcmp(dp, g->must, (size_t)g->mlen) == 0)
+				    XXMEMCMP(g, dp, g->must, (size_t)g->mlen) == 0)
 					break;
 			if (dp == stop)		/* we didn't find g->must */
 				return(REG_NOMATCH);
@@ -452,6 +451,7 @@ dissect(struct match *m,
 		case OEND:
 			assert(nope);
 			break;
+		case OICHAR:
 		case OCHAR:
 			sp += XMBRTOWC(NULL, sp, stop - start, &m->mbs, 0);
 			break;
@@ -642,10 +642,11 @@ backref(struct match *m,
 	for (ss = startst; !hard && ss < stopst; ss++)
 		switch (OP(s = m->g->strip[ss])) {
 		case OCHAR:
+		case OICHAR:
 			if (sp == stop)
 				return(NULL);
 			sp += XMBRTOWC(&wc, sp, stop - sp, &m->mbs, BADCHAR);
-			if (wc != OPND(s))
+			if (XCOMP(m->g, wc, OPND(s)))
 				return(NULL);
 			break;
 		case OANY:
@@ -757,7 +758,7 @@ backref(struct match *m,
 		if (sp > stop - len)
 			return(NULL);	/* not enough left to match */
 		ssp = m->offp + m->pmatch[i].rm_so;
-		if (memcmp(sp, ssp, len) != 0)
+		if (XXMEMCMP(m->g, sp, ssp, len) != 0)
 			return(NULL);
 		while (m->g->strip[ss] != (sop)SOP(O_BACK, i))
 			ss++;
@@ -1014,9 +1015,10 @@ step(struct re_guts *g,
 			assert(pc == stop-1);
 			break;
 		case OCHAR:
+		case OICHAR:
 			/* only characters can match */
 			assert(!NONCHAR(ch) || ch != OPND(s));
-			if (ch == OPND(s))
+			if (!XCOMP(g, ch,  OPND(s)))
 				FWD(aft, bef, 1);
 			break;
 		case OBOS:
