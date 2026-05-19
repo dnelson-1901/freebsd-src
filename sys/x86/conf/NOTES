@@ -441,6 +441,7 @@ device		gve		# Google Virtual NIC (gVNIC)
 device		igc		# Intel I225 2.5G Ethernet
 device		ipw		# Intel 2100 wireless NICs.
 device		iwi		# Intel 2200BG/2225BG/2915ABG wireless NICs.
+device		iwm		# Intel IEEE 802.11ac wireless NICs.
 device		iwn		# Intel 4965/1000/5000/6000 wireless NICs.
 device  	mthca		# Mellanox HCA InfiniBand
 device  	mlx4		# Shared code module between IB and Ethernet
@@ -520,7 +521,6 @@ device		ntb_hw_plx	# PLX NTB hardware driver
 # pbio: Parallel (8255 PPI) basic I/O (mode 0) port (e.g. Advantech PCL-724)
 # smbios: DMI/SMBIOS entry point (requires EFIRT option)
 # vpd: Vital Product Data kernel interface
-# asmc: Apple System Management Controller
 # si: Specialix International SI/XIO or SX intelligent serial card
 # tpm: Trusted Platform Module
 
@@ -536,7 +536,6 @@ envvar		hint.pbio.0.at="isa"
 envvar		hint.pbio.0.port="0x360"
 device		smbios
 device		vpd
-device		asmc
 device		tpm
 device		padlock_rng	# VIA Padlock RNG
 device		rdrand_rng	# Intel Bull Mountain RNG

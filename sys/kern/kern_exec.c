@@ -1284,7 +1284,7 @@ exec_map_stack(struct image_params *imgp)
 		    MAP_INHERIT_SHARE | MAP_ACC_NO_CHARGE);
 	} else {
 		sharedpage_addr = sv->sv_shared_page_base;
-		vm_map_fixed(map, obj, 0,
+		error = vm_map_fixed(map, obj, 0,
 		    sharedpage_addr, sv->sv_shared_page_len,
 		    VM_PROT_READ | VM_PROT_EXECUTE,
 		    VM_PROT_READ | VM_PROT_EXECUTE,
@@ -1622,7 +1622,7 @@ exec_args_adjust_args(struct image_args *args, size_t consume, ssize_t extend)
 	if (args->stringspace < offset)
 		return (E2BIG);
 	memmove(args->begin_argv + extend, args->begin_argv + consume,
-	    args->endp - args->begin_argv + consume);
+	    args->endp - (args->begin_argv + consume));
 	if (args->envc > 0)
 		args->begin_envv += offset;
 	args->endp += offset;

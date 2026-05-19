@@ -681,31 +681,16 @@ freebsd32_pselect(struct thread *td, struct freebsd32_pselect_args *uap)
 static void
 freebsd32_kevent_to_kevent32(const struct kevent *kevp, struct kevent32 *ks32)
 {
-	uint64_t e;
 	int j;
 
 	CP(*kevp, *ks32, ident);
 	CP(*kevp, *ks32, filter);
 	CP(*kevp, *ks32, flags);
 	CP(*kevp, *ks32, fflags);
-#if BYTE_ORDER == LITTLE_ENDIAN
-	ks32->data1 = kevp->data;
-	ks32->data2 = kevp->data >> 32;
-#else
-	ks32->data1 = kevp->data >> 32;
-	ks32->data2 = kevp->data;
-#endif
+	FU64_CP(*kevp, *ks32, data);
 	PTROUT_CP(*kevp, *ks32, udata);
-	for (j = 0; j < nitems(kevp->ext); j++) {
-		e = kevp->ext[j];
-#if BYTE_ORDER == LITTLE_ENDIAN
-		ks32->ext64[2 * j] = e;
-		ks32->ext64[2 * j + 1] = e >> 32;
-#else
-		ks32->ext64[2 * j] = e >> 32;
-		ks32->ext64[2 * j + 1] = e;
-#endif
-	}
+	for (j = 0; j < nitems(kevp->ext); j++)
+		FU64_CP(*kevp, *ks32, ext[j]);
 }
 
 void
@@ -722,38 +707,13 @@ freebsd32_kinfo_knote_to_32(const struct kinfo_knote *kin,
 		break;
 	case KNOTE_EXTDATA_VNODE:
 		CP(*kin, *kin32, knt_vnode.knt_vnode_type);
-#if BYTE_ORDER == LITTLE_ENDIAN
-		kin32->knt_vnode.knt_vnode_fsid[0] = kin->knt_vnode.
-		    knt_vnode_fsid;
-		kin32->knt_vnode.knt_vnode_fsid[1] = kin->knt_vnode.
-		    knt_vnode_fsid >> 32;
-		kin32->knt_vnode.knt_vnode_fileid[0] = kin->knt_vnode.
-		    knt_vnode_fileid;
-		kin32->knt_vnode.knt_vnode_fileid[1] = kin->knt_vnode.
-		    knt_vnode_fileid >> 32;
-#else
-		kin32->knt_vnode.knt_vnode_fsid[1] = kin->knt_vnode.
-		    knt_vnode_fsid;
-		kin32->knt_vnode.knt_vnode_fsid[0] = kin->knt_vnode.
-		    knt_vnode_fsid >> 32;
-		kin32->knt_vnode.knt_vnode_fileid[1] = kin->knt_vnode.
-		    knt_vnode_fileid;
-		kin32->knt_vnode.knt_vnode_fileid[0] = kin->knt_vnode.
-		    knt_vnode_fileid >> 32;
-#endif
+		FU64_CP(*kin, *kin32, knt_vnode.knt_vnode_fsid);
+		FU64_CP(*kin, *kin32, knt_vnode.knt_vnode_fileid);
 		memcpy(kin32->knt_vnode.knt_vnode_fullpath,
 		    kin->knt_vnode.knt_vnode_fullpath, PATH_MAX);
 		break;
 	case KNOTE_EXTDATA_PIPE:
-#if BYTE_ORDER == LITTLE_ENDIAN
-		kin32->knt_pipe.knt_pipe_ino[0] = kin->knt_pipe.knt_pipe_ino;
-		kin32->knt_pipe.knt_pipe_ino[1] = kin->knt_pipe.
-		    knt_pipe_ino >> 32;
-#else
-		kin32->knt_pipe.knt_pipe_ino[1] = kin->knt_pipe.knt_pipe_ino;
-		kin32->knt_pipe.knt_pipe_ino[0] = kin->knt_pipe.
-		    knt_pipe_ino >> 32;
-#endif
+		FU64_CP(*kin, *kin32, knt_pipe.knt_pipe_ino);
 		break;
 	}
 }
@@ -765,7 +725,7 @@ static int
 freebsd32_kevent_copyout(void *arg, struct kevent *kevp, int count)
 {
 	struct freebsd32_kevent_args *uap;
-	struct kevent32	ks32[KQ_NEVENTS];
+	struct kevent32	ks32[KQ_NEVENTS] = {};
 	int i, error;
 
 	KASSERT(count <= KQ_NEVENTS, ("count (%d) > KQ_NEVENTS", count));
@@ -787,7 +747,6 @@ freebsd32_kevent_copyin(void *arg, struct kevent *kevp, int count)
 {
 	struct freebsd32_kevent_args *uap;
 	struct kevent32	ks32[KQ_NEVENTS];
-	uint64_t e;
 	int i, j, error;
 
 	KASSERT(count <= KQ_NEVENTS, ("count (%d) > KQ_NEVENTS", count));
@@ -803,20 +762,10 @@ freebsd32_kevent_copyin(void *arg, struct kevent *kevp, int count)
 		CP(ks32[i], kevp[i], filter);
 		CP(ks32[i], kevp[i], flags);
 		CP(ks32[i], kevp[i], fflags);
-		kevp[i].data = PAIR32TO64(uint64_t, ks32[i].data);
+		FU64_CP(ks32[i], kevp[i], data);
 		PTRIN_CP(ks32[i], kevp[i], udata);
-		for (j = 0; j < nitems(kevp->ext); j++) {
-#if BYTE_ORDER == LITTLE_ENDIAN
-			e = ks32[i].ext64[2 * j + 1];
-			e <<= 32;
-			e += ks32[i].ext64[2 * j];
-#else
-			e = ks32[i].ext64[2 * j];
-			e <<= 32;
-			e += ks32[i].ext64[2 * j + 1];
-#endif
-			kevp[i].ext[j] = e;
-		}
+		for (j = 0; j < nitems(kevp->ext); j++)
+			FU64_CP(ks32[i], kevp[i], ext[j]);
 	}
 done:
 	return (error);
@@ -1176,6 +1125,9 @@ freebsd32_ptrace(struct thread *td, struct freebsd32_ptrace_args *uap)
 		for (i = 0; i < r32.sr.pscr_nargs; i++)
 			pscr_args[i] = pscr_args32[i];
 		r.sr.pscr_args = pscr_args;
+		break;
+	case PTINTERNAL_FIRST ... PTINTERNAL_LAST:
+		error = EINVAL;
 		break;
 	default:
 		addr = uap->addr;
@@ -2303,11 +2255,11 @@ copy_stat(struct stat *in, struct stat32 *out)
 	TS_CP(*in, *out, st_mtim);
 	TS_CP(*in, *out, st_ctim);
 	CP(*in, *out, st_size);
-	CP(*in, *out, st_blocks);
+	FU64_CP(*in, *out, st_blocks);
 	CP(*in, *out, st_blksize);
 	CP(*in, *out, st_flags);
-	CP(*in, *out, st_gen);
-	CP(*in, *out, st_filerev);
+	FU64_CP(*in, *out, st_gen);
+	FU64_CP(*in, *out, st_filerev);
 	CP(*in, *out, st_bsdflags);
 	TS_CP(*in, *out, st_birthtim);
 	out->st_padding1 = 0;
@@ -2516,7 +2468,7 @@ freebsd11_cvtstat32(struct stat *in, struct freebsd11_stat32 *out)
 	TS_CP(*in, *out, st_mtim);
 	TS_CP(*in, *out, st_ctim);
 	CP(*in, *out, st_size);
-	CP(*in, *out, st_blocks);
+	FU64_CP(*in, *out, st_blocks);
 	CP(*in, *out, st_blksize);
 	CP(*in, *out, st_flags);
 	CP(*in, *out, st_gen);
@@ -2665,7 +2617,7 @@ freebsd11_freebsd32_nstat(struct thread *td,
 	if (error != 0)
 		return (error);
 	error = freebsd11_cvtnstat32(&sb, &nsb);
-	if (error != 0)
+	if (error == 0)
 		error = copyout(&nsb, uap->ub, sizeof (nsb));
 	return (error);
 }
@@ -4160,9 +4112,9 @@ freebsd32_ffclock_setestimate(struct thread *td,
 
 	CP(cest.update_time, cest32.update_time, sec);
 	memcpy(&cest.update_time.frac, &cest32.update_time.frac, sizeof(uint64_t));
-	CP(cest, cest32, update_ffcount);
-	CP(cest, cest32, leapsec_next);
-	CP(cest, cest32, period);
+	FU64_CP(cest, cest32, update_ffcount);
+	FU64_CP(cest, cest32, leapsec_next);
+	FU64_CP(cest, cest32, period);
 	CP(cest, cest32, errb_abs);
 	CP(cest, cest32, errb_rate);
 	CP(cest, cest32, status);
@@ -4190,9 +4142,9 @@ freebsd32_ffclock_getestimate(struct thread *td,
 
 	CP(cest32.update_time, cest.update_time, sec);
 	memcpy(&cest32.update_time.frac, &cest.update_time.frac, sizeof(uint64_t));
-	CP(cest32, cest, update_ffcount);
-	CP(cest32, cest, leapsec_next);
-	CP(cest32, cest, period);
+	FU64_CP(cest32, cest, update_ffcount);
+	FU64_CP(cest32, cest, leapsec_next);
+	FU64_CP(cest32, cest, period);
 	CP(cest32, cest, errb_abs);
 	CP(cest32, cest, errb_rate);
 	CP(cest32, cest, status);
@@ -4234,6 +4186,24 @@ ofreebsd32_sethostid(struct thread *td, struct ofreebsd32_sethostid_args *uap)
 int
 freebsd32_setcred(struct thread *td, struct freebsd32_setcred_args *uap)
 {
-	/* Last argument is 'is_32bit'. */
-	return (user_setcred(td, uap->flags, uap->wcred, uap->size, true));
+	struct setcred wcred;
+	struct setcred32 wcred32;
+	int error;
+
+	if (uap->size != sizeof(wcred32))
+		return (EINVAL);
+	error = copyin(uap->wcred, &wcred32, sizeof(wcred32));
+	if (error != 0)
+		return (error);
+	memset(&wcred, 0, sizeof(wcred));
+	CP(wcred32, wcred, sc_uid);
+	CP(wcred32, wcred, sc_ruid);
+	CP(wcred32, wcred, sc_svuid);
+	CP(wcred32, wcred, sc_gid);
+	CP(wcred32, wcred, sc_rgid);
+	CP(wcred32, wcred, sc_svgid);
+	CP(wcred32, wcred, sc_supp_groups_nb);
+	PTRIN_CP(wcred32, wcred, sc_supp_groups);
+	PTRIN_CP(wcred32, wcred, sc_label);
+	return (user_setcred(td, uap->flags, &wcred));
 }

@@ -3728,7 +3728,7 @@ dynaddr		: '(' STRING ')'		{
 			char	*p, *op;
 
 			op = $2;
-			if (!isalpha(op[0])) {
+			if (op[0] == '\0') {
 				yyerror("invalid interface name '%s'", op);
 				free(op);
 				YYERROR;
@@ -6510,7 +6510,7 @@ yylex(void)
 
 top:
 	p = buf;
-	while ((c = lgetc(0)) == ' ' || c == '\t')
+	while ((c = lgetc(0)) == ' ' || c == '\t' || c == '\014')
 		; /* nothing */
 
 	yylval.lineno = file->lineno;

@@ -100,7 +100,7 @@ static int volatile lptflag = 1;
 #define	LPINITRDY	4	/* wait up to 4 seconds for a ready */
 #define	LPTOUTINITIAL	10	/* initial timeout to wait for ready 1/10 s */
 #define	LPTOUTMAX	1	/* maximal timeout 1 s */
-#define	LPPRI		(PZERO+8)
+#define	LPPRI		(PWAIT)
 #define	BUFSIZE		1024
 #define	BUFSTATSIZE	32
 
@@ -983,7 +983,7 @@ static device_method_t lpt_methods[] = {
 	DEVMETHOD(device_probe,		lpt_probe),
 	DEVMETHOD(device_attach,	lpt_attach),
 	DEVMETHOD(device_detach,	lpt_detach),
-	{ 0, 0 }
+	DEVMETHOD_END
 };
 
 static driver_t lpt_driver = {

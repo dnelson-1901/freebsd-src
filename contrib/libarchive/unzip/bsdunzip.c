@@ -9,6 +9,7 @@
 #include "bsdunzip_platform.h"
 
 #include "la_queue.h"
+#include "lafe_getline.h"
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
 #endif
@@ -27,6 +28,9 @@
 #endif
 #ifdef HAVE_LOCALE_H
 #include <locale.h>
+#endif
+#ifdef HAVE_SIGNAL_H
+#include <signal.h>
 #endif
 #ifdef HAVE_STDARG_H
 #include <stdarg.h>
@@ -53,7 +57,7 @@
 
 #include "bsdunzip.h"
 #include "passphrase.h"
-#include "err.h"
+#include "lafe_err.h"
 
 /* command-line options */
 static int		 a_opt;		/* convert EOL */
@@ -110,7 +114,7 @@ static int noeol;
 static char *passphrase_buf;
 
 /* fatal error message + errno */
-static void
+static void __LA_NORETURN
 error(const char *fmt, ...)
 {
 	va_list ap;
@@ -127,7 +131,7 @@ error(const char *fmt, ...)
 }
 
 /* fatal error message, no errno */
-static void
+static void __LA_NORETURN
 errorx(const char *fmt, ...)
 {
 	va_list ap;
@@ -232,7 +236,7 @@ pathdup(const char *path)
 	}
 	if (L_opt) {
 		for (i = 0; i < len; ++i)
-			str[i] = tolower((unsigned char)path[i]);
+			str[i] = (char)tolower((unsigned char)path[i]);
 	} else {
 		memcpy(str, path, len);
 	}
@@ -355,7 +359,7 @@ make_dir(const char *path, int mode)
 		 */
 		(void)unlink(path);
 	}
-	if (mkdir(path, mode) != 0 && errno != EEXIST)
+	if (mkdir(path, (mode_t)mode) != 0 && errno != EEXIST)
 		error("mkdir('%s')", path);
 }
 
@@ -650,11 +654,11 @@ recheck:
 #elif HAVE_STRUCT_STAT_ST_MTIME_N
 			    sb.st_mtime > mtime.tv_sec ||
 			    (sb.st_mtime == mtime.tv_sec &&
-			    sb.st_mtime_n => mtime.tv_nsec)
+			    sb.st_mtime_n >= mtime.tv_nsec)
 #elif HAVE_STRUCT_STAT_ST_MTIME_USEC
 			    sb.st_mtime > mtime.tv_sec ||
 			    (sb.st_mtime == mtime.tv_sec &&
-			    sb.st_mtime_usec => mtime.tv_nsec / 1000)
+			    sb.st_mtime_usec >= mtime.tv_nsec / 1000)
 #else
 			    sb.st_mtime > mtime.tv_sec
 #endif
@@ -699,7 +703,7 @@ recheck:
 			error("symlink('%s')", *path);
 		info(" extracting: %s -> %s\n", *path, linkname);
 #ifdef HAVE_LCHMOD
-		if (lchmod(*path, mode) != 0)
+		if (lchmod(*path, (mode_t)mode) != 0)
 			warning("Cannot set mode for '%s'", *path);
 #endif
 		/* set access and modification time */
@@ -875,30 +879,34 @@ list(struct archive *a, struct archive_entry *e)
 	char buf[20];
 	time_t mtime;
 	struct tm *tm;
+	const char *pathname;
 
 	mtime = archive_entry_mtime(e);
 	tm = localtime(&mtime);
 	if (*y_str)
-		strftime(buf, sizeof(buf), "%m-%d-%G %R", tm);
+		strftime(buf, sizeof(buf), "%m-%d-%Y %R", tm);
 	else
-		strftime(buf, sizeof(buf), "%m-%d-%g %R", tm);
+		strftime(buf, sizeof(buf), "%m-%d-%y %R", tm);
 
+	pathname = archive_entry_pathname(e);
+	if (!pathname)
+		pathname = "";
 	if (!zipinfo_mode) {
 		if (v_opt == 1) {
 			printf(" %8ju  %s   %s\n",
 			    (uintmax_t)archive_entry_size(e),
-			    buf, archive_entry_pathname(e));
+			    buf, pathname);
 		} else if (v_opt == 2) {
 			printf("%8ju  Stored  %7ju   0%%  %s  %08x  %s\n",
 			    (uintmax_t)archive_entry_size(e),
 			    (uintmax_t)archive_entry_size(e),
 			    buf,
 			    0U,
-			    archive_entry_pathname(e));
+			    pathname);
 		}
 	} else {
 		if (Z1_opt)
-			printf("%s\n",archive_entry_pathname(e));
+			printf("%s\n", pathname);
 	}
 	ac(archive_read_data_skip(a));
 }
@@ -1181,6 +1189,16 @@ main(int argc, char *argv[])
 {
 	const char *zipfile;
 	int nopts;
+
+#if defined(HAVE_SIGACTION) && defined(SIGCHLD)
+	{ /* Do not ignore SIGCHLD. */
+		struct sigaction sa;
+		sa.sa_handler = SIG_DFL;
+		sigemptyset(&sa.sa_mask);
+		sa.sa_flags = 0;
+		sigaction(SIGCHLD, &sa, NULL);
+	}
+#endif
 
 	lafe_setprogname(*argv, "bsdunzip");
 

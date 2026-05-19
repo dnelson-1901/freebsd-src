@@ -421,9 +421,9 @@ sysctl_warn_reuse(const char *func, struct sysctl_oid *leaf)
 			sbuf_printf(&sb, "%s%.*s", nodes[i]->oid_name,
 			    i != (rc - 1), ".");
 	} else {
-		sbuf_printf(&sb, "%s", leaf->oid_name);
+		sbuf_cat(&sb, leaf->oid_name);
 	}
-	sbuf_printf(&sb, ")!\n");
+	sbuf_cat(&sb, ")!\n");
 
 	(void)sbuf_finish(&sb);
 }
@@ -2268,7 +2268,7 @@ sysctl_root(SYSCTL_HANDLER_ARGS)
 			priv = PRIV_SYSCTL_WRITEJAIL;
 #ifdef VIMAGE
 		else if ((oid->oid_kind & CTLFLAG_VNET) &&
-		     prison_owns_vnet(req->td->td_ucred))
+		     prison_owns_vnet(req->td->td_ucred->cr_prison))
 			priv = PRIV_SYSCTL_WRITEJAIL;
 #endif
 		else

@@ -293,10 +293,8 @@ kern_do_statfs(struct thread *td, struct mount *mp, struct statfs *buf)
 	error = VFS_STATFS(mp, buf);
 	if (error != 0)
 		goto out;
-	if (priv_check_cred_vfs_generation(td->td_ucred)) {
-		buf->f_fsid.val[0] = buf->f_fsid.val[1] = 0;
+	if (priv_check_cred_vfs_generation(td->td_ucred))
 		prison_enforce_statfs(td->td_ucred, mp, buf);
-	}
 out:
 	vfs_unbusy(mp);
 	return (error);
@@ -375,7 +373,7 @@ kern_fstatfs(struct thread *td, int fd, struct statfs *buf)
 	int error;
 
 	AUDIT_ARG_FD(fd);
-	error = getvnode_path(td, fd, &cap_fstatfs_rights, &fp);
+	error = getvnode_path(td, fd, &cap_fstatfs_rights, NULL, &fp);
 	if (error != 0)
 		return (error);
 	vp = fp->f_vnode;
@@ -548,7 +546,6 @@ restart:
 			sptmp = malloc(sizeof(struct statfs), M_STATFS,
 			    M_WAITOK);
 			*sptmp = *sp;
-			sptmp->f_fsid.val[0] = sptmp->f_fsid.val[1] = 0;
 			prison_enforce_statfs(td->td_ucred, mp, sptmp);
 			sp = sptmp;
 		} else
@@ -898,12 +895,17 @@ sys_fchdir(struct thread *td, struct fchdir_args *uap)
 	struct mount *mp;
 	struct file *fp;
 	int error;
+	uint8_t fdflags;
 
 	AUDIT_ARG_FD(uap->fd);
-	error = getvnode_path(td, uap->fd, &cap_fchdir_rights,
+	error = getvnode_path(td, uap->fd, &cap_fchdir_rights, &fdflags,
 	    &fp);
 	if (error != 0)
 		return (error);
+	if ((fdflags & UF_RESOLVE_BENEATH) != 0) {
+		fdrop(fp, td);
+		return (ENOTCAPABLE);
+	}
 	vp = fp->f_vnode;
 	vrefact(vp);
 	fdrop(fp, td);
@@ -1069,7 +1071,7 @@ flags_to_rights(int flags, cap_rights_t *rightsp)
 	if (flags & O_TRUNC)
 		cap_rights_set_one(rightsp, CAP_FTRUNCATE);
 
-	if (flags & (O_SYNC | O_FSYNC))
+	if (flags & (O_SYNC | O_FSYNC | O_DSYNC))
 		cap_rights_set_one(rightsp, CAP_FSYNC);
 
 	if (flags & (O_EXLOCK | O_SHLOCK))
@@ -1252,6 +1254,10 @@ success:
 		else
 #endif
 			fcaps = NULL;
+		if ((nd.ni_resflags & NIRES_BENEATH) != 0)
+			flags |= O_RESOLVE_BENEATH;
+		else
+			flags &= ~O_RESOLVE_BENEATH;
 		error = finstall_refed(td, fp, &indx, flags, fcaps);
 		/* On success finstall_refed() consumes fcaps. */
 		if (error != 0) {
@@ -1939,7 +1945,7 @@ kern_funlinkat(struct thread *td, int dfd, const char *path, int fd,
 
 	fp = NULL;
 	if (fd != FD_NONE) {
-		error = getvnode_path(td, fd, &cap_no_rights, &fp);
+		error = getvnode_path(td, fd, &cap_no_rights, NULL, &fp);
 		if (error != 0)
 			return (error);
 	}
@@ -2165,10 +2171,10 @@ kern_accessat(struct thread *td, int fd, const char *path,
 	cred = td->td_ucred;
 	if ((flag & AT_EACCESS) == 0 &&
 	    ((cred->cr_uid != cred->cr_ruid ||
-	    cred->cr_rgid != cred->cr_groups[0]))) {
+	    cred->cr_rgid != cred->cr_gid))) {
 		usecred = crdup(cred);
 		usecred->cr_uid = cred->cr_ruid;
-		usecred->cr_groups[0] = cred->cr_rgid;
+		usecred->cr_gid = cred->cr_rgid;
 		td->td_ucred = usecred;
 	} else
 		usecred = cred;
@@ -2746,7 +2752,7 @@ setfflags(struct thread *td, struct vnode *vp, u_long flags)
 	 * if they are allowed to set flags and programs assume that
 	 * chown can't fail when done as root.
 	 */
-	if (vp->v_type == VCHR || vp->v_type == VBLK) {
+	if (VN_ISDEV(vp)) {
 		error = priv_check(td, PRIV_VFS_CHFLAGS_DEV);
 		if (error != 0)
 			return (error);
@@ -4325,13 +4331,13 @@ out:
  * semantics.
  */
 int
-getvnode_path(struct thread *td, int fd, cap_rights_t *rightsp,
-    struct file **fpp)
+getvnode_path(struct thread *td, int fd, const cap_rights_t *rightsp,
+    uint8_t *flagsp, struct file **fpp)
 {
 	struct file *fp;
 	int error;
 
-	error = fget_unlocked(td, fd, rightsp, &fp);
+	error = fget_unlocked_flags(td, fd, rightsp, flagsp, &fp);
 	if (error != 0)
 		return (error);
 
@@ -4363,11 +4369,12 @@ getvnode_path(struct thread *td, int fd, cap_rights_t *rightsp,
  * A reference on the file entry is held upon returning.
  */
 int
-getvnode(struct thread *td, int fd, cap_rights_t *rightsp, struct file **fpp)
+getvnode(struct thread *td, int fd, const cap_rights_t *rightsp,
+    struct file **fpp)
 {
 	int error;
 
-	error = getvnode_path(td, fd, rightsp, fpp);
+	error = getvnode_path(td, fd, rightsp, NULL, fpp);
 	if (__predict_false(error != 0))
 		return (error);
 
@@ -4908,11 +4915,12 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 	size_t retlen;
 	void *rl_rcookie, *rl_wcookie;
 	off_t inoff, outoff, savinoff, savoutoff;
-	bool foffsets_locked;
+	bool foffsets_locked, foffsets_set;
 
 	infp = outfp = NULL;
 	rl_rcookie = rl_wcookie = NULL;
 	foffsets_locked = false;
+	foffsets_set = false;
 	error = 0;
 	retlen = 0;
 
@@ -4980,6 +4988,8 @@ kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
 		}
 		foffset_lock_pair(infp1, &inoff, outfp1, &outoff, 0);
 		foffsets_locked = true;
+	} else {
+		foffsets_set = true;
 	}
 	savinoff = inoff;
 	savoutoff = outoff;
@@ -5035,11 +5045,12 @@ out:
 		vn_rangelock_unlock(invp, rl_rcookie);
 	if (rl_wcookie != NULL)
 		vn_rangelock_unlock(outvp, rl_wcookie);
+	if ((foffsets_locked || foffsets_set) &&
+	    (error == EINTR || error == ERESTART)) {
+		inoff = savinoff;
+		outoff = savoutoff;
+	}
 	if (foffsets_locked) {
-		if (error == EINTR || error == ERESTART) {
-			inoff = savinoff;
-			outoff = savoutoff;
-		}
 		if (inoffp == NULL)
 			foffset_unlock(infp, inoff, 0);
 		else
@@ -5048,6 +5059,9 @@ out:
 			foffset_unlock(outfp, outoff, 0);
 		else
 			*outoffp = outoff;
+	} else if (foffsets_set) {
+		*inoffp = inoff;
+		*outoffp = outoff;
 	}
 	if (outfp != NULL)
 		fdrop(outfp, td);

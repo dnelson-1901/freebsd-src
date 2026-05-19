@@ -36,6 +36,7 @@
 #include <linux/mutex.h>
 #include <linux/if_ether.h>
 #include <linux/ethtool.h>
+#include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/netdevice.h>
 #include <linux/random.h>
@@ -43,6 +44,8 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <net/regulatory.h>
+
+#include <net80211/ieee80211.h>
 
 /* linux_80211.c */
 extern int linuxkpi_debug_80211;
@@ -53,9 +56,9 @@ extern int linuxkpi_debug_80211;
 #define	D80211_IMPROVE		0x2
 #endif
 #define	TODO(fmt, ...)		if (linuxkpi_debug_80211 & D80211_TODO)	\
-    printf("%s:%d: XXX LKPI80211 TODO " fmt "\n",  __func__, __LINE__, ##__VA_ARGS__)
-#define	IMPROVE(...)	if (linuxkpi_debug_80211 & D80211_IMPROVE)	\
-    printf("%s:%d: XXX LKPI80211 IMPROVE\n", __func__, __LINE__)
+    printf("%s:%d: XXX LKPI80211 TODO " fmt "\n", __func__, __LINE__, ##__VA_ARGS__)
+#define	IMPROVE(fmt, ...)	if (linuxkpi_debug_80211 & D80211_IMPROVE)	\
+    printf("%s:%d: XXX LKPI80211 IMPROVE " fmt "\n", __func__, __LINE__, ##__VA_ARGS__)
 
 enum rfkill_hard_block_reasons {
 	RFKILL_HARD_BLOCK_NOT_OWNER		= BIT(0),
@@ -125,19 +128,24 @@ struct ieee80211_txrx_stypes {
 	uint16_t	rx;
 };
 
-/* XXX net80211 has an ieee80211_channel as well. */
+/*
+ * net80211 has an ieee80211_channel as well; we use the linuxkpi_ version
+ * interally in LinuxKPI and re-define ieee80211_channel for the drivers
+ * at the end of the file.
+ */
 struct linuxkpi_ieee80211_channel {
-	/* TODO FIXME */
-	uint32_t				hw_value;	/* ic_ieee */
-	uint32_t				center_freq;	/* ic_freq */
-	enum ieee80211_channel_flags		flags;		/* ic_flags */
+	uint32_t				center_freq;
+	uint16_t				hw_value;
+	enum ieee80211_channel_flags		flags;
 	enum nl80211_band			band;
-	int8_t					max_power;	/* ic_maxpower */
 	bool					beacon_found;
-	int     max_antenna_gain, max_reg_power;
-	int     orig_flags;
-	int	dfs_cac_ms, dfs_state;
-	int	orig_mpwr;
+	enum nl80211_dfs_state			dfs_state;
+	unsigned int				dfs_cac_ms;
+	int					max_antenna_gain;
+	int					max_power;
+	int					max_reg_power;
+	uint32_t				orig_flags;
+	int					orig_mpwr;
 };
 
 struct cfg80211_bitrate_mask {
@@ -252,6 +260,19 @@ enum ieee80211_vht_opmode {
 	IEEE80211_OPMODE_NOTIF_RX_NSS_SHIFT	= 4,
 };
 
+struct cfg80211_bss_ies {
+	uint8_t				*data;
+	size_t				len;
+};
+
+struct cfg80211_bss {
+		/* XXX TODO */
+	struct cfg80211_bss_ies		*ies;
+	struct cfg80211_bss_ies		*beacon_ies;
+	uint64_t			ts_boottime;
+	int32_t				signal;
+};
+
 struct cfg80211_connect_resp_params {
 		/* XXX TODO */
 	uint8_t				*bssid;
@@ -259,7 +280,13 @@ struct cfg80211_connect_resp_params {
 	const uint8_t			*resp_ie;
 	uint32_t			req_ie_len;
 	uint32_t			resp_ie_len;
-	int	status;
+	int				status;
+	struct {
+		const uint8_t			*addr;
+		const uint8_t			*bssid;
+		struct cfg80211_bss		*bss;
+		uint16_t			status;
+	} links[IEEE80211_MLD_MAX_NUM_LINKS];
 };
 
 struct cfg80211_inform_bss {
@@ -276,19 +303,12 @@ struct cfg80211_roam_info {
 	uint32_t			req_ie_len;
 	uint32_t			resp_ie_len;
 	struct linuxkpi_ieee80211_channel	*channel;
-};
-
-struct cfg80211_bss_ies {
-	uint8_t				*data;
-	size_t				len;
-};
-
-struct cfg80211_bss {
-		/* XXX TODO */
-	struct cfg80211_bss_ies		*ies;
-	struct cfg80211_bss_ies		*beacon_ies;
-
-	int32_t				signal;
+	struct {
+		const uint8_t			*addr;
+		const uint8_t			*bssid;
+		struct cfg80211_bss		*bss;
+		struct linuxkpi_ieee80211_channel *channel;
+	} links[IEEE80211_MLD_MAX_NUM_LINKS];
 };
 
 struct cfg80211_chan_def {
@@ -396,6 +416,7 @@ struct cfg80211_scan_request {
 	bool					no_cck;
 	bool					scan_6ghz;
 	bool					duration_mandatory;
+	bool					first_part;
 	int8_t					tsf_report_link_id;
 	uint16_t				duration;
 	uint32_t				flags;
@@ -455,6 +476,24 @@ struct cfg80211_beacon_data {
 	uint32_t				assocresp_ies_len;
 };
 
+struct cfg80211_ap_update {
+	/* XXX TODO */
+	struct cfg80211_beacon_data		beacon;
+};
+
+struct cfg80211_crypto_settings {
+	/* XXX TODO */
+	enum nl80211_wpa_versions		wpa_versions;
+	uint32_t				cipher_group;	/* WLAN_CIPHER_SUITE_* */
+	uint32_t				*akm_suites;
+	uint32_t				*ciphers_pairwise;
+	const uint8_t				*sae_pwd;
+	const uint8_t				*psk;
+	int					n_akm_suites;
+	int					n_ciphers_pairwise;
+	int					sae_pwd_len;
+};
+
 struct cfg80211_ap_settings {
 	/* XXX TODO */
 	int     auth_type, beacon_interval, dtim_period, hidden_ssid, inactivity_timeout;
@@ -462,6 +501,7 @@ struct cfg80211_ap_settings {
 	size_t					ssid_len;
 	struct cfg80211_beacon_data		beacon;
 	struct cfg80211_chan_def		chandef;
+	struct cfg80211_crypto_settings		crypto;
 };
 
 struct cfg80211_bss_selection {
@@ -476,23 +516,12 @@ struct cfg80211_bss_selection {
 	} param;
 };
 
-struct cfg80211_crypto {		/* XXX made up name */
-	/* XXX TODO */
-	enum nl80211_wpa_versions		wpa_versions;
-	uint32_t				cipher_group;	/* WLAN_CIPHER_SUITE_* */
-	uint32_t				*akm_suites;
-	uint32_t				*ciphers_pairwise;
-	const uint8_t				*sae_pwd;
-	const uint8_t				*psk;
-	int					n_akm_suites;
-	int					n_ciphers_pairwise;
-	int					sae_pwd_len;
-};
-
 struct cfg80211_connect_params {
 	/* XXX TODO */
 	struct linuxkpi_ieee80211_channel	*channel;
+	struct linuxkpi_ieee80211_channel	*channel_hint;
 	uint8_t					*bssid;
+	uint8_t					*bssid_hint;
 	const uint8_t				*ie;
 	const uint8_t				*ssid;
 	uint32_t				ie_len;
@@ -501,7 +530,7 @@ struct cfg80211_connect_params {
 	uint32_t				key_len;
 	int     auth_type, key_idx, privacy, want_1x;
 	struct cfg80211_bss_selection		bss_select;
-	struct cfg80211_crypto			crypto;
+	struct cfg80211_crypto_settings		crypto;
 };
 
 enum bss_param_flags {		/* Used as bitflags. XXX FIXME values? */
@@ -530,6 +559,14 @@ struct cfg80211_mgmt_tx_params {
 	int	wait;
 };
 
+struct cfg80211_external_auth_params {
+	uint8_t					bssid[ETH_ALEN];
+        uint16_t				status;
+        enum nl80211_external_auth_action	action;
+        unsigned int				key_mgmt_suite;
+        struct cfg80211_ssid			ssid;
+};
+
 struct cfg80211_pmk_conf {
 	/* XXX TODO */
 	const uint8_t			*pmk;
@@ -540,6 +577,8 @@ struct cfg80211_pmksa {
 	/* XXX TODO */
 	const uint8_t			*bssid;
 	const uint8_t			*pmkid;
+	const uint8_t			*ssid;
+	size_t				ssid_len;
 };
 
 struct station_del_parameters {
@@ -640,176 +679,6 @@ struct linuxkpi_ieee80211_regdomain {
 	struct ieee80211_reg_rule		reg_rules[];
 };
 
-/* XXX-BZ this are insensible values probably ... */
-#define	IEEE80211_HE_MAC_CAP0_HTC_HE			0x1
-#define	IEEE80211_HE_MAC_CAP0_TWT_REQ			0x2
-#define	IEEE80211_HE_MAC_CAP0_TWT_RES			0x4
-
-#define	IEEE80211_HE_MAC_CAP1_LINK_ADAPTATION		0x1
-#define	IEEE80211_HE_MAC_CAP1_MULTI_TID_AGG_RX_QOS_8	0x2
-#define	IEEE80211_HE_MAC_CAP1_TF_MAC_PAD_DUR_16US	0x4
-#define	IEEE80211_HE_MAC_CAP1_TF_MAC_PAD_DUR_MASK	0x8
-
-#define	IEEE80211_HE_MAC_CAP2_32BIT_BA_BITMAP		0x1
-#define	IEEE80211_HE_MAC_CAP2_ACK_EN			0x2
-#define	IEEE80211_HE_MAC_CAP2_BSR			0x4
-#define	IEEE80211_HE_MAC_CAP2_LINK_ADAPTATION		0x8
-#define	IEEE80211_HE_MAC_CAP2_BCAST_TWT			0x10
-#define	IEEE80211_HE_MAC_CAP2_ALL_ACK			0x20
-#define	IEEE80211_HE_MAC_CAP2_MU_CASCADING		0x40
-#define	IEEE80211_HE_MAC_CAP2_TRS			0x80
-
-#define	IEEE80211_HE_MAC_CAP3_OMI_CONTROL		0x02
-#define	IEEE80211_HE_MAC_CAP3_OFDMA_RA			0x04
-#define	IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_EXT_1	0x08
-#define	IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_EXT_2	0x10
-#define	IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_EXT_3	0x18
-#define	IEEE80211_HE_MAC_CAP3_MAX_AMPDU_LEN_EXP_MASK	0x18
-#define	IEEE80211_HE_MAC_CAP3_FLEX_TWT_SCHED		0x40
-#define	IEEE80211_HE_MAC_CAP3_RX_CTRL_FRAME_TO_MULTIBSS	0x80
-
-#define	IEEE80211_HE_MAC_CAP4_AMDSU_IN_AMPDU		0x1
-#define	IEEE80211_HE_MAC_CAP4_BQR			0x2
-#define	IEEE80211_HE_MAC_CAP4_MULTI_TID_AGG_TX_QOS_B39	0x4
-#define	IEEE80211_HE_MAC_CAP4_AMSDU_IN_AMPDU		0x8
-#define	IEEE80211_HE_MAC_CAP4_OPS			0x10
-#define	IEEE80211_HE_MAC_CAP4_BSRP_BQRP_A_MPDU_AGG	0x20
-
-#define	IEEE80211_HE_MAC_CAP5_HE_DYNAMIC_SM_PS		0x1
-#define	IEEE80211_HE_MAC_CAP5_HT_VHT_TRIG_FRAME_RX	0x2
-#define	IEEE80211_HE_MAC_CAP5_MULTI_TID_AGG_TX_QOS_B40	0x4
-#define	IEEE80211_HE_MAC_CAP5_MULTI_TID_AGG_TX_QOS_B41	0x8
-#define	IEEE80211_HE_MAC_CAP5_UL_2x996_TONE_RU		0x10
-#define	IEEE80211_HE_MAC_CAP5_OM_CTRL_UL_MU_DATA_DIS_RX	0x20
-#define	IEEE80211_HE_MAC_CAP5_PUNCTURED_SOUNDING	0x40
-#define	IEEE80211_HE_MAC_CAP5_SUBCHAN_SELECTIVE_TRANSMISSION	0x80
-
-#define	IEEE80211_HE_MCS_NOT_SUPPORTED			0x0
-#define	IEEE80211_HE_MCS_SUPPORT_0_7			0x1
-#define	IEEE80211_HE_MCS_SUPPORT_0_9			0x2
-#define	IEEE80211_HE_MCS_SUPPORT_0_11			0x4
-
-#define	IEEE80211_HE_6GHZ_CAP_TX_ANTPAT_CONS		0x01
-#define	IEEE80211_HE_6GHZ_CAP_RX_ANTPAT_CONS		0x02
-#define	IEEE80211_HE_6GHZ_CAP_MIN_MPDU_START		0x04
-#define	IEEE80211_HE_6GHZ_CAP_MAX_MPDU_LEN		0x08
-#define	IEEE80211_HE_6GHZ_CAP_MAX_AMPDU_LEN_EXP		0x10
-#define	IEEE80211_HE_6GHZ_CAP_SM_PS			0x20
-
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G		0x1
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G	0x2
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_IN_2G		0x4
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_80PLUS80_MHZ_IN_5G	0x8
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_RU_MAPPING_IN_2G	0x10
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_RU_MAPPING_IN_5G	0x20
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_MASK			0x40
-#define	IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_MASK_ALL		0xff
-
-#define	IEEE80211_HE_PHY_CAP1_DEVICE_CLASS_A		0x1
-#define	IEEE80211_HE_PHY_CAP1_LDPC_CODING_IN_PAYLOAD	0x2
-#define	IEEE80211_HE_PHY_CAP1_MIDAMBLE_RX_TX_MAX_NSTS	0x4
-#define	IEEE80211_HE_PHY_CAP1_PREAMBLE_PUNC_RX_MASK	0x8
-#define	IEEE80211_HE_PHY_CAP1_HE_LTF_AND_GI_FOR_HE_PPDUS_0_8US	0x10
-
-#define	IEEE80211_HE_PHY_CAP2_MIDAMBLE_RX_TX_MAX_NSTS	0x1
-#define	IEEE80211_HE_PHY_CAP2_NDP_4x_LTF_AND_3_2US	0x2
-#define	IEEE80211_HE_PHY_CAP2_STBC_TX_UNDER_80MHZ	0x4
-#define	IEEE80211_HE_PHY_CAP2_STBC_RX_UNDER_80MHZ	0x8
-#define	IEEE80211_HE_PHY_CAP2_DOPPLER_TX		0x10
-#define	IEEE80211_HE_PHY_CAP2_UL_MU_PARTIAL_MU_MIMO	0x20
-#define	IEEE80211_HE_PHY_CAP2_UL_MU_FULL_MU_MIMO	0x40
-
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_MASK	0x1
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_NO_DCM	0x2
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_TX_NO_DCM	0x4
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_RX_NSS_1		0x8
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_TX_NSS_1		0x10
-#define	IEEE80211_HE_PHY_CAP3_SU_BEAMFORMER		0x20
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_16_QAM	0x40
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_TX_16_QAM	0x80
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_TX_NSS_2		0x10
-#define	IEEE80211_HE_PHY_CAP3_RX_PARTIAL_BW_SU_IN_20MHZ_MU	0x20
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_BPSK	0x40
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_TX_BPSK	0x80
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_TX_MASK	0x80
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_RX_QPSK	0x80
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_CONST_TX_QPSK	0x80
-#define	IEEE80211_HE_PHY_CAP3_DCM_MAX_RX_NSS_2		0x80
-
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_8	0x1
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_8	0x2
-#define	IEEE80211_HE_PHY_CAP4_SU_BEAMFORMEE			0x4
-#define	IEEE80211_HE_PHY_CAP4_MU_BEAMFORMER			0x8
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_4	0x10
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_4	0x20
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_MASK	0x40
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_MASK	0x80
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_UNDER_80MHZ_5		0x80
-#define	IEEE80211_HE_PHY_CAP4_BEAMFORMEE_MAX_STS_ABOVE_80MHZ_5		0x80
-
-#define	IEEE80211_HE_PHY_CAP5_BEAMFORMEE_NUM_SND_DIM_ABOVE_80MHZ_2	0x1
-#define	IEEE80211_HE_PHY_CAP5_BEAMFORMEE_NUM_SND_DIM_UNDER_80MHZ_2	0x2
-#define	IEEE80211_HE_PHY_CAP5_BEAMFORMEE_NUM_SND_DIM_UNDER_80MHZ_MASK	0x4
-#define	IEEE80211_HE_PHY_CAP5_NG16_MU_FEEDBACK				0x8
-#define	IEEE80211_HE_PHY_CAP5_NG16_SU_FEEDBACK				0x10
-#define	IEEE80211_HE_PHY_CAP5_BEAMFORMEE_NUM_SND_DIM_ABOVE_80MHZ_MASK	0x20
-
-#define	IEEE80211_HE_PHY_CAP6_PPE_THRESHOLD_PRESENT	0x1
-#define	IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMER_FB	0x2
-#define	IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMER_FB	0x4
-#define	IEEE80211_HE_PHY_CAP6_TRIG_SU_BEAMFORMING_FB	0x8
-#define	IEEE80211_HE_PHY_CAP6_TRIG_MU_BEAMFORMING_PARTIAL_BW_FB	0x20
-#define	IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_42_SU	0x40
-#define	IEEE80211_HE_PHY_CAP6_CODEBOOK_SIZE_75_MU	0x80
-#define	IEEE80211_HE_PHY_CAP6_PARTIAL_BW_EXT_RANGE	0x80
-#define	IEEE80211_HE_PHY_CAP6_TRIG_CQI_FB		0x80
-#define	IEEE80211_HE_PHY_CAP6_PARTIAL_BANDWIDTH_DL_MUMIMO	0x80
-
-#define	IEEE80211_HE_PHY_CAP7_HE_SU_MU_PPDU_4XLTF_AND_08_US_GI	0x1
-#define	IEEE80211_HE_PHY_CAP7_MAX_NC_1				0x2
-#define	IEEE80211_HE_PHY_CAP7_MAX_NC_2				0x4
-#define	IEEE80211_HE_PHY_CAP7_MAX_NC_MASK			0x6
-#define	IEEE80211_HE_PHY_CAP7_POWER_BOOST_FACTOR_AR		0x8
-#define	IEEE80211_HE_PHY_CAP7_POWER_BOOST_FACTOR_SUPP		0x10
-#define	IEEE80211_HE_PHY_CAP7_STBC_RX_ABOVE_80MHZ		0x20
-#define	IEEE80211_HE_PHY_CAP7_STBC_TX_ABOVE_80MHZ		0x40
-#define	IEEE80211_HE_PHY_CAP7_PSR_BASED_SR			0x80
-
-#define	IEEE80211_HE_PHY_CAP8_20MHZ_IN_160MHZ_HE_PPDU		0x1
-#define	IEEE80211_HE_PHY_CAP8_20MHZ_IN_40MHZ_HE_PPDU_IN_2G	0x2
-#define	IEEE80211_HE_PHY_CAP8_80MHZ_IN_160MHZ_HE_PPDU		0x4
-#define	IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_242			0x8
-#define	IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_484			0x10
-#define	IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_996			0x18
-#define	IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_2x996			0x20
-#define	IEEE80211_HE_PHY_CAP8_DCM_MAX_RU_MASK			0x28
-#define	IEEE80211_HE_PHY_CAP8_HE_ER_SU_PPDU_4XLTF_AND_08_US_GI	0x40
-#define	IEEE80211_HE_PHY_CAP8_HE_ER_SU_1XLTF_AND_08_US_GI	0x80
-
-#define	IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_0US		0x1
-#define	IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_16US		0x2
-#define	IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_8US		0x4
-#define	IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_MASK		0x8
-#define	IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_RESERVED	0x10
-#define	IEEE80211_HE_PHY_CAP9_NOMINAL_PKT_PADDING_POS		0x0
-#define	IEEE80211_HE_PHY_CAP9_NON_TRIGGERED_CQI_FEEDBACK	0x20
-#define	IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_COMP_SIGB	0x4
-#define	IEEE80211_HE_PHY_CAP9_RX_FULL_BW_SU_USING_MU_WITH_NON_COMP_SIGB	0x8
-#define	IEEE80211_HE_PHY_CAP9_RX_1024_QAM_LESS_THAN_242_TONE_RU	0x10
-#define	IEEE80211_HE_PHY_CAP9_TX_1024_QAM_LESS_THAN_242_TONE_RU	0x20
-#define	IEEE80211_HE_PHY_CAP9_LONGER_THAN_16_SIGB_OFDM_SYM	0x40
-
-#define	IEEE80211_HE_PHY_CAP10_HE_MU_M1RU_MAX_LTF		0x1
-
-#define	IEEE80211_HE_OPERATION_BSS_COLOR_DISABLED		0x1
-#define	IEEE80211_HE_OPERATION_BSS_COLOR_OFFSET			0x2
-#define	IEEE80211_HE_OPERATION_ER_SU_DISABLE			0x4
-
-#define	IEEE80211_HE_SPR_HESIGA_SR_VAL15_ALLOWED		0x01
-#define	IEEE80211_HE_SPR_NON_SRG_OBSS_PD_SR_DISALLOWED		0x02
-#define	IEEE80211_HE_SPR_NON_SRG_OFFSET_PRESENT			0x04
-#define	IEEE80211_HE_SPR_SRG_INFORMATION_PRESENT		0x08
-
 #define	IEEE80211_EHT_MAC_CAP0_EPCS_PRIO_ACCESS			0x01
 #define	IEEE80211_EHT_MAC_CAP0_MAX_MPDU_LEN_11454		0x02
 #define	IEEE80211_EHT_MAC_CAP0_MAX_MPDU_LEN_MASK		0x03
@@ -890,33 +759,19 @@ struct linuxkpi_ieee80211_regdomain {
 #define	IEEE80211_EML_CAP_TRANSITION_TIMEOUT_128TU		0x04
 #define	IEEE80211_EML_CAP_EMLSR_PADDING_DELAY			0x08
 #define	IEEE80211_EML_CAP_EMLSR_PADDING_DELAY_32US		0x10
+#define	IEEE80211_EML_CAP_EMLSR_PADDING_DELAY_256US		0x10
 #define	IEEE80211_EML_CAP_EMLSR_TRANSITION_DELAY		0x20
 #define	IEEE80211_EML_CAP_EMLSR_TRANSITION_DELAY_64US		0x40
+#define	IEEE80211_EML_CAP_EMLSR_TRANSITION_DELAY_256US		0x40
 
 #define	VENDOR_CMD_RAW_DATA	(void *)(uintptr_t)(-ENOENT)
 
-struct ieee80211_he_cap_elem {
-	u8 mac_cap_info[6];
-	u8 phy_cap_info[11];
-} __packed;
-
-struct ieee80211_he_mcs_nss_supp {
-	/* TODO FIXME */
-	uint32_t	rx_mcs_80;
-	uint32_t	tx_mcs_80;
-	uint32_t	rx_mcs_160;
-	uint32_t	tx_mcs_160;
-	uint32_t	rx_mcs_80p80;
-	uint32_t	tx_mcs_80p80;
-};
-
-#define	IEEE80211_STA_HE_CAP_PPE_THRES_MAX	32
+/* net80211::net80211_he_cap */
 struct ieee80211_sta_he_cap {
-	/* TODO FIXME */
-	int					has_he;
+	bool					has_he;
 	struct ieee80211_he_cap_elem		he_cap_elem;
 	struct ieee80211_he_mcs_nss_supp	he_mcs_nss_supp;
-	uint8_t					ppe_thres[IEEE80211_STA_HE_CAP_PPE_THRES_MAX];
+	uint8_t					ppe_thres[IEEE80211_HE_CAP_PPE_THRES_MAX];
 };
 
 struct cfg80211_he_bss_color {
@@ -1137,6 +992,27 @@ struct cfg80211_set_hw_timestamp {
 	bool					enable;
 };
 
+struct survey_info {		/* net80211::struct ieee80211_channel_survey */
+	/* TODO FIXME */
+	uint32_t			filled;
+#define	SURVEY_INFO_TIME		0x0001
+#define	SURVEY_INFO_TIME_RX		0x0002
+#define	SURVEY_INFO_TIME_SCAN		0x0004
+#define	SURVEY_INFO_TIME_TX		0x0008
+#define	SURVEY_INFO_TIME_BSS_RX		0x0010
+#define	SURVEY_INFO_TIME_BUSY		0x0020
+#define	SURVEY_INFO_IN_USE		0x0040
+#define	SURVEY_INFO_NOISE_DBM		0x0080
+	uint32_t			noise;
+	uint64_t			time;
+	uint64_t			time_bss_rx;
+	uint64_t			time_busy;
+	uint64_t			time_rx;
+	uint64_t			time_scan;
+	uint64_t			time_tx;
+	struct linuxkpi_ieee80211_channel *channel;
+};
+
 enum wiphy_vendor_cmd_need_flags {
 	WIPHY_VENDOR_CMD_NEED_NETDEV		= 0x01,
 	WIPHY_VENDOR_CMD_NEED_RUNNING		= 0x02,
@@ -1294,49 +1170,53 @@ struct wireless_dev {
 struct cfg80211_ops {
 	/* XXX TODO */
 	struct wireless_dev *(*add_virtual_intf)(struct wiphy *, const char *, unsigned char, enum nl80211_iftype, struct vif_params *);
-	int (*del_virtual_intf)(struct wiphy *,  struct wireless_dev *);
-	s32 (*change_virtual_intf)(struct wiphy *,  struct net_device *, enum nl80211_iftype, struct vif_params *);
-	s32 (*scan)(struct wiphy *,  struct cfg80211_scan_request *);
-	s32 (*set_wiphy_params)(struct wiphy *,  u32);
-	s32 (*join_ibss)(struct wiphy *,  struct net_device *, struct cfg80211_ibss_params *);
-	s32 (*leave_ibss)(struct wiphy *,  struct net_device *);
-	s32 (*get_station)(struct wiphy *, struct net_device *, const u8 *, struct station_info *);
-	int (*dump_station)(struct wiphy *,  struct net_device *, int,  u8 *,  struct station_info *);
-	s32 (*set_tx_power)(struct wiphy *,  struct wireless_dev *, enum nl80211_tx_power_setting,  s32);
-	s32 (*get_tx_power)(struct wiphy *,  struct wireless_dev *, s32 *);
-	s32 (*add_key)(struct wiphy *,  struct net_device *, u8,  bool,  const u8 *, struct key_params *);
-	s32 (*del_key)(struct wiphy *,  struct net_device *, u8,  bool,  const u8 *);
-	s32 (*get_key)(struct wiphy *,  struct net_device *,  u8, bool,  const u8 *,  void *, void(*)(void *, struct key_params *));
-	s32 (*set_default_key)(struct wiphy *,  struct net_device *, u8,  bool,  bool);
-	s32 (*set_default_mgmt_key)(struct wiphy *, struct net_device *,  u8);
-	s32 (*set_power_mgmt)(struct wiphy *,  struct net_device *, bool,  s32);
-	s32 (*connect)(struct wiphy *,  struct net_device *, struct cfg80211_connect_params *);
-	s32 (*disconnect)(struct wiphy *,  struct net_device *, u16);
-	s32 (*suspend)(struct wiphy *, struct cfg80211_wowlan *);
-	s32 (*resume)(struct wiphy *);
-	s32 (*set_pmksa)(struct wiphy *, struct net_device *, struct cfg80211_pmksa *);
-	s32 (*del_pmksa)(struct wiphy *, struct net_device *, struct cfg80211_pmksa *);
-	s32 (*flush_pmksa)(struct wiphy *,  struct net_device *);
-	s32 (*start_ap)(struct wiphy *,  struct net_device *, struct cfg80211_ap_settings *);
-	int (*stop_ap)(struct wiphy *,  struct net_device *);
-	s32 (*change_beacon)(struct wiphy *,  struct net_device *, struct cfg80211_beacon_data *);
-	int (*del_station)(struct wiphy *,  struct net_device *, struct station_del_parameters *);
-	int (*change_station)(struct wiphy *,  struct net_device *, const u8 *,  struct station_parameters *);
+	int (*del_virtual_intf)(struct wiphy *, struct wireless_dev *);
+	int (*change_virtual_intf)(struct wiphy *, struct net_device *, enum nl80211_iftype, struct vif_params *);
+	int (*scan)(struct wiphy *, struct cfg80211_scan_request *);
+	int (*set_wiphy_params)(struct wiphy *, int, uint32_t);
+	int (*join_ibss)(struct wiphy *, struct net_device *, struct cfg80211_ibss_params *);
+	int (*leave_ibss)(struct wiphy *, struct net_device *);
+	int (*get_station)(struct wiphy *, struct net_device *, const uint8_t *, struct station_info *);
+	int (*dump_station)(struct wiphy *, struct net_device *, int, uint8_t *, struct station_info *);
+	int (*set_tx_power)(struct wiphy *, struct wireless_dev *, int, enum nl80211_tx_power_setting, int);
+	int (*get_tx_power)(struct wiphy *, struct wireless_dev *, int, unsigned int, int *);
+	int (*add_key)(struct wiphy *, struct net_device *, int, uint8_t, bool, const uint8_t *, struct key_params *);
+	int (*del_key)(struct wiphy *, struct net_device *, int, uint8_t, bool, const uint8_t *);
+	int (*get_key)(struct wiphy *, struct net_device *, int, uint8_t, bool, const uint8_t *, void *, void(*)(void *, struct key_params *));
+	int (*set_default_key)(struct wiphy *, struct net_device *, int, uint8_t, bool, bool);
+	int (*set_default_mgmt_key)(struct wiphy *, struct net_device *, int, uint8_t);
+	int (*set_power_mgmt)(struct wiphy *, struct net_device *, bool, int);
+	int (*connect)(struct wiphy *, struct net_device *, struct cfg80211_connect_params *);
+	int (*disconnect)(struct wiphy *, struct net_device *, uint16_t);
+	int (*suspend)(struct wiphy *, struct cfg80211_wowlan *);
+	int (*resume)(struct wiphy *);
+	int (*set_pmksa)(struct wiphy *, struct net_device *, struct cfg80211_pmksa *);
+	int (*del_pmksa)(struct wiphy *, struct net_device *, struct cfg80211_pmksa *);
+	int (*flush_pmksa)(struct wiphy *, struct net_device *);
+	int (*start_ap)(struct wiphy *, struct net_device *, struct cfg80211_ap_settings *);
+	int (*stop_ap)(struct wiphy *, struct net_device *, unsigned int);
+	int (*change_beacon)(struct wiphy *, struct net_device *, struct cfg80211_ap_update *);
+	int (*del_station)(struct wiphy *, struct net_device *, struct station_del_parameters *);
+	int (*change_station)(struct wiphy *, struct net_device *, const uint8_t *, struct station_parameters *);
 	int (*sched_scan_start)(struct wiphy *, struct net_device *, struct cfg80211_sched_scan_request *);
-	int (*sched_scan_stop)(struct wiphy *, struct net_device *,  u64);
+	int (*sched_scan_stop)(struct wiphy *, struct net_device *, uint64_t);
 	void (*update_mgmt_frame_registrations)(struct wiphy *, struct wireless_dev *, struct mgmt_frame_regs *);
-	int (*mgmt_tx)(struct wiphy *,  struct wireless_dev *, struct cfg80211_mgmt_tx_params *,  u64 *);
-	int (*cancel_remain_on_channel)(struct wiphy *, struct wireless_dev *, u64);
-	int (*get_channel)(struct wiphy *, struct wireless_dev *, struct cfg80211_chan_def *);
-	int (*crit_proto_start)(struct wiphy *, struct wireless_dev *, enum nl80211_crit_proto_id, u16);
+	int (*mgmt_tx)(struct wiphy *, struct wireless_dev *, struct cfg80211_mgmt_tx_params *, uint64_t *);
+	int (*cancel_remain_on_channel)(struct wiphy *, struct wireless_dev *, uint64_t);
+	int (*get_channel)(struct wiphy *, struct wireless_dev *, unsigned int, struct cfg80211_chan_def *);
+	int (*crit_proto_start)(struct wiphy *, struct wireless_dev *, enum nl80211_crit_proto_id, uint16_t);
 	void (*crit_proto_stop)(struct wiphy *, struct wireless_dev *);
-	int (*tdls_oper)(struct wiphy *, struct net_device *,  const u8 *, enum nl80211_tdls_operation);
-	int (*update_connect_params)(struct wiphy *, struct net_device *, struct cfg80211_connect_params *, u32);
-	int (*set_pmk)(struct wiphy *,  struct net_device *, const struct cfg80211_pmk_conf *);
-	int (*del_pmk)(struct wiphy *,  struct net_device *, const u8 *);
-	int (*remain_on_channel)(struct wiphy *,  struct wireless_dev *, struct linuxkpi_ieee80211_channel *, unsigned int,  u64 *);
-	int (*start_p2p_device)(struct wiphy *,  struct wireless_dev *);
-	void (*stop_p2p_device)(struct wiphy *,  struct wireless_dev *);
+	int (*tdls_oper)(struct wiphy *, struct net_device *, const uint8_t *, enum nl80211_tdls_operation);
+	int (*update_connect_params)(struct wiphy *, struct net_device *, struct cfg80211_connect_params *, uint32_t);
+	int (*set_pmk)(struct wiphy *, struct net_device *, const struct cfg80211_pmk_conf *);
+	int (*del_pmk)(struct wiphy *, struct net_device *, const uint8_t *);
+	int (*remain_on_channel)(struct wiphy *, struct wireless_dev *, struct linuxkpi_ieee80211_channel *, unsigned int, uint64_t *);
+	int (*start_p2p_device)(struct wiphy *, struct wireless_dev *);
+	void (*stop_p2p_device)(struct wiphy *, struct wireless_dev *);
+	int (*dump_survey)(struct wiphy *, struct net_device *, int, struct survey_info *);
+	int (*external_auth)(struct wiphy *, struct net_device *, struct cfg80211_external_auth_params *);
+        int (*set_cqm_rssi_range_config)(struct wiphy *, struct net_device *, int, int);
+
 };
 
 
@@ -1354,6 +1234,8 @@ void lkpi_wiphy_delayed_work_timer(struct timer_list *);
 void linuxkpi_wiphy_delayed_work_queue(struct wiphy *,
     struct wiphy_delayed_work *, unsigned long);
 void linuxkpi_wiphy_delayed_work_cancel(struct wiphy *,
+    struct wiphy_delayed_work *);
+void linuxkpi_wiphy_delayed_work_flush(struct wiphy *,
     struct wiphy_delayed_work *);
 
 int linuxkpi_regulatory_set_wiphy_regd_sync(struct wiphy *wiphy,
@@ -1408,24 +1290,30 @@ wiphy_dev(struct wiphy *wiphy)
 	return (wiphy->dev);
 }
 
-#define	wiphy_dereference(wiphy, p)					\
-    rcu_dereference_check(p, lockdep_is_held(&(wiphy)->mtx))
+#define	wiphy_dereference(_w, p)					\
+    rcu_dereference_check(p, lockdep_is_held(&(_w)->mtx))
 
-static __inline void
-wiphy_lock(struct wiphy *wiphy)
-{
-	mutex_lock(&wiphy->mtx);
-}
-
-static __inline void
-wiphy_unlock(struct wiphy *wiphy)
-{
-	mutex_unlock(&wiphy->mtx);
-}
+#define	wiphy_lock(_w)		mutex_lock(&(_w)->mtx)
+#define	wiphy_unlock(_w)	mutex_unlock(&(_w)->mtx)
 
 static __inline void
 wiphy_rfkill_set_hw_state_reason(struct wiphy *wiphy, bool blocked,
     enum rfkill_hard_block_reasons reason)
+{
+	TODO();
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline int
+cfg80211_register_netdevice(struct net_device *ndev)
+{
+	TODO();
+	return (-ENXIO);
+}
+
+static inline void
+cfg80211_unregister_netdevice(struct net_device *ndev)
 {
 	TODO();
 }
@@ -1489,21 +1377,20 @@ reg_query_regdb_wmm(uint8_t *alpha2, uint32_t center_freq,
     struct ieee80211_reg_rule *rule)
 {
 
-	/* ETSI has special rules. FreeBSD regdb needs to learn about them. */
-	TODO();
+	IMPROVE("regdomain.xml needs to grow wmm information for at least ETSI");
 
-	return (-ENXIO);
+	return (-ENODATA);
 }
 
-static __inline const u8 *
-cfg80211_find_ie_match(uint32_t f, const u8 *ies, size_t ies_len,
-    const u8 *match, int x, int y)
+static __inline const uint8_t *
+cfg80211_find_ie_match(uint32_t f, const uint8_t *ies, size_t ies_len,
+    const uint8_t *match, int x, int y)
 {
 	TODO();
 	return (NULL);
 }
 
-static __inline const u8 *
+static __inline const uint8_t *
 cfg80211_find_ie(uint8_t eid, const uint8_t *ie, uint32_t ielen)
 {
 	TODO();
@@ -1525,6 +1412,36 @@ cfg80211_pmsr_report(struct wireless_dev *wdev,
 	TODO();
 }
 
+static inline int
+nl80211_chan_width_to_mhz(enum nl80211_chan_width width)
+{
+	switch (width) {
+	case NL80211_CHAN_WIDTH_5:
+		return (5);
+		break;
+	case NL80211_CHAN_WIDTH_10:
+		return (10);
+		break;
+	case NL80211_CHAN_WIDTH_20_NOHT:
+	case NL80211_CHAN_WIDTH_20:
+		return (20);
+		break;
+	case NL80211_CHAN_WIDTH_40:
+		return (40);
+		break;
+	case NL80211_CHAN_WIDTH_80:
+	case NL80211_CHAN_WIDTH_80P80:
+		return (80);
+		break;
+	case NL80211_CHAN_WIDTH_160:
+		return (160);
+		break;
+	case NL80211_CHAN_WIDTH_320:
+		return (320);
+		break;
+	}
+}
+
 static inline void
 cfg80211_chandef_create(struct cfg80211_chan_def *chandef,
     struct linuxkpi_ieee80211_channel *chan, enum nl80211_channel_type chan_type)
@@ -1533,7 +1450,7 @@ cfg80211_chandef_create(struct cfg80211_chan_def *chandef,
 	KASSERT(chandef != NULL, ("%s: chandef is NULL\n", __func__));
 	KASSERT(chan != NULL, ("%s: chan is NULL\n", __func__));
 
-	/* memset(chandef, 0, sizeof(*chandef)); */
+	memset(chandef, 0, sizeof(*chandef));
 	chandef->chan = chan;
 	chandef->center_freq1 = chan->center_freq;
 	/* chandef->width, center_freq2, punctured */
@@ -1561,6 +1478,12 @@ cfg80211_chandef_valid(const struct cfg80211_chan_def *chandef)
 {
 	TODO();
 	return (false);
+}
+
+static inline int
+cfg80211_chandef_get_width(const struct cfg80211_chan_def *chandef)
+{
+	return (nl80211_chan_width_to_mhz(chandef->width));
 }
 
 static __inline bool
@@ -1874,8 +1797,8 @@ cfg80211_disconnected(struct net_device *ndev, uint16_t reason,
 }
 
 static __inline int
-cfg80211_get_p2p_attr(const u8 *ie, u32 ie_len,
-    enum ieee80211_p2p_attr_ids attr, u8 *p, size_t p_len)
+cfg80211_get_p2p_attr(const uint8_t *ie, uint32_t ie_len,
+    enum ieee80211_p2p_attr_ids attr, uint8_t *p, size_t p_len)
 {
 	TODO();
 	return (-1);
@@ -1911,13 +1834,13 @@ cfg80211_inform_bss_data(struct wiphy *wiphy,
 
 static __inline void
 cfg80211_mgmt_tx_status(struct wireless_dev *wdev, uint64_t cookie,
-    const u8 *buf, size_t len, bool ack, gfp_t gfp)
+    const uint8_t *buf, size_t len, bool ack, gfp_t gfp)
 {
 	TODO();
 }
 
 static __inline void
-cfg80211_michael_mic_failure(struct net_device *ndev, const uint8_t *addr,
+cfg80211_michael_mic_failure(struct net_device *ndev, const uint8_t addr[ETH_ALEN],
     enum nl80211_key_type key_type, int _x, void *p, gfp_t gfp)
 {
 	TODO();
@@ -1937,8 +1860,8 @@ cfg80211_del_sta(struct net_device *ndev, const uint8_t *addr, gfp_t gfp)
 }
 
 static __inline void
-cfg80211_port_authorized(struct net_device *ndev, const uint8_t *bssid,
-    gfp_t gfp)
+cfg80211_port_authorized(struct net_device *ndev, const uint8_t *addr,
+    const uint8_t *bitmap, uint8_t len, gfp_t gfp)
 {
 	TODO();
 }
@@ -2121,7 +2044,7 @@ cfg80211_background_radar_event(struct wiphy *wiphy,
 	TODO();
 }
 
-static __inline const u8 *
+static __inline const uint8_t *
 cfg80211_find_ext_ie(uint8_t eid, const uint8_t *p, size_t len)
 {
 	TODO();
@@ -2219,6 +2142,14 @@ cfg80211_get_iftype_ext_capa(struct wiphy *wiphy, enum nl80211_iftype iftype)
 	return (NULL);
 }
 
+static inline int
+cfg80211_external_auth_request(struct net_device *ndev,
+    struct cfg80211_external_auth_params *params, gfp_t gfp)
+{
+	TODO();
+	return (-ENXIO);
+}
+
 static inline uint16_t
 ieee80211_get_he_6ghz_capa(const struct ieee80211_supported_band *sband,
     enum nl80211_iftype iftype)
@@ -2227,35 +2158,17 @@ ieee80211_get_he_6ghz_capa(const struct ieee80211_supported_band *sband,
 	return (0);
 }
 
-static inline int
-nl80211_chan_width_to_mhz(enum nl80211_chan_width width)
+static __inline ssize_t
+wiphy_locked_debugfs_read(struct wiphy *wiphy, struct file *file,
+    char *buf, size_t bufsize, const char __user *userbuf, size_t count,
+    loff_t *ppos,
+    ssize_t (*handler)(struct wiphy *, struct file *, char *, size_t, void *),
+    void *data)
 {
-	switch (width) {
-	case NL80211_CHAN_WIDTH_5:
-		return (5);
-		break;
-	case NL80211_CHAN_WIDTH_10:
-		return (10);
-		break;
-	case NL80211_CHAN_WIDTH_20_NOHT:
-	case NL80211_CHAN_WIDTH_20:
-		return (20);
-		break;
-	case NL80211_CHAN_WIDTH_40:
-		return (40);
-		break;
-	case NL80211_CHAN_WIDTH_80:
-	case NL80211_CHAN_WIDTH_80P80:
-		return (80);
-		break;
-	case NL80211_CHAN_WIDTH_160:
-		return (160);
-		break;
-	case NL80211_CHAN_WIDTH_320:
-		return (320);
-		break;
-	}
+	TODO();
+	return (-ENXIO);
 }
+
 
 static __inline ssize_t
 wiphy_locked_debugfs_write(struct wiphy *wiphy, struct file *file,
@@ -2265,6 +2178,13 @@ wiphy_locked_debugfs_write(struct wiphy *wiphy, struct file *file,
 {
 	TODO();
 	return (-ENXIO);
+}
+
+static inline void
+cfg80211_cqm_rssi_notify(struct net_device *dev,
+    enum nl80211_cqm_rssi_threshold_event rssi_te, int32_t rssi, gfp_t gfp)
+{
+	TODO();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2312,6 +2232,12 @@ static inline void
 wiphy_delayed_work_cancel(struct wiphy *wiphy, struct wiphy_delayed_work *wdwk)
 {
 	linuxkpi_wiphy_delayed_work_cancel(wiphy, wdwk);
+}
+
+static inline void
+wiphy_delayed_work_flush(struct wiphy *wiphy, struct wiphy_delayed_work *wdwk)
+{
+	linuxkpi_wiphy_delayed_work_flush(wiphy, wdwk);
 }
 
 /* -------------------------------------------------------------------------- */

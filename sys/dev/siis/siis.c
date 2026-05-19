@@ -432,7 +432,7 @@ static device_method_t siis_methods[] = {
 	DEVMETHOD(bus_teardown_intr,siis_teardown_intr),
 	DEVMETHOD(bus_child_location, siis_child_location),
 	DEVMETHOD(bus_get_dma_tag,  siis_get_dma_tag),
-	{ 0, 0 }
+	DEVMETHOD_END
 };
 
 static driver_t siis_driver = {
@@ -630,7 +630,7 @@ static device_method_t siisch_methods[] = {
 	DEVMETHOD(device_detach,    siis_ch_detach),
 	DEVMETHOD(device_suspend,   siis_ch_suspend),
 	DEVMETHOD(device_resume,    siis_ch_resume),
-	{ 0, 0 }
+	DEVMETHOD_END
 };
 
 static driver_t siisch_driver = {
@@ -1396,7 +1396,7 @@ completeall:
 	}
 	xpt_setup_ccb(&ccb->ccb_h, ch->hold[i]->ccb_h.path,
 	    ch->hold[i]->ccb_h.pinfo.priority);
-	if (ccb->ccb_h.func_code == XPT_ATA_IO) {
+	if (ch->hold[i]->ccb_h.func_code == XPT_ATA_IO) {
 		/* READ LOG */
 		ccb->ccb_h.recovery_type = RECOVERY_READ_LOG;
 		ccb->ccb_h.func_code = XPT_ATA_IO;

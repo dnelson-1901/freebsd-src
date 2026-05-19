@@ -258,7 +258,7 @@ null_bypass(struct vop_generic_args *ap)
 		 * that aren't.  (We must always map first vp or vclean fails.)
 		 */
 		if (i != 0 && (*this_vp_p == NULLVP ||
-		    (*this_vp_p)->v_op != &null_vnodeops)) {
+		    !null_is_nullfs_vnode(*this_vp_p))) {
 			old_vps[i] = NULLVP;
 		} else {
 			old_vps[i] = *this_vp_p;
@@ -407,17 +407,25 @@ null_lookup(struct vop_lookup_args *ap)
 
 	/*
 	 * Renames in the lower mounts might create an inconsistent
-	 * configuration where lower vnode is moved out of the
-	 * directory tree remounted by our null mount.  Do not try to
-	 * handle it fancy, just avoid VOP_LOOKUP() with DOTDOT name
-	 * which cannot be handled by VOP, at least passing over lower
-	 * root.
+	 * configuration where lower vnode is moved out of the directory tree
+	 * remounted by our null mount.
+	 *
+	 * Do not try to handle it fancy, just avoid VOP_LOOKUP() with DOTDOT
+	 * name which cannot be handled by the VOP.
 	 */
-	if ((ldvp->v_vflag & VV_ROOT) != 0 && (flags & ISDOTDOT) != 0) {
-		KASSERT((dvp->v_vflag & VV_ROOT) == 0,
-		    ("ldvp %p fl %#x dvp %p fl %#x flags %#jx",
-		    ldvp, ldvp->v_vflag, dvp, dvp->v_vflag, (uintmax_t)flags));
-		return (ENOENT);
+	if ((flags & ISDOTDOT) != 0) {
+		struct nameidata *ndp;
+
+		if ((ldvp->v_vflag & VV_ROOT) != 0) {
+			KASSERT((dvp->v_vflag & VV_ROOT) == 0,
+			    ("ldvp %p fl %#x dvp %p fl %#x flags %#jx",
+			    ldvp, ldvp->v_vflag, dvp, dvp->v_vflag,
+			    (uintmax_t)flags));
+			return (ENOENT);
+		}
+		ndp = vfs_lookup_nameidata(cnp);
+		if (ndp != NULL && vfs_lookup_isroot(ndp, ldvp))
+			return (ENOENT);
 	}
 
 	/*
@@ -1184,3 +1192,11 @@ struct vop_vector null_vnodeops = {
 	.vop_copy_file_range =	VOP_PANIC,
 };
 VFS_VOP_VECTOR_REGISTER(null_vnodeops);
+
+struct vop_vector null_vnodeops_no_unp_bypass = {
+	.vop_default =		&null_vnodeops,
+	.vop_unp_bind =		vop_stdunp_bind,
+	.vop_unp_connect =	vop_stdunp_connect,
+	.vop_unp_detach =	vop_stdunp_detach,
+};
+VFS_VOP_VECTOR_REGISTER(null_vnodeops_no_unp_bypass);

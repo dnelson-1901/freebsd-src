@@ -3574,7 +3574,7 @@ hn_rxpkt(struct hn_rx_ring *rxr)
 	}
 
 	/*
-	 * If VF is activated (tranparent/non-transparent mode does not
+	 * If VF is activated (transparent/non-transparent mode does not
 	 * matter here).
 	 *
 	 * - Disable LRO
@@ -3591,7 +3591,7 @@ hn_rxpkt(struct hn_rx_ring *rxr)
 		do_lro = 0;
 
 	/*
-	 * If VF is activated (tranparent/non-transparent mode does not
+	 * If VF is activated (transparent/non-transparent mode does not
 	 * matter here), do _not_ mess with unsupported hash types or
 	 * functions.
 	 */
@@ -3763,14 +3763,16 @@ hn_ioctl(if_t ifp, u_long cmd, caddr_t data)
 			ifr_vf = *ifr;
 			strlcpy(ifr_vf.ifr_name, if_name(vf_ifp),
 			    sizeof(ifr_vf.ifr_name));
-			error = ifhwioctl(SIOCSIFMTU,vf_ifp, 
+			error = ifhwioctl(SIOCSIFMTU, vf_ifp,
 			    (caddr_t)&ifr_vf, curthread);
+			HN_UNLOCK(sc);
 			if (error) {
-				HN_UNLOCK(sc);
 				if_printf(ifp, "%s SIOCSIFMTU %d failed: %d\n",
 				    if_name(vf_ifp), ifr->ifr_mtu, error);
-				break;
+			} else {
+				if_setmtu(ifp, ifr->ifr_mtu);
 			}
+			break;
 		}
 
 		/*
@@ -7601,7 +7603,7 @@ hn_sysinit(void *arg __unused)
 	 */
 	if (hn_xpnt_vf && hn_use_if_start) {
 		hn_use_if_start = 0;
-		printf("hn: tranparent VF mode, if_transmit will be used, "
+		printf("hn: transparent VF mode, if_transmit will be used, "
 		    "instead of if_start\n");
 	}
 #endif

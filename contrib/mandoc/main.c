@@ -1,6 +1,6 @@
-/* $Id: main.c,v 1.358 2021/09/04 22:38:46 schwarze Exp $ */
+/* $Id: main.c,v 1.364 2025/09/24 21:30:20 schwarze Exp $ */
 /*
- * Copyright (c) 2010-2012, 2014-2021 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2012,2014-2021,2025 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
@@ -109,7 +109,7 @@ static	void		  parse(struct mparse *, int, const char *,
 				struct outstate *, struct manconf *);
 static	void		  passthrough(int, int);
 static	void		  process_onefile(struct mparse *, struct manpage *,
-				int, struct outstate *, struct manconf *);
+				struct outstate *, struct manconf *);
 static	void		  run_pager(struct outstate *, char *);
 static	pid_t		  spawn_pager(struct outstate *, char *);
 static	void		  usage(enum argmode) __attribute__((__noreturn__));
@@ -144,16 +144,18 @@ main(int argc, char *argv[])
 	int		 options;	/* Parser options. */
 	int		 show_usage;	/* Invalid argument: give up. */
 	int		 prio, best_prio;
-	int		 startdir;
 	int		 c;
 	enum mandoc_os	 os_e;		/* Check base system conventions. */
 	enum outmode	 outmode;	/* According to command line. */
 
+#if DEBUG_MEMORY
+	mandoc_dbg_init(argc, argv);
+#endif
 #if HAVE_PROGNAME
 	progname = getprogname();
 #else
 	if (argc < 1)
-		progname = mandoc_strdup("mandoc");
+		progname = "mandoc";
 	else if ((progname = strrchr(argv[0], '/')) == NULL)
 		progname = argv[0];
 	else
@@ -511,7 +513,7 @@ main(int argc, char *argv[])
 			if (resnsz == 0)
 				(void)fs_search(&search, &conf.manpath,
 				    *argv, &resn, &resnsz);
-			if (resnsz == 0 && strchr(*argv, '/') == NULL) {
+			if (resnsz == 0) {
 				if (search.arch != NULL &&
 				    arch_valid(search.arch, OSENUM) == 0)
 					warnx("Unknown architecture \"%s\".",
@@ -526,26 +528,15 @@ main(int argc, char *argv[])
 				mandoc_msg_setrc(MANDOCLEVEL_BADARG);
 				continue;
 			}
-			if (resnsz == 0) {
-				if (access(*argv, R_OK) == -1) {
-					mandoc_msg_setinfilename(*argv);
-					mandoc_msg(MANDOCERR_BADARG_BAD,
-					    0, 0, "%s", strerror(errno));
-					mandoc_msg_setinfilename(NULL);
-					continue;
-				}
-				resnsz = 1;
-				resn = mandoc_calloc(resnsz, sizeof(*res));
-				resn->file = mandoc_strdup(*argv);
-				resn->ipath = SIZE_MAX;
-				resn->form = FORM_SRC;
-			}
 			if (outmode != OUTMODE_ONE || resnsz == 1) {
 				res = mandoc_reallocarray(res,
 				    ressz + resnsz, sizeof(*res));
 				memcpy(res + ressz, resn,
 				    sizeof(*resn) * resnsz);
 				ressz += resnsz;
+				free(resn);
+				resn = NULL;
+				resnsz = 0;
 				continue;
 			}
 
@@ -553,7 +544,8 @@ main(int argc, char *argv[])
 
 			best_prio = 40;
 			for (ib = i = 0; i < resnsz; i++) {
-				sec = resn[i].file;
+				sec = resn[i].file +
+				    strlen(conf.manpath.paths[resn[i].ipath]);
 				sec += strcspn(sec, "123456789");
 				if (sec[0] == '\0')
 					continue; /* No section at all. */
@@ -584,6 +576,10 @@ main(int argc, char *argv[])
 			res = mandoc_reallocarray(res, ressz + 1,
 			    sizeof(*res));
 			memcpy(res + ressz++, resn + ib, sizeof(*resn));
+			memset(resn + ib, 0, sizeof(*resn));
+			mansearch_free(resn, resnsz);
+			resn = NULL;
+			resnsz = 0;
 		}
 
 	/* apropos(1), whatis(1): Process the full search expression. */
@@ -637,22 +633,12 @@ main(int argc, char *argv[])
 	mchars_alloc();
 	mp = mparse_alloc(options, os_e, os_s);
 
-	/*
-	 * Remember the original working directory, if possible.
-	 * This will be needed if some names on the command line
-	 * are page names and some are relative file names.
-	 * Do not error out if the current directory is not
-	 * readable: Maybe it won't be needed after all.
-	 */
-	startdir = open(".", O_RDONLY | O_DIRECTORY);
 	for (i = 0; i < ressz; i++) {
-		process_onefile(mp, res + i, startdir, &outst, &conf);
+		if (i > 0)
+			mparse_reset(mp);
+		process_onefile(mp, res + i, &outst, &conf);
 		if (outst.wstop && mandoc_msg_getrc() != MANDOCLEVEL_OK)
 			break;
-	}
-	if (startdir != -1) {
-		(void)fchdir(startdir);
-		close(startdir);
 	}
 	if (conf.output.tag != NULL && conf.output.tag_found == 0) {
 		mandoc_msg(MANDOCERR_TAG, 0, 0, "%s", conf.output.tag);
@@ -694,6 +680,9 @@ out:
 	} else if (outst.had_output && outst.outtype != OUTT_LINT)
 		mandoc_msg_summary();
 
+#if DEBUG_MEMORY
+	mandoc_dbg_finish();
+#endif
 	return (int)mandoc_msg_getrc();
 }
 
@@ -896,7 +885,7 @@ fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 }
 
 static void
-process_onefile(struct mparse *mp, struct manpage *resp, int startdir,
+process_onefile(struct mparse *mp, struct manpage *resp,
     struct outstate *outst, struct manconf *conf)
 {
 	int	 fd;
@@ -908,8 +897,6 @@ process_onefile(struct mparse *mp, struct manpage *resp, int startdir,
 	 */
 	if (resp->ipath != SIZE_MAX)
 		(void)chdir(conf->manpath.paths[resp->ipath]);
-	else if (startdir != -1)
-		(void)fchdir(startdir);
 
 	mandoc_msg_setinfilename(resp->file);
 	if (resp->file != NULL) {
@@ -969,17 +956,11 @@ parse(struct mparse *mp, int fd, const char *file,
     struct outstate *outst, struct manconf *conf)
 {
 	static struct manpaths	 basepaths;
-	static int		 previous;
 	struct roff_meta	*meta;
 
 	assert(fd >= 0);
 	if (file == NULL)
 		file = "<stdin>";
-
-	if (previous)
-		mparse_reset(mp);
-	else
-		previous = 1;
 
 	mparse_readfd(mp, fd, file);
 	if (fd != STDIN_FILENO)
@@ -1309,6 +1290,7 @@ spawn_pager(struct outstate *outst, char *tag_target)
 	char		*argv[MAX_PAGER_ARGS];
 	const char	*pager;
 	char		*cp;
+	size_t		 wordlen;
 #if HAVE_LESS_T
 	size_t		 cmdlen;
 #endif
@@ -1323,7 +1305,6 @@ spawn_pager(struct outstate *outst, char *tag_target)
 		pager = getenv("PAGER");
 	if (pager == NULL || *pager == '\0')
 		pager = BINM_PAGER;
-	cp = mandoc_strdup(pager);
 
 	/*
 	 * Parse the pager command into words.
@@ -1331,16 +1312,12 @@ spawn_pager(struct outstate *outst, char *tag_target)
 	 */
 
 	argc = 0;
-	while (argc + 5 < MAX_PAGER_ARGS) {
-		argv[argc++] = cp;
-		cp = strchr(cp, ' ');
-		if (cp == NULL)
-			break;
-		*cp++ = '\0';
-		while (*cp == ' ')
-			cp++;
-		if (*cp == '\0')
-			break;
+	while (*pager != '\0' && argc + 5 < MAX_PAGER_ARGS) {
+		wordlen = strcspn(pager, " ");
+		argv[argc++] = mandoc_strndup(pager, wordlen);
+		pager += wordlen;
+		while (*pager == ' ')
+			pager++;
 	}
 
 	/* For less(1), use the tag file. */
@@ -1352,10 +1329,10 @@ spawn_pager(struct outstate *outst, char *tag_target)
 		cp = argv[0] + cmdlen - 4;
 		if (strcmp(cp, "less") == 0) {
 			argv[argc++] = mandoc_strdup("-T");
-			argv[argc++] = outst->tag_files->tfn;
+			argv[argc++] = mandoc_strdup(outst->tag_files->tfn);
 			if (tag_target != NULL) {
 				argv[argc++] = mandoc_strdup("-t");
-				argv[argc++] = tag_target;
+				argv[argc++] = mandoc_strdup(tag_target);
 				use_ofn = 0;
 			}
 		}
@@ -1366,7 +1343,7 @@ spawn_pager(struct outstate *outst, char *tag_target)
 			mandoc_asprintf(&argv[argc], "file://%s#%s",
 			    outst->tag_files->ofn, tag_target);
 		else
-			argv[argc] = outst->tag_files->ofn;
+			argv[argc] = mandoc_strdup(outst->tag_files->ofn);
 		argc++;
 	}
 	argv[argc] = NULL;
@@ -1378,6 +1355,8 @@ spawn_pager(struct outstate *outst, char *tag_target)
 	case 0:
 		break;
 	default:
+		while (argc > 0)
+			free(argv[--argc]);
 		(void)setpgid(pager_pid, 0);
 		(void)tcsetpgrp(STDOUT_FILENO, pager_pid);
 #if HAVE_PLEDGE

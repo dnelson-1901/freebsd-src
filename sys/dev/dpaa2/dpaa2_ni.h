@@ -1,8 +1,9 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Copyright © 2021-2023 Dmitry Salychev
- * Copyright © 2022 Mathew McBride
+ * Copyright (c) 2021-2023 Dmitry Salychev
+ * Copyright (c) 2022 Mathew McBride
+ * Copyright (c) 2026 Bjoern A. Zeeb
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -466,6 +467,7 @@ struct dpaa2_ni_softc {
 	uint64_t		 rx_sg_buf_frames;
 	uint64_t		 rx_enq_rej_frames;
 	uint64_t		 rx_ieoi_err_frames;
+	uint64_t		 rx_other_err_frames;
 	uint64_t		 tx_single_buf_frames;
 	uint64_t		 tx_sg_frames;
 
@@ -490,8 +492,9 @@ struct dpaa2_ni_softc {
 	struct dpaa2_channel	*channels[DPAA2_MAX_CHANNELS];
 	struct dpaa2_ni_fq	 rxe_queue; /* one per DPNI */
 
+	/* sysctl(9) */
 	struct dpaa2_atomic	 buf_num;
-	struct dpaa2_atomic	 buf_free; /* for sysctl(9) only */
+	struct dpaa2_atomic	 buf_free;
 
 	int			 irq_rid[DPAA2_NI_MSI_COUNT];
 	struct resource		*irq_res;

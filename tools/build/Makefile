@@ -223,6 +223,9 @@ SYSINCS+=	${SRCTOP}/sys/sys/linker_set.h
 .if ${.MAKE.OS} == "Darwin"
 # Standalone implementation of secure_getenv(), not available on MacOS.
 SRCS+=	secure_getenv.c
+# macOS currently lacks mempcpy
+.PATH: ${LIBC_SRCTOP}/string
+SRCS+=	mempcpy.c
 .endif # ${MAKE.OS} == "Darwin"
 
 # Provide the same arc4random implementation on Linux/macOS
@@ -273,7 +276,14 @@ MSDOSFSINCS+=	${SRCTOP}/sys/fs/msdosfs/fat.h
 MSDOSFSINCS+=	${SRCTOP}/sys/fs/msdosfs/msdosfsmount.h
 DISKINCS+=	${SRCTOP}/sys/sys/disk/bsd.h
 
+.if ${.MAKE.OS} == "FreeBSD"
+# Needed to build most of the things below, which include sys/cdefs.h either
+# directly or transitively
+SYSINCS+=	${SRCTOP}/sys/sys/cdefs.h
+.endif
+
 # Needed to build config (since it uses libnv)
+SYSINCS+=	${SRCTOP}/sys/sys/_nv.h
 SYSINCS+=	${SRCTOP}/sys/sys/nv.h ${SRCTOP}/sys/sys/cnv.h \
 		${SRCTOP}/sys/sys/dnv.h ${SRCTOP}/sys/sys/nv_namespace.h
 
@@ -331,7 +341,7 @@ _LINK_HOST_TOOL=	ln -sfn
 # When building on FreeBSD we always copy the host tools instead of linking
 # into WORLDTMP to avoid issues with incompatible libraries (see r364030).
 # Note: we could create links if we don't intend to update the current machine.
-_COPY_HOST_TOOL=	cp -pf
+_COPY_HOST_TOOL=	install -p
 .else
 # However, this is not necessary on Linux/macOS. Additionally, copying the host
 # tools to another directory with cp -p results in freezes on macOS Big Sur for

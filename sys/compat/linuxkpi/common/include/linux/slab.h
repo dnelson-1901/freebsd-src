@@ -40,12 +40,14 @@
 #include <linux/compat.h>
 #include <linux/types.h>
 #include <linux/gfp.h>
+#include <linux/err.h>
 #include <linux/llist.h>
 #include <linux/overflow.h>
+#include <linux/cleanup.h>
 
 MALLOC_DECLARE(M_KMALLOC);
 
-#define	kvzalloc(size, flags)		kmalloc(size, (flags) | __GFP_ZERO)
+#define	kvzalloc(size, flags)		kvmalloc(size, (flags) | __GFP_ZERO)
 #define	kvcalloc(n, size, flags)	kvmalloc_array(n, size, (flags) | __GFP_ZERO)
 #define	kzalloc(size, flags)		kmalloc(size, (flags) | __GFP_ZERO)
 #define	kzalloc_node(size, flags, node)	kmalloc_node(size, (flags) | __GFP_ZERO, node)
@@ -151,6 +153,8 @@ kfree(const void *ptr)
 {
 	lkpi_kfree(ptr);
 }
+
+DEFINE_FREE(kfree, void *, if (!IS_ERR_OR_NULL(_T)) kfree(_T))
 
 /*
  * Other k*alloc() funtions using the above as underlying allocator.

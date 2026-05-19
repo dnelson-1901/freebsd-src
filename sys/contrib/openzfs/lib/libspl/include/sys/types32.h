@@ -62,13 +62,13 @@ typedef	uint32_t	dev32_t;
 typedef	int32_t		pid32_t;
 typedef	uint32_t	size32_t;
 typedef	int32_t		ssize32_t;
+#ifdef __FreeBSD__
+#include <sys/abi_compat.h>
+#endif
+#ifndef __HAVE_TIME32_T
 typedef	int32_t		time32_t;
+#endif
 typedef	int32_t		clock32_t;
-
-struct timeval32 {
-	time32_t	tv_sec;		/* seconds */
-	int32_t		tv_usec;	/* and microseconds */
-};
 
 typedef struct timespec32 {
 	time32_t	tv_sec;		/* seconds */

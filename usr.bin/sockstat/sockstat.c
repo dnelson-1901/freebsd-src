@@ -52,6 +52,7 @@
 #include <netinet/tcp_fsm.h>
 #include <netinet/tcp_seq.h>
 #include <netinet/tcp_var.h>
+#include <netinet/tcp_log_buf.h>
 #include <arpa/inet.h>
 
 #include <capsicum_helpers.h>
@@ -63,6 +64,7 @@
 #include <netdb.h>
 #include <pwd.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -81,6 +83,7 @@
 
 static int	 opt_4;		/* Show IPv4 sockets */
 static int	 opt_6;		/* Show IPv6 sockets */
+static bool	 opt_b;		/* Show BBLog state */
 static int	 opt_C;		/* Show congestion control */
 static int	 opt_c;		/* Show connected sockets */
 static int	 opt_f;		/* Show FIB numbers */
@@ -97,11 +100,13 @@ static int	 opt_U;		/* Show remote UDP encapsulation port number */
 static int	 opt_u;		/* Show Unix domain sockets */
 static int	 opt_v;		/* Verbose mode */
 static int	 opt_w;		/* Wide print area for addresses */
+static bool	 show_path_state = false;
 
 /*
  * Default protocols to use if no -P was defined.
  */
-static const char *default_protos[] = {"sctp", "tcp", "udp", "divert" };
+static const char *default_protos[] = {"sctp", "tcp", "udp", "udplite",
+    "divert" };
 static size_t	   default_numprotos = nitems(default_protos);
 
 static int	*protos;	/* protocols to use */
@@ -143,6 +148,7 @@ struct sock {
 	int proto;
 	int state;
 	int fibnum;
+	int bblog_state;
 	const char *protoname;
 	char stack[TCP_FUNCTION_NAME_LEN_MAX];
 	char cc[TCP_CA_NAME_MAX];
@@ -516,6 +522,7 @@ gather_sctp(void)
 				    ((xinpcb->flags & SCTP_PCB_FLAGS_UDPTYPE) ||
 				     (xstcb->last == 1))) {
 					RB_INSERT(socks_t, &socks, sock);
+					show_path_state = true;
 				} else {
 					free_socket(sock);
 				}
@@ -681,6 +688,10 @@ gather_inet(int proto)
 		varname = "net.inet.udp.pcblist";
 		protoname = "udp";
 		break;
+	case IPPROTO_UDPLITE:
+		varname = "net.inet.udplite.pcblist";
+		protoname = "udplite";
+		break;
 	case IPPROTO_DIVERT:
 		varname = "net.inet.divert.pcblist";
 		protoname = "div";
@@ -729,6 +740,7 @@ gather_inet(int proto)
 			protoname = xtp->t_flags & TF_TOE ? "toe" : "tcp";
 			break;
 		case IPPROTO_UDP:
+		case IPPROTO_UDPLITE:
 		case IPPROTO_DIVERT:
 			xip = (struct xinpcb *)xig;
 			if (!check_ksize(xip->xi_len, struct xinpcb))
@@ -797,6 +809,7 @@ gather_inet(int proto)
 		sock->vflag = xip->inp_vflag;
 		if (proto == IPPROTO_TCP) {
 			sock->state = xtp->t_state;
+			sock->bblog_state = xtp->t_logstate;
 			memcpy(sock->stack, xtp->xt_stack,
 			    TCP_FUNCTION_NAME_LEN_MAX);
 			memcpy(sock->cc, xtp->xt_cc, TCP_CA_NAME_MAX);
@@ -942,8 +955,9 @@ static int
 printaddr(struct sockaddr_storage *ss)
 {
 	struct sockaddr_un *sun;
-	char addrstr[NI_MAXHOST] = { '\0', '\0' };
+	char addrstr[NI_MAXHOST] = "";
 	int error, off, port = 0;
+	bool needs_ipv6_brackets = false;
 
 	switch (ss->ss_family) {
 	case AF_INET:
@@ -954,6 +968,8 @@ printaddr(struct sockaddr_storage *ss)
 	case AF_INET6:
 		if (IN6_IS_ADDR_UNSPECIFIED(&sstosin6(ss)->sin6_addr))
 			addrstr[0] = '*';
+		else
+			needs_ipv6_brackets = true;
 		port = ntohs(sstosin6(ss)->sin6_port);
 		break;
 	case AF_UNIX:
@@ -967,10 +983,15 @@ printaddr(struct sockaddr_storage *ss)
 		if (error)
 			errx(1, "cap_getnameinfo()");
 	}
+	if (needs_ipv6_brackets) {
+		if (port == 0)
+			return (xprintf("[%s]:*", addrstr));
+		return (xprintf("[%s]:%d", addrstr, port));
+	}
 	if (port == 0)
-		return xprintf("%s:*", addrstr);
+		return (xprintf("%s:*", addrstr));
 	else
-		return xprintf("%s:%d", addrstr, port);
+		return (xprintf("%s:%d", addrstr, port));
 }
 
 static const char *
@@ -1105,6 +1126,37 @@ sctp_path_state(int state)
 	}
 }
 
+static const char *
+bblog_state(int state)
+{
+	switch (state) {
+	case TCP_LOG_STATE_OFF:
+		return "OFF";
+		break;
+	case TCP_LOG_STATE_TAIL:
+		return "TAIL";
+		break;
+	case TCP_LOG_STATE_HEAD:
+		return "HEAD";
+		break;
+	case TCP_LOG_STATE_HEAD_AUTO:
+		return "HEAD_AUTO";
+		break;
+	case TCP_LOG_STATE_CONTINUAL:
+		return "CONTINUAL";
+		break;
+	case TCP_LOG_STATE_TAIL_AUTO:
+		return "TAIL_AUTO";
+		break;
+	case TCP_LOG_VIA_BBPOINTS:
+		return "BBPOINTS";
+		break;
+	default:
+		return "UNKNOWN";
+		break;
+	}
+}
+
 static void
 displaysock(struct sock *s, int pos)
 {
@@ -1124,7 +1176,7 @@ displaysock(struct sock *s, int pos)
 	faddr = s->faddr;
 	first = 1;
 	while (laddr != NULL || faddr != NULL) {
-		offset = 37;
+		offset = 40;
 		while (pos < offset)
 			pos += xprintf(" ");
 		switch (s->family) {
@@ -1261,7 +1313,7 @@ displaysock(struct sock *s, int pos)
 			}
 			offset += 7;
 		}
-		if (opt_s) {
+		if (opt_s && show_path_state) {
 			if (faddr != NULL &&
 			    s->proto == IPPROTO_SCTP &&
 			    s->state != SCTP_CLOSED &&
@@ -1296,6 +1348,16 @@ displaysock(struct sock *s, int pos)
 							pos += xprintf("?");
 						break;
 					}
+				}
+				offset += 13;
+			}
+			if (opt_b) {
+				if (s->proto == IPPROTO_TCP) {
+					do
+						pos += xprintf(" ");
+					while (pos < offset);
+					pos += xprintf("%s",
+					    bblog_state(s->bblog_state));
 				}
 				offset += 13;
 			}
@@ -1342,7 +1404,7 @@ display(void)
 	int n, pos;
 
 	if (opt_q != 1) {
-		printf("%-8s %-10s %-5s %-3s %-6s %-*s %-*s",
+		printf("%-8s %-10s %-5s %-3s %-9s %-*s %-*s",
 		    "USER", "COMMAND", "PID", "FD", "PROTO",
 		    opt_w ? 45 : 21, "LOCAL ADDRESS",
 		    opt_w ? 45 : 21, "FOREIGN ADDRESS");
@@ -1356,9 +1418,12 @@ display(void)
 		if (opt_U)
 			printf(" %-6s", "ENCAPS");
 		if (opt_s) {
-			printf(" %-12s", "PATH STATE");
+			if (show_path_state)
+				printf(" %-12s", "PATH STATE");
 			printf(" %-12s", "CONN STATE");
 		}
+		if (opt_b)
+			printf(" %-12s", "BBLOG STATE");
 		if (opt_S)
 			printf(" %-*.*s", TCP_FUNCTION_NAME_LEN_MAX,
 			    TCP_FUNCTION_NAME_LEN_MAX, "STACK");
@@ -1477,7 +1542,7 @@ static void
 usage(void)
 {
 	errx(1,
-    "usage: sockstat [-46CcfIiLlnqSsUuvw] [-j jid] [-p ports] [-P protocols]");
+    "usage: sockstat [-46bCcfIiLlnqSsUuvw] [-j jid] [-p ports] [-P protocols]");
 }
 
 int
@@ -1491,13 +1556,16 @@ main(int argc, char *argv[])
 	int o, i;
 
 	opt_j = -1;
-	while ((o = getopt(argc, argv, "46CcfIij:Llnp:P:qSsUuvw")) != -1)
+	while ((o = getopt(argc, argv, "46bCcfIij:Llnp:P:qSsUuvw")) != -1)
 		switch (o) {
 		case '4':
 			opt_4 = 1;
 			break;
 		case '6':
 			opt_6 = 1;
+			break;
+		case 'b':
+			opt_b = true;
 			break;
 		case 'C':
 			opt_C = 1;

@@ -536,12 +536,12 @@ struct tcpcb;
 			    NULL, NULL, 0, NULL);			\
 	} while (0)
 #endif /* TCP_LOG_FORCEVERBOSE */
+/* Assumes/requires the caller has already checked tcp_bblogging_on(tp). */
 #define	TCP_LOG_EVENTP(tp, th, rxbuf, txbuf, eventid, errornum, len, stackinfo, th_hostorder, tv) \
 	do {								\
-		if (tcp_bblogging_on(tp))				\
-			tcp_log_event(tp, th, rxbuf, txbuf, eventid,	\
-			    errornum, len, stackinfo, th_hostorder,	\
-			    NULL, NULL, 0, tv);				\
+		KASSERT(tcp_bblogging_on(tp), ("bblogging is off")); \
+		tcp_log_event(tp, th, rxbuf, txbuf, eventid, errornum, len,	\
+			stackinfo, th_hostorder, NULL, NULL, 0, tv); \
 	} while (0)
 
 #ifdef TCP_BLACKBOX
@@ -567,6 +567,9 @@ void tcp_log_flowend(struct tcpcb *tp);
 void tcp_log_sendfile(struct socket *so, off_t offset, size_t nbytes,
     int flags);
 int tcp_log_apply_ratio(struct tcpcb *tp, int ratio);
+#ifdef DDB
+void db_print_bblog_entries(struct tcp_log_stailq *log_entries, int indent);
+#endif
 #else /* !TCP_BLACKBOX */
 #define tcp_log_verbose	(false)
 

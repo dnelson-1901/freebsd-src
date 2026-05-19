@@ -55,10 +55,6 @@ OLD_FILES+=usr/share/man/man8/acpidump.8.gz
 OLD_FILES+=usr/share/man/man8/iasl.8.gz
 .endif
 
-.if ${MK_ACPI} == no && ${MK_APM} == no
-OLD_FILES+=etc/rc.d/powerd
-.endif
-
 .if ${MK_APM} == no
 OLD_FILES+=etc/rc.d/apm
 OLD_FILES+=etc/rc.d/apmd
@@ -424,6 +420,7 @@ OLD_FILES+=usr/libexec/bsdinstall/jail
 OLD_FILES+=usr/libexec/bsdinstall/keymap
 OLD_FILES+=usr/libexec/bsdinstall/mirrorselect
 OLD_FILES+=usr/libexec/bsdinstall/mount
+OLD_FILES+=usr/libexec/bsdinstall/mount_aux
 OLD_FILES+=usr/libexec/bsdinstall/netconfig
 OLD_FILES+=usr/libexec/bsdinstall/netconfig_ipv4
 OLD_FILES+=usr/libexec/bsdinstall/netconfig_ipv6
@@ -736,10 +733,13 @@ OLD_FILES+=usr/share/snmp/mibs/BRIDGE-MIB.txt
 OLD_FILES+=usr/share/snmp/mibs/FOKUS-MIB.txt
 OLD_FILES+=usr/share/snmp/mibs/FREEBSD-MIB.txt
 OLD_FILES+=usr/share/snmp/mibs/RSTP-MIB.txt
+OLD_FILES+=usr/tests/lib/libbsnmp/bsnmpd_test
+OLD_FILES+=usr/tests/lib/libbsnmp/Kyuafile
 OLD_DIRS+=usr/include/bsnmp
 OLD_DIRS+=usr/share/snmp
 OLD_DIRS+=usr/share/snmp/defs
 OLD_DIRS+=usr/share/snmp/mibs
+OLD_DIRS+=usr/tests/lib/libbsnmp
 .endif
 
 .if ${MK_CALENDAR} == no
@@ -880,12 +880,14 @@ OLD_FILES+=usr/share/man/man4/ccd.4.gz
 OLD_FILES+=usr/share/man/man8/ccdconfig.8.gz
 .endif
 
-.if ${MK_CLANG} == no && ${MK_CLANG_FORMAT} == no && ${MK_LLDB} == no
+.if (${MK_CLANG} == no && ${MK_CLANG_FORMAT} == no && ${MK_LLDB} == no) || \
+    ${MK_LLVM_LINK_STATIC_LIBRARIES} != no
 OLD_LIBS+=usr/lib/libprivateclang.so.19
 .endif
 
-.if ${MK_CLANG_EXTRAS} == no && ${MK_CLANG} == no && ${MK_LLDB} == no && \
-    ${MK_LLD} == no && ${MK_LLVM_BINUTILS} == no && ${MK_LLVM_COV} == no
+.if (${MK_CLANG_EXTRAS} == no && ${MK_CLANG} == no && ${MK_LLDB} == no && \
+    ${MK_LLD} == no && ${MK_LLVM_BINUTILS} == no && ${MK_LLVM_COV} == no) || \
+    ${MK_LLVM_LINK_STATIC_LIBRARIES} != no
 OLD_LIBS+=usr/lib/libprivatellvm.so.19
 .endif
 
@@ -1447,6 +1449,10 @@ OLD_LIBS+=${DEBUG_LIBS}
 .endif
 .endif
 
+.if ${MK_DETECT_TZ_CHANGES} == no
+OLD_FILES+=tests/lib/libc/stdtime/detect_tz_changes_test
+.endif
+
 .if ${MK_DIALOG} == no
 OLD_FILES+=usr/bin/dialog
 OLD_FILES+=usr/bin/dpv
@@ -1458,11 +1464,24 @@ OLD_FILES+=usr/lib/libdpv.a
 OLD_FILES+=usr/lib/libdpv.so
 OLD_FILES+=usr/lib/libdpv.so.3
 OLD_FILES+=usr/lib/libdpv_p.a
+OLD_FILES+=usr/lib/libfigpar.a
+OLD_FILES+=usr/lib/libfigpar.so
+OLD_LIBS+=usr/lib/libfigpar.so.0
+OLD_FILES+=usr/lib/libfigpar_p.a
 OLD_FILES+=usr/sbin/bsdconfig
 OLD_FILES+=usr/share/man/man1/dialog.1.gz
 OLD_FILES+=usr/share/man/man1/dpv.1.gz
 OLD_FILES+=usr/share/man/man3/dialog.3.gz
 OLD_FILES+=usr/share/man/man3/dpv.3.gz
+OLD_FILES+=usr/share/man/man3/dpv_free.3.gz
+OLD_FILES+=usr/share/man/man3/figpar.3.gz
+OLD_FILES+=usr/share/man/man3/get_config_option.3.gz
+OLD_FILES+=usr/share/man/man3/parse_config.3.gz
+OLD_FILES+=usr/share/man/man3/replaceall.3.gz
+OLD_FILES+=usr/share/man/man3/strcount.3.gz
+OLD_FILES+=usr/share/man/man3/strexpand.3.gz
+OLD_FILES+=usr/share/man/man3/strexpandnl.3.gz
+OLD_FILES+=usr/share/man/man3/strtolower.3.gz
 OLD_FILES+=usr/share/man/man8/bsdconfig.8.gz
 OLD_DIRS+=usr/share/bsdconfig
 OLD_DIRS+=usr/share/bsdconfig/media
@@ -1485,12 +1504,12 @@ OLD_DIRS+=usr/share/dict
 .endif
 
 .if ${MK_DMAGENT} == no
+OLD_FILES+=etc/dma/auth.conf
 OLD_FILES+=etc/dma/dma.conf
 OLD_DIRS+=etc/dma
 OLD_FILES+=usr/libexec/dma
 OLD_FILES+=usr/libexec/dma-mbox-create
 OLD_FILES+=usr/share/man/man8/dma.8.gz
-OLD_FILES+=usr/share/examples/dma/auth.conf
 OLD_FILES+=usr/share/examples/dma/mailer.conf
 OLD_DIRS+=usr/share/examples/dma
 .endif
@@ -1653,6 +1672,7 @@ OLD_FILES+=usr/bin/ree
 OLD_FILES+=usr/share/man/man1/edit.1.gz
 OLD_FILES+=usr/share/man/man1/ee.1.gz
 OLD_FILES+=usr/share/man/man1/ree.1.gz
+OLD_FILES+=usr/share/misc/init.ee
 OLD_FILES+=usr/share/nls/C/ee.cat
 OLD_FILES+=usr/share/nls/de_DE.ISO8859-1/ee.cat
 OLD_FILES+=usr/share/nls/fr_FR.ISO8859-1/ee.cat
@@ -1699,9 +1719,6 @@ OLD_FILES+=usr/share/examples/diskless/README.BOOTP
 OLD_FILES+=usr/share/examples/diskless/README.TEMPLATING
 OLD_FILES+=usr/share/examples/diskless/clone_root
 OLD_FILES+=usr/share/examples/dma/mailer.conf
-OLD_FILES+=usr/share/examples/drivers/README
-OLD_FILES+=usr/share/examples/drivers/make_device_driver.sh
-OLD_FILES+=usr/share/examples/drivers/make_pseudo_driver.sh
 OLD_FILES+=usr/share/examples/dwatch/profile_template
 OLD_FILES+=usr/share/examples/etc/README.examples
 OLD_FILES+=usr/share/examples/etc/bsd-style-copyright
@@ -1914,6 +1931,26 @@ OLD_FILES+=usr/share/examples/sunrpc/sort/Makefile
 OLD_FILES+=usr/share/examples/sunrpc/sort/rsort.c
 OLD_FILES+=usr/share/examples/sunrpc/sort/sort.x
 OLD_FILES+=usr/share/examples/sunrpc/sort/sort_proc.c
+OLD_FILES+=usr/tests/share/examples/tests/atf/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/atf/cp_test
+OLD_FILES+=usr/tests/share/examples/tests/atf/printf_test
+OLD_FILES+=usr/tests/share/examples/tests/googletest/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample10_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample1_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample2_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample3_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample4_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample5_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample6_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample7_unittest
+OLD_FILES+=usr/tests/share/examples/tests/googletest/sample8_unittest
+OLD_FILES+=usr/tests/share/examples/tests/plain/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/plain/cp_test
+OLD_FILES+=usr/tests/share/examples/tests/plain/printf_test
+OLD_FILES+=usr/tests/share/examples/tests/tap/Kyuafile
+OLD_FILES+=usr/tests/share/examples/tests/tap/cp_test
+OLD_FILES+=usr/tests/share/examples/tests/tap/printf_test
+OLD_FILES+=usr/tests/share/examples/tests/Kyuafile
 OLD_FILES+=usr/share/examples/tcsh/complete.tcsh
 OLD_FILES+=usr/share/examples/tcsh/csh-mode.el
 OLD_FILES+=usr/share/examples/uefisign/uefikeys
@@ -1928,7 +1965,6 @@ OLD_DIRS+=usr/share/examples/bsdconfig
 OLD_DIRS+=usr/share/examples/csh
 OLD_DIRS+=usr/share/examples/diskless
 OLD_DIRS+=usr/share/examples/dma
-OLD_DIRS+=usr/share/examples/drivers
 OLD_DIRS+=usr/share/examples/dwatch
 OLD_DIRS+=usr/share/examples/etc
 OLD_DIRS+=usr/share/examples/etc/defaults
@@ -1981,6 +2017,12 @@ OLD_DIRS+=usr/share/examples/sunrpc/sort
 OLD_DIRS+=usr/share/examples/tcsh
 OLD_DIRS+=usr/share/examples/uefisign
 OLD_DIRS+=usr/share/examples/ypldap
+OLD_DIRS+=usr/tests/share/examples/tests/atf
+OLD_DIRS+=usr/tests/share/examples/tests/plain
+OLD_DIRS+=usr/tests/share/examples/tests/googletest
+OLD_DIRS+=usr/tests/share/examples/tests/tap
+OLD_DIRS+=usr/tests/share/examples/tests
+OLD_DIRS+=usr/tests/share/examples
 .endif
 
 .if ${MK_FDT} == no
@@ -2092,6 +2134,10 @@ OLD_FILES+=usr/share/man/man6/random.6.gz
 OLD_FILES+=usr/share/man/man6/rot13.6.gz
 OLD_FILES+=usr/share/man/man8/strfile.8.gz
 OLD_FILES+=usr/share/man/man8/unstr.8.gz
+OLD_FILES+=usr/tests/usr.bin/factor/factor_tests
+OLD_FILES+=usr/tests/usr.bin/factor/primes_tests
+OLD_FILES+=usr/tests/usr.bin/factor/Kyuafile
+OLD_DIRS+=usr/tests/usr.bin/factor
 .endif
 
 .if ${MK_GH_BC} == no
@@ -2365,9 +2411,6 @@ OLD_FILES+=usr/share/man/man5/hesiod.conf.5.gz
 .endif
 
 .if ${MK_HTML} == no
-OLD_FILES+=usr/share/doc/ncurses/hackguide.html
-OLD_FILES+=usr/share/doc/ncurses/ncurses-intro.html
-OLD_DIRS+=usr/share/doc/ncurses
 OLD_FILES+=usr/share/doc/ntp/accopt.html
 OLD_FILES+=usr/share/doc/ntp/assoc.html
 OLD_FILES+=usr/share/doc/ntp/audio.html
@@ -2686,6 +2729,10 @@ OLD_FILES+=usr/share/man/man8/ipfstat.8.gz
 OLD_FILES+=usr/share/man/man8/ipmon.8.gz
 OLD_FILES+=usr/share/man/man8/ipnat.8.gz
 OLD_FILES+=usr/share/man/man8/ippool.8.gz
+.endif
+
+.if ${MK_IPFILTER_IPFS} == no
+OLD_FILES+=sbin/ipfs
 .endif
 
 .if ${MK_IPFW} == no
@@ -3678,7 +3725,7 @@ OLD_FILES+=usr/share/man/man8/moused.8.gz
 .for LIBCOMPAT libcompat in ${_ALL_LIBCOMPATS_libcompats}
 .  if ${MK_LIB${LIBCOMPAT}} == no
 OLD_FILES+=etc/mtree/BSD.lib${libcompat}.dist
-OLD_FILES+=libexec/ld-elf${libcompat}.so.1
+OLD_LIBS+=libexec/ld-elf${libcompat}.so.1
 .    if exists(${DESTDIR}/usr/lib${libcompat})
 LIB${LIBCOMPAT}_DIRS!=find ${DESTDIR}/usr/lib${libcompat} -type d \
     | sed -e 's,^${DESTDIR}/,,'; echo
@@ -3710,10 +3757,13 @@ OLD_LIBS+=${DEBUG_LIB${LIBCOMPAT}_LIBS}
 OLD_FILES+=usr/bin/ld.lld
 .endif
 
+.if ${MK_LLDB} == no || ${MK_LLVM_LINK_STATIC_LIBRARIES} != no
+OLD_LIBS+=usr/lib/libprivatelldb.so.19
+.endif
+
 .if ${MK_LLDB} == no
 OLD_FILES+=usr/bin/lldb
 OLD_FILES+=usr/bin/lldb-server
-OLD_LIBS+=usr/lib/libprivatelldb.so.19
 OLD_FILES+=usr/share/man/man1/lldb-server.1.gz
 OLD_FILES+=usr/share/man/man1/lldb.1.gz
 .endif
@@ -8240,7 +8290,11 @@ OLD_FILES+=usr/include/atf-c/tc.h
 OLD_FILES+=usr/include/atf-c/tp.h
 OLD_FILES+=usr/include/atf-c/utils.h
 OLD_LIBS+=usr/lib/libprivateatf-c++.so.2
+OLD_FILES+=usr/lib/libprivateatf-c++.so
+OLD_FILES+=usr/lib/libprivateatf-c++.a
 OLD_LIBS+=usr/lib/libprivateatf-c.so.1
+OLD_FILES+=usr/lib/libprivateatf-c.so
+OLD_FILES+=usr/lib/libprivateatf-c.a
 OLD_FILES+=usr/share/examples/kyua/kyua.conf
 OLD_FILES+=usr/share/examples/kyua/Kyuafile.top
 OLD_FILES+=usr/share/kyua/misc/context.html
@@ -8334,6 +8388,12 @@ OLD_FILES+=usr/bin/tftp
 OLD_FILES+=usr/libexec/tftpd
 OLD_FILES+=usr/share/man/man1/tftp.1.gz
 OLD_FILES+=usr/share/man/man8/tftpd.8.gz
+OLD_FILES+=usr/tests/libexec/tftpd/functional
+OLD_FILES+=usr/tests/libexec/tftpd/Kyuafile
+OLD_FILES+=usr/tests/usr.bin/tftp/tftp_test
+OLD_FILES+=usr/tests/usr.bin/tftp/Kyuafile
+OLD_DIRS+=usr/tests/libexec/tftpd
+OLD_DIRS+=usr/tests/usr.bin/tftp
 .endif
 
 .if ${MK_TOOLCHAIN} == no
@@ -9210,6 +9270,7 @@ OLD_FILES+=etc/rc.d/zvol
 OLD_FILES+=etc/devd/zfs.conf
 OLD_FILES+=etc/periodic/daily/404.status-zfs
 OLD_FILES+=etc/periodic/daily/800.scrub-zfs
+OLD_DIRS+=etc/zfs/compatibility.d
 OLD_FILES+=etc/zfs/exports
 OLD_DIRS+=etc/zfs
 OLD_LIBS+=lib/libavl.so.2
@@ -9305,6 +9366,63 @@ OLD_FILES+=usr/share/man/man8/zfsbootcfg.8.gz
 OLD_FILES+=usr/share/man/man8/zfsd.8.gz
 OLD_FILES+=usr/share/man/man8/zfsloader.8.gz
 OLD_FILES+=usr/share/man/man8/zpool.8.gz
+OLD_FILES+=usr/share/zfs/compatibility.d/2018
+OLD_FILES+=usr/share/zfs/compatibility.d/2019
+OLD_FILES+=usr/share/zfs/compatibility.d/2020
+OLD_FILES+=usr/share/zfs/compatibility.d/2021
+OLD_FILES+=usr/share/zfs/compatibility.d/compat-2018
+OLD_FILES+=usr/share/zfs/compatibility.d/compat-2019
+OLD_FILES+=usr/share/zfs/compatibility.d/compat-2020
+OLD_FILES+=usr/share/zfs/compatibility.d/compat-2021
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-11.0
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-11.1
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-11.2
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-11.3
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-11.4
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-12.0
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-12.1
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-12.2
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-12.3
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-12.4
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-13.0
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-13.1
+OLD_FILES+=usr/share/zfs/compatibility.d/freebsd-13.2
+OLD_FILES+=usr/share/zfs/compatibility.d/freenas-11.0
+OLD_FILES+=usr/share/zfs/compatibility.d/freenas-11.1
+OLD_FILES+=usr/share/zfs/compatibility.d/freenas-11.2
+OLD_FILES+=usr/share/zfs/compatibility.d/freenas-11.3
+OLD_FILES+=usr/share/zfs/compatibility.d/freenas-9.10.2
+OLD_FILES+=usr/share/zfs/compatibility.d/grub2
+OLD_FILES+=usr/share/zfs/compatibility.d/grub2-2.06
+OLD_FILES+=usr/share/zfs/compatibility.d/grub2-2.12
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.0-freebsd
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.0-linux
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.1-freebsd
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.1-linux
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.2
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.2-freebsd
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.2-linux
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.3
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.3-freebsd
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.3-linux
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.4
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.4-freebsd
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfs-2.4-linux
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfsonosx-1.7.0
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfsonosx-1.8.1
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfsonosx-1.9.3
+OLD_FILES+=usr/share/zfs/compatibility.d/openzfsonosx-1.9.4
+OLD_FILES+=usr/share/zfs/compatibility.d/truenas-12.0
+OLD_FILES+=usr/share/zfs/compatibility.d/ubuntu-18.04
+OLD_FILES+=usr/share/zfs/compatibility.d/ubuntu-20.04
+OLD_FILES+=usr/share/zfs/compatibility.d/ubuntu-22.04
+OLD_FILES+=usr/share/zfs/compatibility.d/zol-0.6.1
+OLD_FILES+=usr/share/zfs/compatibility.d/zol-0.6.4
+OLD_FILES+=usr/share/zfs/compatibility.d/zol-0.6.5
+OLD_FILES+=usr/share/zfs/compatibility.d/zol-0.7
+OLD_FILES+=usr/share/zfs/compatibility.d/zol-0.8
+OLD_DIRS+=usr/share/zfs/compatibility.d
+OLD_DIRS+=usr/share/zfs
 .endif
 
 .if ${MK_ZONEINFO} == no

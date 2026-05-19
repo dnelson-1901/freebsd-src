@@ -1,6 +1,6 @@
-/* $Id: man_term.c,v 1.236 2021/06/28 19:50:15 schwarze Exp $ */
+/* $Id: man_term.c,v 1.248 2025/07/27 15:27:28 schwarze Exp $ */
 /*
- * Copyright (c) 2010-2015, 2017-2020 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2020,2022-23,2025 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -38,14 +38,14 @@
 #include "term_tag.h"
 #include "main.h"
 
-#define	MAXMARGINS	  64 /* maximum number of indented scopes */
+#define	MAXMARGINS	  64 /* Maximum number of indented scopes. */
 
 struct	mtermp {
-	int		  lmargin[MAXMARGINS]; /* margins (incl. vis. page) */
-	int		  lmargincur; /* index of current margin */
-	int		  lmarginsz; /* actual number of nested margins */
-	size_t		  offset; /* default offset to visible page */
-	int		  pardist; /* vert. space before par., unit: [v] */
+	int		  lmargin[MAXMARGINS]; /* Margins in basic units. */
+	int		  lmargincur; /* Index of current margin. */
+	int		  lmarginsz; /* Actual number of nested margins. */
+	size_t		  offset; /* Default offset in basic units. */
+	int		  pardist; /* Vert. space before par., unit: [v]. */
 };
 
 #define	DECL_ARGS	  struct termp *p, \
@@ -74,6 +74,7 @@ static	int		  pre_DT(DECL_ARGS);
 static	int		  pre_HP(DECL_ARGS);
 static	int		  pre_I(DECL_ARGS);
 static	int		  pre_IP(DECL_ARGS);
+static	int		  pre_MR(DECL_ARGS);
 static	int		  pre_OP(DECL_ARGS);
 static	int		  pre_PD(DECL_ARGS);
 static	int		  pre_PP(DECL_ARGS);
@@ -83,7 +84,6 @@ static	int		  pre_SS(DECL_ARGS);
 static	int		  pre_SY(DECL_ARGS);
 static	int		  pre_TP(DECL_ARGS);
 static	int		  pre_UR(DECL_ARGS);
-static	int		  pre_abort(DECL_ARGS);
 static	int		  pre_alternate(DECL_ARGS);
 static	int		  pre_ign(DECL_ARGS);
 static	int		  pre_in(DECL_ARGS);
@@ -103,9 +103,9 @@ static const struct man_term_act man_term_acts[MAN_MAX - MAN_TH] = {
 	{ pre_SS, post_SH, 0 }, /* SS */
 	{ pre_TP, post_TP, 0 }, /* TP */
 	{ pre_TP, post_TP, 0 }, /* TQ */
-	{ pre_abort, NULL, 0 }, /* LP */
+	{ pre_PP, NULL, 0 }, /* LP */
 	{ pre_PP, NULL, 0 }, /* PP */
-	{ pre_abort, NULL, 0 }, /* P */
+	{ pre_PP, NULL, 0 }, /* P */
 	{ pre_IP, post_IP, 0 }, /* IP */
 	{ pre_HP, post_HP, 0 }, /* HP */
 	{ NULL, NULL, 0 }, /* SM */
@@ -121,10 +121,10 @@ static const struct man_term_act man_term_acts[MAN_MAX - MAN_TH] = {
 	{ pre_alternate, NULL, 0 }, /* RI */
 	{ NULL, NULL, 0 }, /* RE */
 	{ pre_RS, post_RS, 0 }, /* RS */
-	{ pre_DT, NULL, 0 }, /* DT */
+	{ pre_DT, NULL, MAN_NOTEXT }, /* DT */
 	{ pre_ign, NULL, MAN_NOTEXT }, /* UC */
 	{ pre_PD, NULL, MAN_NOTEXT }, /* PD */
-	{ pre_ign, NULL, 0 }, /* AT */
+	{ pre_ign, NULL, MAN_NOTEXT }, /* AT */
 	{ pre_in, NULL, MAN_NOTEXT }, /* in */
 	{ pre_SY, post_SY, 0 }, /* SY */
 	{ NULL, NULL, 0 }, /* YS */
@@ -135,6 +135,7 @@ static const struct man_term_act man_term_acts[MAN_MAX - MAN_TH] = {
 	{ NULL, NULL, 0 }, /* UE */
 	{ pre_UR, post_UR, 0 }, /* MT */
 	{ NULL, NULL, 0 }, /* ME */
+	{ pre_MR, NULL, 0 }, /* MR */
 };
 static const struct man_term_act *man_term_act(enum roff_tok);
 
@@ -152,19 +153,15 @@ terminal_man(void *arg, const struct roff_meta *man)
 	struct mtermp		 mt;
 	struct termp		*p;
 	struct roff_node	*n, *nc, *nn;
-	size_t			 save_defindent;
 
 	p = (struct termp *)arg;
-	save_defindent = p->defindent;
-	if (p->synopsisonly == 0 && p->defindent == 0)
-		p->defindent = 7;
 	p->tcol->rmargin = p->maxrmargin = p->defrmargin;
 	term_tab_set(p, NULL);
 	term_tab_set(p, "T");
 	term_tab_set(p, ".5i");
 
 	memset(&mt, 0, sizeof(mt));
-	mt.lmargin[mt.lmargincur] = term_len(p, p->defindent);
+	mt.lmargin[mt.lmargincur] = term_len(p, 7);
 	mt.offset = term_len(p, p->defindent);
 	mt.pardist = 1;
 
@@ -194,16 +191,13 @@ terminal_man(void *arg, const struct roff_meta *man)
 			print_man_nodelist(p, &mt, n, man);
 		term_end(p);
 	}
-	p->defindent = save_defindent;
 }
 
 /*
- * Printing leading vertical space before a block.
- * This is used for the paragraph macros.
- * The rules are pretty simple, since there's very little nesting going
- * on here.  Basically, if we're the first within another block (SS/SH),
- * then don't emit vertical space.  If we are (RS), then do.  If not the
- * first, print it.
+ * Print leading vertical space before a paragraph, unless
+ * it is the first paragraph in a section or subsection.
+ * If it is the first paragraph in an .RS block, consider
+ * that .RS block instead of the paragraph, recursively.
  */
 static void
 print_bvspace(struct termp *p, struct roff_node *n, int pardist)
@@ -218,18 +212,15 @@ print_bvspace(struct termp *p, struct roff_node *n, int pardist)
 	    nch->type == ROFFT_TBL)
 		return;
 
-	if (n->parent->tok != MAN_RS && roff_node_prev(n) == NULL)
-		return;
-
+	while (roff_node_prev(n) == NULL) {
+		n = n->parent;
+		if (n->tok != MAN_RS)
+			return;
+		if (n->type == ROFFT_BODY)
+			n = n->parent;
+	}
 	for (i = 0; i < pardist; i++)
 		term_vspace(p);
-}
-
-
-static int
-pre_abort(DECL_ARGS)
-{
-	abort();
 }
 
 static int
@@ -336,6 +327,29 @@ pre_B(DECL_ARGS)
 }
 
 static int
+pre_MR(DECL_ARGS)
+{
+	term_fontrepl(p, TERMFONT_NONE);
+	n = n->child;
+	if (n != NULL) {
+		term_word(p, n->string);   /* name */
+		p->flags |= TERMP_NOSPACE;
+	}
+	term_word(p, "(");
+	p->flags |= TERMP_NOSPACE;
+	if (n != NULL && (n = n->next) != NULL) {
+		term_word(p, n->string);   /* section */
+		p->flags |= TERMP_NOSPACE;
+	}
+	term_word(p, ")");
+	if (n != NULL && (n = n->next) != NULL) {
+		p->flags |= TERMP_NOSPACE;
+		term_word(p, n->string);   /* suffix */
+	}
+	return 0;
+}
+
+static int
 pre_OP(DECL_ARGS)
 {
 	term_word(p, "[");
@@ -360,8 +374,8 @@ static int
 pre_in(DECL_ARGS)
 {
 	struct roffsu	 su;
-	const char	*cp;
-	size_t		 v;
+	const char	*cp;	/* Request argument. */
+	size_t		 v;	/* Indentation in basic units. */
 	int		 less;
 
 	term_newln(p);
@@ -374,17 +388,18 @@ pre_in(DECL_ARGS)
 	cp = n->child->string;
 	less = 0;
 
-	if (*cp == '-')
+	if (*cp == '-') {
 		less = -1;
-	else if (*cp == '+')
+		cp++;
+	} else if (*cp == '+') {
 		less = 1;
-	else
-		cp--;
+		cp++;
+	}
 
-	if (a2roffsu(++cp, &su, SCALE_EN) == NULL)
+	if (a2roffsu(cp, &su, SCALE_EN) == NULL)
 		return 0;
 
-	v = term_hen(p, &su);
+	v = term_hspan(p, &su);
 
 	if (less < 0)
 		p->tcol->offset -= p->tcol->offset > v ? v : p->tcol->offset;
@@ -412,7 +427,7 @@ pre_HP(DECL_ARGS)
 {
 	struct roffsu		 su;
 	const struct roff_node	*nn;
-	int			 len;
+	int			 len;	/* Indentation in basic units. */
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
@@ -438,7 +453,7 @@ pre_HP(DECL_ARGS)
 
 	if ((nn = n->parent->head->child) != NULL &&
 	    a2roffsu(nn->string, &su, SCALE_EN) != NULL) {
-		len = term_hen(p, &su);
+		len = term_hspan(p, &su);
 		if (len < 0 && (size_t)(-len) > mt->offset)
 			len = -mt->offset;
 		else if (len > SHRT_MAX)
@@ -487,7 +502,7 @@ pre_PP(DECL_ARGS)
 {
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
+		mt->lmargin[mt->lmargincur] = term_len(p, 7);
 		print_bvspace(p, n, mt->pardist);
 		break;
 	case ROFFT_HEAD:
@@ -506,7 +521,7 @@ pre_IP(DECL_ARGS)
 {
 	struct roffsu		 su;
 	const struct roff_node	*nn;
-	int			 len;
+	int			 len;	/* Indentation in basic units. */
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
@@ -517,7 +532,7 @@ pre_IP(DECL_ARGS)
 		p->trailspace = 1;
 		break;
 	case ROFFT_BODY:
-		p->flags |= TERMP_NOSPACE;
+		p->flags |= TERMP_NOSPACE | TERMP_NONEWLINE;
 		break;
 	default:
 		abort();
@@ -527,7 +542,7 @@ pre_IP(DECL_ARGS)
 	if ((nn = n->parent->head->child) != NULL &&
 	    (nn = nn->next) != NULL &&
 	    a2roffsu(nn->string, &su, SCALE_EN) != NULL) {
-		len = term_hen(p, &su);
+		len = term_hspan(p, &su);
 		if (len < 0 && (size_t)(-len) > mt->offset)
 			len = -mt->offset;
 		else if (len > SHRT_MAX)
@@ -579,7 +594,7 @@ pre_TP(DECL_ARGS)
 {
 	struct roffsu		 su;
 	struct roff_node	*nn;
-	int			 len;
+	int			 len;	/* Indentation in basic units. */
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
@@ -591,7 +606,7 @@ pre_TP(DECL_ARGS)
 		p->trailspace = 1;
 		break;
 	case ROFFT_BODY:
-		p->flags |= TERMP_NOSPACE;
+		p->flags |= TERMP_NOSPACE | TERMP_NONEWLINE;
 		break;
 	default:
 		abort();
@@ -602,7 +617,7 @@ pre_TP(DECL_ARGS)
 	if ((nn = n->parent->head->child) != NULL &&
 	    nn->string != NULL && ! (NODE_LINE & nn->flags) &&
 	    a2roffsu(nn->string, &su, SCALE_EN) != NULL) {
-		len = term_hen(p, &su);
+		len = term_hspan(p, &su);
 		if (len < 0 && (size_t)(-len) > mt->offset)
 			len = -mt->offset;
 		else if (len > SHRT_MAX)
@@ -663,7 +678,7 @@ pre_SS(DECL_ARGS)
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
+		mt->lmargin[mt->lmargincur] = term_len(p, 7);
 		mt->offset = term_len(p, p->defindent);
 
 		/*
@@ -679,10 +694,11 @@ pre_SS(DECL_ARGS)
 			term_vspace(p);
 		break;
 	case ROFFT_HEAD:
+		p->fontibi = 1;
 		term_fontrepl(p, TERMFONT_BOLD);
-		p->tcol->offset = term_len(p, 3);
+		p->tcol->offset = term_len(p, p->defindent) / 2 + 1;
 		p->tcol->rmargin = mt->offset;
-		p->trailspace = mt->offset;
+		p->trailspace = mt->offset / term_len(p, 1);
 		p->flags |= TERMP_NOBREAK | TERMP_BRIND;
 		break;
 	case ROFFT_BODY:
@@ -704,7 +720,7 @@ pre_SH(DECL_ARGS)
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
+		mt->lmargin[mt->lmargincur] = term_len(p, 7);
 		mt->offset = term_len(p, p->defindent);
 
 		/*
@@ -720,10 +736,11 @@ pre_SH(DECL_ARGS)
 			term_vspace(p);
 		break;
 	case ROFFT_HEAD:
+		p->fontibi = 1;
 		term_fontrepl(p, TERMFONT_BOLD);
 		p->tcol->offset = 0;
 		p->tcol->rmargin = mt->offset;
-		p->trailspace = mt->offset;
+		p->trailspace = mt->offset / term_len(p, 1);
 		p->flags |= TERMP_NOBREAK | TERMP_BRIND;
 		break;
 	case ROFFT_BODY:
@@ -745,6 +762,8 @@ post_SH(DECL_ARGS)
 	case ROFFT_BLOCK:
 		break;
 	case ROFFT_HEAD:
+		p->fontibi = 0;
+		/* FALLTHROUGH */
 	case ROFFT_BODY:
 		term_newln(p);
 		break;
@@ -775,7 +794,7 @@ pre_RS(DECL_ARGS)
 	if (n->child == NULL)
 		n->aux = mt->lmargin[mt->lmargincur];
 	else if (a2roffsu(n->child->string, &su, SCALE_EN) != NULL)
-		n->aux = term_hen(p, &su);
+		n->aux = term_hspan(p, &su);
 	if (n->aux < 0 && (size_t)(-n->aux) > mt->offset)
 		n->aux = -mt->offset;
 	else if (n->aux > SHRT_MAX)
@@ -788,7 +807,7 @@ pre_RS(DECL_ARGS)
 	if (++mt->lmarginsz < MAXMARGINS)
 		mt->lmargincur = mt->lmarginsz;
 
-	mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
+	mt->lmargin[mt->lmargincur] = term_len(p, 7);
 	return 1;
 }
 
@@ -815,7 +834,7 @@ static int
 pre_SY(DECL_ARGS)
 {
 	const struct roff_node	*nn;
-	int			 len;
+	int			 len;	/* Indentation in basic units. */
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
@@ -830,7 +849,9 @@ pre_SY(DECL_ARGS)
 	}
 
 	nn = n->parent->head->child;
-	len = nn == NULL ? 1 : term_strlen(p, nn->string) + 1;
+	len = term_len(p, 1);
+	if (nn != NULL)
+		len += term_strlen(p, nn->string);
 
 	switch (n->type) {
 	case ROFFT_HEAD:
@@ -900,6 +921,22 @@ print_man_node(DECL_ARGS)
 	const struct man_term_act *act;
 	int c;
 
+	/*
+	 * In no-fill mode, break the output line at the beginning
+	 * of new input lines except after \c, and nowhere else.
+	 */
+
+	if (n->flags & NODE_NOFILL) {
+		if (n->flags & NODE_LINE &&
+		    (p->flags & TERMP_NONEWLINE) == 0)
+			term_newln(p);
+		p->flags |= TERMP_BRNEVER;
+	} else {
+		if (n->flags & NODE_LINE)
+			term_tab_ref(p);
+		p->flags &= ~TERMP_BRNEVER;
+	}
+
 	if (n->flags & NODE_ID)
 		term_tag_write(n, p->line);
 
@@ -935,7 +972,7 @@ print_man_node(DECL_ARGS)
 		return;
 	case ROFFT_TBL:
 		if (p->tbl.cols == NULL)
-			term_vspace(p);
+			term_newln(p);
 		term_tbl(p, n->span);
 		return;
 	default:
@@ -964,27 +1001,11 @@ print_man_node(DECL_ARGS)
 		term_fontrepl(p, TERMFONT_NONE);
 
 out:
-	/*
-	 * If we're in a literal context, make sure that words
-	 * together on the same line stay together.  This is a
-	 * POST-printing call, so we check the NEXT word.  Since
-	 * -man doesn't have nested macros, we don't need to be
-	 * more specific than this.
-	 */
-	if (n->flags & NODE_NOFILL &&
-	    ! (p->flags & (TERMP_NOBREAK | TERMP_NONEWLINE)) &&
-	    (n->next == NULL || n->next->flags & NODE_LINE)) {
-		p->flags |= TERMP_BRNEVER | TERMP_NOSPACE;
-		if (n->string != NULL && *n->string != '\0')
-			term_flushln(p);
-		else
-			term_newln(p);
-		p->flags &= ~TERMP_BRNEVER;
-		if (p->tcol->rmargin < p->maxrmargin &&
-		    n->parent->tok == MAN_HP) {
-			p->tcol->offset = p->tcol->rmargin;
-			p->tcol->rmargin = p->maxrmargin;
-		}
+	if (n->parent->tok == MAN_HP && n->parent->type == ROFFT_BODY &&
+	    n->prev == NULL && n->flags & NODE_NOFILL) {
+		term_newln(p);
+		p->tcol->offset = p->tcol->rmargin;
+		p->tcol->rmargin = p->maxrmargin;
 	}
 	if (n->flags & NODE_EOS)
 		p->flags |= TERMP_SENTENCE;
@@ -1003,40 +1024,26 @@ static void
 print_man_foot(struct termp *p, const struct roff_meta *meta)
 {
 	char			*title;
-	size_t			 datelen, titlen;
+	size_t			 datelen, titlen;  /* In basic units. */
 
-	assert(meta->title);
-	assert(meta->msec);
-	assert(meta->date);
+	assert(meta->title != NULL);
+	assert(meta->msec != NULL);
 
 	term_fontrepl(p, TERMFONT_NONE);
-
 	if (meta->hasbody)
 		term_vspace(p);
 
-	/*
-	 * Temporary, undocumented option to imitate mdoc(7) output.
-	 * In the bottom right corner, use the operating system
-	 * instead of the title.
-	 */
-
-	if ( ! p->mdocstyle) {
-		mandoc_asprintf(&title, "%s(%s)",
-		    meta->title, meta->msec);
-	} else if (meta->os != NULL) {
-		title = mandoc_strdup(meta->os);
-	} else {
-		title = mandoc_strdup("");
-	}
 	datelen = term_strlen(p, meta->date);
+	mandoc_asprintf(&title, "%s(%s)", meta->title, meta->msec);
+	titlen = term_strlen(p, title);
 
 	/* Bottom left corner: operating system. */
 
-	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;
-	p->trailspace = 1;
 	p->tcol->offset = 0;
 	p->tcol->rmargin = p->maxrmargin > datelen ?
 	    (p->maxrmargin + term_len(p, 1) - datelen) / 2 : 0;
+	p->trailspace = 1;
+	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;
 
 	if (meta->os)
 		term_word(p, meta->os);
@@ -1045,7 +1052,6 @@ print_man_foot(struct termp *p, const struct roff_meta *meta)
 	/* At the bottom in the middle: manual date. */
 
 	p->tcol->offset = p->tcol->rmargin;
-	titlen = term_strlen(p, title);
 	p->tcol->rmargin = p->maxrmargin > titlen ?
 	    p->maxrmargin - titlen : 0;
 	p->flags |= TERMP_NOSPACE;
@@ -1055,11 +1061,11 @@ print_man_foot(struct termp *p, const struct roff_meta *meta)
 
 	/* Bottom right corner: manual title and section. */
 
-	p->flags &= ~TERMP_NOBREAK;
-	p->flags |= TERMP_NOSPACE;
-	p->trailspace = 0;
 	p->tcol->offset = p->tcol->rmargin;
 	p->tcol->rmargin = p->maxrmargin;
+	p->trailspace = 0;
+	p->flags &= ~TERMP_NOBREAK;
+	p->flags |= TERMP_NOSPACE;
 
 	term_word(p, title);
 	term_flushln(p);
@@ -1074,7 +1080,6 @@ print_man_foot(struct termp *p, const struct roff_meta *meta)
 
         p->tcol->offset = 0;
         p->flags = 0;
-
 	free(title);
 }
 
@@ -1083,7 +1088,7 @@ print_man_head(struct termp *p, const struct roff_meta *meta)
 {
 	const char		*volume;
 	char			*title;
-	size_t			 vollen, titlen;
+	size_t			 vollen, titlen;  /* In basic units. */
 
 	assert(meta->title);
 	assert(meta->msec);
@@ -1099,7 +1104,8 @@ print_man_head(struct termp *p, const struct roff_meta *meta)
 	p->flags |= TERMP_NOBREAK | TERMP_NOSPACE;
 	p->trailspace = 1;
 	p->tcol->offset = 0;
-	p->tcol->rmargin = 2 * (titlen+1) + vollen < p->maxrmargin ?
+	p->tcol->rmargin =
+	    titlen * 2 + term_len(p, 2) + vollen < p->maxrmargin ?
 	    (p->maxrmargin - vollen + term_len(p, 1)) / 2 :
 	    vollen < p->maxrmargin ? p->maxrmargin - vollen : 0;
 
@@ -1111,7 +1117,7 @@ print_man_head(struct termp *p, const struct roff_meta *meta)
 	p->flags |= TERMP_NOSPACE;
 	p->tcol->offset = p->tcol->rmargin;
 	p->tcol->rmargin = p->tcol->offset + vollen + titlen <
-	    p->maxrmargin ?  p->maxrmargin - titlen : p->maxrmargin;
+	    p->maxrmargin ? p->maxrmargin - titlen : p->maxrmargin;
 
 	term_word(p, volume);
 	term_flushln(p);
@@ -1131,13 +1137,6 @@ print_man_head(struct termp *p, const struct roff_meta *meta)
 	p->flags &= ~TERMP_NOSPACE;
 	p->tcol->offset = 0;
 	p->tcol->rmargin = p->maxrmargin;
-
-	/*
-	 * Groff prints three blank lines before the content.
-	 * Do the same, except in the temporary, undocumented
-	 * mode imitating mdoc(7) output.
-	 */
-
 	term_vspace(p);
 	free(title);
 }

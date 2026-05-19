@@ -141,6 +141,9 @@ MALLOC_DECLARE(M_PRISON);
 #define	DEFAULT_HOSTUUID	"00000000-0000-0000-0000-000000000000"
 #define	OSRELEASELEN	32
 
+#define	JAIL_META_PRIVATE	"meta"
+#define	JAIL_META_SHARED	"env"
+
 struct racct;
 struct prison_racct;
 
@@ -254,13 +257,24 @@ struct prison_racct {
 #define	PR_ALLOW_KMEM_ACCESS		0x00010000	/* reserved, not used yet */
 #define	PR_ALLOW_NFSD			0x00020000
 #define	PR_ALLOW_ROUTING		0x00040000
-#define	PR_ALLOW_ALL_STATIC		0x000787ff
+/* Bits assigned in main */
+#define	PR_ALLOW_UNPRIV_PARENT_TAMPER	0x00400000
+
+/*
+ * PR_ALLOW_PRISON0 are the allow flags that we apply by default to prison0,
+ * while PR_ALLOW_ALL_STATIC are all of the allow bits that we have allocated at
+ * build time.  PR_ALLOW_ALL_STATIC should contain any bit above that we expect
+ * to be used on the system, while PR_ALLOW_PRISON0 will be some subset of that.
+ */
+#define	PR_ALLOW_ALL_STATIC		0x004787ff
+#define	PR_ALLOW_PRISON0		(PR_ALLOW_ALL_STATIC)
 
 /*
  * PR_ALLOW_DIFFERENCES determines which flags are able to be
  * different between the parent and child jail upon creation.
  */
-#define	PR_ALLOW_DIFFERENCES		(PR_ALLOW_UNPRIV_DEBUG)
+#define	PR_ALLOW_DIFFERENCES		\
+    (PR_ALLOW_UNPRIV_DEBUG | PR_ALLOW_UNPRIV_PARENT_TAMPER)
 
 /*
  * OSD methods
@@ -374,6 +388,7 @@ extern struct	sx allprison_lock;
 /*
  * Sysctls to describe jail parameters.
  */
+SYSCTL_DECL(_security_jail);
 SYSCTL_DECL(_security_jail_param);
 
 #define SYSCTL_JAIL_PARAM_DECL(name)					\
@@ -428,7 +443,7 @@ void prison0_init(void);
 bool prison_allow(struct ucred *, unsigned);
 int prison_check(struct ucred *cred1, struct ucred *cred2);
 bool prison_check_nfsd(struct ucred *cred);
-bool prison_owns_vnet(struct ucred *);
+bool prison_owns_vnet(struct prison *pr);
 int prison_canseemount(struct ucred *cred, struct mount *mp);
 void prison_enforce_statfs(struct ucred *cred, struct mount *mp,
     struct statfs *sp);

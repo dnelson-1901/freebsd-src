@@ -322,11 +322,13 @@ dump_iface(struct nl_writer *nw, if_t ifp, const struct nlmsghdr *hdr,
 */
 	if (if_getaddrlen(ifp) != 0) {
 		struct ifaddr *ifa;
+		struct ifa_iter it;
 
 		NET_EPOCH_ENTER(et);
-		ifa = CK_STAILQ_FIRST(&ifp->if_addrhead);
+		ifa = ifa_iter_start(ifp, &it);
 		if (ifa != NULL)
 			dump_sa(nw, IFLA_ADDRESS, ifa->ifa_addr);
+		ifa_iter_finish(&it);
 		NET_EPOCH_EXIT(et);
 	}
 
@@ -548,10 +550,7 @@ rtnl_handle_dellink(struct nlmsghdr *hdr, struct nlpcb *nlp, struct nl_pstate *n
 	}
 	NLP_LOG(LOG_DEBUG3, nlp, "mapped ifindex %u to %s", attrs.ifi_index, if_name(ifp));
 
-	sx_xlock(&ifnet_detach_sxlock);
 	error = if_clone_destroy(if_name(ifp));
-	sx_xunlock(&ifnet_detach_sxlock);
-
 	NLP_LOG(LOG_DEBUG2, nlp, "deleting interface %s returned %d", if_name(ifp), error);
 
 	if_rele(ifp);

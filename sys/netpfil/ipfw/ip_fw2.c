@@ -67,6 +67,7 @@
 #include <net/route/nhop.h>
 #include <net/pfil.h>
 #include <net/vnet.h>
+#include <net/if_gif.h>
 #include <net/if_pfsync.h>
 
 #include <netpfil/pf/pf_mtag.h>
@@ -197,7 +198,7 @@ SYSCTL_NODE(_net_inet_ip, OID_AUTO, fw, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Firewall");
 SYSCTL_INT(_net_inet_ip_fw, OID_AUTO, one_pass,
     CTLFLAG_VNET | CTLFLAG_RW | CTLFLAG_SECURE3, &VNET_NAME(fw_one_pass), 0,
-    "Only do a single pass through ipfw when using dummynet(4)");
+    "Only do a single pass through ipfw when using dummynet(4), ipfw_nat or other divert(4)-like interfaces");
 SYSCTL_INT(_net_inet_ip_fw, OID_AUTO, autoinc_step,
     CTLFLAG_VNET | CTLFLAG_RW, &VNET_NAME(autoinc_step), 0,
     "Rule number auto-increment step");
@@ -1715,6 +1716,12 @@ do {								\
 
 			case IPPROTO_IPV4:	/* RFC 2893 */
 				PULLUP_TO(hlen, ulp, struct ip);
+				break;
+
+			case IPPROTO_ETHERIP:	/* RFC 3378 */
+				PULLUP_LEN(hlen, ulp,
+				    sizeof(struct etherip_header) +
+				    sizeof(struct ether_header));
 				break;
 
 			case IPPROTO_PFSYNC:
@@ -3434,11 +3441,9 @@ sysctl_ipfw_tables_sets(SYSCTL_HANDLER_ARGS)
 /*
  * Stuff that must be initialised only on boot or module load
  */
-static int
-ipfw_init(void)
+static void
+ipfw_init(void *dummy __unused)
 {
-	int error = 0;
-
 	/*
  	 * Only print out this stuff the first time around,
 	 * when called from the sysinit code.
@@ -3483,14 +3488,13 @@ ipfw_init(void)
 	ipfw_init_sopt_handler();
 	ipfw_init_obj_rewriter();
 	ipfw_iface_init();
-	return (error);
 }
 
 /*
  * Called for the removal of the last instance only on module unload.
  */
 static void
-ipfw_destroy(void)
+ipfw_destroy(void *dummy __unused)
 {
 
 	ipfw_iface_destroy();

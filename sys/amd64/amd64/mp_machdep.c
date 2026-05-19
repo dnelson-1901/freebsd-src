@@ -110,6 +110,7 @@ smp_targeted_tlb_shootdown_t smp_targeted_tlb_shootdown =
  */
 
 static int start_ap(int apic_id, vm_paddr_t boot_address);
+static int start_all_aps(void);
 
 /*
  * Initialize the IPI handlers and start up the AP's.
@@ -317,7 +318,7 @@ amd64_mp_alloc_pcpu(void)
 /*
  * start each AP in our list
  */
-int
+static int
 start_all_aps(void)
 {
 	vm_page_t m_boottramp, m_pml4, m_pdp, m_pd[4];
@@ -726,25 +727,12 @@ smp_masked_invlpg_range(vm_offset_t addr1, vm_offset_t addr2, pmap_t pmap,
 		addr2 = round_page(addr2);
 		total = atop(addr2 - addr1);
 		for (va = addr1; total > 0;) {
-			if ((va & PDRMASK) != 0 || total < NPDEPG) {
-				cnt = atop(NBPDR - (va & PDRMASK));
-				if (cnt > total)
-					cnt = total;
-				if (cnt > invlpgb_maxcnt + 1)
-					cnt = invlpgb_maxcnt + 1;
-				invlpgb(INVLPGB_GLOB | INVLPGB_VA | va, 0,
-				    cnt - 1);
-				va += ptoa(cnt);
-				total -= cnt;
-			} else {
-				cnt = total / NPTEPG;
-				if (cnt > invlpgb_maxcnt + 1)
-					cnt = invlpgb_maxcnt + 1;
-				invlpgb(INVLPGB_GLOB | INVLPGB_VA | va, 0,
-				    INVLPGB_2M_CNT | (cnt - 1));
-				va += cnt << PDRSHIFT;
-				total -= cnt * NPTEPG;
-			}
+			cnt = MIN(total, invlpgb_maxcnt + 1);
+			/* 4K increments because these may not be superpages. */
+			invlpgb(INVLPGB_GLOB | INVLPGB_VA | va, 0,
+			    cnt - 1);
+			va += ptoa(cnt);
+			total -= cnt;
 		}
 		tlbsync();
 		sched_unpin();

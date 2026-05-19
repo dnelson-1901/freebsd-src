@@ -748,6 +748,7 @@ linux_common_wait(struct thread *td, idtype_t idtype, int id, int *statusp,
 		error = linux_copyout_rusage(&wru.wru_self, rup);
 	if (error == 0 && infop != NULL && td->td_retval[0] != 0) {
 		sig = bsd_to_linux_signal(siginfo.si_signo);
+		memset(&lsi, 0, sizeof(lsi));
 		siginfo_to_lsiginfo(&siginfo, &lsi, sig);
 		error = copyout(&lsi, infop, sizeof(lsi));
 	}
@@ -1044,8 +1045,7 @@ linux_setgroups(struct thread *td, struct linux_setgroups_args *args)
 	crextend(newcred, ngrp + 1);
 	p = td->td_proc;
 	PROC_LOCK(p);
-	oldcred = p->p_ucred;
-	crcopy(newcred, oldcred);
+	oldcred = crcopysafe(p, newcred);
 
 	/*
 	 * cr_groups[0] holds egid. Setting the whole set from

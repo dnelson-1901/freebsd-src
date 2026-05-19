@@ -115,7 +115,7 @@ static int	filt_sigattach(struct knote *kn);
 static void	filt_sigdetach(struct knote *kn);
 static int	filt_signal(struct knote *kn, long hint);
 static struct thread *sigtd(struct proc *p, int sig, bool fast_sigblock);
-static void	sigqueue_start(void);
+static void	sigqueue_start(void *);
 static void	sigfastblock_setpend(struct thread *td, bool resched);
 static void	sig_handle_first_stop(struct thread *td, struct proc *p,
     int sig);
@@ -371,7 +371,7 @@ ast_sigsuspend(struct thread *td, int tda __unused)
 }
 
 static void
-sigqueue_start(void)
+sigqueue_start(void *dummy __unused)
 {
 	ksiginfo_zone = uma_zcreate("ksiginfo", sizeof(ksiginfo_t),
 		NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
@@ -1042,8 +1042,7 @@ osigaction(struct thread *td, struct osigaction_args *uap)
 int
 osigreturn(struct thread *td, struct osigreturn_args *uap)
 {
-
-	return (nosys(td, (struct nosys_args *)uap));
+	return (kern_nosys(td, 0));
 }
 #endif
 #endif /* COMPAT_43 */
@@ -1649,8 +1648,8 @@ kern_sigsuspend(struct thread *td, sigset_t mask)
 	 */
 	(p->p_sysent->sv_set_syscall_retval)(td, EINTR);
 	for (has_sig = 0; !has_sig;) {
-		while (msleep(&p->p_sigacts, &p->p_mtx, PPAUSE|PCATCH, "pause",
-			0) == 0)
+		while (msleep(&p->p_sigacts, &p->p_mtx, PPAUSE | PCATCH,
+		    "sigsusp", 0) == 0)
 			/* void */;
 		thread_suspend_check(0);
 		mtx_lock(&p->p_sigacts->ps_mtx);
@@ -2459,8 +2458,6 @@ tdsendsignal(struct proc *p, struct thread *td, int sig, ksiginfo_t *ksi)
 			PROC_SLOCK(p);
 			if (p->p_numthreads == p->p_suspcount) {
 				PROC_SUNLOCK(p);
-				p->p_flag |= P_CONTINUED;
-				p->p_xsig = SIGCONT;
 				PROC_LOCK(p->p_pptr);
 				childproc_continued(p);
 				PROC_UNLOCK(p->p_pptr);
@@ -3751,7 +3748,14 @@ sigparent(struct proc *p, int reason, int status)
 		if (KSI_ONQ(p->p_ksi))
 			return;
 	}
-	pksignal(p->p_pptr, SIGCHLD, p->p_ksi);
+
+	/*
+	 * Do not consume p_ksi if parent is zombie, since signal is
+	 * dropped immediately.  Instead, keep it since it might be
+	 * useful for reaper.
+	 */
+	if (p->p_pptr->p_state != PRS_ZOMBIE)
+		pksignal(p->p_pptr, SIGCHLD, p->p_ksi);
 }
 
 static void
@@ -3790,6 +3794,9 @@ childproc_stopped(struct proc *p, int reason)
 void
 childproc_continued(struct proc *p)
 {
+	PROC_LOCK_ASSERT(p, MA_OWNED);
+	p->p_flag |= P_CONTINUED;
+	p->p_xsig = SIGCONT;
 	childproc_jobstate(p, CLD_CONTINUED, SIGCONT);
 }
 
@@ -4044,7 +4051,7 @@ corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
 				}
 				getcredhostname(td->td_ucred, hostname,
 				    MAXHOSTNAMELEN);
-				sbuf_printf(&sb, "%s", hostname);
+				sbuf_cat(&sb, hostname);
 				break;
 			case 'I':	/* autoincrementing index */
 				if (indexpos != -1) {
@@ -4083,9 +4090,9 @@ corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
 	sx_sunlock(&corefilename_lock);
 	free(hostname, M_TEMP);
 	if (compress == COMPRESS_GZIP)
-		sbuf_printf(&sb, GZIP_SUFFIX);
+		sbuf_cat(&sb, GZIP_SUFFIX);
 	else if (compress == COMPRESS_ZSTD)
-		sbuf_printf(&sb, ZSTD_SUFFIX);
+		sbuf_cat(&sb, ZSTD_SUFFIX);
 	if (sbuf_error(&sb) != 0) {
 		log(LOG_ERR, "pid %ld (%s), uid (%lu): corename is too "
 		    "long\n", (long)pid, comm, (u_long)uid);
@@ -4241,10 +4248,10 @@ coredump(struct thread *td)
 	sb = sbuf_new_auto();
 	if (vn_fullpath_global(p->p_textvp, &fullpath, &freepath) != 0)
 		goto out2;
-	sbuf_printf(sb, "comm=\"");
+	sbuf_cat(sb, "comm=\"");
 	devctl_safe_quote_sb(sb, fullpath);
 	free(freepath, M_TEMP);
-	sbuf_printf(sb, "\" core=\"");
+	sbuf_cat(sb, "\" core=\"");
 
 	/*
 	 * We can't lookup core file vp directly. When we're replacing a core, and
@@ -4263,7 +4270,7 @@ coredump(struct thread *td)
 		sbuf_putc(sb, '/');
 	}
 	devctl_safe_quote_sb(sb, name);
-	sbuf_printf(sb, "\"");
+	sbuf_putc(sb, '"');
 	if (sbuf_finish(sb) == 0)
 		devctl_notify("kernel", "signal", "coredump", sbuf_data(sb));
 out2:
@@ -4291,6 +4298,12 @@ struct nosys_args {
 /* ARGSUSED */
 int
 nosys(struct thread *td, struct nosys_args *args)
+{
+	return (kern_nosys(td, args->dummy));
+}
+
+int
+kern_nosys(struct thread *td, int dummy)
 {
 	struct proc *p;
 

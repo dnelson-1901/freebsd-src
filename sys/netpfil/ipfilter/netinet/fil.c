@@ -240,6 +240,11 @@ static const	struct	optlist	secopt[] = {
 	{ IPSO_CLASS_RES1,	0x80 }
 };
 
+/*
+ * Internal errors set by ipf_check_names_string().
+ */
+static const int interr_tbl[3] = { 152, 156, 153 };
+
 char	ipfilter_version[] = IPL_VERSION;
 
 int	ipf_features = 0
@@ -367,6 +372,10 @@ static ipftuneable_t ipf_main_tuneables[] = {
 		"ip_timeout",		1,	0x7fffffff,
 		stsizeof(ipf_main_softc_t, ipf_iptimeout),
 		0,			NULL,	ipf_settimeout },
+	{ { (void *)offsetof(ipf_main_softc_t, ipf_max_namelen) },
+		"max_namelen",		0,	0x7fffffff,
+		stsizeof(ipf_main_softc_t, ipf_max_namelen),
+		0,			NULL,	NULL },
 #if defined(INSTANCES) && defined(_KERNEL)
 	{ { (void *)offsetof(ipf_main_softc_t, ipf_get_loopback) },
 		"intercept_loopback",	0,	1,
@@ -441,7 +450,7 @@ static inline void
 ipf_pr_ipv6hdr(fr_info_t *fin)
 {
 	ip6_t *ip6 = (ip6_t *)fin->fin_ip;
-	int p, go = 1, i, hdrcount;
+	int p, go = 1, i;
 	fr_ip_t *fi = &fin->fin_fi;
 
 	fin->fin_off = 0;
@@ -468,7 +477,6 @@ ipf_pr_ipv6hdr(fr_info_t *fin)
 	if (IN6_IS_ADDR_MULTICAST(&fi->fi_dst.in6))
 		fin->fin_flx |= FI_MULTICAST|FI_MBCAST;
 
-	hdrcount = 0;
 	while (go && !(fin->fin_flx & FI_SHORT)) {
 		switch (p)
 		{
@@ -546,7 +554,6 @@ ipf_pr_ipv6hdr(fr_info_t *fin)
 			go = 0;
 			break;
 		}
-		hdrcount++;
 
 		/*
 		 * It is important to note that at this point, for the
@@ -2594,14 +2601,13 @@ ipf_scanlist(fr_info_t *fin, u_32_t pass)
 /* functions called from the IPFilter "mainline" in ipf_check().            */
 /* ------------------------------------------------------------------------ */
 frentry_t *
-ipf_acctpkt(fr_info_t *fin, u_32_t *passp)
+ipf_acctpkt(fr_info_t *fin, u_32_t *passp __unused)
 {
 	ipf_main_softc_t *softc = fin->fin_main_soft;
 	char group[FR_GROUPLEN];
 	frentry_t *fr, *frsave;
 	u_32_t pass, rulen;
 
-	passp = passp;
 	fr = softc->ipf_acct[fin->fin_out][softc->ipf_active];
 
 	if (fr != NULL) {
@@ -3506,7 +3512,7 @@ ipf_group_add(ipf_main_softc_t *softc, char *group, void *head, u_32_t flags,
 		fg->fg_head = head;
 		fg->fg_start = NULL;
 		fg->fg_next = *fgp;
-		bcopy(group, fg->fg_name, strlen(group) + 1);
+		bcopy(group, fg->fg_name, strnlen(group, FR_GROUPLEN) + 1);
 		fg->fg_flags = gflags;
 		fg->fg_ref = 1;
 		fg->fg_set = &softc->ipf_groups[unit][set];
@@ -3909,7 +3915,7 @@ ipf_synclist(ipf_main_softc_t *softc, frentry_t *fr, void *ifp)
 	frentry_t *frt, *start = fr;
 	frdest_t *fdp;
 	char *name;
-	int error;
+	int error, interr;
 	void *ifa;
 	int v, i;
 
@@ -3936,6 +3942,21 @@ ipf_synclist(ipf_main_softc_t *softc, frentry_t *fr, void *ifp)
 		}
 
 		if ((fr->fr_type & ~FR_T_BUILTIN) == FR_T_IPF) {
+			/*
+			 * We do the validation for fr_sifpidx here because
+			 * it is a union that contains an offset only when
+			 * fr_sifpidx points to an interface name, an offset
+			 * into fr_names. The union is  an offset into
+			 * fr_names in this case only.
+			 *
+			 * Note that sifpidx is only used in ipf_sync() which
+			 * implments ipf -y.
+			 */
+			if ((interr = ipf_check_names_string(fr->fr_names, fr->fr_namelen, fr->fr_sifpidx)) != 0) {
+				IPFERROR(interr_tbl[interr-1]);
+				error = EINVAL;
+				goto unwind;
+			}
 			if (fr->fr_satype != FRI_NORMAL &&
 			    fr->fr_satype != FRI_LOOKUP) {
 				ifa = ipf_resolvenic(softc, fr->fr_names +
@@ -4204,7 +4225,7 @@ ipf_getstat(ipf_main_softc_t *softc, friostat_t *fiop, int rev)
 		(rev / 10000) % 100,
 		(rev / 100) % 100);
 #else
-	rev = rev;
+	(void)rev; /* UNUSED */
 	(void) strncpy(fiop->f_version, ipfilter_version,
 		       sizeof(fiop->f_version));
 #endif
@@ -4406,19 +4427,18 @@ int
 frrequest(ipf_main_softc_t *softc, int unit, ioctlcmd_t req, caddr_t data,
 	int set, int makecopy)
 {
-	int error = 0, in, family, need_free = 0;
+	int error = 0, in, family, need_free = 0, interr, i;
 	enum {	OP_ADD,		/* add rule */
 		OP_REM,		/* remove rule */
 		OP_ZERO 	/* zero statistics and counters */ }
 		addrem = OP_ADD;
 	frentry_t frd, *fp, *f, **fprev, **ftail;
-	void *ptr, *uptr, *cptr;
+	void *ptr, *uptr;
 	u_int *p, *pp;
 	frgroup_t *fg;
 	char *group;
 
 	ptr = NULL;
-	cptr = NULL;
 	fg = NULL;
 	fp = &frd;
 	if (makecopy != 0) {
@@ -4429,6 +4449,17 @@ frrequest(ipf_main_softc_t *softc, int unit, ioctlcmd_t req, caddr_t data,
 		}
 		if ((fp->fr_type & FR_T_BUILTIN) != 0) {
 			IPFERROR(6);
+			return (EINVAL);
+		}
+		if (fp->fr_size < sizeof(frd)) {
+			return (EINVAL);
+		}
+		if (sizeof(frd) + fp->fr_namelen != fp->fr_size ) {
+			IPFERROR(155);
+			return (EINVAL);
+		}
+		if (fp->fr_namelen < 0 || fp->fr_namelen > softc->ipf_max_namelen) {
+			IPFERROR(156);
 			return (EINVAL);
 		}
 		KMALLOCS(f, frentry_t *, fp->fr_size);
@@ -4457,6 +4488,44 @@ frrequest(ipf_main_softc_t *softc, int unit, ioctlcmd_t req, caddr_t data,
 		fp->fr_ptr = NULL;
 		fp->fr_ref = 0;
 		fp->fr_flags |= FR_COPIED;
+
+		for (i = 0; i <= 3; i++) {
+			if ((interr = ipf_check_names_string(fp->fr_names, fp->fr_namelen, fp->fr_ifnames[i])) != 0) {
+				IPFERROR(interr_tbl[interr-1]);
+				error = EINVAL;
+				goto donenolock;
+			}
+		}
+		if ((interr = ipf_check_names_string(fp->fr_names, fp->fr_namelen, fp->fr_comment)) != 0) {
+			IPFERROR(interr_tbl[interr-1]);
+			error = EINVAL;
+			goto donenolock;
+		}
+		if ((interr = ipf_check_names_string(fp->fr_names, fp->fr_namelen, fp->fr_group)) != 0) {
+			IPFERROR(interr_tbl[interr-1]);
+			error = EINVAL;
+			goto donenolock;
+		}
+		if ((interr = ipf_check_names_string(fp->fr_names, fp->fr_namelen, fp->fr_grhead)) != 0) {
+			IPFERROR(interr_tbl[interr-1]);
+			error = EINVAL;
+			goto donenolock;
+		}
+		if ((interr = ipf_check_names_string(fp->fr_names, fp->fr_namelen, fp->fr_tif.fd_name)) != 0) {
+			IPFERROR(interr_tbl[interr-1]);
+			error = EINVAL;
+			goto donenolock;
+		}
+		if ((interr = ipf_check_names_string(fp->fr_names, fp->fr_namelen, fp->fr_rif.fd_name)) != 0) {
+			IPFERROR(interr_tbl[interr-1]);
+			error = EINVAL;
+			goto donenolock;
+		}
+		if ((interr = ipf_check_names_string(fp->fr_names, fp->fr_namelen, fp->fr_dif.fd_name)) != 0) {
+			IPFERROR(interr_tbl[interr-1]);
+			error = EINVAL;
+			goto donenolock;
+		}
 	} else {
 		fp = (frentry_t *)data;
 		if ((fp->fr_type & FR_T_BUILTIN) == 0) {
@@ -4536,7 +4605,6 @@ frrequest(ipf_main_softc_t *softc, int unit, ioctlcmd_t req, caddr_t data,
 	}
 
 	ptr = NULL;
-	cptr = NULL;
 
 	if (FR_ISACCOUNT(fp->fr_flags))
 		unit = IPL_LOGCOUNT;
@@ -7318,11 +7386,10 @@ ipf_resolvedest(ipf_main_softc_t *softc, char *base, frdest_t *fdp, int v)
 /* for both IPv4 and IPv6 on the same physical NIC.                         */
 /* ------------------------------------------------------------------------ */
 void *
-ipf_resolvenic(ipf_main_softc_t *softc, char *name, int v)
+ipf_resolvenic(ipf_main_softc_t *softc __unused, char *name, int v)
 {
 	void *nic;
 
-	softc = softc;	/* gcc -Wextra */
 	if (name[0] == '\0')
 		return (NULL);
 
@@ -7459,6 +7526,10 @@ ipf_token_find(ipf_main_softc_t *softc, int type, int uid, void *ptr)
 {
 	ipftoken_t *it, *new;
 
+	KMALLOC(new, ipftoken_t *);
+	if (new != NULL)
+		bzero((char *)new, sizeof(*new));
+
 	WRITE_ENTER(&softc->ipf_tokens);
 	for (it = softc->ipf_token_head; it != NULL; it = it->ipt_next) {
 		if ((ptr == it->ipt_ctx) && (type == it->ipt_type) &&
@@ -7467,10 +7538,6 @@ ipf_token_find(ipf_main_softc_t *softc, int type, int uid, void *ptr)
 	}
 
 	if (it == NULL) {
-		KMALLOC(new, ipftoken_t *);
-		if (new != NULL)
-			bzero((char *)new, sizeof(*new));
-
 		it = new;
 		new = NULL;
 		if (it == NULL) {
@@ -7482,6 +7549,11 @@ ipf_token_find(ipf_main_softc_t *softc, int type, int uid, void *ptr)
 		it->ipt_type = type;
 		it->ipt_ref = 1;
 	} else {
+		if (new != NULL) {
+			KFREE(new);
+			new = NULL;
+		}
+
 		if (it->ipt_complete > 0)
 			it = NULL;
 		else
@@ -9045,7 +9117,9 @@ ipf_main_soft_create(void *arg)
 #endif
 	softc->ipf_minttl = 4;
 	softc->ipf_icmpminfragmtu = 68;
+	softc->ipf_max_namelen = 128;
 	softc->ipf_flags = IPF_LOGGING;
+	softc->ipf_jail_allowed = 0;
 
 #ifdef LARGE_NAT
 	softc->ipf_large_nat = 1;
@@ -9956,3 +10030,34 @@ ipf_inet6_mask_del(int bits, i6addr_t *mask, ipf_v6_masktab_t *mtab)
 	ASSERT(mtab->imt6_max >= 0);
 }
 #endif
+
+/* ------------------------------------------------------------------------ */
+/* Function:    ipf_check_names_string                                      */
+/* Returns:     int       -  0 == success                                   */
+/*                        -  1 == negative offset                           */
+/*                        -  2 == offset exceds namelen                     */
+/*                        -  3 == string exceeds the names string           */
+/* Parameters:  names   - pointer to names string                           */
+/*              namelen - total length of names string                      */
+/*              offset  - offset into names string                          */
+/*                                                                          */
+/* Validate the names string (fr_names for ipfilter, in_names for ipnat).   */
+/* ------------------------------------------------------------------------ */
+int
+ipf_check_names_string(char *names, int namelen, int offset)
+{
+	const char *name;
+	size_t len;
+
+	if (offset == -1)
+		return (0);
+	if (offset < 0)
+		return (1);
+	if (offset > namelen)
+		return (2);
+	name = &names[offset];
+	len = strnlen(name, namelen - offset);
+	if (len == namelen - offset)
+		return (3);
+	return (0);
+}

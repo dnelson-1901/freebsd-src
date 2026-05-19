@@ -1719,8 +1719,13 @@ vm_map_insert1(vm_map_t map, vm_object_t object, vm_ooffset_t offset,
 
 charged:
 	/* Expand the kernel pmap, if necessary. */
-	if (map == kernel_map && end > kernel_vm_end)
-		pmap_growkernel(end);
+	if (map == kernel_map && end > kernel_vm_end) {
+		int rv;
+
+		rv = pmap_growkernel(end);
+		if (rv != KERN_SUCCESS)
+			return (rv);
+	}
 	if (object != NULL) {
 		/*
 		 * OBJ_ONEMAPPING must be cleared unless this mapping
@@ -4133,6 +4138,38 @@ vm_map_check_protection(vm_map_t map, vm_offset_t start, vm_offset_t end,
 		entry = vm_map_entry_succ(entry);
 	}
 	return (TRUE);
+}
+
+/*
+ * Check whether the specified range partially overlaps a map entry with
+ * fixed boundaries, and return false if so.
+ *
+ * The map must be locked.
+ */
+bool
+vm_map_check_boundary(vm_map_t map, vm_offset_t start, vm_offset_t end)
+{
+	vm_map_entry_t entry;
+	int bdry_idx;
+
+	if (!vm_map_range_valid(map, start, end))
+		return (false);
+	if (start == end)
+		return (true);
+
+	if (vm_map_lookup_entry(map, start, &entry)) {
+		bdry_idx = MAP_ENTRY_SPLIT_BOUNDARY_INDEX(entry);
+		if (bdry_idx != 0 &&
+		    (start & (pagesizes[bdry_idx] - 1)) != 0)
+			return (false);
+	}
+	if (vm_map_lookup_entry(map, end - 1, &entry)) {
+		bdry_idx = MAP_ENTRY_SPLIT_BOUNDARY_INDEX(entry);
+		if (bdry_idx != 0 &&
+		    (end & (pagesizes[bdry_idx] - 1)) != 0)
+			return (false);
+	}
+	return (true);
 }
 
 /*

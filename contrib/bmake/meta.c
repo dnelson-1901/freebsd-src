@@ -1,4 +1,4 @@
-/*      $NetBSD: meta.c,v 1.205 2023/03/28 14:39:31 rillig Exp $ */
+/*      $NetBSD: meta.c,v 1.219 2025/08/04 18:57:20 rillig Exp $ */
 
 /*
  * Implement 'meta' mode.
@@ -36,6 +36,9 @@
 # include "config.h"
 #endif
 #include <sys/stat.h>
+#if defined(HAVE_SYS_SELECT_H)
+# include <sys/select.h>
+#endif
 #ifdef HAVE_LIBGEN_H
 #include <libgen.h>
 #elif !defined(HAVE_DIRNAME)
@@ -49,6 +52,7 @@ char * dirname(char *);
 #include "make.h"
 #include "dir.h"
 #include "job.h"
+#include "meta.h"
 
 #ifdef USE_FILEMON
 #include "filemon/filemon.h"
@@ -327,7 +331,7 @@ is_submake(const char *cmd, GNode *gn)
 	p_len = strlen(p_make);
     }
     if (strchr(cmd, '$') != NULL) {
-	mp = Var_Subst(cmd, gn, VARE_WANTRES);
+	mp = Var_Subst(cmd, gn, VARE_EVAL);
 	/* TODO: handle errors */
 	cmd = mp;
     }
@@ -373,7 +377,7 @@ printCMD(const char *ucmd, FILE *fp, GNode *gn)
 {
     FStr xcmd = FStr_InitRefer(ucmd);
 
-    Var_Expand(&xcmd, gn, VARE_WANTRES);
+    Var_Expand(&xcmd, gn, VARE_EVAL);
     fprintf(fp, "CMD %s\n", xcmd.str);
     FStr_Done(&xcmd);
 }
@@ -482,7 +486,7 @@ meta_create(BuildMon *pbm, GNode *gn)
 
     if (metaVerbose) {
 	/* Describe the target we are building */
-	char *mp = Var_Subst("${" MAKE_META_PREFIX "}", gn, VARE_WANTRES);
+	char *mp = Var_Subst("${" MAKE_META_PREFIX "}", gn, VARE_EVAL);
 	/* TODO: handle errors */
 	if (mp[0] != '\0')
 	    fprintf(stdout, "%s\n", mp);
@@ -622,18 +626,18 @@ meta_mode_init(const char *make_mode)
      * We consider ourselves master of all within ${.MAKE.META.BAILIWICK}
      */
     metaBailiwickStr = Var_Subst("${.MAKE.META.BAILIWICK:O:u:tA}",
-				 SCOPE_GLOBAL, VARE_WANTRES);
+				 SCOPE_GLOBAL, VARE_EVAL);
     /* TODO: handle errors */
-    str2Lst_Append(&metaBailiwick, metaBailiwickStr);
+    AppendWords(&metaBailiwick, metaBailiwickStr);
     /*
      * We ignore any paths that start with ${.MAKE.META.IGNORE_PATHS}
      */
     Global_Append(MAKE_META_IGNORE_PATHS,
 	       "/dev /etc /proc /tmp /var/run /var/tmp ${TMPDIR}");
     metaIgnorePathsStr = Var_Subst("${" MAKE_META_IGNORE_PATHS ":O:u:tA}",
-				   SCOPE_GLOBAL, VARE_WANTRES);
+				   SCOPE_GLOBAL, VARE_EVAL);
     /* TODO: handle errors */
-    str2Lst_Append(&metaIgnorePaths, metaIgnorePathsStr);
+    AppendWords(&metaIgnorePaths, metaIgnorePathsStr);
 
     /*
      * We ignore any paths that match ${.MAKE.META.IGNORE_PATTERNS}
@@ -647,7 +651,7 @@ MAKE_INLINE BuildMon *
 BM(Job *job)
 {
 
-	return ((job != NULL) ? &job->bm : &Mybm);
+	return job != NULL ? Job_BuildMon(job) : &Mybm;
 }
 
 /*
@@ -749,7 +753,7 @@ meta_job_error(Job *job, GNode *gn, bool ignerr, int status)
 
     pbm = BM(job);
     if (job != NULL && gn == NULL)
-	    gn = job->node;
+	    gn = Job_Node(job);
     if (pbm->mfp != NULL) {
 	fprintf(pbm->mfp, "\n*** Error code %d%s\n",
 		status, ignerr ? "(ignored)" : "");
@@ -757,7 +761,7 @@ meta_job_error(Job *job, GNode *gn, bool ignerr, int status)
     if (gn != NULL)
 	Global_Set(".ERROR_TARGET", GNode_Path(gn));
     if (getcwd(cwd, sizeof cwd) == NULL)
-	Punt("Cannot get cwd: %s", strerror(errno));
+	Punt("getcwd: %s", strerror(errno));
 
     Global_Set(".ERROR_CWD", cwd);
     if (pbm->meta_fname[0] != '\0') {
@@ -767,7 +771,7 @@ meta_job_error(Job *job, GNode *gn, bool ignerr, int status)
 }
 
 void
-meta_job_output(Job *job, char *cp, const char *nl)
+meta_job_output(Job *job, const char *cp, size_t len)
 {
     BuildMon *pbm;
 
@@ -778,15 +782,10 @@ meta_job_output(Job *job, char *cp, const char *nl)
 	    static size_t meta_prefix_len;
 
 	    if (meta_prefix == NULL) {
-		char *cp2;
-
 		meta_prefix = Var_Subst("${" MAKE_META_PREFIX "}",
-					SCOPE_GLOBAL, VARE_WANTRES);
+					SCOPE_GLOBAL, VARE_EVAL);
 		/* TODO: handle errors */
-		if ((cp2 = strchr(meta_prefix, '$')) != NULL)
-		    meta_prefix_len = (size_t)(cp2 - meta_prefix);
-		else
-		    meta_prefix_len = strlen(meta_prefix);
+		meta_prefix_len = strcspn(meta_prefix, "$");
 	    }
 	    if (strncmp(cp, meta_prefix, meta_prefix_len) == 0) {
 		cp = strchr(cp + 1, '\n');
@@ -795,7 +794,7 @@ meta_job_output(Job *job, char *cp, const char *nl)
 		cp++;
 	    }
 	}
-	fprintf(pbm->mfp, "%s%s", cp, nl);
+	fprintf(pbm->mfp, "%.*s", (int)len, cp);
     }
 }
 
@@ -943,6 +942,13 @@ meta_ignore(GNode *gn, const char *p)
 	return true;
 
     if (*p == '/') {
+	/* first try the raw path "as is" */
+	if (has_any_prefix(p, &metaIgnorePaths)) {
+#ifdef DEBUG_META_MODE
+	    DEBUG1(META, "meta_oodate: ignoring path: %s\n", p);
+#endif
+	    return true;
+	}
 	cached_realpath(p, fname); /* clean it up */
 	if (has_any_prefix(fname, &metaIgnorePaths)) {
 #ifdef DEBUG_META_MODE
@@ -964,7 +970,7 @@ meta_ignore(GNode *gn, const char *p)
 	 */
 	Var_Set(gn, ".p.", p);
 	expr = "${" MAKE_META_IGNORE_PATTERNS ":@m@${.p.:M$m}@}";
-	pm = Var_Subst(expr, gn, VARE_WANTRES);
+	pm = Var_Subst(expr, gn, VARE_EVAL);
 	/* TODO: handle errors */
 	if (pm[0] != '\0') {
 #ifdef DEBUG_META_MODE
@@ -983,7 +989,7 @@ meta_ignore(GNode *gn, const char *p)
 	snprintf(fname, sizeof fname,
 		 "${%s:L:${%s:ts:}}",
 		 p, MAKE_META_IGNORE_FILTER);
-	fm = Var_Subst(fname, gn, VARE_WANTRES);
+	fm = Var_Subst(fname, gn, VARE_EVAL);
 	/* TODO: handle errors */
 	if (*fm == '\0') {
 #ifdef DEBUG_META_MODE
@@ -1011,7 +1017,7 @@ meta_ignore(GNode *gn, const char *p)
  * Setting oodate true will have that effect.
  */
 #define CHECK_VALID_META(p) if (!(p != NULL && *p != '\0')) { \
-    warnx("%s: %u: malformed", fname, lineno); \
+    warnx("%s:%u: malformed", fname, lineno); \
     SET_OODATE_REASON("%s: %d: malformed", fname, lineno); \
     oodate = true; \
     continue; \
@@ -1044,7 +1050,7 @@ meta_filter_cmd(GNode *gn, char *s)
     Var_Set(gn, META_CMD_FILTER_VAR, s);
     s = Var_Subst(
 	"${" META_CMD_FILTER_VAR ":${" MAKE_META_CMP_FILTER ":ts:}}",
-	gn, VARE_WANTRES);
+	gn, VARE_EVAL);
     return s;
 }
 
@@ -1159,7 +1165,7 @@ meta_oodate(GNode *gn, bool oodate)
 	    if (buf[x - 1] == '\n')
 		buf[x - 1] = '\0';
 	    else {
-		warnx("%s: %u: line truncated at %u", fname, lineno, x);
+		warnx("%s:%u: line truncated at %u", fname, lineno, x);
 		SET_OODATE_REASON("%s: %d: line truncated at %u", fname, lineno, x);
 		oodate = true;
 		break;
@@ -1181,7 +1187,7 @@ meta_oodate(GNode *gn, bool oodate)
 	    /* Delimit the record type. */
 	    p = buf;
 #ifdef DEBUG_META_MODE
-	    DEBUG3(META, "%s: %u: %s\n", fname, lineno, buf);
+	    DEBUG3(META, "%s:%u: %s\n", fname, lineno, buf);
 #endif
 	    strsep(&p, " ");
 	    if (have_filemon) {
@@ -1249,7 +1255,7 @@ meta_oodate(GNode *gn, bool oodate)
 			continue;
 #ifdef DEBUG_META_MODE
 		    if (DEBUG(META))
-			debug_printf("%s: %u: %d: %c: cwd=%s lcwd=%s ldir=%s\n",
+			debug_printf("%s:%u: %d: %c: cwd=%s lcwd=%s ldir=%s\n",
 				     fname, lineno,
 				     pid, buf[0], cwd, lcwd, latestdir);
 #endif
@@ -1280,7 +1286,7 @@ meta_oodate(GNode *gn, bool oodate)
 #ifdef DEBUG_META_MODE
 			    if (DEBUG(META))
 				debug_printf(
-					"%s: %u: %d: cwd=%s lcwd=%s ldir=%s\n",
+					"%s:%u: %d: cwd=%s lcwd=%s ldir=%s\n",
 					fname, lineno,
 					child, cwd, lcwd, latestdir);
 #endif
@@ -1295,7 +1301,7 @@ meta_oodate(GNode *gn, bool oodate)
 		    Global_Set(lcwd_vname, lcwd);
 		    Global_Set(ldir_vname, lcwd);
 #ifdef DEBUG_META_MODE
-		    DEBUG4(META, "%s: %u: cwd=%s ldir=%s\n",
+		    DEBUG4(META, "%s:%u: cwd=%s ldir=%s\n",
 			   fname, lineno, cwd, lcwd);
 #endif
 		    break;
@@ -1448,7 +1454,7 @@ meta_oodate(GNode *gn, bool oodate)
 
 			for (sdp = sdirs; *sdp != NULL && !found; sdp++) {
 #ifdef DEBUG_META_MODE
-			    DEBUG3(META, "%s: %u: looking for: %s\n",
+			    DEBUG3(META, "%s:%u: looking for: %s\n",
 				   fname, lineno, *sdp);
 #endif
 			    if (cached_stat(*sdp, &cst) == 0) {
@@ -1458,12 +1464,12 @@ meta_oodate(GNode *gn, bool oodate)
 			}
 			if (found) {
 #ifdef DEBUG_META_MODE
-			    DEBUG3(META, "%s: %u: found: %s\n",
+			    DEBUG3(META, "%s:%u: found: %s\n",
 				   fname, lineno, p);
 #endif
 			    if (!S_ISDIR(cst.cst_mode) &&
 				cst.cst_mtime > gn->mtime) {
-				DEBUG3(META, "%s: %u: file '%s' is newer than the target...\n",
+				DEBUG3(META, "%s:%u: file '%s' is newer than the target...\n",
 				       fname, lineno, p);
 				SET_OODATE_REASON("%s: %d: file '%s' is newer than the target (%s > %s)...\n", 
 					fname, lineno, p, Targ_FmtTime(cst.cst_mtime), Targ_FmtTime(gn->mtime));
@@ -1497,7 +1503,7 @@ meta_oodate(GNode *gn, bool oodate)
 		 * meta data file.
 		 */
 		if (cmdNode == NULL) {
-		    DEBUG2(META, "%s: %u: there were more build commands in the meta data file than there are now...\n",
+		    DEBUG2(META, "%s:%u: there were more build commands in the meta data file than there are now...\n",
 			   fname, lineno);
 		    SET_OODATE_REASON("%s: %d: there were more build commands in the meta data file than there are now...\n", 
 				fname, lineno);
@@ -1516,10 +1522,10 @@ meta_oodate(GNode *gn, bool oodate)
 		    }
 		    if (hasOODATE) {
 			needOODATE = true;
-			DEBUG2(META, "%s: %u: cannot compare command using .OODATE\n",
+			DEBUG2(META, "%s:%u: cannot compare command using .OODATE\n",
 			       fname, lineno);
 		    }
-		    cmd = Var_Subst(cmd, gn, VARE_UNDEFERR);
+		    cmd = Var_Subst(cmd, gn, VARE_EVAL_DEFINED);
 		    /* TODO: handle errors */
 
 		    if ((cp = strchr(cmd, '\n')) != NULL) {
@@ -1539,7 +1545,7 @@ meta_oodate(GNode *gn, bool oodate)
 			    x = n;
 			    lineno++;
 			    if (buf[x - 1] != '\n') {
-				warnx("%s: %u: line truncated at %u", fname, lineno, x);
+				warnx("%s:%u: line truncated at %u", fname, lineno, x);
 				break;
 			    }
 			    cp = strchr(cp + 1, '\n');
@@ -1551,7 +1557,7 @@ meta_oodate(GNode *gn, bool oodate)
 			!hasOODATE &&
 			!(gn->type & OP_NOMETA_CMP) &&
 			(meta_cmd_cmp(gn, p, cmd, cmp_filter) != 0)) {
-			DEBUG4(META, "%s: %u: a build command has changed\n%s\nvs\n%s\n",
+			DEBUG4(META, "%s:%u: a build command has changed\n%s\nvs\n%s\n",
 			       fname, lineno, p, cmd);
 			SET_OODATE_REASON("%s: %d: a build command has changed\n%s\nvs\n%s\n", 
 				fname, lineno, p, cmd);
@@ -1567,14 +1573,14 @@ meta_oodate(GNode *gn, bool oodate)
 		 * that weren't in the meta data file.
 		 */
 		if (!oodate && cmdNode != NULL) {
-		    DEBUG2(META, "%s: %u: there are extra build commands now that weren't in the meta data file\n",
+		    DEBUG2(META, "%s:%u: there are extra build commands now that weren't in the meta data file\n",
 			   fname, lineno);
 		    SET_OODATE_REASON("%s: %d: there are extra build commands now that weren't in the meta data file\n", fname, lineno);
 		    oodate = true;
 		}
 		CHECK_VALID_META(p);
 		if (strcmp(p, cwd) != 0) {
-		    DEBUG4(META, "%s: %u: the current working directory has changed from '%s' to '%s'\n",
+		    DEBUG4(META, "%s:%u: the current working directory has changed from '%s' to '%s'\n",
 			   fname, lineno, p, curdir);
 		    SET_OODATE_REASON("%s: %d: the current working directory has changed from '%s' to '%s'\n", fname, lineno, p, curdir);
 		    oodate = true;
@@ -1615,7 +1621,7 @@ meta_oodate(GNode *gn, bool oodate)
 	}
     }
 
-    Lst_DoneCall(&missingFiles, free);
+    Lst_DoneFree(&missingFiles);
 
     if (oodate && needOODATE) {
 	/*
@@ -1655,7 +1661,7 @@ meta_compat_start(void)
     }
 #endif
     if (pipe(childPipe) < 0)
-	Punt("Cannot create pipe: %s", strerror(errno));
+	Punt("pipe: %s", strerror(errno));
     /* Set close-on-exec flag for both */
     (void)fcntl(childPipe[0], F_SETFD, FD_CLOEXEC);
     (void)fcntl(childPipe[1], F_SETFD, FD_CLOEXEC);
@@ -1665,7 +1671,8 @@ void
 meta_compat_child(void)
 {
     meta_job_child(NULL);
-    if (dup2(childPipe[1], 1) < 0 || dup2(1, 2) < 0)
+    if (dup2(childPipe[1], STDOUT_FILENO) < 0
+	    || dup2(STDOUT_FILENO, STDERR_FILENO) < 0)
 	execDie("dup2", "pipe");
 }
 
@@ -1718,7 +1725,7 @@ meta_compat_parent(pid_t child)
 	    fwrite(buf, 1, (size_t)nread, stdout);
 	    fflush(stdout);
 	    buf[nread] = '\0';
-	    meta_job_output(NULL, buf, "");
+	    meta_job_output(NULL, buf, (size_t)nread);
 	} while (false);
 	if (metafd != -1 && FD_ISSET(metafd, &readfds) != 0) {
 	    if (meta_job_event(NULL) <= 0)

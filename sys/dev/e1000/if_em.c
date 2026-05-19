@@ -1575,7 +1575,7 @@ em_if_init(if_ctx_t ctx)
 	E1000_WRITE_REG(&sc->hw, E1000_VET, ETHERTYPE_VLAN);
 
 	/* Clear bad data from Rx FIFOs */
-	if (sc->hw.mac.type >= igb_mac_min)
+	if (sc->hw.mac.type >= igb_mac_min && !sc->vf_ifp)
 		e1000_rx_fifo_flush_base(&sc->hw);
 
 	/* Configure for OS presence */
@@ -1595,7 +1595,9 @@ em_if_init(if_ctx_t ctx)
 
 	/* Don't lose promiscuous settings */
 	em_if_set_promisc(ctx, if_getflags(ifp));
-	e1000_clear_hw_cntrs_base_generic(&sc->hw);
+
+	if (sc->hw.mac.ops.clear_hw_cntrs != NULL)
+		sc->hw.mac.ops.clear_hw_cntrs(&sc->hw);
 
 	/* MSI-X configuration for 82574 */
 	if (sc->hw.mac.type == e1000_82574) {
@@ -1644,14 +1646,16 @@ em_newitr(struct e1000_softc *sc, struct em_rx_queue *que,
     struct tx_ring *txr, struct rx_ring *rxr)
 {
 	struct e1000_hw *hw = &sc->hw;
+	unsigned long bytes, bytes_per_packet, packets;
+	unsigned long rxbytes, rxpackets, txbytes, txpackets;
 	u32 newitr;
-	u32 bytes;
-	u32 bytes_packets;
-	u32 packets;
 	u8 nextlatency;
 
+	rxbytes = atomic_load_long(&rxr->rx_bytes);
+	txbytes = atomic_load_long(&txr->tx_bytes);
+
 	/* Idle, do nothing */
-	if ((txr->tx_bytes == 0) && (rxr->rx_bytes == 0))
+	if (txbytes == 0 && rxbytes == 0)
 		return;
 
 	newitr = 0;
@@ -1671,17 +1675,20 @@ em_newitr(struct e1000_softc *sc, struct em_rx_queue *que,
 			goto em_set_next_itr;
 		}
 
+		bytes = bytes_per_packet = 0;
 		/* Get largest values from the associated tx and rx ring */
-		if (txr->tx_bytes && txr->tx_packets) {
-			bytes = txr->tx_bytes;
-			bytes_packets = txr->tx_bytes/txr->tx_packets;
-			packets = txr->tx_packets;
+		txpackets = atomic_load_long(&txr->tx_packets);
+		if (txpackets != 0) {
+			bytes = txbytes;
+			bytes_per_packet = txbytes / txpackets;
+			packets = txpackets;
 		}
-		if (rxr->rx_bytes && rxr->rx_packets) {
-			bytes = max(bytes, rxr->rx_bytes);
-			bytes_packets =
-			    max(bytes_packets, rxr->rx_bytes/rxr->rx_packets);
-			packets = max(packets, rxr->rx_packets);
+		rxpackets = atomic_load_long(&rxr->rx_packets);
+		if (rxpackets != 0) {
+			bytes = lmax(bytes, rxbytes);
+			bytes_per_packet =
+			    lmax(bytes_per_packet, rxbytes / rxpackets);
+			packets = lmax(packets, rxpackets);
 		}
 
 		/* Latency state machine */
@@ -1691,7 +1698,7 @@ em_newitr(struct e1000_softc *sc, struct em_rx_queue *que,
 			break;
 		case itr_latency_lowest: /* 70k ints/s */
 			/* TSO and jumbo frames */
-			if (bytes_packets > 8000)
+			if (bytes_per_packet > 8000)
 				nextlatency = itr_latency_bulk;
 			else if ((packets < 5) && (bytes > 512))
 				nextlatency = itr_latency_low;
@@ -1699,14 +1706,14 @@ em_newitr(struct e1000_softc *sc, struct em_rx_queue *que,
 		case itr_latency_low: /* 20k ints/s */
 			if (bytes > 10000) {
 				/* Handle TSO */
-				if (bytes_packets > 8000)
+				if (bytes_per_packet > 8000)
 					nextlatency = itr_latency_bulk;
 				else if ((packets < 10) ||
-				    (bytes_packets > 1200))
+				    (bytes_per_packet > 1200))
 					nextlatency = itr_latency_bulk;
 				else if (packets > 35)
 					nextlatency = itr_latency_lowest;
-			} else if (bytes_packets > 2000) {
+			} else if (bytes_per_packet > 2000) {
 				nextlatency = itr_latency_bulk;
 			} else if (packets < 3 && bytes < 512) {
 				nextlatency = itr_latency_lowest;
@@ -1995,18 +2002,7 @@ em_if_media_status(if_ctx_t ctx, struct ifmediareq *ifmr)
 	    (sc->hw.phy.media_type == e1000_media_type_internal_serdes)) {
 		if (sc->hw.mac.type == e1000_82545)
 			fiber_type = IFM_1000_LX;
-		switch (sc->link_speed) {
-		case 10:
-			ifmr->ifm_active |= IFM_10_FL;
-			break;
-		case 100:
-			ifmr->ifm_active |= IFM_100_FX;
-			break;
-		case 1000:
-		default:
-			ifmr->ifm_active |= fiber_type | IFM_FDX;
-			break;
-		}
+		ifmr->ifm_active |= fiber_type | IFM_FDX;
 	} else {
 		switch (sc->link_speed) {
 		case 10:
@@ -2019,12 +2015,11 @@ em_if_media_status(if_ctx_t ctx, struct ifmediareq *ifmr)
 			ifmr->ifm_active |= IFM_1000_T;
 			break;
 		}
+		if (sc->link_duplex == FULL_DUPLEX)
+			ifmr->ifm_active |= IFM_FDX;
+		else
+			ifmr->ifm_active |= IFM_HDX;
 	}
-
-	if (sc->link_duplex == FULL_DUPLEX)
-		ifmr->ifm_active |= IFM_FDX;
-	else
-		ifmr->ifm_active |= IFM_HDX;
 }
 
 /*********************************************************************
@@ -2058,26 +2053,6 @@ em_if_media_change(if_ctx_t ctx)
 		sc->hw.phy.autoneg_advertised = ADVERTISE_1000_FULL;
 		break;
 	case IFM_100_TX:
-		sc->hw.mac.autoneg = DO_AUTO_NEG;
-		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX) {
-			sc->hw.phy.autoneg_advertised = ADVERTISE_100_FULL;
-			sc->hw.mac.forced_speed_duplex = ADVERTISE_100_FULL;
-		} else {
-			sc->hw.phy.autoneg_advertised = ADVERTISE_100_HALF;
-			sc->hw.mac.forced_speed_duplex = ADVERTISE_100_HALF;
-		}
-		break;
-	case IFM_10_T:
-		sc->hw.mac.autoneg = DO_AUTO_NEG;
-		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX) {
-			sc->hw.phy.autoneg_advertised = ADVERTISE_10_FULL;
-			sc->hw.mac.forced_speed_duplex = ADVERTISE_10_FULL;
-		} else {
-			sc->hw.phy.autoneg_advertised = ADVERTISE_10_HALF;
-			sc->hw.mac.forced_speed_duplex = ADVERTISE_10_HALF;
-		}
-		break;
-	case IFM_100_FX:
 		sc->hw.mac.autoneg = false;
 		sc->hw.phy.autoneg_advertised = 0;
 		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX)
@@ -2085,7 +2060,7 @@ em_if_media_change(if_ctx_t ctx)
 		else
 			sc->hw.mac.forced_speed_duplex = ADVERTISE_100_HALF;
 		break;
-	case IFM_10_FL:
+	case IFM_10_T:
 		sc->hw.mac.autoneg = false;
 		sc->hw.phy.autoneg_advertised = 0;
 		if ((ifm->ifm_media & IFM_GMASK) == IFM_FDX)
@@ -2124,11 +2099,11 @@ em_if_set_promisc(if_ctx_t ctx, int flags)
 
 	if (flags & IFF_PROMISC) {
 		reg_rctl |= (E1000_RCTL_UPE | E1000_RCTL_MPE);
-		em_if_vlan_filter_disable(sc);
 		/* Turn this on if you want to see bad packets */
 		if (em_debug_sbp)
 			reg_rctl |= E1000_RCTL_SBP;
 		E1000_WRITE_REG(&sc->hw, E1000_RCTL, reg_rctl);
+		em_if_vlan_filter_disable(sc);
 	} else {
 		if (flags & IFF_ALLMULTI) {
 			reg_rctl |= E1000_RCTL_MPE;
@@ -2369,7 +2344,7 @@ em_if_stop(if_ctx_t ctx)
 		em_flush_desc_rings(sc);
 
 	e1000_reset_hw(&sc->hw);
-	if (sc->hw.mac.type >= e1000_82544)
+	if (sc->hw.mac.type >= e1000_82544 && !sc->vf_ifp)
 		E1000_WRITE_REG(&sc->hw, E1000_WUFC, 0);
 
 	e1000_led_off(&sc->hw);
@@ -2428,6 +2403,9 @@ em_allocate_pci_resources(if_ctx_t ctx)
 	}
 	sc->osdep.mem_bus_space_tag = rman_get_bustag(sc->memory);
 	sc->osdep.mem_bus_space_handle = rman_get_bushandle(sc->memory);
+#ifdef INVARIANTS
+	sc->osdep.mem_bus_space_size = rman_get_size(sc->memory);
+#endif
 	sc->hw.hw_addr = (u8 *)&sc->osdep.mem_bus_space_handle;
 
 	/* Only older adapters use IO mapping */
@@ -3095,9 +3073,13 @@ em_reset(if_ctx_t ctx)
 	case e1000_82573:
 			pba = E1000_PBA_12K; /* 12K for Rx, 20K for Tx */
 		break;
+	/* 82574/82583: Total Packet Buffer is 40K */
 	case e1000_82574:
 	case e1000_82583:
-			pba = E1000_PBA_20K; /* 20K for Rx, 20K for Tx */
+		if (hw->mac.max_frame_size > 8192)
+			pba = E1000_PBA_22K; /* 22K for Rx, 18K for Tx */
+		else
+			pba = E1000_PBA_32K; /* 32K for RX, 8K for Tx */
 		break;
 	case e1000_ich8lan:
 		pba = E1000_PBA_8K;
@@ -3236,8 +3218,8 @@ em_reset(if_ctx_t ctx)
 	case e1000_pch_ptp:
 		hw->fc.high_water = 0x5C20;
 		hw->fc.low_water = 0x5048;
-		hw->fc.pause_time = 0x0650;
-		hw->fc.refresh_time = 0x0400;
+		hw->fc.pause_time = 0xFFFF;
+		hw->fc.refresh_time = 0xFFFF;
 		/* Jumbos need adjusted PBA */
 		if (if_getmtu(ifp) > ETHERMTU)
 			E1000_WRITE_REG(hw, E1000_PBA, 12);
@@ -3279,11 +3261,13 @@ em_reset(if_ctx_t ctx)
 
 	/* Issue a global reset */
 	e1000_reset_hw(hw);
-	if (hw->mac.type >= igb_mac_min) {
-		E1000_WRITE_REG(hw, E1000_WUC, 0);
-	} else {
-		E1000_WRITE_REG(hw, E1000_WUFC, 0);
-		em_disable_aspm(sc);
+	if (!sc->vf_ifp) {
+		if (hw->mac.type >= igb_mac_min) {
+			E1000_WRITE_REG(hw, E1000_WUC, 0);
+		} else {
+			E1000_WRITE_REG(hw, E1000_WUFC, 0);
+			em_disable_aspm(sc);
+		}
 	}
 	if (sc->flags & IGB_MEDIA_RESET) {
 		e1000_setup_init_funcs(hw, true);
@@ -3833,7 +3817,7 @@ em_initialize_receive_unit(if_ctx_t ctx)
 			    sc->rx_int_delay.value);
 	}
 
-	if (hw->mac.type >= em_mac_min) {
+	if (hw->mac.type >= em_mac_min && !sc->vf_ifp) {
 		uint32_t rfctl;
 		/* Use extended rx descriptor formats */
 		rfctl = E1000_READ_REG(hw, E1000_RFCTL);
@@ -3853,33 +3837,38 @@ em_initialize_receive_unit(if_ctx_t ctx)
 		E1000_WRITE_REG(hw, E1000_RFCTL, rfctl);
 	}
 
-	/* Set up L3 and L4 csum Rx descriptor offloads */
-	rxcsum = E1000_READ_REG(hw, E1000_RXCSUM);
-	if (if_getcapenable(ifp) & IFCAP_RXCSUM) {
-		rxcsum |= E1000_RXCSUM_TUOFL | E1000_RXCSUM_IPOFL;
-		if (hw->mac.type > e1000_82575)
-			rxcsum |= E1000_RXCSUM_CRCOFL;
-		else if (hw->mac.type < em_mac_min &&
-		    if_getcapenable(ifp) & IFCAP_HWCSUM_IPV6)
-			rxcsum |= E1000_RXCSUM_IPV6OFL;
-	} else {
-		rxcsum &= ~(E1000_RXCSUM_IPOFL | E1000_RXCSUM_TUOFL);
-		if (hw->mac.type > e1000_82575)
-			rxcsum &= ~E1000_RXCSUM_CRCOFL;
-		else if (hw->mac.type < em_mac_min)
-			rxcsum &= ~E1000_RXCSUM_IPV6OFL;
-	}
+	/*
+	 * Set up L3 and L4 csum Rx descriptor offloads only on Physical
+	 * Functions. Virtual Functions have no access to this register.
+	 */
+	if (!sc->vf_ifp) {
+		rxcsum = E1000_READ_REG(hw, E1000_RXCSUM);
+		if (if_getcapenable(ifp) & IFCAP_RXCSUM) {
+			rxcsum |= E1000_RXCSUM_TUOFL | E1000_RXCSUM_IPOFL;
+			if (hw->mac.type > e1000_82575)
+				rxcsum |= E1000_RXCSUM_CRCOFL;
+			else if (hw->mac.type < em_mac_min &&
+			    if_getcapenable(ifp) & IFCAP_HWCSUM_IPV6)
+				rxcsum |= E1000_RXCSUM_IPV6OFL;
+		} else {
+			rxcsum &= ~(E1000_RXCSUM_IPOFL | E1000_RXCSUM_TUOFL);
+			if (hw->mac.type > e1000_82575)
+				rxcsum &= ~E1000_RXCSUM_CRCOFL;
+			else if (hw->mac.type < em_mac_min)
+				rxcsum &= ~E1000_RXCSUM_IPV6OFL;
+		}
 
-	if (sc->rx_num_queues > 1) {
-		/* RSS hash needed in the Rx descriptor */
-		rxcsum |= E1000_RXCSUM_PCSD;
+		if (sc->rx_num_queues > 1) {
+			/* RSS hash needed in the Rx descriptor */
+			rxcsum |= E1000_RXCSUM_PCSD;
 
-		if (hw->mac.type >= igb_mac_min)
-			igb_initialize_rss_mapping(sc);
-		else
-			em_initialize_rss_mapping(sc);
+			if (hw->mac.type >= igb_mac_min)
+				igb_initialize_rss_mapping(sc);
+			else
+				em_initialize_rss_mapping(sc);
+		}
+		E1000_WRITE_REG(hw, E1000_RXCSUM, rxcsum);
 	}
-	E1000_WRITE_REG(hw, E1000_RXCSUM, rxcsum);
 
 	for (i = 0, que = sc->rx_queues; i < sc->rx_num_queues; i++, que++) {
 		struct rx_ring *rxr = &que->rxr;
@@ -4031,7 +4020,15 @@ em_if_vlan_register(if_ctx_t ctx, u16 vtag)
 	bit = vtag & 0x1F;
 	sc->shadow_vfta[index] |= (1 << bit);
 	++sc->num_vlans;
-	em_if_vlan_filter_write(sc);
+	if (!sc->vf_ifp)
+		em_if_vlan_filter_write(sc);
+	else
+		/*
+		 * Physical funtion may reject registering VLAN
+		 * but we have no way to inform the stack
+		 * about that.
+		 */
+		e1000_vfta_set_vf(&sc->hw, vtag, true);
 }
 
 static void
@@ -4044,7 +4041,10 @@ em_if_vlan_unregister(if_ctx_t ctx, u16 vtag)
 	bit = vtag & 0x1F;
 	sc->shadow_vfta[index] &= ~(1 << bit);
 	--sc->num_vlans;
-	em_if_vlan_filter_write(sc);
+	if (!sc->vf_ifp)
+		em_if_vlan_filter_write(sc);
+	else
+		e1000_vfta_set_vf(&sc->hw, vtag, false);
 }
 
 static bool
@@ -4102,22 +4102,15 @@ em_if_vlan_filter_write(struct e1000_softc *sc)
 {
 	struct e1000_hw *hw = &sc->hw;
 
-	if (sc->vf_ifp)
-		return;
+	KASSERT(!sc->vf_ifp, ("VLAN filter write on VF\n"));
 
 	/* Disable interrupts for lem(4) devices during the filter change */
 	if (hw->mac.type < em_mac_min)
 		em_if_intr_disable(sc->ctx);
 
 	for (int i = 0; i < EM_VFTA_SIZE; i++)
-		if (sc->shadow_vfta[i] != 0) {
-			/* XXXKB: incomplete VF support, we returned above */
-			if (sc->vf_ifp)
-				e1000_vfta_set_vf(hw, sc->shadow_vfta[i],
-				    true);
-			else
-				e1000_write_vfta(hw, i, sc->shadow_vfta[i]);
-		}
+		if (sc->shadow_vfta[i] != 0)
+			e1000_write_vfta(hw, i, sc->shadow_vfta[i]);
 
 	/* Re-enable interrupts for lem-class devices */
 	if (hw->mac.type < em_mac_min)
@@ -4132,8 +4125,10 @@ em_setup_vlan_hw_support(if_ctx_t ctx)
 	if_t ifp = iflib_get_ifp(ctx);
 	u32 reg;
 
-	/* XXXKB: Return early if we are a VF until VF decap and filter
-	 * management is ready and tested.
+	/*
+	 * Only PFs have control over VLAN HW filtering
+	 * configuration. VFs have to act as if it's always
+	 * enabled.
 	 */
 	if (sc->vf_ifp)
 		return;
@@ -4387,6 +4382,8 @@ em_get_wakeup(if_ctx_t ctx)
 	switch (sc->hw.mac.type) {
 	case e1000_82542:
 	case e1000_82543:
+	case e1000_vfadapt:
+	case e1000_vfadapt_i350:
 		break;
 	case e1000_82544:
 		e1000_read_nvm(&sc->hw,
@@ -4432,8 +4429,6 @@ em_get_wakeup(if_ctx_t ctx)
 	case e1000_i354:
 	case e1000_i210:
 	case e1000_i211:
-	case e1000_vfadapt:
-	case e1000_vfadapt_i350:
 		apme_mask = E1000_WUC_APME;
 		sc->has_amt = true;
 		eeprom_data = E1000_READ_REG(&sc->hw, E1000_WUC);
@@ -4489,7 +4484,6 @@ em_get_wakeup(if_ctx_t ctx)
 			global_quad_port_a = 0;
 		break;
 	}
-	return;
 }
 
 

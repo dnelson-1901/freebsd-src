@@ -51,6 +51,124 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20260430: Regenerate trust store
+OLD_FILES+=usr/share/certs/trusted/Entrust_net_Premium_2048_Secure_Server_CA.pem
+OLD_FILES+=usr/share/certs/trusted/AffirmTrust_Premium.pem
+OLD_FILES+=usr/share/certs/trusted/Starfield_Class_2_CA.pem
+OLD_FILES+=usr/share/certs/trusted/GTS_Root_R2.pem
+OLD_FILES+=usr/share/certs/trusted/GLOBALTRUST_2020.pem
+OLD_FILES+=usr/share/certs/trusted/Secure_Global_CA.pem
+OLD_FILES+=usr/share/certs/trusted/GlobalSign_Root_CA.pem
+OLD_FILES+=usr/share/certs/trusted/CommScope_Public_Trust_RSA_Root-01.pem
+OLD_FILES+=usr/share/certs/trusted/Trustwave_Global_ECC_P384_Certification_Authority.pem
+OLD_FILES+=usr/share/certs/trusted/SwissSign_Gold_CA_-_G2.pem
+OLD_FILES+=usr/share/certs/trusted/Go_Daddy_Class_2_CA.pem
+OLD_FILES+=usr/share/certs/trusted/FIRMAPROFESIONAL_CA_ROOT-A_WEB.pem
+OLD_FILES+=usr/share/certs/trusted/Trustwave_Global_Certification_Authority.pem
+OLD_FILES+=usr/share/certs/trusted/Trustwave_Global_ECC_P256_Certification_Authority.pem
+OLD_FILES+=usr/share/certs/trusted/CommScope_Public_Trust_ECC_Root-01.pem
+OLD_FILES+=usr/share/certs/trusted/Entrust_Root_Certification_Authority_-_EC1.pem
+OLD_FILES+=usr/share/certs/trusted/Certigna.pem
+OLD_FILES+=usr/share/certs/trusted/AffirmTrust_Commercial.pem
+OLD_FILES+=usr/share/certs/trusted/DigiCert_Assured_ID_Root_CA.pem
+OLD_FILES+=usr/share/certs/trusted/Baltimore_CyberTrust_Root.pem
+OLD_FILES+=usr/share/certs/trusted/CommScope_Public_Trust_ECC_Root-02.pem
+OLD_FILES+=usr/share/certs/trusted/Entrust_Root_Certification_Authority.pem
+OLD_FILES+=usr/share/certs/trusted/AffirmTrust_Premium_ECC.pem
+OLD_FILES+=usr/share/certs/trusted/CommScope_Public_Trust_RSA_Root-02.pem
+OLD_FILES+=usr/share/certs/trusted/TeliaSonera_Root_CA_v1.pem
+OLD_FILES+=usr/share/certs/trusted/QuoVadis_Root_CA_2.pem
+OLD_FILES+=usr/share/certs/trusted/COMODO_Certification_Authority.pem
+OLD_FILES+=usr/share/certs/trusted/SecureTrust_CA.pem
+OLD_FILES+=usr/share/certs/trusted/Comodo_AAA_Services_root.pem
+OLD_FILES+=usr/share/certs/trusted/Entrust_Root_Certification_Authority_-_G2.pem
+OLD_FILES+=usr/share/certs/trusted/QuoVadis_Root_CA_3.pem
+OLD_FILES+=usr/share/certs/trusted/DigiCert_High_Assurance_EV_Root_CA.pem
+OLD_FILES+=usr/share/certs/trusted/certSIGN_ROOT_CA.pem
+OLD_FILES+=usr/share/certs/trusted/DigiCert_Global_Root_CA.pem
+OLD_FILES+=usr/share/certs/trusted/AffirmTrust_Networking.pem
+OLD_FILES+=usr/share/certs/trusted/XRamp_Global_CA_Root.pem
+OLD_FILES+=usr/share/certs/untrusted/Security_Communication_RootCA3.pem
+OLD_FILES+=usr/share/certs/untrusted/GeoTrust_Primary_Certification_Authority_-_G3.pem
+OLD_FILES+=usr/share/certs/untrusted/E-Tugra_Global_Root_CA_ECC_v3.pem
+OLD_FILES+=usr/share/certs/untrusted/Symantec_Class_2_Public_Primary_Certification_Authority_-_G4.pem
+OLD_FILES+=usr/share/certs/untrusted/EE_Certification_Centre_Root_CA.pem
+OLD_FILES+=usr/share/certs/untrusted/EC-ACC.pem
+OLD_FILES+=usr/share/certs/untrusted/Hellenic_Academic_and_Research_Institutions_RootCA_2011.pem
+OLD_FILES+=usr/share/certs/untrusted/GeoTrust_Universal_CA.pem
+OLD_FILES+=usr/share/certs/untrusted/Global_Chambersign_Root_-_2008.pem
+OLD_FILES+=usr/share/certs/untrusted/Camerfirma_Global_Chambersign_Root.pem
+OLD_FILES+=usr/share/certs/untrusted/Verisign_Class_1_Public_Primary_Certification_Authority_-_G3.pem
+OLD_FILES+=usr/share/certs/untrusted/Symantec_Class_1_Public_Primary_Certification_Authority_-_G6.pem
+OLD_FILES+=usr/share/certs/untrusted/GeoTrust_Primary_Certification_Authority_-_G2.pem
+OLD_FILES+=usr/share/certs/untrusted/TrustCor_RootCert_CA-2.pem
+OLD_FILES+=usr/share/certs/untrusted/GeoTrust_Universal_CA_2.pem
+OLD_FILES+=usr/share/certs/untrusted/Network_Solutions_Certificate_Authority.pem
+OLD_FILES+=usr/share/certs/untrusted/thawte_Primary_Root_CA.pem
+OLD_FILES+=usr/share/certs/untrusted/E-Tugra_Global_Root_CA_RSA_v3.pem
+OLD_FILES+=usr/share/certs/untrusted/GeoTrust_Primary_Certification_Authority.pem
+OLD_FILES+=usr/share/certs/untrusted/Taiwan_GRCA.pem
+OLD_FILES+=usr/share/certs/untrusted/Verisign_Class_2_Public_Primary_Certification_Authority_-_G3.pem
+OLD_FILES+=usr/share/certs/untrusted/Symantec_Class_2_Public_Primary_Certification_Authority_-_G6.pem
+OLD_FILES+=usr/share/certs/untrusted/VeriSign_Class_3_Public_Primary_Certification_Authority_-_G5.pem
+OLD_FILES+=usr/share/certs/untrusted/SwissSign_Platinum_CA_-_G2.pem
+OLD_FILES+=usr/share/certs/untrusted/TrustCor_RootCert_CA-1.pem
+OLD_FILES+=usr/share/certs/untrusted/thawte_Primary_Root_CA_-_G3.pem
+OLD_FILES+=usr/share/certs/untrusted/Camerfirma_Chambers_of_Commerce_Root.pem
+OLD_FILES+=usr/share/certs/untrusted/SwissSign_Silver_CA_-_G2.pem
+OLD_FILES+=usr/share/certs/untrusted/TrustCor_ECA-1.pem
+OLD_FILES+=usr/share/certs/untrusted/VeriSign_Class_3_Public_Primary_Certification_Authority_-_G4.pem
+OLD_FILES+=usr/share/certs/untrusted/SecureSign_RootCA11.pem
+OLD_FILES+=usr/share/certs/untrusted/Chambers_of_Commerce_Root_-_2008.pem
+OLD_FILES+=usr/share/certs/untrusted/Verisign_Class_3_Public_Primary_Certification_Authority_-_G3.pem
+OLD_FILES+=usr/share/certs/untrusted/VeriSign_Universal_Root_Certification_Authority.pem
+OLD_FILES+=usr/share/certs/untrusted/LuxTrust_Global_Root_2.pem
+OLD_FILES+=usr/share/certs/untrusted/thawte_Primary_Root_CA_-_G2.pem
+OLD_FILES+=usr/share/certs/untrusted/Symantec_Class_1_Public_Primary_Certification_Authority_-_G4.pem
+
+# 20260204: replaced with ATF test
+OLD_FILES+=usr/tests/usr.bin/m4/legacy_test
+OLD_FILES+=usr/tests/usr.bin/m4/regress.sh
+
+# 20260114: remove ncurses html documentation
+OLD_FILES+=usr/share/doc/ncurses/hackguide.html
+OLD_FILES+=usr/share/doc/ncurses/ncurses-intro.html
+OLD_DIRS+=usr/share/doc/ncurses
+
+# 20251218: Remove old MLINK to apmconf(8)
+OLD_FILES+=usr/share/man/man8/apmconf.8.gz
+
+# 20251218: Remove pccard(4) and related
+OLD_FILES+=usr/share/man/man4/pccard.4.gz
+OLD_FILES+=usr/share/man/man4/pcic.4.gz
+
+# 20251023: This file is now installed in /etc/dma
+OLD_FILES+=usr/share/examples/dma/auth.conf
+
+# 20251006: Remove libnss_tacplus.a (it never should have been installed)
+OLD_FILES+=usr/lib/libnss_tacplus.a
+
+# 20250812: Remove a bogus manlink
+OLD_FILES+=usr/share/man/man3/quota_statfs.3.gz
+
+# 20250805: Test case renamed
+OLD_FILES+=usr/tests/usr.bin/xargs/regress.n2147483647.out
+
+# 20250728: Machine versions of 'runq.h' do not exist anymore
+OLD_FILES+=usr/include/machine/runq.h
+
+# 20250716: Remove an old manual page, vn(4) was removed in FreeBSD 5.0
+OLD_FILES+=usr/share/man/man4/vn.4.gz
+
+# 20250710: share: Delete bitrotted make_*_driver.sh scripts
+OLD_FILES+=usr/share/examples/drivers/README
+OLD_FILES+=usr/share/examples/drivers/make_device_driver.sh
+OLD_FILES+=usr/share/examples/drivers/make_pseudo_driver.sh
+OLD_DIRS+=usr/share/examples/drivers
+
+# 20250708: replace yaml.lua with lyaml
+OLD_FILES+=usr/share/flua/yaml.lua
+
 # 20250524: don't install zoneinfo version
 OLD_FILES+=usr/share/zoneinfo/version
 
@@ -559,6 +677,9 @@ OLD_FILES+=usr/include/c++/v1/__type_traits/is_trivially_move_assignable.h
 OLD_FILES+=usr/include/c++/v1/__type_traits/is_trivially_move_constructible.h
 OLD_FILES+=usr/include/c++/v1/__type_traits/operation_traits.h
 OLD_FILES+=usr/include/c++/v1/experimental/__memory
+
+# 20241112: move p9fs from section 5 to section 4
+OLD_FILES+=usr/share/man/man5/p9fs.5.gz
 
 # 20240827: retire fips.so
 OLD_LIBS+=usr/lib/ossl-modules/fips.so
@@ -3673,9 +3794,9 @@ OLD_FILES+=usr/share/man/man4/twa.4.gz
 OLD_FILES+=usr/share/man/man9/kernel_vmount.9.gz
 
 # 20211115: vm_page busy functions removed
-OLD_FILES+=share/man/man9/vm_page_sbusy.9.gz
-OLD_FILES+=share/man/man9/vm_page_xbusy.9.gz
-OLD_FILES+=share/man/man9/vm_page_sleep_if_busy.9.gz
+OLD_FILES+=usr/share/man/man9/vm_page_sbusy.9.gz
+OLD_FILES+=usr/share/man/man9/vm_page_xbusy.9.gz
+OLD_FILES+=usr/share/man/man9/vm_page_sleep_if_busy.9.gz
 
 # 20211113: new clang import which bumps version from 12.0.1 to 13.0.0
 OLD_FILES+=usr/lib/clang/12.0.1/include/cuda_wrappers/algorithm

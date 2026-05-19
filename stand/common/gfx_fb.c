@@ -83,6 +83,7 @@
  */
 
 #include <sys/param.h>
+#include <assert.h>
 #include <stand.h>
 #include <teken.h>
 #include <gfx_fb.h>
@@ -220,6 +221,69 @@ gfx_parse_mode_str(char *str, int *x, int *y, int *depth)
 	}
 
 	return (true);
+}
+
+/*
+ * Returns true if we set the color from pre-existing environment, false if
+ * just used existing defaults.
+ */
+static bool
+gfx_fb_evalcolor(const char *envname, teken_color_t *cattr,
+    ev_sethook_t sethook, ev_unsethook_t unsethook)
+{
+	const char *ptr;
+	char env[10];
+	int eflags = EV_VOLATILE | EV_NOKENV;
+	bool from_env = false;
+
+	ptr = getenv(envname);
+	if (ptr != NULL) {
+		*cattr = strtol(ptr, NULL, 10);
+
+		/*
+		 * If we can't unset the value, then it's probably hooked
+		 * properly and we can just carry on.  Otherwise, we want to
+		 * reinitialize it so that we can hook it for the console that
+		 * we're resetting defaults for.
+		 */
+		if (unsetenv(envname) != 0)
+			return (true);
+		from_env = true;
+
+		/*
+		 * If we're carrying over an existing value, we *do* want that
+		 * to propagate to the kenv.
+		 */
+		eflags &= ~EV_NOKENV;
+	}
+
+	snprintf(env, sizeof(env), "%d", *cattr);
+	env_setenv(envname, eflags, env, sethook, unsethook);
+
+	return (from_env);
+}
+
+void
+gfx_fb_setcolors(teken_attr_t *attr, ev_sethook_t sethook,
+     ev_unsethook_t unsethook)
+{
+	const char *ptr;
+	bool need_setattr = false;
+
+	/*
+	 * On first run, we setup an environment hook to process any color
+	 * changes.  If the env is already set, we pick up fg and bg color
+	 * values from the environment.
+	 */
+	if (gfx_fb_evalcolor("teken.fg_color", &attr->ta_fgcolor,
+	    sethook, unsethook))
+		need_setattr = true;
+	if (gfx_fb_evalcolor("teken.bg_color", &attr->ta_bgcolor,
+	    sethook, unsethook))
+		need_setattr = true;
+
+	if (need_setattr)
+		teken_set_defattr(&gfx_state.tg_teken, attr);
 }
 
 static uint32_t
@@ -783,7 +847,7 @@ gfxfb_blt(void *BltBuffer, GFXFB_BLT_OPERATION BltOperation,
 	int rv;
 #if defined(EFI)
 	EFI_STATUS status;
-	EFI_GRAPHICS_OUTPUT *gop = gfx_state.tg_private;
+	EFI_GRAPHICS_OUTPUT *gop;
 	EFI_TPL tpl;
 
 	/*
@@ -793,7 +857,9 @@ gfxfb_blt(void *BltBuffer, GFXFB_BLT_OPERATION BltOperation,
 	 * done as they are provided by protocols that disappear when exit
 	 * boot services.
 	 */
-	if (gop != NULL && boot_services_active) {
+	if (gfx_state.tg_fb_type == FB_GOP && boot_services_active) {
+		assert(gfx_state.tg_private != NULL);
+		gop = gfx_state.tg_private;
 		tpl = BS->RaiseTPL(TPL_NOTIFY);
 		switch (BltOperation) {
 		case GfxFbBltVideoFill:

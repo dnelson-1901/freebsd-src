@@ -1262,6 +1262,10 @@ tty_drop_ctty(struct tty *tp, struct proc *p)
 	session->s_ttydp = NULL;
 	SESS_UNLOCK(session);
 
+	if (tp->t_session == session) {
+		tp->t_session = NULL;
+		tp->t_pgrp = NULL;
+	}
 	tp->t_sessioncnt--;
 	p->p_flag &= ~P_CONTROLT;
 	PROC_UNLOCK(p);
@@ -1644,6 +1648,24 @@ tty_set_winsize(struct tty *tp, const struct winsize *wsz)
 }
 
 static int
+tty_sti_check(struct tty *tp, int fflag, struct thread *td)
+{
+	/* Root can bypass all of our constraints. */
+	if (priv_check(td, PRIV_TTY_STI) == 0)
+		return (0);
+
+	/* Unprivileged users must have it opened for read. */
+	if ((fflag & FREAD) == 0)
+		return (EPERM);
+
+	/* It must also be their controlling tty. */
+	if (!tty_is_ctty(tp, td->td_proc))
+		return (EACCES);
+
+	return (0);
+}
+
+static int
 tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
     struct thread *td)
 {
@@ -1988,11 +2010,9 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		tty_info(tp);
 		return (0);
 	case TIOCSTI:
-		if ((fflag & FREAD) == 0 && priv_check(td, PRIV_TTY_STI))
-			return (EPERM);
-		if (!tty_is_ctty(tp, td->td_proc) &&
-		    priv_check(td, PRIV_TTY_STI))
-			return (EACCES);
+		error = tty_sti_check(tp, fflag, td);
+		if (error != 0)
+			return (error);
 		ttydisc_rint(tp, *(char *)data, 0);
 		ttydisc_rint_done(tp);
 		return (0);

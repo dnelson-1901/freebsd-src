@@ -1962,7 +1962,7 @@ __elfN(puthdr)(struct thread *td, void *hdr, size_t hdrsize, int numsegs,
 	 */
 	phdr = (Elf_Phdr *)((char *)hdr + ehdr->e_phoff);
 
-	/* The note segement. */
+	/* The note segment. */
 	phdr->p_type = PT_NOTE;
 	phdr->p_offset = hdrsize;
 	phdr->p_vaddr = 0;
@@ -2685,6 +2685,7 @@ __elfN(note_procstat_auxv)(void *arg, struct sbuf *sb, size_t *sizep)
 	int structsize;
 
 	p = arg;
+	structsize = sizeof(Elf_Auxinfo);
 	if (sb == NULL) {
 		size = 0;
 		sb = sbuf_new(NULL, NULL, AT_COUNT * sizeof(Elf_Auxinfo),
@@ -2698,7 +2699,6 @@ __elfN(note_procstat_auxv)(void *arg, struct sbuf *sb, size_t *sizep)
 		sbuf_delete(sb);
 		*sizep = size;
 	} else {
-		structsize = sizeof(Elf_Auxinfo);
 		sbuf_bcat(sb, &structsize, sizeof(structsize));
 		PHOLD(p);
 		proc_getauxv(curthread, p, sb);
@@ -2802,7 +2802,7 @@ __elfN(parse_notes)(struct image_params *imgp, Elf_Note *checknote,
 		}
 		if ((const char *)note_end - (const char *)note <
 		    sizeof(Elf_Note)) {
-			uprintf("ELF note to short\n");
+			uprintf("ELF note too short\n");
 			goto retf;
 		}
 		if (note->n_namesz != checknote->n_namesz ||
@@ -2810,9 +2810,9 @@ __elfN(parse_notes)(struct image_params *imgp, Elf_Note *checknote,
 		    note->n_type != checknote->n_type)
 			goto nextnote;
 		note_name = (const char *)(note + 1);
-		if (note_name + checknote->n_namesz >=
-		    (const char *)note_end || strncmp(note_vendor,
-		    note_name, checknote->n_namesz) != 0)
+		if (note_name + roundup2(note->n_namesz, ELF_NOTE_ROUNDSIZE) +
+		    note->n_descsz > (const char *)note_end ||
+		    strncmp(note_vendor, note_name, checknote->n_namesz) != 0)
 			goto nextnote;
 
 		if (cb(note, cb_arg, &res))

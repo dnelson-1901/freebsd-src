@@ -360,18 +360,25 @@ class MockFS {
 	/* Tell the daemon to shut down ASAP */
 	bool m_quit;
 
+	/* Tell the daemon that the server might forcibly unmount us */
+	bool m_expect_unmount;
+
 	/* Create a new mockfs and mount it to a tempdir */
 	MockFS(int max_read, int max_readahead, bool allow_other,
 		bool default_permissions, bool push_symlinks_in, bool ro,
 		enum poll_method pm, uint32_t flags,
 		uint32_t kernel_minor_version, uint32_t max_write, bool async,
 		bool no_clusterr, unsigned time_gran, bool nointr,
-		bool noatime, const char *fsname, const char *subtype);
+		bool noatime, const char *fsname, const char *subtype,
+		bool no_auto_init);
 
 	virtual ~MockFS();
 
 	/* Kill the filesystem daemon without unmounting the filesystem */
 	void kill_daemon();
+
+	/* Wait until the daemon thread terminates */
+	void join_daemon();
 
 	/* Process FUSE requests endlessly */
 	void loop();
@@ -386,8 +393,10 @@ class MockFS {
 	 * @param	parent	Parent directory's inode number
 	 * @param	name	name of dirent to invalidate
 	 * @param	namelen	size of name, including the NUL
+	 * @param	expected_errno The error that write() should return
 	 */
-	int notify_inval_entry(ino_t parent, const char *name, size_t namelen);
+	int notify_inval_entry(ino_t parent, const char *name, size_t namelen,
+			int expected_errno = 0);
 
 	/*
 	 * Send an asynchronous notification to invalidate an inode's cached

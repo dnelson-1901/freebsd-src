@@ -1034,6 +1034,15 @@ in6_alloc_ifa(struct ifnet *ifp, struct in6_aliasreq *ifra, int flags)
 	return (ia);
 }
 
+time_t
+in6_expire_time(uint32_t ltime)
+{
+	if (ltime == ND6_INFINITE_LIFETIME)
+		return (0);
+	else
+		return (time_uptime + ltime);
+}
+
 /*
  * Update/configure interface address parameters:
  *
@@ -1056,16 +1065,10 @@ in6_update_ifa_internal(struct ifnet *ifp, struct in6_aliasreq *ifra,
 	 * these members for applications.
 	 */
 	ia->ia6_lifetime = ifra->ifra_lifetime;
-	if (ia->ia6_lifetime.ia6t_vltime != ND6_INFINITE_LIFETIME) {
-		ia->ia6_lifetime.ia6t_expire =
-		    time_uptime + ia->ia6_lifetime.ia6t_vltime;
-	} else
-		ia->ia6_lifetime.ia6t_expire = 0;
-	if (ia->ia6_lifetime.ia6t_pltime != ND6_INFINITE_LIFETIME) {
-		ia->ia6_lifetime.ia6t_preferred =
-		    time_uptime + ia->ia6_lifetime.ia6t_pltime;
-	} else
-		ia->ia6_lifetime.ia6t_preferred = 0;
+	ia->ia6_lifetime.ia6t_expire =
+	    in6_expire_time(ifra->ifra_lifetime.ia6t_vltime);
+	ia->ia6_lifetime.ia6t_preferred =
+	    in6_expire_time(ifra->ifra_lifetime.ia6t_pltime);
 
 	/*
 	 * backward compatibility - if IN6_IFF_DEPRECATED is set from the
@@ -1238,8 +1241,8 @@ in6_addifaddr(struct ifnet *ifp, struct in6_aliasreq *ifra, struct in6_ifaddr *i
 	int error;
 
 	/* Check if this interface is a bridge member */
-	if (ifp->if_bridge && bridge_member_ifaddrs_p &&
-	    !bridge_member_ifaddrs_p()) {
+	if (ifp->if_bridge != NULL && ifp->if_type != IFT_GIF &&
+	    bridge_member_ifaddrs_p != NULL && !bridge_member_ifaddrs_p()) {
 		error = EINVAL;
 		goto out;
 	}
@@ -1288,8 +1291,8 @@ in6_addifaddr(struct ifnet *ifp, struct in6_aliasreq *ifra, struct in6_ifaddr *i
 	 */
 	bzero(&pr0, sizeof(pr0));
 	pr0.ndpr_ifp = ifp;
-	pr0.ndpr_plen = in6_mask2len(&ifra->ifra_prefixmask.sin6_addr,
-	    NULL);
+	pr0.ndpr_plen = ia->ia_plen =
+	    in6_mask2len(&ifra->ifra_prefixmask.sin6_addr, NULL);
 	if (pr0.ndpr_plen == 128) {
 		/* we don't need to install a host route. */
 		goto aifaddr_out;
@@ -1323,6 +1326,28 @@ in6_addifaddr(struct ifnet *ifp, struct in6_aliasreq *ifra, struct in6_ifaddr *i
 				(*carp_detach_p)(&ia->ia_ifa, false);
 			goto out;
 		}
+	} else if (pr->ndpr_raf_onlink) {
+		time_t expiry;
+
+		/*
+		 * If the prefix already exists, update lifetimes, but avoid
+		 * shortening them.
+		 */
+		ND6_WLOCK();
+		expiry = in6_expire_time(pr0.ndpr_pltime);
+		if (pr->ndpr_preferred != 0 &&
+		    (pr->ndpr_preferred < expiry || expiry == 0)) {
+			pr->ndpr_pltime = pr0.ndpr_pltime;
+			pr->ndpr_preferred = expiry;
+		}
+		expiry = in6_expire_time(pr0.ndpr_vltime);
+		if (pr->ndpr_expire != 0 &&
+		    (pr->ndpr_expire < expiry || expiry == 0)) {
+			pr->ndpr_vltime = pr0.ndpr_vltime;
+			pr->ndpr_expire = expiry;
+		}
+		pr->ndpr_lastupdate = time_uptime;
+		ND6_WUNLOCK();
 	}
 
 	/* relate the address to the prefix */
@@ -1483,16 +1508,16 @@ in6_unlink_ifa(struct in6_ifaddr *ia, struct ifnet *ifp)
 	 * positive reference.
 	 */
 	remove_lle = 0;
-	if (ia->ia6_ndpr == NULL) {
-		nd6log((LOG_NOTICE,
-		    "in6_unlink_ifa: autoconf'ed address "
-		    "%s has no prefix\n", ip6_sprintf(ip6buf, IA6_IN6(ia))));
-	} else {
+	if (ia->ia6_ndpr != NULL) {
 		ia->ia6_ndpr->ndpr_addrcnt--;
 		/* Do not delete lles within prefix if refcont != 0 */
 		if (ia->ia6_ndpr->ndpr_addrcnt == 0)
 			remove_lle = 1;
 		ia->ia6_ndpr = NULL;
+	} else if (ia->ia_plen < 128) {
+		nd6log((LOG_NOTICE,
+		    "in6_unlink_ifa: autoconf'ed address "
+		    "%s has no prefix\n", ip6_sprintf(ip6buf, IA6_IN6(ia))));
 	}
 
 	nd6_rem_ifa_lle(ia, remove_lle);
@@ -2115,31 +2140,6 @@ in6if_do_dad(struct ifnet *ifp)
 }
 
 /*
- * Calculate max IPv6 MTU through all the interfaces and store it
- * to in6_maxmtu.
- */
-void
-in6_setmaxmtu(void)
-{
-	struct epoch_tracker et;
-	unsigned long maxmtu = 0;
-	struct ifnet *ifp;
-
-	NET_EPOCH_ENTER(et);
-	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
-		/* this function can be called during ifnet initialization */
-		if (!ifp->if_afdata[AF_INET6])
-			continue;
-		if ((ifp->if_flags & IFF_LOOPBACK) == 0 &&
-		    IN6_LINKMTU(ifp) > maxmtu)
-			maxmtu = IN6_LINKMTU(ifp);
-	}
-	NET_EPOCH_EXIT(et);
-	if (maxmtu)	/* update only when maxmtu is positive */
-		V_in6_maxmtu = maxmtu;
-}
-
-/*
  * Provide the length of interface identifiers to be used for the link attached
  * to the given interface.  The length should be defined in "IPv6 over
  * xxx-link" document.  Note that address architecture might also define
@@ -2644,6 +2644,8 @@ void
 in6_domifdetach(struct ifnet *ifp, void *aux)
 {
 	struct in6_ifextra *ext = (struct in6_ifextra *)aux;
+
+	MPASS(ifp->if_afdata[AF_INET6] == NULL);
 
 	mld_domifdetach(ifp);
 	scope6_ifdetach(ext->scope6_id);

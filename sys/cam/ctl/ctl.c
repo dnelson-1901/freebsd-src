@@ -2149,7 +2149,7 @@ ctl_remove_initiator(struct ctl_port *port, int iid)
 	mtx_assert(&softc->ctl_lock, MA_NOTOWNED);
 
 	if (iid > CTL_MAX_INIT_PER_PORT) {
-		printf("%s: initiator ID %u > maximun %u!\n",
+		printf("%s: initiator ID %u > maximum %u!\n",
 		       __func__, iid, CTL_MAX_INIT_PER_PORT);
 		return (-1);
 	}
@@ -5112,8 +5112,7 @@ ctl_config_move_done(union ctl_io *io, bool samethr)
 	int retval;
 
 	CTL_DEBUG_PRINT(("ctl_config_move_done\n"));
-	KASSERT(io->io_hdr.io_type == CTL_IO_SCSI,
-	    ("%s: unexpected I/O type %x", __func__, io->io_hdr.io_type));
+	CTL_IO_ASSERT(io, SCSI);
 
 	if (ctl_debug & CTL_DEBUG_CDB_DATA)
 		ctl_data_print(io);
@@ -10754,8 +10753,7 @@ static int
 ctl_get_lba_len(union ctl_io *io, uint64_t *lba, uint64_t *len)
 {
 
-	KASSERT(io->io_hdr.io_type == CTL_IO_SCSI,
-	    ("%s: unexpected I/O type %x", __func__, io->io_hdr.io_type));
+	CTL_IO_ASSERT(io, SCSI);
 
 	switch (io->scsiio.cdb[0]) {
 	case COMPARE_AND_WRITE: {
@@ -10935,8 +10933,7 @@ ctl_extent_check_unmap(union ctl_io *io, uint64_t lba2, uint64_t len2)
 	uint64_t lba;
 	uint32_t len;
 
-	KASSERT(io->io_hdr.io_type == CTL_IO_SCSI,
-	    ("%s: unexpected I/O type %x", __func__, io->io_hdr.io_type));
+	CTL_IO_ASSERT(io, SCSI);
 
 	/* If not UNMAP -- go other way. */
 	if (io->scsiio.cdb[0] != UNMAP)
@@ -12517,8 +12514,7 @@ ctl_datamove_done_process(union ctl_io *io)
 	struct bintime cur_bt;
 #endif
 
-	KASSERT(io->io_hdr.io_type == CTL_IO_SCSI,
-	    ("%s: unexpected I/O type %x", __func__, io->io_hdr.io_type));
+	CTL_IO_ASSERT(io, SCSI);
 
 #ifdef CTL_TIME_IO
 	getbinuptime(&cur_bt);
@@ -13031,7 +13027,7 @@ ctl_process_done(union ctl_io *io)
 		char path_str[64];
 		struct sbuf sb;
 
-		ctl_scsi_path_string(io, path_str, sizeof(path_str));
+		ctl_scsi_path_string(&io->io_hdr, path_str, sizeof(path_str));
 		sbuf_new(&sb, str, sizeof(str), SBUF_FIXEDLEN);
 
 		ctl_io_sbuf(io, &sb);
@@ -13424,7 +13420,7 @@ ctl_work_thread(void *arg)
 
 	CTL_DEBUG_PRINT(("ctl_work_thread starting\n"));
 	thread_lock(curthread);
-	sched_prio(curthread, PUSER - 1);
+	sched_prio(curthread, PRI_MAX_KERN);
 	thread_unlock(curthread);
 
 	while (!softc->shutdown) {
@@ -13494,7 +13490,7 @@ ctl_thresh_thread(void *arg)
 
 	CTL_DEBUG_PRINT(("ctl_thresh_thread starting\n"));
 	thread_lock(curthread);
-	sched_prio(curthread, PUSER - 1);
+	sched_prio(curthread, PRI_MAX_KERN);
 	thread_unlock(curthread);
 
 	while (!softc->shutdown) {

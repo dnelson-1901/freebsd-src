@@ -79,11 +79,10 @@ struct sysent {			/* system call table */
  */
 #define	SYF_CAPENABLED	0x00000001
 
-#define	SY_THR_FLAGMASK	0x7
-#define	SY_THR_STATIC	0x1
-#define	SY_THR_DRAINING	0x2
-#define	SY_THR_ABSENT	0x4
-#define	SY_THR_INCR	0x8
+#define	SY_THR_STATIC	0x01
+#define	SY_THR_DRAINING	0x02
+#define	SY_THR_ABSENT	0x04
+#define	SY_THR_INCR	0x08
 
 #ifdef KLD_MODULE
 #define	SY_THR_STATIC_KLD	0
@@ -335,8 +334,7 @@ void exec_free_abi_mappings(struct proc *p);
 void exec_onexec_old(struct thread *td);
 
 #define INIT_SYSENTVEC(name, sv)					\
-    SYSINIT(name, SI_SUB_EXEC, SI_ORDER_ANY,				\
-	(sysinit_cfunc_t)exec_sysvec_init, sv);
+    SYSINIT(name, SI_SUB_EXEC, SI_ORDER_ANY, exec_sysvec_init, sv)
 
 #endif /* _KERNEL */
 

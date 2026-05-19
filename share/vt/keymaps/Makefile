@@ -9,6 +9,7 @@ FILES=	INDEX.keymaps \
 	bg.phonetic.kbd \
 	br.kbd \
 	br.noacc.kbd \
+	br.lenovo.kbd \
 	by.kbd \
 	ca.kbd \
 	ca-fr.kbd \
@@ -80,6 +81,7 @@ FILES=	INDEX.keymaps \
 	uk.kbd \
 	uk.macbook.kbd \
 	us.acc.kbd \
+	us.intl.acc.kbd \
 	us.ctrl.kbd \
 	us.dvorak.kbd \
 	us.dvorakl.kbd \

@@ -395,24 +395,6 @@ pfsync_clone_create(struct if_clone *ifc, int unit, caddr_t param)
 	sc->sc_flags |= PFSYNCF_OK;
 	sc->sc_maxupdates = 128;
 	sc->sc_version = PFSYNC_MSG_VERSION_DEFAULT;
-
-	ifp = sc->sc_ifp = if_alloc(IFT_PFSYNC);
-	if_initname(ifp, pfsyncname, unit);
-	ifp->if_softc = sc;
-	ifp->if_ioctl = pfsyncioctl;
-	ifp->if_output = pfsyncoutput;
-	ifp->if_type = IFT_PFSYNC;
-	ifp->if_hdrlen = sizeof(struct pfsync_header);
-	ifp->if_mtu = ETHERMTU;
-	mtx_init(&sc->sc_mtx, pfsyncname, NULL, MTX_DEF);
-	mtx_init(&sc->sc_bulk_mtx, "pfsync bulk", NULL, MTX_DEF);
-	callout_init_mtx(&sc->sc_bulk_tmo, &sc->sc_bulk_mtx, 0);
-	callout_init_mtx(&sc->sc_bulkfail_tmo, &sc->sc_bulk_mtx, 0);
-
-	if_attach(ifp);
-
-	bpfattach(ifp, DLT_PFSYNC, PFSYNC_HDRLEN);
-
 	sc->sc_buckets = mallocarray(pfsync_buckets, sizeof(*sc->sc_buckets),
 	    M_PFSYNC, M_ZERO | M_WAITOK);
 	for (c = 0; c < pfsync_buckets; c++) {
@@ -433,6 +415,22 @@ pfsync_clone_create(struct if_clone *ifc, int unit, caddr_t param)
 
 		b->b_snd.ifq_maxlen = ifqmaxlen;
 	}
+
+	ifp = sc->sc_ifp = if_alloc(IFT_PFSYNC);
+	if_initname(ifp, pfsyncname, unit);
+	ifp->if_softc = sc;
+	ifp->if_ioctl = pfsyncioctl;
+	ifp->if_output = pfsyncoutput;
+	ifp->if_hdrlen = sizeof(struct pfsync_header);
+	ifp->if_mtu = ETHERMTU;
+	mtx_init(&sc->sc_mtx, pfsyncname, NULL, MTX_DEF);
+	mtx_init(&sc->sc_bulk_mtx, "pfsync bulk", NULL, MTX_DEF);
+	callout_init_mtx(&sc->sc_bulk_tmo, &sc->sc_bulk_mtx, 0);
+	callout_init_mtx(&sc->sc_bulkfail_tmo, &sc->sc_bulk_mtx, 0);
+
+	if_attach(ifp);
+
+	bpfattach(ifp, DLT_PFSYNC, PFSYNC_HDRLEN);
 
 	V_pfsyncif = sc;
 
@@ -459,13 +457,13 @@ pfsync_clone_destroy(struct ifnet *ifp)
 			    TAILQ_FIRST(&b->b_deferrals);
 
 			ret = callout_stop(&pd->pd_tmo);
-			PFSYNC_BUCKET_UNLOCK(b);
 			if (ret > 0) {
 				pfsync_undefer(pd, 1);
 			} else {
+				PFSYNC_BUCKET_UNLOCK(b);
 				callout_drain(&pd->pd_tmo);
+				PFSYNC_BUCKET_LOCK(b);
 			}
-			PFSYNC_BUCKET_LOCK(b);
 		}
 		MPASS(b->b_deferred == 0);
 		MPASS(TAILQ_EMPTY(&b->b_deferrals));
@@ -493,6 +491,10 @@ pfsync_clone_destroy(struct ifnet *ifp)
 	mtx_destroy(&sc->sc_mtx);
 	mtx_destroy(&sc->sc_bulk_mtx);
 
+	for (c = 0; c < pfsync_buckets; c++) {
+		b = &sc->sc_buckets[c];
+		mtx_destroy(&b->b_mtx);
+	}
 	free(sc->sc_buckets, M_PFSYNC);
 	free(sc, M_PFSYNC);
 
@@ -527,6 +529,9 @@ pfsync_state_import(union pfsync_state_union *sp, int flags, int msg_version)
 	int error;
 
 	PF_RULES_RASSERT();
+
+	if (strnlen(sp->pfs_1301.ifname, IFNAMSIZ) == IFNAMSIZ)
+		return (EINVAL);
 
 	if (sp->pfs_1301.creatorid == 0) {
 		if (V_pf_status.debug >= PF_DEBUG_MISC)
@@ -695,6 +700,17 @@ pfsync_state_import(union pfsync_state_union *sp, int flags, int msg_version)
 		default:
 			panic("%s: Unsupported pfsync_msg_version %d",
 			    __func__, msg_version);
+	}
+
+	if (! (st->act.rtableid == -1 ||
+	    (st->act.rtableid >= 0 && st->act.rtableid < rt_numfibs)))
+		goto cleanup;
+
+	if (sks->proto == IPPROTO_SCTP && st->src.scrub == NULL) {
+		if (V_pf_status.debug >= PF_DEBUG_MISC)
+			printf("%s: invalid SCTP state from creator id: %08x\n", __func__,
+			    ntohl(sp->pfs_1301.creatorid));
+		goto cleanup;
 	}
 
 	st->id = sp->pfs_1301.id;
@@ -1691,17 +1707,19 @@ pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 static void
 pfsync_out_state_1301(struct pf_kstate *st, void *buf)
 {
-	union pfsync_state_union *sp = buf;
+	struct pfsync_state_1301 *sp;
 
-	pfsync_state_export(sp, st, PFSYNC_MSG_VERSION_1301);
+	sp = buf;
+	pfsync_state_export_1301(sp, st);
 }
 
 static void
 pfsync_out_state_1400(struct pf_kstate *st, void *buf)
 {
-	union pfsync_state_union *sp = buf;
+	struct pfsync_state_1400 *sp;
 
-	pfsync_state_export(sp, st, PFSYNC_MSG_VERSION_1400);
+	sp = buf;
+	pfsync_state_export_1400(sp, st);
 }
 
 static void

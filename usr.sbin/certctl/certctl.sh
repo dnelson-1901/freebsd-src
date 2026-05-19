@@ -36,6 +36,7 @@ set -u
 ############################################################ GLOBALS
 
 SCRIPTNAME="${0##*/}"
+LINK=-lrs
 ERRORS=0
 NOOP=false
 UNPRIV=false
@@ -45,7 +46,7 @@ VERBOSE=false
 
 info()
 {
-	echo "${0##*/}: $@" >&2
+	echo "${SCRIPTNAME}: $@" >&2
 }
 
 verbose()
@@ -110,7 +111,6 @@ create_trusted()
 {
 	local hash certhash otherfile otherhash
 	local suffix
-	local link=${2:+-lrs}
 
 	hash=$(do_hash "$1") || return
 	certhash=$(openssl x509 -sha1 -in "$1" -noout -fingerprint)
@@ -130,7 +130,7 @@ create_trusted()
 	done
 	suffix=$(get_decimal "$CERTDESTDIR" "$hash")
 	verbose "Adding $hash.$suffix to trust store"
-	perform install ${INSTALLFLAGS} -m 0444 ${link} \
+	perform install ${INSTALLFLAGS} -m 0444 ${LINK} \
 		"$(realpath "$1")" "$CERTDESTDIR/$hash.$suffix"
 }
 
@@ -159,7 +159,6 @@ resolve_certname()
 create_untrusted()
 {
 	local srcfile filename
-	local link=${2:+-lrs}
 
 	set -- $(resolve_certname "$1")
 	srcfile=$1
@@ -170,7 +169,7 @@ create_untrusted()
 	fi
 
 	verbose "Adding $filename to untrusted list"
-	perform install ${INSTALLFLAGS} -m 0444 ${link} \
+	perform install ${INSTALLFLAGS} -m 0444 ${LINK} \
 		"$srcfile" "$UNTRUSTDESTDIR/$filename"
 }
 
@@ -190,7 +189,7 @@ do_scan()
 		0)
 			;;
 		1)
-			"$CFUNC" "$CFILE" link
+			"$CFUNC" "$CFILE"
 			;;
 		*)
 			verbose "Multiple certificates found, splitting..."
@@ -198,7 +197,7 @@ do_scan()
 			eolcvt "$CFILE" | egrep '^(---|[0-9A-Za-z/+=]+$)' | \
 				split -p '^-+BEGIN CERTIFICATE-+$' - "$SPLITDIR/x"
 			for CERT in $(find "$SPLITDIR" -type f) ; do
-				"$CFUNC" "$CERT"
+				LINK=-c "$CFUNC" "$CERT"
 			done
 			rm -rf "$SPLITDIR"
 			;;
@@ -229,6 +228,15 @@ do_list()
 
 cmd_rehash()
 {
+	local flag
+
+	while getopts "" flag; do
+		case "$flag" in
+		*) usage ;;
+		esac
+	done
+	shift $((OPTIND - 1))
+	[ $# -eq 0 ] || usage
 
 	if [ -e "$CERTDESTDIR" ] ; then
 		perform find "$CERTDESTDIR" -type l -name "????????.[0-9]" -delete
@@ -247,31 +255,59 @@ cmd_rehash()
 
 cmd_list()
 {
+	local flag
+
+	while getopts "" flag; do
+		case "$flag" in
+		*) usage ;;
+		esac
+	done
+	shift $((OPTIND - 1))
+	[ $# -eq 0 ] || usage
+
 	info "Listing Trusted Certificates:"
 	do_list "$CERTDESTDIR"
 }
 
 cmd_untrust()
 {
-	local UTFILE
+	local flag filename
 
-	shift # verb
+	while getopts "" flag; do
+	    case "$flag" in
+	    *) usage ;;
+	    esac
+	done
+	shift $((OPTIND - 1))
+	[ $# -gt 0 ] || usage
+
 	perform install -d -m 0755 "$UNTRUSTDESTDIR"
-	for UTFILE in "$@"; do
-		info "Adding $UTFILE to untrusted list"
-		create_untrusted "$UTFILE"
+	for filename in "$@"; do
+		if [ -s "$filename" ] ; then
+			info "Adding $filename to untrusted list"
+			create_untrusted "$filename"
+		else
+			info "Cannot find $filename"
+			ERRORS=$((ERRORS + 1))
+		fi
 	done
 }
 
 cmd_trust()
 {
-	local UTFILE untrustedhash certhash hash
+	local flag filename untrustedhash certhash hash
 
-	shift # verb
-	for UTFILE in "$@"; do
-		if [ -s "$UTFILE" ] ; then
-			hash=$(do_hash "$UTFILE")
-			certhash=$(openssl x509 -sha1 -in "$UTFILE" -noout -fingerprint)
+	while getopts "" flag; do
+		case "$flag" in
+		*) usage ;;
+		esac
+	done
+	shift $((OPTIND - 1))
+	[ $# -gt 0 ] || usage
+	for filename in "$@"; do
+		if [ -s "$filename" ] ; then
+			hash=$(do_hash "$filename")
+			certhash=$(openssl x509 -sha1 -in "$filename" -noout -fingerprint)
 			for UNTRUSTEDFILE in $(find $UNTRUSTDESTDIR -name "$hash.*") ; do
 				untrustedhash=$(openssl x509 -sha1 -in "$UNTRUSTEDFILE" -noout -fingerprint)
 				if [ "$certhash" = "$untrustedhash" ] ; then
@@ -279,11 +315,11 @@ cmd_trust()
 					perform rm -f $UNTRUSTEDFILE
 				fi
 			done
-		elif [ -e "$UNTRUSTDESTDIR/$UTFILE" ] ; then
-			info "Removing $UTFILE from untrusted list"
-			perform rm -f "$UNTRUSTDESTDIR/$UTFILE"
+		elif [ -e "$UNTRUSTDESTDIR/$filename" ] ; then
+			info "Removing $filename from untrusted list"
+			perform rm -f "$UNTRUSTDESTDIR/$filename"
 		else
-			info "Cannot find $UTFILE"
+			info "Cannot find $filename"
 			ERRORS=$((ERRORS + 1))
 		fi
 	done
@@ -291,6 +327,16 @@ cmd_trust()
 
 cmd_untrusted()
 {
+	local flag
+
+	while getopts "" flag; do
+		case "$flag" in
+		*) usage ;;
+		esac
+	done
+	shift $((OPTIND - 1))
+	[ $# -eq 0 ] || usage
+
 	info "Listing Untrusted Certificates:"
 	do_list "$UNTRUSTDESTDIR"
 }
@@ -303,25 +349,27 @@ usage()
 	echo "		List trusted certificates"
 	echo "	$SCRIPTNAME [-v] untrusted"
 	echo "		List untrusted certificates"
-	echo "	$SCRIPTNAME [-nUv] [-D <destdir>] [-d <distbase>] [-M <metalog>] rehash"
-	echo "		Generate hash links for all certificates"
-	echo "	$SCRIPTNAME [-nv] untrust <file>"
+	echo "	$SCRIPTNAME [-cnUv] [-D <destdir>] [-d <distbase>] [-M <metalog>] rehash"
+	echo "		Rehash all trusted and untrusted certificates"
+	echo "	$SCRIPTNAME [-cnv] untrust <file>"
 	echo "		Add <file> to the list of untrusted certificates"
-	echo "	$SCRIPTNAME [-nv] trust <file>"
+	echo "	$SCRIPTNAME [-cnv] trust <file>"
 	echo "		Remove <file> from the list of untrusted certificates"
 	exit 64
 }
 
 ############################################################ MAIN
 
-while getopts D:d:M:nUv flag; do
+while getopts cD:d:M:nUv flag; do
 	case "$flag" in
+	c) LINK=-c ;;
 	D) DESTDIR=${OPTARG} ;;
 	d) DISTBASE=${OPTARG} ;;
 	M) METALOG=${OPTARG} ;;
 	n) NOOP=true ;;
 	U) UNPRIV=true ;;
 	v) VERBOSE=true ;;
+	*) usage ;;
 	esac
 done
 shift $((OPTIND - 1))
@@ -334,7 +382,7 @@ fi
 : ${METALOG:=${DESTDIR}/METALOG}
 INSTALLFLAGS=
 if "$UNPRIV" ; then
-	INSTALLFLAGS="-U -M ${METALOG} -D ${DESTDIR} -o root -g wheel"
+	INSTALLFLAGS="-U -M ${METALOG} -D ${DESTDIR:-/} -o root -g wheel"
 fi
 : ${LOCALBASE:=$(sysctl -n user.localbase)}
 : ${TRUSTPATH:=${DESTDIR}${DISTBASE}/usr/share/certs/trusted:${DESTDIR}${LOCALBASE}/share/certs:${DESTDIR}${LOCALBASE}/etc/ssl/certs}
@@ -343,15 +391,18 @@ fi
 : ${UNTRUSTDESTDIR:=${DESTDIR}${DISTBASE}/etc/ssl/untrusted}
 
 [ $# -gt 0 ] || usage
-case "$1" in
-list)		cmd_list ;;
-rehash)		cmd_rehash ;;
+CMD=$1
+shift
+OPTIND=1
+case "${CMD}" in
+list)		cmd_list "$@" ;;
+rehash)		cmd_rehash "$@" ;;
 blacklist)	cmd_untrust "$@" ;;
 untrust)	cmd_untrust "$@" ;;
 trust)		cmd_trust "$@" ;;
 unblacklist)	cmd_trust "$@" ;;
-untrusted)	cmd_untrusted ;;
-blacklisted)	cmd_untrusted ;;
+untrusted)	cmd_untrusted "$@" ;;
+blacklisted)	cmd_untrusted "$@" ;;
 *)		usage # NOTREACHED
 esac
 

@@ -202,7 +202,16 @@ static int zvol_blk_mq_alloc_tag_set(zvol_state_t *zv)
 	 * We need BLK_MQ_F_BLOCKING here since we do blocking calls in
 	 * zvol_request_impl()
 	 */
-	zso->tag_set.flags = BLK_MQ_F_SHOULD_MERGE | BLK_MQ_F_BLOCKING;
+	zso->tag_set.flags = BLK_MQ_F_BLOCKING;
+
+#ifdef BLK_MQ_F_SHOULD_MERGE
+	/*
+	 * Linux 6.14 removed BLK_MQ_F_SHOULD_MERGE and made it implicit.
+	 * For older kernels, we set it.
+	 */
+	zso->tag_set.flags |= BLK_MQ_F_SHOULD_MERGE;
+#endif
+
 	zso->tag_set.driver_data = zv;
 
 	return (blk_mq_alloc_tag_set(&zso->tag_set));
@@ -367,16 +376,14 @@ zvol_discard(zv_request_t *zvr)
 	}
 
 	/*
-	 * Align the request to volume block boundaries when a secure erase is
-	 * not required.  This will prevent dnode_free_range() from zeroing out
-	 * the unaligned parts which is slow (read-modify-write) and useless
-	 * since we are not freeing any space by doing so.
+	 * Align the request to volume block boundaries. This will prevent
+	 * dnode_free_range() from zeroing out the unaligned parts which is
+	 * slow (read-modify-write) and useless since we are not freeing any
+	 * space by doing so.
 	 */
-	if (!io_is_secure_erase(bio, rq)) {
-		start = P2ROUNDUP(start, zv->zv_volblocksize);
-		end = P2ALIGN_TYPED(end, zv->zv_volblocksize, uint64_t);
-		size = end - start;
-	}
+	start = P2ROUNDUP(start, zv->zv_volblocksize);
+	end = P2ALIGN_TYPED(end, zv->zv_volblocksize, uint64_t);
+	size = end - start;
 
 	if (start >= end)
 		goto unlock;
@@ -496,6 +503,24 @@ zvol_read_task(void *arg)
 	zv_request_task_free(task);
 }
 
+/*
+ * Note:
+ *
+ * The kernel uses different enum names for the IO opcode, depending on the
+ * kernel version ('req_opf', 'req_op').  To sidestep this, use macros rather
+ * than inline functions for these checks.
+ */
+/* Should this IO go down the zvol write path? */
+#define	ZVOL_OP_IS_WRITE(op) \
+	(op == REQ_OP_WRITE || \
+	op == REQ_OP_FLUSH || \
+	op == REQ_OP_DISCARD)
+
+/* Is this IO type supported by zvols? */
+#define	ZVOL_OP_IS_SUPPORTED(op) (op == REQ_OP_READ || ZVOL_OP_IS_WRITE(op))
+
+/* Get the IO opcode */
+#define	ZVOL_OP(bio, rq) (bio != NULL ? bio_op(bio) : req_op(rq))
 
 /*
  * Process a BIO or request
@@ -513,7 +538,33 @@ zvol_request_impl(zvol_state_t *zv, struct bio *bio, struct request *rq,
 	fstrans_cookie_t cookie = spl_fstrans_mark();
 	uint64_t offset = io_offset(bio, rq);
 	uint64_t size = io_size(bio, rq);
-	int rw = io_data_dir(bio, rq);
+	int rw;
+
+	if (unlikely(!ZVOL_OP_IS_SUPPORTED(ZVOL_OP(bio, rq)))) {
+		zfs_dbgmsg("Unsupported zvol %s, op=%d, flags=0x%x",
+		    rq != NULL ? "request" : "BIO",
+		    ZVOL_OP(bio, rq),
+		    rq != NULL ? rq->cmd_flags : bio->bi_opf);
+		ASSERT(ZVOL_OP_IS_SUPPORTED(ZVOL_OP(bio, rq)));
+		zvol_end_io(bio, rq, SET_ERROR(ENOTSUPP));
+		goto out;
+	}
+
+	if (ZVOL_OP_IS_WRITE(ZVOL_OP(bio, rq))) {
+		rw = WRITE;
+	} else {
+		rw = READ;
+	}
+
+	/*
+	 * Sanity check
+	 *
+	 * If we're a BIO, check our rw matches the kernel's
+	 * bio_data_dir(bio) rw.  We need to check because we support fewer
+	 * IO operations, and want to verify that what we think are reads and
+	 * writes from those operations match what the kernel thinks.
+	 */
+	ASSERT(rq != NULL || rw == bio_data_dir(bio));
 
 	if (unlikely(zv->zv_flags & ZVOL_REMOVING)) {
 		zvol_end_io(bio, rq, -SET_ERROR(ENXIO));
@@ -548,8 +599,8 @@ zvol_request_impl(zvol_state_t *zv, struct bio *bio, struct request *rq,
 #ifdef HAVE_BLK_MQ_RQ_HCTX
 		blk_mq_hw_queue = rq->mq_hctx->queue_num;
 #else
-		blk_mq_hw_queue =
-		    rq->q->queue_hw_ctx[rq->q->mq_map[rq->cpu]]->queue_num;
+		blk_mq_hw_queue = rq->q->queue_hw_ctx[
+		    rq->q->mq_map[raw_smp_processor_id()]]->queue_num;
 #endif
 	taskq_hash = cityhash4((uintptr_t)zv, offset >> ZVOL_TASKQ_OFFSET_SHIFT,
 	    blk_mq_hw_queue, 0);
@@ -618,7 +669,7 @@ zvol_request_impl(zvol_state_t *zv, struct bio *bio, struct request *rq,
 		 * interfaces lack this functionality (they block waiting for
 		 * the i/o to complete).
 		 */
-		if (io_is_discard(bio, rq) || io_is_secure_erase(bio, rq)) {
+		if (io_is_discard(bio, rq)) {
 			if (force_sync) {
 				zvol_discard(&zvr);
 			} else {
@@ -1386,13 +1437,15 @@ zvol_alloc(dev_t dev, const char *name, uint64_t volblocksize)
 	 */
 	if (zv->zv_zso->use_blk_mq) {
 		ret = zvol_alloc_blk_mq(zv, &limits);
+		if (ret != 0)
+			goto out_kmem;
 		zso->zvo_disk->fops = &zvol_ops_blk_mq;
 	} else {
 		ret = zvol_alloc_non_blk_mq(zso, &limits);
+		if (ret != 0)
+			goto out_kmem;
 		zso->zvo_disk->fops = &zvol_ops;
 	}
-	if (ret != 0)
-		goto out_kmem;
 
 	/* Limit read-ahead to a single page to prevent over-prefetching. */
 	blk_queue_set_read_ahead(zso->zvo_queue, 1);

@@ -329,7 +329,6 @@ MAN+=	alarm.3 \
 	timespec_getres.3 \
 	timezone.3 \
 	ttyname.3 \
-	tzset.3 \
 	ualarm.3 \
 	ucontext.3 \
 	ulimit.3 \
@@ -507,8 +506,11 @@ MLINKS+=recv.2 recvmmsg.2
 MLINKS+=rtld_get_var.3 \
 	rtld_set_var.3
 MLINKS+=scandir.3 alphasort.3 \
-	scandir.3 scandirat.3 \
+	scandir.3 fdscandir.3 \
+	scandir.3 fdscandir_b.3 \
 	scandir.3 scandir_b.3 \
+	scandir.3 scandirat.3 \
+	scandir.3 scandirat_b.3 \
 	scandir.3 versionsort.3
 MLINKS+=sem_open.3 sem_close.3 \
 	sem_open.3 sem_unlink.3
@@ -562,6 +564,7 @@ MLINKS+=unvis.3 strunvis.3 \
 	unvis.3 strunvisx.3
 MLINKS+=vis.3 nvis.3 \
 	vis.3 snvis.3 \
+	vis.3 stravis.3 \
 	vis.3 strenvisx.3 \
 	vis.3 strnunvis.3 \
 	vis.3 strnunvisx.3 \
@@ -588,8 +591,8 @@ install-passwd: .PHONY
 	${PWD_MKDB_CMD} -i -p -d ${DESTDIR}/etc ${DESTDIR}/etc/master.passwd
 .if defined(NO_ROOT) && defined(METALOG)
 	( \
-		echo ".${DISTBASE}/etc/pwd.db type=file mode=0644 uname=root gname=wheel"; \
-		echo ".${DISTBASE}/etc/spwd.db type=file mode=0600 uname=root gname=wheel"; \
-		echo ".${DISTBASE}/etc/passwd type=file mode=0644 uname=root gname=wheel"; \
+		echo ".${DISTBASE}/etc/pwd.db type=file uname=root gname=wheel mode=0644"; \
+		echo ".${DISTBASE}/etc/spwd.db type=file uname=root gname=wheel mode=0600"; \
+		echo ".${DISTBASE}/etc/passwd type=file uname=root gname=wheel mode=0644"; \
 	) | cat -l >> ${METALOG}
 .endif

@@ -131,6 +131,7 @@ struct g_part_alias_list {
         { "solaris-home", G_PART_ALIAS_SOLARIS_HOME },
         { "solaris-altsec", G_PART_ALIAS_SOLARIS_ALTSEC },
 	{ "solaris-reserved", G_PART_ALIAS_SOLARIS_RESERVED },
+	{ "u-boot-env", G_PART_ALIAS_U_BOOT_ENV },
 	{ "vmware-reserved", G_PART_ALIAS_VMRESERVED },
 	{ "vmware-vmfs", G_PART_ALIAS_VMFS },
 	{ "vmware-vmkdiag", G_PART_ALIAS_VMKDIAG },
@@ -1005,7 +1006,7 @@ g_part_ctl_create(struct gctl_req *req, struct g_part_parms *gpp)
 	table->gpt_gp = gp;
 	table->gpt_scheme = gpp->gpp_scheme;
 	table->gpt_entries = (gpp->gpp_parms & G_PART_PARM_ENTRIES) ?
-	    gpp->gpp_entries : scheme->gps_minent;
+	    gpp->gpp_entries : scheme->gps_defent;
 	LIST_INIT(&table->gpt_entry);
 	if (null == NULL) {
 		cp = g_new_consumer(gp);
@@ -1046,7 +1047,7 @@ g_part_ctl_create(struct gctl_req *req, struct g_part_parms *gpp)
 	/*
 	 * Synthesize a disk geometry. Some partitioning schemes
 	 * depend on it and since some file systems need it even
-	 * when the partitition scheme doesn't, we do it here in
+	 * when the partition scheme doesn't, we do it here in
 	 * scheme-independent code.
 	 */
 	g_part_geometry(table, cp, pp->mediasize / pp->sectorsize);
@@ -1539,7 +1540,7 @@ g_part_ctl_undo(struct gctl_req *req, struct g_part_parms *gpp)
 		/*
 		 * Synthesize a disk geometry. Some partitioning schemes
 		 * depend on it and since some file systems need it even
-		 * when the partitition scheme doesn't, we do it here in
+		 * when the partition scheme doesn't, we do it here in
 		 * scheme-independent code.
 		 */
 		pp = cp->provider;
@@ -2023,7 +2024,7 @@ g_part_taste(struct g_class *mp, struct g_provider *pp, int flags __unused)
 	/*
 	 * Synthesize a disk geometry. Some partitioning schemes
 	 * depend on it and since some file systems need it even
-	 * when the partitition scheme doesn't, we do it here in
+	 * when the partition scheme doesn't, we do it here in
 	 * scheme-independent code.
 	 */
 	g_part_geometry(table, cp, pp->mediasize / pp->sectorsize);

@@ -240,7 +240,7 @@ nfsrvd_getattr(struct nfsrv_descript *nd, int isdgram,
 {
 	struct nfsvattr nva;
 	fhandle_t fh;
-	int at_root = 0, error = 0, supports_nfsv4acls;
+	int at_root = 0, error = 0, ret, supports_nfsv4acls;
 	struct nfsreferral *refp;
 	nfsattrbit_t attrbits, tmpbits;
 	struct mount *mp;
@@ -249,6 +249,8 @@ nfsrvd_getattr(struct nfsrv_descript *nd, int isdgram,
 	uint64_t mounted_on_fileno = 0;
 	accmode_t accmode;
 	struct thread *p = curthread;
+	size_t atsiz;
+	bool xattrsupp;
 
 	if (nd->nd_repstat)
 		goto out;
@@ -306,6 +308,15 @@ nfsrvd_getattr(struct nfsrv_descript *nd, int isdgram,
 				    &nva, &attrbits, p);
 			if (nd->nd_repstat == 0) {
 				supports_nfsv4acls = nfs_supportsnfsv4acls(vp);
+				xattrsupp = false;
+				if (NFSISSET_ATTRBIT(&attrbits,
+				    NFSATTRBIT_XATTRSUPPORT)) {
+					ret = VOP_GETEXTATTR(vp,
+					    EXTATTR_NAMESPACE_USER,
+					    "xxx", NULL, &atsiz, nd->nd_cred,
+					    p);
+					xattrsupp = ret != EOPNOTSUPP;
+				}
 				mp = vp->v_mount;
 				if (nfsrv_enable_crossmntpt != 0 &&
 				    vp->v_type == VDIR &&
@@ -339,7 +350,8 @@ nfsrvd_getattr(struct nfsrv_descript *nd, int isdgram,
 					(void)nfsvno_fillattr(nd, mp, vp, &nva,
 					    &fh, 0, &attrbits, nd->nd_cred, p,
 					    isdgram, 1, supports_nfsv4acls,
-					    at_root, mounted_on_fileno);
+					    at_root, mounted_on_fileno,
+					    xattrsupp);
 					vfs_unbusy(mp);
 				}
 				vrele(vp);
@@ -370,7 +382,7 @@ nfsrvd_setattr(struct nfsrv_descript *nd, __unused int isdgram,
 	int preat_ret = 1, postat_ret = 1, gcheck = 0, error = 0;
 	int gotproxystateid;
 	struct timespec guard = { 0, 0 };
-	nfsattrbit_t attrbits, retbits;
+	nfsattrbit_t atimeonly, attrbits, retbits;
 	nfsv4stateid_t stateid;
 	NFSACL_T *aclp = NULL;
 	struct thread *p = curthread;
@@ -438,9 +450,28 @@ nfsrvd_setattr(struct nfsrv_descript *nd, __unused int isdgram,
 	 */
 	if (!nd->nd_repstat) {
 		if (NFSVNO_NOTSETSIZE(&nva)) {
+			/*
+			 * For an NFSv4.2 Setattr of atime only that fails with
+			 * EROFS, pretend the operation succeeded.  This makes
+			 * the semantics of copying files from a ZFS snapshot
+			 * the same over NFSv4.2 as it is locally.
+			 * Without this "hack", the copy will fail
+			 * with EROFS unless the NFSv4.2 mount has the
+			 * "noatime" mount option.
+			 */
+			NFSZERO_ATTRBIT(&atimeonly);
+			NFSSETBIT_ATTRBIT(&atimeonly, NFSATTRBIT_TIMEACCESSSET);
 			if (NFSVNO_EXRDONLY(exp) ||
-			    (vp->v_mount->mnt_flag & MNT_RDONLY))
-				nd->nd_repstat = EROFS;
+			    (vp->v_mount->mnt_flag & MNT_RDONLY)) {
+				if ((nd->nd_flag & ND_NFSV42) != 0 &&
+				    NFSEQUAL_ATTRBIT(&attrbits, &atimeonly)) {
+					NFSCLRBIT_ATTRBIT(&attrbits,
+					    NFSATTRBIT_TIMEACCESSSET);
+					NFSSETBIT_ATTRBIT(&retbits,
+					    NFSATTRBIT_TIMEACCESSSET);
+				} else
+					nd->nd_repstat = EROFS;
+			}
 		} else {
 			if (vp->v_type != VREG)
 				nd->nd_repstat = EINVAL;
@@ -2829,7 +2860,7 @@ nfsrvd_open(struct nfsrv_descript *nd, __unused int isdgram,
 	int how = NFSCREATE_UNCHECKED;
 	int32_t cverf[2], tverf[2] = { 0, 0 };
 	vnode_t vp = NULL, dirp = NULL;
-	struct nfsvattr nva, dirfor, diraft;
+	struct nfsvattr nva, dirfor, diraft, nva2;
 	struct nameidata named;
 	nfsv4stateid_t stateid, delegstateid;
 	nfsattrbit_t attrbits;
@@ -3076,11 +3107,23 @@ nfsrvd_open(struct nfsrv_descript *nd, __unused int isdgram,
 			}
 			break;
 		    case NFSCREATE_EXCLUSIVE:
-			exclusive_flag = 1;
 			if (nd->nd_repstat == 0 && named.ni_vp == NULL)
 				nva.na_mode = 0;
-			break;
+			/* FALLTHROUGH */
 		    case NFSCREATE_EXCLUSIVE41:
+			if (nd->nd_repstat == 0 && named.ni_vp != NULL) {
+				nd->nd_repstat = nfsvno_getattr(named.ni_vp,
+				    &nva2, nd, p, 1, NULL);
+				if (nd->nd_repstat == 0) {
+					tverf[0] = nva2.na_atime.tv_sec;
+					tverf[1] = nva2.na_atime.tv_nsec;
+					if (cverf[0] != tverf[0] ||
+					     cverf[1] != tverf[1])
+						nd->nd_repstat = EEXIST;
+				}
+				if (nd->nd_repstat != 0)
+					done_namei = true;
+			}
 			exclusive_flag = 1;
 			break;
 		    }
@@ -3170,16 +3213,8 @@ nfsrvd_open(struct nfsrv_descript *nd, __unused int isdgram,
 		    NFSACCCHK_VPISLOCKED, NULL);
 	}
 
-	if (!nd->nd_repstat) {
+	if (!nd->nd_repstat)
 		nd->nd_repstat = nfsvno_getattr(vp, &nva, nd, p, 1, NULL);
-		if (!nd->nd_repstat) {
-			tverf[0] = nva.na_atime.tv_sec;
-			tverf[1] = nva.na_atime.tv_nsec;
-		}
-	}
-	if (!nd->nd_repstat && exclusive_flag && (cverf[0] != tverf[0] ||
-	    cverf[1] != tverf[1]))
-		nd->nd_repstat = EEXIST;
 	/*
 	 * Do the open locking/delegation stuff.
 	 */
@@ -4581,6 +4616,14 @@ nfsrvd_createsession(struct nfsrv_descript *nd, __unused int isdgram,
 		*tl++ = txdr_unsigned(sep->sess_cbsess.nfsess_foreslots);
 		*tl++ = txdr_unsigned(1);
 		*tl = txdr_unsigned(0);			/* No RDMA. */
+		/*
+		 * Although the client accepts slot#s up to
+		 * sess_cbsess.nfsess_foreslots, the server can only use
+		 * a maximum of NFSV4_SLOTS, so clip it to avoid ever using
+		 * too high a slot.
+		 */
+		if (sep->sess_cbsess.nfsess_foreslots > NFSV4_SLOTS)
+			sep->sess_cbsess.nfsess_foreslots = NFSV4_SLOTS;
 	}
 nfsmout:
 	if (nd->nd_repstat != 0 && sep != NULL)
@@ -4934,6 +4977,11 @@ nfsrvd_layoutcommit(struct nfsrv_descript *nd, __unused int isdgram,
 		NFSM_DISSECT(tl, uint32_t *, 2 * NFSX_UNSIGNED);
 	layouttype = fxdr_unsigned(int, *tl++);
 	maxcnt = fxdr_unsigned(int, *tl);
+	/* There is no limit in the RFC, so use 1000 as a sanity limit. */
+	if (maxcnt < 0 || maxcnt > 1000) {
+		error = NFSERR_BADXDR;
+		goto nfsmout;
+	}
 	if (maxcnt > 0) {
 		layp = malloc(maxcnt + 1, M_TEMP, M_WAITOK);
 		error = nfsrv_mtostr(nd, layp, maxcnt);

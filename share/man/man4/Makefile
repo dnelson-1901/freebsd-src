@@ -173,6 +173,7 @@ MAN=	aac.4 \
 	geom.4 \
 	geom_linux_lvm.4 \
 	geom_uzip.4 \
+	geom_zero.4 \
 	gif.4 \
 	${_gve.4} \
 	gpio.4 \
@@ -280,6 +281,8 @@ MAN=	aac.4 \
 	led.4 \
 	lge.4 \
 	${_linux.4} \
+	linuxkpi.4 \
+	linuxkpi_wlan.4 \
 	liquidio.4 \
 	lm75.4 \
 	lo.4 \
@@ -426,9 +429,9 @@ MAN=	aac.4 \
 	owc.4 \
 	ovpn.4 \
 	${_padlock.4} \
+	p9fs.4 \
 	pass.4 \
 	pca954x.4 \
-	pccard.4 \
 	pccbb.4 \
 	pcf.4 \
 	pcf8574.4 \
@@ -436,7 +439,6 @@ MAN=	aac.4 \
 	${_pchtherm.4} \
 	pci.4 \
 	pcib.4 \
-	pcic.4 \
 	pcm.4 \
 	${_pf.4} \
 	${_pflog.4} \
@@ -720,7 +722,7 @@ MLINKS+=lge.4 if_lge.4
 MLINKS+=lo.4 loop.4
 MLINKS+=lp.4 plip.4
 MLINKS+=malo.4 if_malo.4
-MLINKS+=md.4 vn.4
+MLINKS+=me.4 if_me.4
 MLINKS+=mem.4 kmem.4
 MLINKS+=mfi.4 mfi_linux.4 \
 	mfi.4 mfip.4
@@ -818,7 +820,7 @@ _cpuctl.4=	cpuctl.4
 _dpms.4=	dpms.4
 _ftgpio.4=	ftgpio.4
 _ftwd.4=	ftwd.4
-_hn.4=		_hn.4
+_hn.4=		hn.4
 _hpt27xx.4=	hpt27xx.4
 _hptiop.4=	hptiop.4
 _hptmv.4=	hptmv.4
@@ -937,16 +939,21 @@ _ccd.4=		ccd.4
 
 .if ${MK_CDDL} != "no"
 _dtrace_provs=	dtrace_audit.4 \
+		dtrace_callout_execute.4 \
+		dtrace_fbt.4 \
 		dtrace_io.4 \
 		dtrace_ip.4 \
 		dtrace_kinst.4 \
 		dtrace_lockstat.4 \
+		dtrace_priv.4 \
+		dtrace_pid.4 \
 		dtrace_proc.4 \
 		dtrace_sched.4 \
 		dtrace_sctp.4 \
 		dtrace_tcp.4 \
 		dtrace_udp.4 \
-		dtrace_udplite.4
+		dtrace_udplite.4 \
+		dtrace_vfs.4
 
 MLINKS+=	dtrace_audit.4 dtaudit.4
 .endif
@@ -1042,6 +1049,7 @@ MAN+=	\
 	uvscom.4 \
 	zyd.4
 
+MLINKS+=geom_zero.4 gzero.4
 MLINKS+=otus.4 if_otus.4
 MLINKS+=rsu.4 if_rsu.4
 MLINKS+=rtwn_usb.4 if_rtwn_usb.4

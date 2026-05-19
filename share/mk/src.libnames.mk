@@ -32,6 +32,7 @@ _PRIVATELIBS=	\
 		ssh \
 		ucl \
 		unbound \
+		yaml \
 		zstd
 
 # Let projects based on FreeBSD append to _PRIVATELIBS
@@ -376,7 +377,7 @@ _DP_kadm5clnt=	com_err krb5 roken
 _DP_kadm5srv=	com_err hdb krb5 roken
 _DP_heimntlm=	crypto com_err krb5 roken
 _DP_hx509=	asn1 com_err crypto roken wind
-_DP_hdb=	asn1 com_err krb5 roken sqlite3
+_DP_hdb=	asn1 com_err krb5 roken sqlite3 heimbase
 _DP_asn1=	com_err roken
 _DP_kdc=	roken hdb hx509 krb5 heimntlm asn1 crypto
 _DP_wind=	com_err roken
@@ -427,6 +428,7 @@ _DP_be=		zfs spl nvpair zfsbootenv
 _DP_netmap=
 _DP_ifconfig=	m
 _DP_pfctl=	nv
+_DP_iscsiutil=	md
 
 # OFED support
 .if ${MK_OFED} != "no"

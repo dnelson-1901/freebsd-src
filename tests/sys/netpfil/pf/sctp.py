@@ -427,6 +427,34 @@ class TestSCTP(VnetTestTemplate):
         assert re.search(r"all sctp 192.0.2.4:.*192.0.2.2:1234", states)
 
     @pytest.mark.require_user("root")
+    def test_limit_addresses(self):
+        srv_vnet = self.vnet_map["vnet2"]
+
+        ifname = self.vnet_map["vnet1"].iface_alias_map["if1"].name
+        for i in range(0, 16):
+            ToolsHelper.print_output("/sbin/ifconfig %s inet alias 192.0.2.%d/24" % (ifname, 4 + i))
+
+        ToolsHelper.print_output("/sbin/pfctl -e")
+        ToolsHelper.pf_rules([
+            "block proto sctp",
+            "pass on lo",
+            "pass inet proto sctp to 192.0.2.0/24"])
+
+        # Set up a connection, which will try to create states for all addresses
+        # we have assigned
+        client = SCTPClient("192.0.2.3", 1234)
+        client.send(b"hello", 0)
+        rcvd = self.wait_object(srv_vnet.pipe)
+        print(rcvd)
+        assert rcvd['ppid'] == 0
+        assert rcvd['data'] == "hello"
+
+        # But the number should be limited to 9 (original + 8 extra)
+        states = ToolsHelper.get_output("/sbin/pfctl -ss | grep 192.0.2.2")
+        print(states)
+        assert(states.count('\n') <= 9)
+
+    @pytest.mark.require_user("root")
     def test_disallow_related(self):
         srv_vnet = self.vnet_map["vnet2"]
 
@@ -501,6 +529,96 @@ class TestSCTP(VnetTestTemplate):
         states = ToolsHelper.get_output("/sbin/pfctl -ss")
         assert re.search(r"epair.*sctp 192.0.2.1:.*192.0.2.3:1234", states)
         assert re.search(r"epair.*sctp 192.0.2.1:.*192.0.2.2:1234", states)
+
+class TestSCTP_SRV(VnetTestTemplate):
+    REQUIRED_MODULES = ["sctp", "pf"]
+    TOPOLOGY = {
+        "vnet1": {"ifaces": ["if1"]},
+        "vnet2": {"ifaces": ["if1"]},
+        "if1": {"prefixes4": [("192.0.2.1/24", "192.0.2.2/24")]},
+    }
+
+    def vnet2_handler(self, vnet):
+        ToolsHelper.print_output("/sbin/pfctl -e")
+        ToolsHelper.pf_rules([
+            "set state-policy if-bound",
+            "pass inet proto sctp",
+            "pass on lo"])
+
+        # Start an SCTP server process, pipe the ppid + data back to the other vnet?
+        srv = SCTPServer(socket.AF_INET, port=1234)
+        while True:
+            srv.accept(vnet)
+
+    @pytest.mark.require_user("root")
+    @pytest.mark.require_progs(["scapy"])
+    def test_initiate_tag_check(self):
+        # Ensure we don't send ABORTs in response to the other end's INIT_ACK
+        # That'd interfere with our test.
+        ToolsHelper.print_output("/sbin/sysctl net.inet.sctp.blackhole=2")
+
+        import scapy.all as sp
+
+        packet = sp.IP(src="192.0.2.1", dst="192.0.2.2") \
+            / sp.SCTP(sport=1234, dport=1234) \
+            / sp.SCTPChunkInit(init_tag=1, n_in_streams=1, n_out_streams=1, a_rwnd=1500)
+        packet.show()
+
+        r = sp.sr1(packet, timeout=3)
+        assert r
+        r.show()
+        assert r.getlayer(sp.SCTP)
+        assert r.getlayer(sp.SCTPChunkInitAck)
+        assert r.getlayer(sp.SCTP).tag == 1
+
+        # Send another INIT with the same initiate tag, expect another init ack
+        packet = sp.IP(src="192.0.2.1", dst="192.0.2.2") \
+            / sp.SCTP(sport=1234, dport=1234) \
+            / sp.SCTPChunkInit(init_tag=1, n_in_streams=1, n_out_streams=1, a_rwnd=1500)
+        packet.show()
+
+        r = sp.sr1(packet, timeout=3)
+        assert r
+        r.show()
+        assert r.getlayer(sp.SCTP)
+        assert r.getlayer(sp.SCTPChunkInitAck)
+        assert r.getlayer(sp.SCTP).tag == 1
+
+        # Send an INIT with a different initiate tag, expect another init ack
+        packet = sp.IP(src="192.0.2.1", dst="192.0.2.2") \
+            / sp.SCTP(sport=1234, dport=1234) \
+            / sp.SCTPChunkInit(init_tag=42, n_in_streams=1, n_out_streams=1, a_rwnd=1500)
+        packet.show()
+
+        r = sp.sr1(packet, timeout=3)
+        assert r
+        r.show()
+        assert r.getlayer(sp.SCTP)
+        assert r.getlayer(sp.SCTPChunkInitAck)
+        assert r.getlayer(sp.SCTP).tag == 42
+
+    @pytest.mark.require_user("root")
+    @pytest.mark.require_progs(["scapy"])
+    def test_too_many_add_ip(self):
+        import scapy.all as sp
+        DEPTH=90
+        params=[]
+        for i in range(0, DEPTH):
+            ch = sp.SCTPChunkParamAddIPAddr(len=(DEPTH - i) * 8)
+            params.append(ch)
+        packet = sp.IP(src="192.0.2.1", dst="192.0.2.2") \
+            / sp.SCTP(sport=4321, dport=1234) \
+            / sp.SCTPChunkInit(init_tag=1, n_in_streams=1, n_out_streams=1, a_rwnd=1500,
+                params=params)
+        packet.show()
+        sp.hexdump(packet)
+        print("len %d" % len(packet))
+
+        r = sp.sr1(packet, timeout=3)
+        # We should not get a reply to this
+        if r:
+            r.show()
+        assert not r
 
 class TestSCTPv6(VnetTestTemplate):
     REQUIRED_MODULES = ["sctp", "pf"]

@@ -39,6 +39,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/eventfd.h>
 #include <sys/fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/queue.h>
@@ -118,15 +119,13 @@ libusb_set_nonblocking(int f)
 void
 libusb_interrupt_event_handler(libusb_context *ctx)
 {
-	uint8_t dummy;
 	int err;
 
 	if (ctx == NULL)
 		return;
 
-	dummy = 0;
-	err = write(ctx->ctrl_pipe[1], &dummy, sizeof(dummy));
-	if (err < (int)sizeof(dummy)) {
+	err = eventfd_write(ctx->event, 1);
+	if (err < 0) {
 		/* ignore error, if any */
 		DPRINTF(ctx, LIBUSB_DEBUG_FUNCTION, "Waking up event loop failed!");
 	}
@@ -145,7 +144,6 @@ libusb_init_context(libusb_context **context,
 	struct libusb_context *ctx;
 	pthread_condattr_t attr;
 	char *debug, *ep;
-	int ret;
 
 	if (num_options < 0)
 		return (LIBUSB_ERROR_INVALID_PARAM);
@@ -233,19 +231,16 @@ libusb_init_context(libusb_context **context,
 	ctx->ctx_handler = NO_THREAD;
 	ctx->hotplug_handler = NO_THREAD;
 
-	ret = pipe(ctx->ctrl_pipe);
-	if (ret < 0) {
+	ctx->event = eventfd(0, EFD_NONBLOCK);
+	if (ctx->event < 0) {
 		pthread_mutex_destroy(&ctx->ctx_lock);
 		pthread_mutex_destroy(&ctx->hotplug_lock);
 		pthread_cond_destroy(&ctx->ctx_cond);
 		free(ctx);
 		return (LIBUSB_ERROR_OTHER);
 	}
-	/* set non-blocking mode on the control pipe to avoid deadlock */
-	libusb_set_nonblocking(ctx->ctrl_pipe[0]);
-	libusb_set_nonblocking(ctx->ctrl_pipe[1]);
 
-	libusb10_add_pollfd(ctx, &ctx->ctx_poll, NULL, ctx->ctrl_pipe[0], POLLIN);
+	libusb10_add_pollfd(ctx, &ctx->ctx_poll, NULL, ctx->event, POLLIN);
 
 	pthread_mutex_lock(&default_context_lock);
 	if (usbi_default_context == NULL) {
@@ -288,8 +283,7 @@ libusb_exit(libusb_context *ctx)
 	/* XXX cleanup devices */
 
 	libusb10_remove_pollfd(ctx, &ctx->ctx_poll);
-	close(ctx->ctrl_pipe[0]);
-	close(ctx->ctrl_pipe[1]);
+	close(ctx->event);
 	pthread_mutex_destroy(&ctx->ctx_lock);
 	pthread_mutex_destroy(&ctx->hotplug_lock);
 	pthread_cond_destroy(&ctx->ctx_cond);
@@ -443,6 +437,8 @@ libusb_get_device_speed(libusb_device *dev)
 		return (LIBUSB_SPEED_HIGH);
 	case LIBUSB20_SPEED_SUPER:
 		return (LIBUSB_SPEED_SUPER);
+	case LIBUSB20_SPEED_SUPER_PLUS:
+		return (LIBUSB_SPEED_SUPER_PLUS);
 	default:
 		break;
 	}
@@ -1072,6 +1068,9 @@ libusb10_get_buffsize(struct libusb20_device *pdev, libusb_transfer *xfer)
 		case LIBUSB20_SPEED_SUPER:
 			ret = 65536;
 			break;
+		case LIBUSB20_SPEED_SUPER_PLUS:
+			ret = 131072;
+			break;
 		default:
 			ret = 16384;
 			break;
@@ -1172,6 +1171,9 @@ libusb10_isoc_proxy(struct libusb20_transfer *pxfer)
 			    libusb20_tr_get_length(pxfer, i);
 		}
 		libusb10_complete_transfer(pxfer, sxfer, LIBUSB_TRANSFER_COMPLETED);
+
+		/* start next queued transfer, if any */
+		libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 		break;
 	case LIBUSB20_TRANSFER_START:
 		/* setup length(s) */
@@ -1194,6 +1196,9 @@ libusb10_isoc_proxy(struct libusb20_transfer *pxfer)
 		break;
 	default:
 		libusb10_complete_transfer(pxfer, sxfer, libusb10_convert_error(status));
+
+		/* start next queued transfer, if any */
+		libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 		break;
 	}
 }
@@ -1235,11 +1240,15 @@ libusb10_bulk_intr_proxy(struct libusb20_transfer *pxfer)
 			} else {
 				libusb10_complete_transfer(pxfer, sxfer, LIBUSB_TRANSFER_COMPLETED);
 			}
+			/* start next queued transfer, if any */
+			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 			break;
 		}
 		/* check for end of data */
 		if (sxfer->rem_len == 0) {
 			libusb10_complete_transfer(pxfer, sxfer, LIBUSB_TRANSFER_COMPLETED);
+			/* start next queued transfer, if any */
+			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 			break;
 		}
 		/* FALLTHROUGH */
@@ -1266,6 +1275,8 @@ libusb10_bulk_intr_proxy(struct libusb20_transfer *pxfer)
 
 	default:
 		libusb10_complete_transfer(pxfer, sxfer, libusb10_convert_error(status));
+		/* start next queued transfer, if any */
+		libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 		break;
 	}
 }
@@ -1310,11 +1321,15 @@ libusb10_ctrl_proxy(struct libusb20_transfer *pxfer)
 			} else {
 				libusb10_complete_transfer(pxfer, sxfer, LIBUSB_TRANSFER_COMPLETED);
 			}
+			/* start next queued transfer, if any */
+			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 			break;
 		}
 		/* check for end of data */
 		if (sxfer->rem_len == 0) {
 			libusb10_complete_transfer(pxfer, sxfer, LIBUSB_TRANSFER_COMPLETED);
+			/* start next queued transfer, if any */
+			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 			break;
 		}
 		/* FALLTHROUGH */
@@ -1355,6 +1370,8 @@ libusb10_ctrl_proxy(struct libusb20_transfer *pxfer)
 
 	default:
 		libusb10_complete_transfer(pxfer, sxfer, libusb10_convert_error(status));
+		/* start next queued transfer, if any */
+		libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 		break;
 	}
 }

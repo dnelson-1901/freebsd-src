@@ -65,6 +65,7 @@ __DEFAULT_YES_OPTIONS = \
     NLS \
     OPENSSH \
     RELRO \
+    REPRODUCIBLE_BUILD \
     SSP \
     TESTS \
     TOOLCHAIN \

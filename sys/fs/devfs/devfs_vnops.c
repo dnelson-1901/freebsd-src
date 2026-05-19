@@ -202,14 +202,25 @@ devfs_foreach_cdevpriv(struct cdev *dev, int (*cb)(void *data, void *arg),
 void
 devfs_destroy_cdevpriv(struct cdev_privdata *p)
 {
+	struct file *fp;
+	struct cdev_priv *cdp;
 
 	mtx_assert(&cdevpriv_mtx, MA_OWNED);
-	KASSERT(p->cdpd_fp->f_cdevpriv == p,
-	    ("devfs_destoy_cdevpriv %p != %p", p->cdpd_fp->f_cdevpriv, p));
-	p->cdpd_fp->f_cdevpriv = NULL;
+	fp = p->cdpd_fp;
+	KASSERT(fp->f_cdevpriv == p,
+	    ("devfs_destoy_cdevpriv %p != %p", fp->f_cdevpriv, p));
+	cdp = cdev2priv((struct cdev *)fp->f_data);
+	cdp->cdp_fdpriv_dtrc++;
+	fp->f_cdevpriv = NULL;
 	LIST_REMOVE(p, cdpd_list);
 	mtx_unlock(&cdevpriv_mtx);
 	(p->cdpd_dtr)(p->cdpd_data);
+	mtx_lock(&cdevpriv_mtx);
+	MPASS(cdp->cdp_fdpriv_dtrc >= 1);
+	cdp->cdp_fdpriv_dtrc--;
+	if (cdp->cdp_fdpriv_dtrc == 0)
+		wakeup(&cdp->cdp_fdpriv_dtrc);
+	mtx_unlock(&cdevpriv_mtx);
 	free(p, M_CDEVPDATA);
 }
 
@@ -1452,6 +1463,7 @@ devfs_readdir(struct vop_readdir_args *ap)
 	struct devfs_mount *dmp;
 	off_t off;
 	int *tmp_ncookies = NULL;
+	ssize_t startresid;
 
 	if (ap->a_vp->v_type != VDIR)
 		return (ENOTDIR);
@@ -1484,6 +1496,7 @@ devfs_readdir(struct vop_readdir_args *ap)
 	error = 0;
 	de = ap->a_vp->v_data;
 	off = 0;
+	startresid = uio->uio_resid;
 	TAILQ_FOREACH(dd, &de->de_dlist, de_list) {
 		KASSERT(dd->de_cdp != (void *)0xdeadc0de, ("%s %d\n", __func__, __LINE__));
 		if (dd->de_flags & (DE_COVERED | DE_WHITEOUT))
@@ -1496,8 +1509,13 @@ devfs_readdir(struct vop_readdir_args *ap)
 			de = dd;
 		dp = dd->de_dirent;
 		MPASS(dp->d_reclen == GENERIC_DIRSIZ(dp));
-		if (dp->d_reclen > uio->uio_resid)
+		if (dp->d_reclen > uio->uio_resid) {
+			/* Nothing was copied out, return EINVAL. */
+			if (uio->uio_resid == startresid)
+				error = EINVAL;
+			/* Otherwise stop. */
 			break;
+		}
 		dp->d_fileno = de->de_inode;
 		/* NOTE: d_off is the offset for the *next* entry. */
 		dp->d_off = off + dp->d_reclen;
@@ -1517,6 +1535,8 @@ devfs_readdir(struct vop_readdir_args *ap)
 	 */
 	if (tmp_ncookies != NULL)
 		ap->a_ncookies = tmp_ncookies;
+	if (dd == NULL && error == 0 && ap->a_eofflag != NULL)
+		*ap->a_eofflag = 1;
 
 	return (error);
 }

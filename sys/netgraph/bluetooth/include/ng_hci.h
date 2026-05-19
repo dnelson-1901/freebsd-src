@@ -448,7 +448,7 @@ typedef struct {
 typedef bdaddr_t *	bdaddr_p;
 
 /* Any BD_ADDR. Note: This is actually 7 bytes (count '\0' terminator) */
-#define NG_HCI_BDADDR_ANY	((bdaddr_p) "\000\000\000\000\000\000")
+#define NG_HCI_BDADDR_ANY	(&(const bdaddr_t){"\000\000\000\000\000\000"})
 
 /* HCI status return parameter */
 typedef struct {
@@ -1391,7 +1391,7 @@ typedef struct {
 
 typedef ng_hci_status_rp	ng_hci_write_iac_lap_rp;
 
-/*0x003b-0x003e commands are depricated v2.0 or later*/
+/*0x003b-0x003e commands are deprecated v2.0 or later*/
 #define NG_HCI_OCF_READ_PAGE_SCAN_PERIOD	0x003b
 /* No command parameter(s) */
 typedef struct {

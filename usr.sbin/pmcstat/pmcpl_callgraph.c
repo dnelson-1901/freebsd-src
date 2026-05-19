@@ -359,11 +359,11 @@ pmcpl_cg_process(struct pmcstat_process *pp, struct pmcstat_pmcrecord *pmcr,
 	 * For each return address in the call chain record, subject
 	 * to the maximum depth desired.
 	 * - Find the image associated with the sample.  Stop if there
-	 *   there is no valid image at that address.
+	 *   is no valid image at that address.
 	 * - Find the function that overlaps the return address.
 	 * - If found: use the start address of the function.
 	 *   If not found (say an object's symbol table is not present or
-	 *   is incomplete), round down to th gprof bucket granularity.
+	 *   is incomplete), round down to the gprof bucket granularity.
 	 * - Convert return virtual address to an offset in the image.
 	 * - Look for a child with the same {offset,image} tuple,
 	 *   inserting one if needed.

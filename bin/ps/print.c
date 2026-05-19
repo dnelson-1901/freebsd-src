@@ -286,7 +286,7 @@ state(KINFO *k, VARENT *ve __unused)
 	return (buf);
 }
 
-#define	scalepri(x)	((x) - PZERO)
+#define	scalepri(x)	((x) - PUSER)
 
 char *
 pri(KINFO *k, VARENT *ve __unused)
@@ -764,6 +764,9 @@ printval(void *bp, const VAR *v)
 		break;
 	case CHAR:
 		(void)asprintf(&str, ofmt, *(char *)bp);
+		break;
+	case SCHAR:
+		(void)asprintf(&str, ofmt, *(signed char *)bp);
 		break;
 	case UCHAR:
 		(void)asprintf(&str, ofmt, *(u_char *)bp);

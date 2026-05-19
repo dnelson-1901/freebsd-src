@@ -341,7 +341,7 @@ xen_intr_active_ports(const struct xen_intr_pcpu_data *const pcpu,
 /**
  * Interrupt handler for processing all Xen event channel events.
  * 
- * \param trap_frame  The trap frame context for the current interrupt.
+ * \param unused
  */
 int
 xen_intr_handle_upcall(void *unused __unused)
@@ -353,6 +353,15 @@ xen_intr_handle_upcall(void *unused __unused)
 	vcpu_info_t *v;
 	struct xen_intr_pcpu_data *pc;
 	u_long l1, l2;
+
+	/*
+	 * The upcall handler is an interrupt handler itself (that calls other
+	 * interrupt handlers), hence the caller has the responsibility to
+	 * increase td_intr_nesting_level ahead of dispatching the upcall
+	 * handler.
+	 */
+	KASSERT(curthread->td_intr_nesting_level > 0,
+	        ("Unexpected thread context"));
 
 	/* We must remain on the same vCPU during this function */
 	CRITICAL_ASSERT(curthread);
@@ -417,7 +426,17 @@ xen_intr_handle_upcall(void *unused __unused)
 				("Received unexpected event on vCPU#%u, event bound to vCPU#%u",
 				PCPU_GET(cpuid), isrc->xi_cpu));
 
+			/*
+			 * Reduce interrupt nesting level ahead of calling the
+			 * per-arch interrupt dispatch helper.  This is
+			 * required because the per-arch dispatcher will also
+			 * increase td_intr_nesting_level, and then handlers
+			 * would wrongly see td_intr_nesting_level = 2 when
+			 * there's no nesting at all.
+			 */
+			curthread->td_intr_nesting_level--;
 			xen_arch_intr_execute_handlers(isrc, trap_frame);
+			curthread->td_intr_nesting_level++;
 
 			/*
 			 * If this is the final port processed,
@@ -441,7 +460,7 @@ xen_intr_handle_upcall(void *unused __unused)
 	return (FILTER_HANDLED);
 }
 
-static int
+static void
 xen_intr_init(void *dummy __unused)
 {
 	shared_info_t *s = HYPERVISOR_shared_info;
@@ -449,7 +468,7 @@ xen_intr_init(void *dummy __unused)
 	int i;
 
 	if (!xen_domain())
-		return (0);
+		return;
 
 	_Static_assert(is_valid_evtchn(0),
 	    "is_valid_evtchn(0) fails (unused by Xen, but valid by interface");
@@ -483,8 +502,6 @@ xen_intr_init(void *dummy __unused)
 
 	if (bootverbose)
 		printf("Xen interrupt system initialized\n");
-
-	return (0);
 }
 SYSINIT(xen_intr_init, SI_SUB_INTR, SI_ORDER_SECOND, xen_intr_init, NULL);
 

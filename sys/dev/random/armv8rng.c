@@ -44,7 +44,7 @@
 static u_int random_rndr_read(void *, u_int);
 
 static bool has_rndr;
-static struct random_source random_armv8_rndr = {
+static const struct random_source random_armv8_rndr = {
 	.rs_ident = "Armv8 rndr RNG",
 	.rs_source = RANDOM_PURE_ARMV8,
 	.rs_read = random_rndr_read,
@@ -64,7 +64,7 @@ random_rndr_read_one(u_long *buf)
 		    /* 1 on success, 0 on failure */
 		    "cset	%w1, ne\n"
 		    : "=&r" (val), "=&r"(ret) :: "cc");
-	} while (ret != 0 && --loop > 0);
+	} while (ret == 0 && --loop > 0);
 
 	if (ret != 0)
 		*buf = val;

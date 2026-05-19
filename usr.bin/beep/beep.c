@@ -25,6 +25,7 @@
 
 #include <sys/soundcard.h>
 
+#include <capsicum_helpers.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -132,20 +133,21 @@ wave_function_16(float phase, float power)
 static void
 usage(void)
 {
-	fprintf(stderr, "Usage: %s [parameters]\n"
-	    "\t" "-F <frequency in HZ, default %d Hz>\n"
-	    "\t" "-D <duration in ms, from %d ms to %d ms, default %d ms>\n"
-	    "\t" "-r <sample rate in HZ, from %d Hz to %d Hz, default %d Hz>\n"
-	    "\t" "-d <OSS device (default %s)>\n"
-	    "\t" "-g <gain from %d to %d, default %d>\n"
+	fprintf(stderr, "Usage: %s [-Bh] [-D duration_ms] [-F frequency_hz] "
+	    "[-d oss_device] [-g gain] [-r sample_rate_hz]\n"
 	    "\t" "-B Run in background\n"
-	    "\t" "-h Show usage\n",
+	    "\t" "-D <duration in ms, from %d ms to %d ms, default %d ms>\n"
+	    "\t" "-F <frequency in Hz, default %d Hz>\n"
+	    "\t" "-d <OSS device, default %s>\n"
+	    "\t" "-g <gain from %d to %d, default %d>\n"
+	    "\t" "-h Show usage\n"
+	    "\t" "-r <sample rate in Hz, from %d Hz to %d Hz, default %d Hz>\n",
 	    getprogname(),
-	    DEFAULT_HZ,
 	    DURATION_MIN, DURATION_MAX, DURATION_DEF,
-	    SAMPLE_RATE_MIN, SAMPLE_RATE_MAX, SAMPLE_RATE_DEF,
+	    DEFAULT_HZ,
 	    DEFAULT_DEVICE,
-	    GAIN_MIN, GAIN_MAX, GAIN_DEF);
+	    GAIN_MIN, GAIN_MAX, GAIN_DEF,
+	    SAMPLE_RATE_MIN, SAMPLE_RATE_MAX, SAMPLE_RATE_DEF);
 	exit(1);
 }
 
@@ -203,6 +205,9 @@ main(int argc, char **argv)
 	f = open(oss_dev, O_WRONLY);
 	if (f < 0)
 		err(1, "Failed to open '%s'", oss_dev);
+
+	if (caph_enter() == -1)
+		err(1, "Failed to enter capability mode");
 
 	c = 1;				/* mono */
 	if (ioctl(f, SOUND_PCM_WRITE_CHANNELS, &c) != 0)

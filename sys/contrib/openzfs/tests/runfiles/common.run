@@ -372,7 +372,8 @@ tags = ['functional', 'cli_root', 'zpool']
 [tests/functional/cli_root/zpool_add]
 tests = ['zpool_add_001_pos', 'zpool_add_002_pos', 'zpool_add_003_pos',
     'zpool_add_004_pos', 'zpool_add_006_pos', 'zpool_add_007_neg',
-    'zpool_add_008_neg', 'zpool_add_009_neg', 'zpool_add_010_pos',
+    'zpool_add_008_neg', 'zpool_add_009_neg', 'zpool_add_warn_create',
+    'zpool_add_warn_degraded', 'zpool_add_warn_removal',
     'add-o_ashift', 'add_prop_ashift', 'zpool_add_dryrun_output',
     'zpool_add--allow-ashift-mismatch']
 tags = ['functional', 'cli_root', 'zpool_add']
@@ -895,7 +896,7 @@ tests = ['recv_dedup', 'recv_dedup_encrypted_zvol', 'rsend_001_pos',
     'send_spill_block', 'send_holds', 'send_hole_birth', 'send_mixed_raw',
     'send-wR_encrypted_zvol', 'send_partial_dataset', 'send_invalid',
     'send_doall', 'send_raw_spill_block', 'send_raw_ashift',
-    'send_raw_large_blocks']
+    'send_raw_large_blocks', 'send_leak_keymaps']
 tags = ['functional', 'rsend']
 
 [tests/functional/scrub_mirror]

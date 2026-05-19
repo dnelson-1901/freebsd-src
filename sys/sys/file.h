@@ -90,6 +90,8 @@ void foffset_lock_pair(struct file *fp1, off_t *off1p, struct file *fp2,
 void foffset_lock_uio(struct file *fp, struct uio *uio, int flags);
 void foffset_unlock(struct file *fp, off_t val, int flags);
 void foffset_unlock_uio(struct file *fp, struct uio *uio, int flags);
+void fsetfl_lock(struct file *fp);
+void fsetfl_unlock(struct file *fp);
 
 static inline off_t
 foffset_get(struct file *fp)
@@ -194,7 +196,7 @@ struct file {
 	struct vnode 	*f_vnode;	/* NULL or applicable vnode */
 	struct ucred	*f_cred;	/* associated credentials. */
 	short		f_type;		/* descriptor type */
-	short		f_vnread_flags; /* (f) Sleep lock for f_offset */
+	short		f_vflags;	/* (f) Sleep lock flags for members */
 	/*
 	 *  DTYPE_VNODE specific fields.
 	 */
@@ -217,8 +219,10 @@ struct file {
 #define	f_cdevpriv	f_vnun.fvn_cdevpriv
 #define	f_advice	f_vnun.fvn_advice
 
-#define	FOFFSET_LOCKED       0x1
-#define	FOFFSET_LOCK_WAITING 0x2
+#define	FILE_V_FOFFSET_LOCKED		0x0001
+#define	FILE_V_FOFFSET_LOCK_WAITING	0x0002
+#define	FILE_V_SETFL_LOCKED		0x0004
+#define	FILE_V_SETFL_LOCK_WAITING	0x0008
 #endif /* __BSD_VISIBLE */
 
 #endif /* _KERNEL || _WANT_FILE */
@@ -257,14 +261,15 @@ extern const struct fileops socketops;
 extern int maxfiles;		/* kernel limit on number of open files */
 extern int maxfilesperproc;	/* per process limit on number of open files */
 
-int fget(struct thread *td, int fd, cap_rights_t *rightsp, struct file **fpp);
-int fget_mmap(struct thread *td, int fd, cap_rights_t *rightsp,
+int fget(struct thread *td, int fd, const cap_rights_t *rightsp,
+    struct file **fpp);
+int fget_mmap(struct thread *td, int fd, const cap_rights_t *rightsp,
     vm_prot_t *maxprotp, struct file **fpp);
-int fget_read(struct thread *td, int fd, cap_rights_t *rightsp,
+int fget_read(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct file **fpp);
-int fget_write(struct thread *td, int fd, cap_rights_t *rightsp,
+int fget_write(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct file **fpp);
-int fget_fcntl(struct thread *td, int fd, cap_rights_t *rightsp,
+int fget_fcntl(struct thread *td, int fd, const cap_rights_t *rightsp,
     int needfcntl, struct file **fpp);
 int _fdrop(struct file *fp, struct thread *td);
 int fget_remote(struct thread *td, struct proc *p, int fd, struct file **fpp);
@@ -289,17 +294,17 @@ int file_kcmp_generic(struct file *fp1, struct file *fp2, struct thread *td);
 
 void finit(struct file *, u_int, short, void *, const struct fileops *);
 void finit_vnode(struct file *, u_int, void *, const struct fileops *);
-int fgetvp(struct thread *td, int fd, cap_rights_t *rightsp,
+int fgetvp(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct vnode **vpp);
-int fgetvp_exec(struct thread *td, int fd, cap_rights_t *rightsp,
+int fgetvp_exec(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct vnode **vpp);
-int fgetvp_rights(struct thread *td, int fd, cap_rights_t *needrightsp,
+int fgetvp_rights(struct thread *td, int fd, const cap_rights_t *needrightsp,
     struct filecaps *havecaps, struct vnode **vpp);
-int fgetvp_read(struct thread *td, int fd, cap_rights_t *rightsp,
+int fgetvp_read(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct vnode **vpp);
-int fgetvp_write(struct thread *td, int fd, cap_rights_t *rightsp,
+int fgetvp_write(struct thread *td, int fd, const cap_rights_t *rightsp,
     struct vnode **vpp);
-int fgetvp_lookup_smr(struct nameidata *ndp, struct vnode **vpp, bool *fsearch);
+int fgetvp_lookup_smr(struct nameidata *ndp, struct vnode **vpp, int *flagsp);
 int fgetvp_lookup(struct nameidata *ndp, struct vnode **vpp);
 
 static __inline __result_use_check bool

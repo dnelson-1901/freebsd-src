@@ -713,6 +713,7 @@ ipf_state_ioctl(ipf_main_softc_t *softc, caddr_t data, ioctlcmd_t cmd,
 				   IPFOBJ_STATESTAT);
 		break;
 
+#ifdef IPFILTER_IPFS
 	/*
 	 * Lock/Unlock the state table.  (Locking prevents any changes, which
 	 * means no packets match).
@@ -749,6 +750,7 @@ ipf_state_ioctl(ipf_main_softc_t *softc, caddr_t data, ioctlcmd_t cmd,
 		}
 		error = ipf_state_getent(softc, softs, data);
 		break;
+#endif /* IPFILTER_IPFS */
 
 	case SIOCGENITER :
 	    {
@@ -805,6 +807,7 @@ ipf_state_ioctl(ipf_main_softc_t *softc, caddr_t data, ioctlcmd_t cmd,
 }
 
 
+#ifdef IPFILTER_IPFS
 /* ------------------------------------------------------------------------ */
 /* Function:    ipf_state_getent                                            */
 /* Returns:     int - 0 == success, != 0 == failure                         */
@@ -887,7 +890,7 @@ ipf_state_putent(ipf_main_softc_t *softc, ipf_state_softc_t *softs,
 {
 	ipstate_t *is, *isn;
 	ipstate_save_t ips;
-	int error, out, i;
+	int error, i;
 	frentry_t *fr;
 	char *name;
 
@@ -933,7 +936,6 @@ ipf_state_putent(ipf_main_softc_t *softc, ipf_state_softc_t *softs,
 			return (ENOMEM);
 		}
 		bcopy((char *)&ips.ips_fr, (char *)fr, sizeof(*fr));
-		out = fr->fr_flags & FR_OUTQUE ? 1 : 0;
 		isn->is_rule = fr;
 		ips.ips_is.is_rule = fr;
 		MUTEX_NUKE(&fr->fr_lock);
@@ -1010,6 +1012,7 @@ ipf_state_putent(ipf_main_softc_t *softc, ipf_state_softc_t *softs,
 
 	return (error);
 }
+#endif /* IPFILTER_IPFS */
 
 
 /* ------------------------------------------------------------------------ */
@@ -2211,20 +2214,6 @@ ipf_state_tcpinwindow(fr_info_t *fin, tcpdata_t  *fdata, tcpdata_t *tdata,
 		   (ackskew >= -1) && (ackskew <= 1)) {
 		inseq = 1;
 	} else if (!(flags & IS_TCPFSM)) {
-		int i;
-
-		i = (fin->fin_rev << 1) + fin->fin_out;
-
-#if 0
-		if (is_pkts[i]0 == 0) {
-			/*
-			 * Picking up a connection in the middle, the "next"
-			 * packet seen from a direction that is new should be
-			 * accepted, even if it appears out of sequence.
-			 */
-			inseq = 1;
-		} else
-#endif
 		if (!(fdata->td_winflags &
 			    (TCP_WSCALE_SEEN|TCP_WSCALE_FIRST))) {
 			/*
@@ -2620,7 +2609,7 @@ ipf_checkicmpmatchingstate(fr_info_t *fin)
 	icmphdr_t *icmp;
 	fr_info_t ofin;
 	tcphdr_t *tcp;
-	int type, len;
+	int len;
 	u_char	pr;
 	ip_t *oip;
 	u_int hv;
@@ -2638,7 +2627,6 @@ ipf_checkicmpmatchingstate(fr_info_t *fin)
 		return (NULL);
 	}
 	ic = fin->fin_dp;
-	type = ic->icmp_type;
 
 	oip = (ip_t *)((char *)ic + ICMPERR_ICMPHLEN);
 	/*
@@ -4366,7 +4354,6 @@ ipf_checkicmp6matchingstate(fr_info_t *fin)
 	ip6_t *oip6;
 	u_char pr;
 	u_int hv;
-	int type;
 
 	/*
 	 * Does it at least have the return (basic) IP header ?
@@ -4381,7 +4368,6 @@ ipf_checkicmp6matchingstate(fr_info_t *fin)
 	}
 
 	ic6 = fin->fin_dp;
-	type = ic6->icmp6_type;
 
 	oip6 = (ip6_t *)((char *)ic6 + ICMPERR_ICMPHLEN);
 	if (fin->fin_plen < sizeof(*oip6)) {

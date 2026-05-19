@@ -2534,7 +2534,7 @@ vxlan_encap4(struct vxlan_softc *sc, const union vxlan_sockaddr *fvxlsa,
 
 	ifp = sc->vxl_ifp;
 	srcaddr = sc->vxl_src_addr.in4.sin_addr;
-	srcport = vxlan_pick_source_port(sc, m);
+	srcport = htons(vxlan_pick_source_port(sc, m));
 	dstaddr = fvxlsa->in4.sin_addr;
 	dstport = fvxlsa->in4.sin_port;
 
@@ -2645,7 +2645,7 @@ vxlan_encap6(struct vxlan_softc *sc, const union vxlan_sockaddr *fvxlsa,
 
 	ifp = sc->vxl_ifp;
 	srcaddr = &sc->vxl_src_addr.in6.sin6_addr;
-	srcport = vxlan_pick_source_port(sc, m);
+	srcport = htons(vxlan_pick_source_port(sc, m));
 	dstaddr = &fvxlsa->in6.sin6_addr;
 	dstport = fvxlsa->in6.sin6_port;
 
@@ -2877,8 +2877,7 @@ vxlan_input(struct vxlan_socket *vso, uint32_t vni, struct mbuf **m0,
 
 	ifp = sc->vxl_ifp;
 	if (m->m_len < ETHER_HDR_LEN &&
-	    (m = m_pullup(m, ETHER_HDR_LEN)) == NULL) {
-		*m0 = NULL;
+	    (m = *m0 = m_pullup(m, ETHER_HDR_LEN)) == NULL) {
 		error = ENOBUFS;
 		goto out;
 	}

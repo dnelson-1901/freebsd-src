@@ -104,6 +104,7 @@ class VnetInterface(object):
             raise Exception("Unable to create iface {}".format(iface_name))
         ret = [cls(alias_name, name)]
         if name.startswith("epair"):
+            run_cmd("/sbin/ifconfig {} -txcsum -txcsum6".format(name))
             ret.append(cls(alias_name, name[:-1] + "b"))
         return ret
 
@@ -349,6 +350,7 @@ class VnetTestTemplate(BaseTest):
         vnetX_handler() after setting up interface addresses
         """
         vnet.attach()
+        os.chdir(os.getenv("HOME"))
         print("# setup_vnet({})".format(vnet.name))
         if pipe is not None:
             vnet.set_pipe(pipe)

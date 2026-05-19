@@ -48,7 +48,6 @@ tarsum() {
 }
 
 tarfs_setup() {
-	kldload -n tarfs || atf_skip "This test requires tarfs and could not load it"
 	mkdir "${mnt}"
 }
 
@@ -60,6 +59,7 @@ atf_test_case tarfs_basic cleanup
 tarfs_basic_head() {
 	atf_set "descr" "Basic function test"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_basic_body() {
 	tarfs_setup
@@ -67,9 +67,9 @@ tarfs_basic_body() {
 	mktar "${tarball}"
 	atf_check mount -rt tarfs "${tarball}" "${mnt}"
 	atf_check -o match:"^${tarball} on ${mnt} \(tarfs," mount
-	atf_check_equal "$(stat -f%d,%i "${mnt}"/sparse_file)" "$(stat -f%d,%i "${mnt}"/hard_link)"
-	atf_check_equal "$(stat -f%d,%i "${mnt}"/sparse_file)" "$(stat -L -f%d,%i "${mnt}"/short_link)"
-	atf_check_equal "$(stat -f%d,%i "${mnt}"/sparse_file)" "$(stat -L -f%d,%i "${mnt}"/long_link)"
+	atf_check test "${mnt}"/sparse_file -ef "${mnt}"/hard_link
+	atf_check test "${mnt}"/sparse_file -ef "${mnt}"/short_link
+	atf_check test "${mnt}"/sparse_file -ef "${mnt}"/long_link
 	atf_check -o inline:"${sum}\n" sha256 -q "${mnt}"/sparse_file
 	atf_check -o inline:"2,40755\n" stat -f%l,%p "${mnt}"/directory
 	atf_check -o inline:"1,100644\n" stat -f%l,%p "${mnt}"/file
@@ -87,6 +87,7 @@ atf_test_case tarfs_basic_gnu cleanup
 tarfs_basic_gnu_head() {
 	atf_set "descr" "Basic function test using GNU tar"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 	atf_set "require.progs" "gtar"
 }
 tarfs_basic_gnu_body() {
@@ -101,6 +102,7 @@ atf_test_case tarfs_notdir_device cleanup
 tarfs_notdir_device_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_notdir_device_body() {
 	tarfs_setup
@@ -121,6 +123,7 @@ atf_test_case tarfs_notdir_device_gnu cleanup
 tarfs_notdir_device_gnu_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561 using GNU tar"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 	atf_set "require.progs" "gtar"
 }
 tarfs_notdir_device_gnu_body() {
@@ -135,6 +138,7 @@ atf_test_case tarfs_notdir_dot cleanup
 tarfs_notdir_dot_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_notdir_dot_body() {
 	tarfs_setup
@@ -155,6 +159,7 @@ atf_test_case tarfs_notdir_dot_gnu cleanup
 tarfs_notdir_dot_gnu_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561 using GNU tar"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 	atf_set "require.progs" "gtar"
 }
 tarfs_notdir_dot_gnu_body() {
@@ -169,6 +174,7 @@ atf_test_case tarfs_notdir_dotdot cleanup
 tarfs_notdir_dotdot_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_notdir_dotdot_body() {
 	tarfs_setup
@@ -189,6 +195,7 @@ atf_test_case tarfs_notdir_dotdot_gnu cleanup
 tarfs_notdir_dotdot_gnu_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561 using GNU tar"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 	atf_set "require.progs" "gtar"
 }
 tarfs_notdir_dotdot_gnu_body() {
@@ -203,6 +210,7 @@ atf_test_case tarfs_notdir_file cleanup
 tarfs_notdir_file_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_notdir_file_body() {
 	tarfs_setup
@@ -223,6 +231,7 @@ atf_test_case tarfs_notdir_file_gnu cleanup
 tarfs_notdir_file_gnu_head() {
 	atf_set "descr" "Regression test for PR 269519 and 269561 using GNU tar"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 	atf_set "require.progs" "gtar"
 }
 tarfs_notdir_file_gnu_body() {
@@ -237,6 +246,7 @@ atf_test_case tarfs_emptylink cleanup
 tarfs_emptylink_head() {
 	atf_set "descr" "Regression test for PR 277360: empty link target"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_emptylink_body() {
 	tarfs_setup
@@ -256,6 +266,7 @@ atf_test_case tarfs_linktodir cleanup
 tarfs_linktodir_head() {
 	atf_set "descr" "Regression test for PR 277360: link to directory"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_linktodir_body() {
 	tarfs_setup
@@ -276,6 +287,7 @@ atf_test_case tarfs_linktononexistent cleanup
 tarfs_linktononexistent_head() {
 	atf_set "descr" "Regression test for PR 277360: link to nonexistent target"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_linktononexistent_body() {
 	tarfs_setup
@@ -293,6 +305,7 @@ atf_test_case tarfs_checksum cleanup
 tarfs_checksum_head() {
 	atf_set "descr" "Verify that the checksum covers header padding"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_checksum_body() {
 	tarfs_setup
@@ -313,6 +326,7 @@ atf_test_case tarfs_long_names cleanup
 tarfs_long_names_head() {
 	atf_set "descr" "Verify that tarfs supports long file names"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_long_names_body() {
 	tarfs_setup
@@ -337,6 +351,7 @@ atf_test_case tarfs_long_paths cleanup
 tarfs_long_paths_head() {
 	atf_set "descr" "Verify that tarfs supports long paths"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 }
 tarfs_long_paths_body() {
 	tarfs_setup
@@ -361,6 +376,7 @@ atf_test_case tarfs_git_archive cleanup
 tarfs_git_archive_head() {
 	atf_set "descr" "Verify that tarfs supports archives created by git"
 	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
 	atf_set "require.progs" "git"
 }
 tarfs_git_archive_body() {
@@ -377,6 +393,32 @@ tarfs_git_archive_body() {
 	atf_check -o file:foo/bar cat "${mnt}"/bar
 }
 tarfs_git_archive_cleanup() {
+	tarfs_cleanup
+}
+
+atf_test_case tarfs_large cleanup
+tarfs_large_head() {
+	atf_set "descr" "Test support for large files"
+	atf_set "require.user" "root"
+	atf_set "require.kmods" "tarfs"
+	atf_set "timeout" "600"
+}
+tarfs_large_body() {
+	tarfs_setup
+	local tarball="${PWD}/tarfs_test.tar.zst"
+	local exp off
+	for exp in 31 32 33 34 35 36 ; do
+		for off in 1 0 ; do
+			local size=$(((1<<exp)-off))
+			atf_check truncate -s ${size} file
+			atf_check bsdtar -cf "${tarball}" --no-read-sparse --zstd file
+			atf_check mount -rt tarfs "${tarball}" "${mnt}"
+			atf_check -o inline:"${size}\n" stat -f%z "${mnt}"/file
+			atf_check umount "${mnt}"
+		done
+	done
+}
+tarfs_large_cleanup() {
 	tarfs_cleanup
 }
 
@@ -398,4 +440,5 @@ atf_init_test_cases() {
 	atf_add_test_case tarfs_long_names
 	atf_add_test_case tarfs_long_paths
 	atf_add_test_case tarfs_git_archive
+	atf_add_test_case tarfs_large
 }

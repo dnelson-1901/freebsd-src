@@ -69,6 +69,7 @@
 
 #include <sys/cdefs.h>
 #include "opt_ipstealth.h"
+#include "opt_sctp.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -101,6 +102,10 @@
 #include <netinet/ip_options.h>
 
 #include <machine/in_cksum.h>
+
+#if defined(SCTP) || defined(SCTP_SUPPORT)
+#include <netinet/sctp_crc32.h>
+#endif
 
 #define	V_ipsendredirects	VNET(ipsendredirects)
 
@@ -357,15 +362,20 @@ passin:
 	}
 
 	/*
-	 * Decrement the TTL and incrementally change the IP header checksum.
-	 * Don't bother doing this with hw checksum offloading, it's faster
-	 * doing it right here.
+	 * Decrement the TTL.
+	 * If the IP header checksum field contains a valid value, incrementally
+	 * change this value. Don't use hw checksum offloading, which would
+	 * recompute the checksum. It's faster to just change it here
+	 * according to the decremented TTL.
+	 * If the checksum still needs to be computed, don't touch it.
 	 */
 	ip->ip_ttl -= IPTTLDEC;
-	if (ip->ip_sum >= (u_int16_t) ~htons(IPTTLDEC << 8))
-		ip->ip_sum -= ~htons(IPTTLDEC << 8);
-	else
-		ip->ip_sum += htons(IPTTLDEC << 8);
+	if (__predict_true((m->m_pkthdr.csum_flags & CSUM_IP) == 0)) {
+		if (ip->ip_sum >= (u_int16_t) ~htons(IPTTLDEC << 8))
+			ip->ip_sum -= ~htons(IPTTLDEC << 8);
+		else
+			ip->ip_sum += htons(IPTTLDEC << 8);
+	}
 #ifdef IPSTEALTH
 	}
 #endif
@@ -461,6 +471,32 @@ passout:
 		ro.ro_flags |= RT_HAS_GW;
 	} else
 		gw = (const struct sockaddr *)dst;
+
+	/*
+	 * If the IP/SCTP/TCP/UDP header still needs a valid checksum and the
+	 * interface will not calculate it for us, do it here.
+	 * Note that if we defer checksum calculation, we might send an ICMP
+	 * message later that reflects this packet, which still has an
+	 * invalid checksum.
+	 */
+	if (__predict_false(m->m_pkthdr.csum_flags & CSUM_IP &
+	    ~nh->nh_ifp->if_hwassist)) {
+		ip->ip_sum = 0;
+		ip->ip_sum = in_cksum(m, (ip->ip_hl << 2));
+		m->m_pkthdr.csum_flags &= ~CSUM_IP;
+	}
+	if (__predict_false(m->m_pkthdr.csum_flags & CSUM_DELAY_DATA &
+	    ~nh->nh_ifp->if_hwassist)) {
+		in_delayed_cksum(m);
+		m->m_pkthdr.csum_flags &= ~CSUM_DELAY_DATA;
+	}
+#if defined(SCTP) || defined(SCTP_SUPPORT)
+	if (__predict_false(m->m_pkthdr.csum_flags & CSUM_IP_SCTP &
+	    ~nh->nh_ifp->if_hwassist)) {
+		sctp_delayed_cksum(m, (uint32_t)(ip->ip_hl << 2));
+		m->m_pkthdr.csum_flags &= ~CSUM_IP_SCTP;
+	}
+#endif
 
 	/* Handle redirect case. */
 	redest.s_addr = 0;

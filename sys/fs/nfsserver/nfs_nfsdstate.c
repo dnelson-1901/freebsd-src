@@ -552,7 +552,7 @@ nfsrv_setclient(struct nfsrv_descript *nd, struct nfsclient **new_clpp,
 		 */
 		while (clp->lc_cbref) {
 			clp->lc_flags |= LCL_WAKEUPWANTED;
-			(void)mtx_sleep(clp, NFSSTATEMUTEXPTR, PZERO - 1,
+			(void)mtx_sleep(clp, NFSSTATEMUTEXPTR, PVFS,
 			    "nfsd clp", 10 * hz);
 		}
 		NFSUNLOCKSTATE();
@@ -629,7 +629,7 @@ nfsrv_setclient(struct nfsrv_descript *nd, struct nfsclient **new_clpp,
 			NFSLOCKSTATE();
 		while (clp->lc_cbref) {
 			clp->lc_flags |= LCL_WAKEUPWANTED;
-			(void)mtx_sleep(clp, NFSSTATEMUTEXPTR, PZERO - 1,
+			(void)mtx_sleep(clp, NFSSTATEMUTEXPTR, PVFS,
 			    "nfsdclp", 10 * hz);
 		}
 		NFSUNLOCKSTATE();
@@ -1972,6 +1972,20 @@ tryagain:
 			     error = NFSERR_BADSTATEID;
 	      }
 	      
+	      /*
+	       * Sanity check the stateid for the Lock/LockU cases.
+	       */
+	      if (error == 0 && (new_stp->ls_flags & NFSLCK_LOCK) != 0 &&
+		  (((new_stp->ls_flags & NFSLCK_OPENTOLOCK) != 0 &&
+		    (stp->ls_flags & NFSLCK_OPEN) == 0) ||
+		   ((new_stp->ls_flags & NFSLCK_OPENTOLOCK) == 0 &&
+		    (stp->ls_flags & NFSLCK_LOCK) == 0)))
+			error = NFSERR_BADSTATEID;
+	      if (error == 0 && (new_stp->ls_flags & NFSLCK_UNLOCK) != 0 &&
+		  (stp->ls_flags & NFSLCK_LOCK) == 0)
+			error = NFSERR_BADSTATEID;
+
+		/* Sanity check the delegation stateid. */
 		if (error == 0 &&
 		  (stp->ls_flags & (NFSLCK_DELEGREAD | NFSLCK_DELEGWRITE)) &&
 		  getlckret == 0 && stp->ls_lfp != lfp)
@@ -4183,7 +4197,7 @@ nfsrv_getclientipaddr(struct nfsrv_descript *nd, struct nfsclient *clp)
 		/*
 		 * Parse out the address fields. We expect 6 decimal numbers
 		 * separated by '.'s for AF_INET and two decimal numbers
-		 * preceeded by '.'s for AF_INET6.
+		 * preceded by '.'s for AF_INET6.
 		 */
 		cp = NULL;
 		switch (af) {
@@ -7724,6 +7738,7 @@ nfsrv_setdsserver(char *dspathp, char *mdspathp, NFSPROC_T *p,
 	NFSD_DEBUG(4, "lookup=%d\n", error);
 	if (error != 0)
 		return (error);
+	NDFREE_PNBUF(&nd);
 	if (nd.ni_vp->v_type != VDIR) {
 		vput(nd.ni_vp);
 		NFSD_DEBUG(4, "dspath not dir\n");
@@ -7760,6 +7775,7 @@ nfsrv_setdsserver(char *dspathp, char *mdspathp, NFSPROC_T *p,
 		NFSD_DEBUG(4, "dsdirpath=%s lookup=%d\n", dsdirpath, error);
 		if (error != 0)
 			break;
+		NDFREE_PNBUF(&nd);
 		if (nd.ni_vp->v_type != VDIR) {
 			vput(nd.ni_vp);
 			error = ENOTDIR;
@@ -7788,6 +7804,7 @@ nfsrv_setdsserver(char *dspathp, char *mdspathp, NFSPROC_T *p,
 		NFSD_DEBUG(4, "mds lookup=%d\n", error);
 		if (error != 0)
 			goto out;
+		NDFREE_PNBUF(&nd);
 		if (nd.ni_vp->v_type != VDIR) {
 			vput(nd.ni_vp);
 			error = ENOTDIR;
@@ -8647,6 +8664,7 @@ nfsrv_mdscopymr(char *mdspathp, char *dspathp, char *curdspathp, char *buf,
 	NFSD_DEBUG(4, "lookup=%d\n", error);
 	if (error != 0)
 		return (error);
+	NDFREE_PNBUF(&nd);
 	if (nd.ni_vp->v_type != VREG) {
 		vput(nd.ni_vp);
 		NFSD_DEBUG(4, "mdspath not reg\n");
@@ -8668,6 +8686,7 @@ nfsrv_mdscopymr(char *mdspathp, char *dspathp, char *curdspathp, char *buf,
 			vput(vp);
 			return (error);
 		}
+		NDFREE_PNBUF(&nd);
 		if (nd.ni_vp->v_type != VDIR) {
 			vput(nd.ni_vp);
 			vput(vp);
@@ -8710,6 +8729,7 @@ nfsrv_mdscopymr(char *mdspathp, char *dspathp, char *curdspathp, char *buf,
 				vput(curvp);
 			return (error);
 		}
+		NDFREE_PNBUF(&nd);
 		if (nd.ni_vp->v_type != VDIR || nd.ni_vp == curvp) {
 			vput(nd.ni_vp);
 			vput(vp);

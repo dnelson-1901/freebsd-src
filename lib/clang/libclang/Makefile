@@ -1,10 +1,8 @@
-
-.include <bsd.init.mk>
+.include <src.opts.mk>
 .include "../clang.pre.mk"
 
-# Always build static libraries for performance
-.if 1 || defined(TOOLS_PREFIX)
-# Build static library during cross-tools stage
+.if defined(TOOLS_PREFIX) || ${MK_LLVM_LINK_STATIC_LIBRARIES} == "yes"
+# Build static library during cross-tools stage, or when explicitly requested.
 LIB=		clang
 INTERNALLIB=
 .else
@@ -843,6 +841,11 @@ SRCS_MIN+=	Tooling/ArgumentsAdjusters.cpp
 SRCS_MIN+=	Tooling/CommonOptionsParser.cpp
 SRCS_MIN+=	Tooling/CompilationDatabase.cpp
 SRCS_MIN+=	Tooling/Core/Replacement.cpp
+SRCS_MIN+=	Tooling/DependencyScanning/DependencyScanningFilesystem.cpp
+SRCS_MIN+=	Tooling/DependencyScanning/DependencyScanningService.cpp
+SRCS_MIN+=	Tooling/DependencyScanning/DependencyScanningTool.cpp
+SRCS_MIN+=	Tooling/DependencyScanning/DependencyScanningWorker.cpp
+SRCS_MIN+=	Tooling/DependencyScanning/ModuleDepCollector.cpp
 SRCS_MIN+=	Tooling/ExpandResponseFilesCompilationDatabase.cpp
 SRCS_MIN+=	Tooling/FileMatchTrie.cpp
 SRCS_MIN+=	Tooling/GuessTargetAndModeCompilationDatabase.cpp
@@ -850,6 +853,7 @@ SRCS_MIN+=	Tooling/Inclusions/HeaderIncludes.cpp
 SRCS_MIN+=	Tooling/Inclusions/IncludeStyle.cpp
 SRCS_MIN+=	Tooling/InterpolatingCompilationDatabase.cpp
 SRCS_MIN+=	Tooling/JSONCompilationDatabase.cpp
+SRCS_MIN+=	Tooling/LocateToolCompilationDatabase.cpp
 SRCS_MIN+=	Tooling/Refactoring.cpp
 SRCS_MIN+=	Tooling/RefactoringCallbacks.cpp
 SRCS_MIN+=	Tooling/Tooling.cpp
@@ -868,7 +872,7 @@ SRCS+=		${SRCS_ALL:O}
 
 LIBDEPS+=	llvm
 
-.if 1 || defined(TOOLS_PREFIX)
+.if defined(TOOLS_PREFIX) || ${MK_LLVM_LINK_STATIC_LIBRARIES} == "yes"
 LIBPRIV=
 LIBEXT=		a
 .else

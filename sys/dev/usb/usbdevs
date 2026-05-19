@@ -1662,6 +1662,7 @@ product CORSAIR STRAFE2		0x1b44	Corsair STRAFE Gaming keyboard
 product CREATIVE NOMAD_II	0x1002	Nomad II MP3 player
 product CREATIVE NOMAD_IIMG	0x4004	Nomad II MG
 product CREATIVE NOMAD		0x4106	Nomad
+product CREATIVE STAGE_SE_MINI  0x3295  Stage SE mini
 product CREATIVE2 VOIP_BLASTER	0x0258	Voip Blaster
 product CREATIVE3 OPTICAL_MOUSE	0x0001	Notebook Optical Mouse
 
@@ -4072,6 +4073,7 @@ product QUECTEL RG500		0x0800	Quectel RG500/RM500/RG510/RM510
 product QUECTEL RG520		0x0801	Quectel RG520/RM520/SG520
 product QUECTEL EC200		0x6000	Quectel EC200/UC200
 product QUECTEL EC200S		0x6002	Quectel EC200S
+product QUECTEL EM060K		0x6008	Quectel EM060K
 product QUECTEL EC200T		0x6026	Quectel EC200T
 product QUECTEL UC200		0x6120	Quectel UC200
 
@@ -4435,6 +4437,7 @@ product SIERRA EM7455		0x9078	Sierra Wireless EM7455 Qualcomm Snapdragon X7 LTE-
 product SIERRA EM7455_2		0x9079	Sierra Wireless EM7455 Qualcomm Snapdragon X7 LTE-A
 product SIERRA EM7565		0x9090	Sierra Wireless EM7565 Qualcomm Snapdragon X7 LTE-A
 product SIERRA EM7565_2		0x9091	Sierra Wireless EM7565 Qualcomm Snapdragon X7 LTE-A
+product SIERRA EM7590		0xc081	Sierra Wireless EM7590 Qualcomm Snapdragon X7 LTE-A
 
 /* Sigmatel products */
 product SIGMATEL WBT_3052	0x4200	WBT-3052 IrDA/USB Bridge
@@ -4976,9 +4979,11 @@ product WAVESENSE JAZZ		0xaaaa	Jazz blood glucose meter
 product WCH CH341SER		0x5523	CH341/CH340 USB-Serial Bridge
 product WCH2 DUMMY		0x0000	Dummy product
 product WCH2 CH341SER_2		0x5523	CH341/CH340 USB-Serial Bridge
+product WCH2 CH343SER		0x55d3	CH343 USB Serial
+product WCH2 CH9102SER		0x55d4	CH9102 USB Serial
 product WCH2 CH341SER_3		0x7522	CH341/CH340 USB-Serial Bridge
 product WCH2 CH341SER		0x7523	CH341/CH340 USB-Serial Bridge
-product WCH2 U2M		0X752d	CH345 USB2.0-MIDI
+product WCH2 U2M		0x752d	CH345 USB2.0-MIDI
 
 /* West Mountain Radio products */
 product WESTMOUNTAIN RIGBLASTER_ADVANTAGE	0x0003	RIGblaster Advantage

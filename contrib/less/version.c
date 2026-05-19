@@ -1047,6 +1047,20 @@ v675  4/3/25    Add ESC-b.
 v676  4/16/25   Fix two OSC 8 display bugs.
 v677  4/27/25   Fix & filtering bug.
 v678  5/1/25    Don't change stty tab setting.
+v679  5/28/25   Fix lesskey parsing bug when env var is prefix of another;
+                fix unexpected exit when using -K.
+v680  6/25/25   Fix hang if a search using ^S modifier matches empty string.
+v681  8/2/25    Fix bug using -g with -J; fix bug when pasting input 
+                with --incsearch; improve performance with long lines;
+                fix performance with & filtering; change search position when
+                using --incsearch; treat some composing chars as binary.
+v682  8/24/25   Add --cmd; fix lesskey bug using #stop; fix lesskey bug
+                using "invalid"; fix some emoji bugs.
+v683  9/4/25    Fix bug if cmd char received during file read.
+v684  9/18/25   Allow mixing of options and filenames on command line;
+                add LESS_TERMCAP_SUSPEND & LESS_TERMCAP_RESUME.
+v685  10/4/25   Make --incsearch return to same column as well as same line;
+                fix some problems reported by valgrind.
 */
 
-char version[] = "678";
+char version[] = "685";

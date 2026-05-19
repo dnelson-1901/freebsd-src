@@ -110,6 +110,10 @@ device		ioat		# Intel I/OAT DMA engine
 # EFI Runtime Services support
 options 	EFIRT
 
+# Apple System Management Controller (SMC)
+device		asmc
+options		ASMC_DEBUG	# Enable asmc(4)-specific debug logic.
+
 #
 # Intel QuickAssist driver with OpenCrypto support
 #

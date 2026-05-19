@@ -23,6 +23,10 @@
 # SUCH DAMAGE.
 #
 
+# This is the default in a FreeBSD login session, but may be unset if
+# run under sudo or in a different environment.
+export BLOCKSIZE=K
+
 require_sparse_file_support()
 {
 	if ! getconf MIN_HOLE_SIZE "$(pwd)"; then
@@ -276,7 +280,7 @@ si_flag_body()
 	atf_check -o inline:'1.5M\tA\n1.6M\tB\n' du -A --si A B
 }
 
-atf_add_test_case t_flag
+atf_test_case t_flag
 t_flag_head()
 {
 	atf_set "descr" "Verify -t output"

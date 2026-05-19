@@ -623,18 +623,33 @@ out:
 	CURVNET_RESTORE();
 }
 
-static void
-tun_destroy(struct tuntap_softc *tp)
+static int
+tun_destroy(struct tuntap_softc *tp, bool may_intr)
 {
+	int error;
 
 	TUN_LOCK(tp);
+	MPASS((tp->tun_flags & TUN_DYING) == 0);
 	tp->tun_flags |= TUN_DYING;
-	if (tp->tun_busy != 0)
-		cv_wait_unlock(&tp->tun_cv, &tp->tun_mtx);
-	else
-		TUN_UNLOCK(tp);
+	error = 0;
+	while (tp->tun_busy != 0) {
+		if (may_intr)
+			error = cv_wait_sig(&tp->tun_cv, &tp->tun_mtx);
+		else
+			cv_wait(&tp->tun_cv, &tp->tun_mtx);
+		if (error != 0) {
+			tp->tun_flags &= ~TUN_DYING;
+			TUN_UNLOCK(tp);
+			return (error);
+		}
+	}
+	TUN_UNLOCK(tp);
 
 	CURVNET_SET(TUN2IFP(tp)->if_vnet);
+
+	mtx_lock(&tunmtx);
+	TAILQ_REMOVE(&tunhead, tp, tun_list);
+	mtx_unlock(&tunmtx);
 
 	/* destroy_dev will take care of any alias. */
 	destroy_dev(tp->tun_dev);
@@ -656,6 +671,8 @@ tun_destroy(struct tuntap_softc *tp)
 	cv_destroy(&tp->tun_cv);
 	free(tp, M_TUN);
 	CURVNET_RESTORE();
+
+	return (0);
 }
 
 static int
@@ -663,12 +680,7 @@ tun_clone_destroy(struct if_clone *ifc __unused, struct ifnet *ifp, uint32_t fla
 {
 	struct tuntap_softc *tp = ifp->if_softc;
 
-	mtx_lock(&tunmtx);
-	TAILQ_REMOVE(&tunhead, tp, tun_list);
-	mtx_unlock(&tunmtx);
-	tun_destroy(tp);
-
-	return (0);
+	return (tun_destroy(tp, true));
 }
 
 static void
@@ -723,9 +735,9 @@ tun_uninit(const void *unused __unused)
 
 	mtx_lock(&tunmtx);
 	while ((tp = TAILQ_FIRST(&tunhead)) != NULL) {
-		TAILQ_REMOVE(&tunhead, tp, tun_list);
 		mtx_unlock(&tunmtx);
-		tun_destroy(tp);
+		/* tun_destroy() will remove it from the tailq. */
+		tun_destroy(tp, false);
 		mtx_lock(&tunmtx);
 	}
 	mtx_unlock(&tunmtx);
@@ -866,7 +878,7 @@ tunstart(struct ifnet *ifp)
 		tp->tun_flags &= ~TUN_RWAIT;
 		wakeup(tp);
 	}
-	selwakeuppri(&tp->tun_rsel, PZERO + 1);
+	selwakeuppri(&tp->tun_rsel, PZERO);
 	KNOTE_LOCKED(&tp->tun_rsel.si_note, 0);
 	if (tp->tun_flags & TUN_ASYNC && tp->tun_sigio) {
 		TUN_UNLOCK(tp);
@@ -927,7 +939,7 @@ tunstart_l2(struct ifnet *ifp)
 			TUN_LOCK(tp);
 		}
 
-		selwakeuppri(&tp->tun_rsel, PZERO+1);
+		selwakeuppri(&tp->tun_rsel, PZERO);
 		KNOTE_LOCKED(&tp->tun_rsel.si_note, 0);
 		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1); /* obytes are counted in ether_output */
 	}
@@ -1201,7 +1213,7 @@ out:
 	CURVNET_RESTORE();
 
 	funsetown(&tp->tun_sigio);
-	selwakeuppri(&tp->tun_rsel, PZERO + 1);
+	selwakeuppri(&tp->tun_rsel, PZERO);
 	KNOTE_LOCKED(&tp->tun_rsel.si_note, 0);
 	TUNDEBUG (ifp, "closed\n");
 	tp->tun_flags &= ~TUN_OPEN;
@@ -1735,7 +1747,7 @@ tunread(struct cdev *dev, struct uio *uio, int flag)
 			return (EWOULDBLOCK);
 		}
 		tp->tun_flags |= TUN_RWAIT;
-		error = mtx_sleep(tp, &tp->tun_mtx, PCATCH | (PZERO + 1),
+		error = mtx_sleep(tp, &tp->tun_mtx, PCATCH | PZERO,
 		    "tunread", 0);
 		if (error != 0) {
 			TUN_UNLOCK(tp);

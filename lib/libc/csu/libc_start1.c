@@ -28,6 +28,7 @@
 #include <sys/param.h>
 #include <sys/elf.h>
 #include <sys/elf_common.h>
+#include <errno.h>
 #include <stdlib.h>
 #include "libc_private.h"
 
@@ -137,6 +138,24 @@ handle_argv(int argc, char *argv[], char **env)
 	}
 }
 
+static void
+handle_irelocs(char *env[])
+{
+#ifndef CRT_IRELOC_SUPPRESS
+	const Elf_Auxinfo *aux;
+
+	/* Find the auxiliary vector on the stack. */
+	while (*env++ != 0)	/* Skip over environment, and NULL terminator */
+		;
+	aux = (const Elf_Auxinfo *)env;
+
+	ifunc_init(aux);
+	process_irelocs();
+#else
+	(void)env;
+#endif
+}
+
 void
 __libc_start1(int argc, char *argv[], char *env[], void (*cleanup)(void),
     int (*mainX)(int, char *[], char *[]))
@@ -146,14 +165,18 @@ __libc_start1(int argc, char *argv[], char *env[], void (*cleanup)(void),
 	if (&_DYNAMIC != NULL) {
 		atexit(cleanup);
 	} else {
-#ifndef CRT_IRELOC_SUPPRESS
-		INIT_IRELOCS;
-		process_irelocs();
-#endif
+		handle_irelocs(env);
 		_init_tls();
 	}
 
 	handle_static_init(argc, argv, env);
+
+	/*
+	 * C17 4.3 paragraph 3:
+	 * The value of errno in the initial thread is zero at program
+	 * startup.
+	 */
+	errno = 0;
 	exit(mainX(argc, argv, env));
 }
 
@@ -171,10 +194,7 @@ __libc_start1_gcrt(int argc, char *argv[], char *env[],
 	if (&_DYNAMIC != NULL) {
 		atexit(cleanup);
 	} else {
-#ifndef CRT_IRELOC_SUPPRESS
-		INIT_IRELOCS;
-		process_irelocs();
-#endif
+		handle_irelocs(env);
 		_init_tls();
 	}
 
@@ -182,5 +202,6 @@ __libc_start1_gcrt(int argc, char *argv[], char *env[],
 	monstartup(eprolp, etextp);
 
 	handle_static_init(argc, argv, env);
+	errno = 0;
 	exit(mainX(argc, argv, env));
 }

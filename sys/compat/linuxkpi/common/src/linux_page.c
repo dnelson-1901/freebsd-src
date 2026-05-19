@@ -107,6 +107,7 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 
 		if ((flags & M_ZERO) != 0)
 			req |= VM_ALLOC_ZERO;
+
 		if (order == 0 && (flags & GFP_DMA32) == 0) {
 			page = vm_page_alloc_noobj(req);
 			if (page == NULL)
@@ -114,16 +115,22 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 		} else {
 			vm_paddr_t pmax = (flags & GFP_DMA32) ?
 			    BUS_SPACE_MAXADDR_32BIT : BUS_SPACE_MAXADDR;
+
+			if ((flags & __GFP_NORETRY) != 0)
+				req |= VM_ALLOC_NORECLAIM;
+
 		retry:
 			page = vm_page_alloc_noobj_contig(req, npages, 0, pmax,
 			    PAGE_SIZE, 0, VM_MEMATTR_DEFAULT);
 			if (page == NULL) {
 				if ((flags & (M_WAITOK | __GFP_NORETRY)) ==
 				    M_WAITOK) {
-					if (!vm_page_reclaim_contig(req,
-					    npages, 0, pmax, PAGE_SIZE, 0)) {
+					int err = vm_page_reclaim_contig(req,
+					    npages, 0, pmax, PAGE_SIZE, 0);
+					if (err == ENOMEM)
 						vm_wait(NULL);
-					}
+					else if (err != 0)
+						return (NULL);
 					flags &= ~M_WAITOK;
 					goto retry;
 				}
@@ -310,6 +317,8 @@ retry:
 	page = vm_page_grab(vm_obj, pindex, VM_ALLOC_NOCREAT);
 	if (page == NULL) {
 		page = PHYS_TO_VM_PAGE(IDX_TO_OFF(pfn));
+		if (page == NULL)
+			return (VM_FAULT_SIGBUS);
 		if (!vm_page_busy_acquire(page, VM_ALLOC_WAITFAIL))
 			goto retry;
 		if (page->object != NULL) {

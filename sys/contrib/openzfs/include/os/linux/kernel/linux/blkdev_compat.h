@@ -356,7 +356,7 @@ bio_set_flush(struct bio *bio)
 static inline boolean_t
 bio_is_flush(struct bio *bio)
 {
-	return (bio_op(bio) == REQ_OP_FLUSH);
+	return (bio_op(bio) == REQ_OP_FLUSH || op_is_flush(bio->bi_opf));
 }
 
 /*
@@ -513,24 +513,6 @@ blk_generic_alloc_queue(make_request_fn make_request, int node_id)
 #endif
 }
 #endif /* !HAVE_SUBMIT_BIO_IN_BLOCK_DEVICE_OPERATIONS */
-
-/*
- * All the io_*() helper functions below can operate on a bio, or a rq, but
- * not both.  The older submit_bio() codepath will pass a bio, and the
- * newer blk-mq codepath will pass a rq.
- */
-static inline int
-io_data_dir(struct bio *bio, struct request *rq)
-{
-	if (rq != NULL) {
-		if (op_is_write(req_op(rq))) {
-			return (WRITE);
-		} else {
-			return (READ);
-		}
-	}
-	return (bio_data_dir(bio));
-}
 
 static inline int
 io_is_flush(struct bio *bio, struct request *rq)

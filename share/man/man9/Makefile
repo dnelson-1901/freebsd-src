@@ -87,6 +87,7 @@ MAN=	accept_filter.9 \
 	DECLARE_MODULE.9 \
 	DEFINE_IFUNC.9 \
 	DELAY.9 \
+	deadfs.9 \
 	devclass.9 \
 	devclass_find.9 \
 	devclass_get_device.9 \
@@ -1030,6 +1031,7 @@ MLINKS+=devfs_set_cdevpriv.9 devfs_clear_cdevpriv.9 \
 MLINKS+=device_add_child.9 device_add_child_ordered.9
 MLINKS+=device_enable.9 device_disable.9 \
 	device_enable.9 device_is_enabled.9
+MLINKS+=device_get_children.9 device_has_children.9
 MLINKS+=device_get_ivars.9 device_set_ivars.9
 MLINKS+=device_get_name.9 device_get_nameunit.9
 MLINKS+=device_get_state.9 device_busy.9 \
@@ -2444,6 +2446,9 @@ MLINKS+=vm_page_insert.9 vm_page_remove.9
 MLINKS+=vm_page_wire.9 vm_page_unwire.9 \
 	vm_page_wire.9 vm_page_unwire_noq.9 \
 	vm_page_wire.9 vm_page_wire_mapped.9
+MLINKS+=vn_fullpath.9 vn_fullpath_jail.9 \
+	vn_fullpath.9 vn_fullpath_global.9 \
+	vn_fullpath.9 vn_fullpath_hardlink.9
 MLINKS+=VOP_ACCESS.9 VOP_ACCESSX.9
 MLINKS+=VOP_ATTRIB.9 VOP_GETATTR.9 \
 	VOP_ATTRIB.9 VOP_SETATTR.9 \

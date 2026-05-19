@@ -1,7 +1,7 @@
 .\"	$NetBSD: ptrace.2,v 1.2 1995/02/27 12:35:37 cgd Exp $
 .\"
 .\" This file is in the public domain.
-.Dd August 18, 2023
+.Dd June 19, 2025
 .Dt PTRACE 2
 .Os
 .Sh NAME
@@ -148,31 +148,31 @@ Sometimes it may be desirable to disallow it either completely, or limit
 its scope.
 The following controls are provided for this:
 .Bl -tag -width security.bsd.unprivileged_proc_debug
-.It Dv security.bsd.allow_ptrace
+.It Va security.bsd.allow_ptrace
 Setting this sysctl to zero makes
 .Nm
 return
 .Er ENOSYS
 always as if the syscall is not implemented by the kernel.
-.It Dv security.bsd.unprivileged_proc_debug
+.It Va security.bsd.unprivileged_proc_debug
 Setting this sysctl to zero disallows the use of
 .Fn ptrace
 by unprivileged processes.
-.It Dv security.bsd.see_other_uids
+.It Va security.bsd.see_other_uids
 Setting this sysctl to zero prevents
 .Fn ptrace
 requests from targeting processes with a real user identifier different
 from the caller's.
 These requests will fail with error
 .Er ESRCH .
-.It Dv security.bsd.see_other_gids
+.It Va security.bsd.see_other_gids
 Setting this sysctl to zero disallows
 .Fn ptrace
 requests from processes that have no groups in common with the target process,
 considering their sets of real and supplementary groups.
 These requests will fail with error
 .Er ESRCH .
-.It Dv security.bsd.see_jail_proc
+.It Va security.bsd.see_jail_proc
 Setting this sysctl to zero disallows
 .Fn ptrace
 requests from processes belonging to a different jail than that of the target
@@ -473,6 +473,16 @@ This request is like PT_CONTINUE, except that it does not allow
 specifying an alternate place to continue execution, and after it
 succeeds, the traced process is no longer traced and continues
 execution normally.
+.Pp
+The parent of the traced process will be sent a
+.Dv SIGCHLD
+to indicate that the process has continued from a stopped state regardless of
+whether the process was in a stopped state prior to the corresponding
+.Dv PT_ATTACH
+request.
+A
+.Xr wait 2
+for the traced process would indicate that it had been continued.
 .It Dv PT_GETREGS
 This request reads the traced process's machine registers into the
 .Do

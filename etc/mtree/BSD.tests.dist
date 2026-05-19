@@ -37,6 +37,8 @@
         ..
         pwait
         ..
+        pwd
+        ..
         rm
         ..
         rmdir
@@ -481,11 +483,17 @@
         ..
         savecore
         ..
+        swapon
+        ..
         sysctl
+        ..
+        tunefs
         ..
     ..
     secure
         lib
+            libcrypto
+            ..
         ..
         libexec
         ..
@@ -823,6 +831,8 @@
             execve
             ..
             pipe
+            ..
+            tty
             ..
         ..
         kqueue
@@ -1212,6 +1222,8 @@
         praudit
         ..
         pw
+        ..
+        quot
         ..
         rpcbind
         ..

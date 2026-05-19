@@ -301,6 +301,7 @@ SUBDIR=	\
 	otus \
 	${_otusfw} \
 	ow \
+	p9fs \
 	${_padlock} \
 	${_padlock_rng} \
 	${_pchtherm} \
@@ -565,6 +566,7 @@ _mlx5ib=	mlx5ib
     ${MACHINE_CPUARCH} == "i386"
 _ena=		ena
 _gve=		gve
+_igc=		igc
 _iwlwifi=	iwlwifi
 _rtw88=		rtw88
 .if ${MK_SOURCELESS_UCODE} != "no"
@@ -728,7 +730,6 @@ _et=		et
 _ftgpio=	ftgpio
 _ftwd=		ftwd
 _exca=		exca
-_igc=		igc
 _io=		io
 _itwd=		itwd
 _ix=		ix
@@ -763,7 +764,6 @@ _amdsbwd=	amdsbwd
 _amdsmn=	amdsmn
 _amdtemp=	amdtemp
 _arcmsr=	arcmsr
-_asmc=		asmc
 .if ${MK_CRYPT} != "no" || defined(ALL_MODULES)
 _blake2=	blake2
 .endif
@@ -821,6 +821,7 @@ _x86bios=	x86bios
 
 .if ${MACHINE_CPUARCH} == "amd64"
 _amdgpio=	amdgpio
+_asmc=		asmc
 _ccp=		ccp
 _enic=		enic
 _iavf=		iavf
@@ -916,7 +917,7 @@ SUBDIR:= ${SUBDIR:N${reject}}
 afterinstall: .PHONY
 	${KLDXREF_CMD} ${DESTDIR}${KMODDIR}
 .if defined(NO_ROOT) && defined(METALOG)
-	echo ".${DISTBASE}${KMODDIR}/linker.hints type=file mode=0644 uname=root gname=wheel" | \
+	echo ".${DISTBASE}${KMODDIR}/linker.hints type=file uname=root gname=wheel mode=0644" | \
 	    cat -l >> ${METALOG}
 .endif
 .endif

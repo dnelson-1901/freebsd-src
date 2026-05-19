@@ -153,7 +153,7 @@ fdata_dtor(void *arg)
 	FUSE_LOCK();
 	fuse_lck_mtx_lock(fdata->aw_mtx);
 	/* wakup poll()ers */
-	selwakeuppri(&fdata->ks_rsel, PZERO + 1);
+	selwakeuppri(&fdata->ks_rsel, PZERO);
 	/* Don't let syscall handlers wait in vain */
 	while ((tick = fuse_aw_pop(fdata))) {
 		fuse_lck_mtx_lock(tick->tk_aw_mtx);
@@ -542,6 +542,12 @@ fuse_device_write(struct cdev *dev, struct uio *uio, int ioflag)
 	} else if (ohead.unique == 0){
 		/* unique == 0 means asynchronous notification */
 		SDT_PROBE1(fusefs, , device, fuse_device_write_notify, &ohead);
+		if (data->mp == NULL) {
+			SDT_PROBE2(fusefs, , device, trace, 1,
+				"asynchronous notification before mount"
+				" or after unmount");
+			return (ENODEV);
+		}
 		mp = data->mp;
 		vfs_ref(mp);
 		err = vfs_busy(mp, 0);

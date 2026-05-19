@@ -82,29 +82,6 @@ static const char	*IFFBITS[] = {
 };
 
 static void
-print_bits(const char *btype, uint32_t *v, const int v_count,
-    const char **names, const int n_count)
-{
-	int num = 0;
-
-	for (int i = 0; i < v_count * 32; i++) {
-		bool is_set = v[i / 32] & (1U << (i % 32));
-		if (is_set) {
-			if (num++ == 0)
-				printf("<");
-			if (num != 1)
-				printf(",");
-			if (i < n_count)
-				printf("%s", names[i]);
-			else
-				printf("%s_%d", btype, i);
-		}
-	}
-	if (num > 0)
-		printf(">");
-}
-
-static void
 nl_init_socket(struct snl_state *ss)
 {
 	if (snl_init(ss, NETLINK_ROUTE))
@@ -162,7 +139,7 @@ struct ifmap {
  * Memory is allocated using snl temporary buffers
  */
 static struct ifmap *
-prepare_ifmap(struct snl_state *ss)
+prepare_ifmap(struct snl_state *ss, const char *ifname)
 {
 	struct snl_writer nw = {};
 
@@ -170,6 +147,8 @@ prepare_ifmap(struct snl_state *ss)
 	struct nlmsghdr *hdr = snl_create_msg_request(&nw, RTM_GETLINK);
 	hdr->nlmsg_flags |= NLM_F_DUMP;
 	snl_reserve_msg_object(&nw, struct ifinfomsg);
+       if (ifname != NULL)
+               snl_add_msg_attr_string(&nw, IFLA_IFNAME, ifname);
 
 	if (! (hdr = snl_finalize_msg(&nw)) || !snl_send_message(ss, hdr))
 		return (NULL);
@@ -222,6 +201,19 @@ if_nametoindex_nl(struct snl_state *ss, const char *ifname)
 		return (0);
 
 	return (link.ifi_index);
+}
+
+ifType
+convert_iftype(ifType iftype)
+{
+	switch (iftype) {
+	case IFT_IEEE8023ADLAG:
+		return (IFT_ETHER);
+	case IFT_INFINIBANDLAG:
+		return (IFT_INFINIBAND);
+	default:
+		return (iftype);
+	}
 }
 
 static void
@@ -282,11 +274,17 @@ match_iface(struct ifconfig_args *args, struct iface *iface)
 		struct sockaddr_dl sdl = {
 			.sdl_len = sizeof(struct sockaddr_dl),
 			.sdl_family = AF_LINK,
-			.sdl_type = link->ifi_type,
+			.sdl_type = convert_iftype(link->ifi_type),
 			.sdl_alen = NLA_DATA_LEN(link->ifla_address),
 		};
 		return (match_ether(&sdl));
-	}
+	} else if (args->afp->af_af == AF_LINK)
+		/*
+		 * The rtnetlink(4) RTM_GETADDR does not list link level
+		 * addresses, so latter cycle won't match anything.  Short
+		 * circuit on RTM_GETLINK has provided us an address.
+		 */
+		return (link->ifla_address != NULL);
 
 	for (struct ifa *ifa = iface->ifa; ifa != NULL; ifa = ifa->next) {
 		if (args->afp->af_af == ifa->addr.ifa_family)
@@ -457,7 +455,7 @@ list_interfaces_nl(struct ifconfig_args *args)
 
 	nl_init_socket(&ss);
 
-	struct ifmap *ifmap = prepare_ifmap(&ss);
+       struct ifmap *ifmap = prepare_ifmap(&ss, args->ifname);
 	struct iface **sorted_ifaces = snl_allocz(&ss, ifmap->count * sizeof(void *));
 	for (uint32_t i = 0, num = 0; i < ifmap->size; i++) {
 		if (ifmap->ifaces[i] != NULL) {

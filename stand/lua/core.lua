@@ -280,13 +280,19 @@ function core.kernelList()
 	-- actually find any kernels, we just assume that they know what they're
 	-- doing and leave it alone.
 	if default_kernel and not present[default_kernel] and #kernels > 1 then
-		for i = 1, #kernels do
-			if i == #kernels then
-				kernels[i] = nil
+		for n = 1, #kernels do
+			if n == #kernels then
+				kernels[n] = nil
 			else
-				kernels[i] = kernels[i + 1]
+				kernels[n] = kernels[n + 1]
 			end
 		end
+
+		-- The config/boot bits use the env var as a fallback if the
+		-- menu's kernel selector remains untouched, so we want to
+		-- update our notion of the default kernel to one that is
+		-- actually present.
+		loader.setenv("kernel", kernels[1])
 	end
 
 	core.cached_kernels = kernels
@@ -295,6 +301,15 @@ end
 
 function core.bootenvDefault()
 	return loader.getenv("zfs_be_active")
+end
+
+function core.bootenvFilter(func)
+	local oldf = core.bootenv_filter
+
+	-- Filter contract: returns true if the BE should be kept, false if it
+	-- should be hidden.
+	core.bootenv_filter = func
+	return oldf
 end
 
 function core.bootenvList()
@@ -324,11 +339,18 @@ function core.bootenvList()
 	for curenv_idx = 0, bootenv_count - 1 do
 		curenv = loader.getenv(bootenv_list .. "[" .. curenv_idx .. "]")
 		if curenv ~= nil and unique[curenv] == nil then
-			envcount = envcount + 1
-			bootenvs[envcount] = curenv
 			unique[curenv] = true
+
+			-- If we have a filter installed (by a local module), we
+			-- give it a chance to veto the BE.
+			if not core.bootenv_filter or
+			    core.bootenv_filter(curenv) then
+				envcount = envcount + 1
+				bootenvs[envcount] = curenv
+			end
 		end
 	end
+
 	return bootenvs
 end
 

@@ -80,7 +80,9 @@
 #define	PRISON0_HOSTUUID_MODULE	"hostuuid"
 
 MALLOC_DEFINE(M_PRISON, "prison", "Prison structures");
+#ifdef RACCT
 static MALLOC_DEFINE(M_PRISON_RACCT, "prison_racct", "Prison racct structures");
+#endif
 
 /* Keep struct prison prison0 and some code in kern_jail_set() readable. */
 #ifdef INET
@@ -115,8 +117,11 @@ struct prison prison0 = {
 #else
 	.pr_flags	= PR_HOST|_PR_IP_SADDRSEL,
 #endif
-	.pr_allow	= PR_ALLOW_ALL_STATIC,
+	.pr_allow	= PR_ALLOW_PRISON0,
 };
+_Static_assert((PR_ALLOW_PRISON0 & ~PR_ALLOW_ALL_STATIC) == 0,
+    "Bits enabled in PR_ALLOW_PRISON0 that are not statically reserved");
+
 MTX_SYSINIT(prison0, &prison0.pr_mtx, "jail mutex", MTX_DEF);
 
 struct bool_flags {
@@ -227,6 +232,9 @@ static struct bool_flags pr_flag_allow[NBBY * NBPW] = {
 	{"allow.nfsd", "allow.nonfsd", PR_ALLOW_NFSD},
 #endif
 	{"allow.routing", "allow.norouting", PR_ALLOW_ROUTING},
+	{"allow.unprivileged_parent_tampering",
+	    "allow.nounprivileged_parent_tampering",
+	    PR_ALLOW_UNPRIV_PARENT_TAMPER},
 };
 static unsigned pr_allow_all = PR_ALLOW_ALL_STATIC;
 const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
@@ -234,7 +242,8 @@ const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
 #define	JAIL_DEFAULT_ALLOW		(PR_ALLOW_SET_HOSTNAME | \
 					 PR_ALLOW_RESERVED_PORTS | \
 					 PR_ALLOW_UNPRIV_DEBUG | \
-					 PR_ALLOW_SUSER)
+					 PR_ALLOW_SUSER | \
+					 PR_ALLOW_UNPRIV_PARENT_TAMPER)
 #define	JAIL_DEFAULT_ENFORCE_STATFS	2
 #define	JAIL_DEFAULT_DEVFS_RSNUM	0
 static unsigned jail_default_allow = JAIL_DEFAULT_ALLOW;
@@ -2519,6 +2528,15 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 
 	/* By now, all parameters should have been noted. */
 	TAILQ_FOREACH(opt, opts, link) {
+		if (!opt->seen &&
+		    (strstr(opt->name, JAIL_META_PRIVATE ".") == opt->name ||
+		    strstr(opt->name, JAIL_META_SHARED ".") == opt->name)) {
+			/* Communicate back a missing key. */
+			free(opt->value, M_MOUNT);
+			opt->value = NULL;
+			opt->len = 0;
+			continue;
+		}
 		if (!opt->seen && strcmp(opt->name, "errmsg")) {
 			error = EINVAL;
 			vfs_opterror(opts, "unknown parameter: %s", opt->name);
@@ -2692,12 +2710,19 @@ do_jail_attach(struct thread *td, struct prison *pr, int drflags)
 	PROC_LOCK(p);
 	oldcred = crcopysafe(p, newcred);
 	newcred->cr_prison = pr;
-	proc_set_cred(p, newcred);
-	setsugid(p);
 #ifdef RACCT
 	racct_proc_ucred_changed(p, oldcred, newcred);
+#endif
+#ifdef RCTL
 	crhold(newcred);
 #endif
+	/*
+	 * Takes over 'newcred''s reference, so 'newcred' must not be used
+	 * besides this point except on RCTL where we took an additional
+	 * reference above.
+	 */
+	proc_set_cred(p, newcred);
+	setsugid(p);
 	PROC_UNLOCK(p);
 #ifdef RCTL
 	rctl_proc_ucred_changed(p, newcred);
@@ -3423,7 +3448,7 @@ prison_check_af(struct ucred *cred, int af)
 	pr = cred->cr_prison;
 #ifdef VIMAGE
 	/* Prisons with their own network stack are not limited. */
-	if (prison_owns_vnet(cred))
+	if (prison_owns_vnet(pr))
 		return (0);
 #endif
 
@@ -3488,7 +3513,7 @@ prison_if(struct ucred *cred, const struct sockaddr *sa)
 	KASSERT(sa != NULL, ("%s: sa is NULL", __func__));
 
 #ifdef VIMAGE
-	if (prison_owns_vnet(cred))
+	if (prison_owns_vnet(cred->cr_prison))
 		return (0);
 #endif
 
@@ -3605,7 +3630,7 @@ jailed_without_vnet(struct ucred *cred)
 	if (!jailed(cred))
 		return (false);
 #ifdef VIMAGE
-	if (prison_owns_vnet(cred))
+	if (prison_owns_vnet(cred->cr_prison))
 		return (false);
 #endif
 
@@ -3668,20 +3693,17 @@ getjailname(struct ucred *cred, char *name, size_t len)
 
 #ifdef VIMAGE
 /*
- * Determine whether the prison represented by cred owns
- * its vnet rather than having it inherited.
- *
- * Returns true in case the prison owns the vnet, false otherwise.
+ * Determine whether the prison owns its VNET.
  */
 bool
-prison_owns_vnet(struct ucred *cred)
+prison_owns_vnet(struct prison *pr)
 {
 
 	/*
 	 * vnets cannot be added/removed after jail creation,
 	 * so no need to lock here.
 	 */
-	return ((cred->cr_prison->pr_flags & PR_VNET) != 0);
+	return ((pr->pr_flags & PR_VNET) != 0);
 }
 #endif
 
@@ -3738,11 +3760,14 @@ prison_enforce_statfs(struct ucred *cred, struct mount *mp, struct statfs *sp)
 	if (pr->pr_enforce_statfs == 0)
 		return;
 	if (prison_canseemount(cred, mp) != 0) {
+		bzero(&sp->f_fsid, sizeof(sp->f_fsid));
 		bzero(sp->f_mntonname, sizeof(sp->f_mntonname));
 		strlcpy(sp->f_mntonname, "[restricted]",
 		    sizeof(sp->f_mntonname));
 		return;
 	}
+	if (pr->pr_enforce_statfs > 1)
+		bzero(&sp->f_fsid, sizeof(sp->f_fsid));
 	if (pr->pr_root->v_mount == mp) {
 		/*
 		 * Clear current buffer data, so we are sure nothing from
@@ -3966,6 +3991,7 @@ prison_priv_check(struct ucred *cred, int priv)
 	case PRIV_DEBUG_DIFFCRED:
 	case PRIV_DEBUG_SUGID:
 	case PRIV_DEBUG_UNPRIV:
+	case PRIV_DEBUG_DIFFJAIL:
 
 		/*
 		 * Allow jail to set various resource limits and login
@@ -3998,8 +4024,10 @@ prison_priv_check(struct ucred *cred, int priv)
 		 */
 	case PRIV_SCHED_DIFFCRED:
 	case PRIV_SCHED_CPUSET:
+	case PRIV_SCHED_DIFFJAIL:
 	case PRIV_SIGNAL_DIFFCRED:
 	case PRIV_SIGNAL_SUGID:
+	case PRIV_SIGNAL_DIFFJAIL:
 
 		/*
 		 * Allow jailed processes to write to sysctls marked as jail
@@ -4216,7 +4244,7 @@ prison_path(struct prison *pr1, struct prison *pr2)
 /*
  * Jail-related sysctls.
  */
-static SYSCTL_NODE(_security, OID_AUTO, jail, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+SYSCTL_NODE(_security, OID_AUTO, jail, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Jails");
 
 #if defined(INET) || defined(INET6)
@@ -4343,7 +4371,7 @@ sysctl_jail_vnet(SYSCTL_HANDLER_ARGS)
 #ifdef VIMAGE
 	struct ucred *cred = req->td->td_ucred;
 
-	havevnet = jailed(cred) && prison_owns_vnet(cred);
+	havevnet = jailed(cred) && prison_owns_vnet(cred->cr_prison);
 #else
 	havevnet = 0;
 #endif
@@ -4609,6 +4637,10 @@ SYSCTL_JAIL_PARAM(_allow, read_msgbuf, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may read the kernel message buffer");
 SYSCTL_JAIL_PARAM(_allow, unprivileged_proc_debug, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Unprivileged processes may use process debugging facilities");
+SYSCTL_JAIL_PARAM(_allow, unprivileged_parent_tampering,
+    CTLTYPE_INT | CTLFLAG_RW, "B",
+    "Unprivileged parent jail processes may tamper with same-uid processes"
+    " (signal/debug/cpuset)");
 SYSCTL_JAIL_PARAM(_allow, suser, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Processes in jail with uid 0 have privilege");
 #ifdef VIMAGE
