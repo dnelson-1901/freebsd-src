@@ -47,6 +47,7 @@
 #include <libutil.h>
 #include <paths.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,6 +97,8 @@ static void consume(FILE *, off_t, char *, int);
 static void playback(FILE *) __dead2;
 static void usage(void) __dead2;
 static void resizeit(int);
+static size_t strftime_ns(char * __restrict, size_t, const char * __restrict,
+    const struct tm * __restrict, long, long);
 
 int
 main(int argc, char *argv[])
@@ -554,17 +557,17 @@ playback(FILE *fp)
 	struct stamp stamp;
 	struct stat pst;
 	char buf[DEF_BUF];
+	char last_ts[DEF_BUF];
 	off_t nread, save_len;
 	size_t l;
 	time_t tclock;
-	time_t lclock;
 	int reg;
 
 	if (fstat(fileno(fp), &pst) == -1)
 		err(1, "fstat failed");
 
 	reg = S_ISREG(pst.st_mode);
-	lclock = 0;
+	last_ts[0] = 0;
 
 	for (nread = 0; !reg || nread < pst.st_size; nread += save_len) {
 		if (fread(&stamp, sizeof(stamp), 1, fp) != 1) {
@@ -612,12 +615,12 @@ playback(FILE *fp)
 			if (tflg) {
 				if (stamp.scr_len == 0)
 					continue;
-				if (tclock - lclock > 0) {
-				    l = strftime(buf, sizeof buf, tstamp_fmt,
-					localtime(&tclock));
+				l = strftime_ns(buf, sizeof buf, tstamp_fmt,
+				    localtime(&tclock), tso.tv_nsec, 1);
+				if (strcmp(buf, last_ts) != 0) {
 				    (void)write(STDOUT_FILENO, buf, l);
+				    strcpy(last_ts, buf);
 				}
-				lclock = tclock;
 			} else {
 				tsi.tv_sec = tso.tv_sec - tsi.tv_sec;
 				tsi.tv_nsec = tso.tv_nsec - tsi.tv_nsec;
@@ -650,4 +653,130 @@ static void
 resizeit(int signo __unused)
 {
 	doresize = 1;
+}
+
+/*
+ * The strftime_ns function is a wrapper around strftime(3), which adds support
+ * for features absent from strftime(3). Currently, the only extra feature is
+ * support for %N, the nanosecond conversion specification.
+ *
+ * The functions scans the format string for the non-standard conversion
+ * specifications and replaces them with the date and time values before
+ * passing the format string to strftime(3). The handling of the non-standard
+ * conversion specifications happens before the call to strftime(3) to handle
+ * cases like "%%N" correctly ("%%N" should yield "%N" instead of nanoseconds).
+ */
+static size_t
+strftime_ns(char * __restrict s, size_t maxsize, const char * __restrict format,
+    const struct tm * __restrict t, long nsec, long res)
+{
+	size_t ret;
+	char *newformat;
+	char *oldformat;
+	const char *prefix;
+	const char *suffix;
+	const char *tok;
+	long number;
+	int i, len, prefixlen, width, zeroes;
+	bool seen_percent, seen_dash, seen_width;
+
+	seen_percent = false;
+	if ((newformat = strdup(format)) == NULL)
+		err(1, "strdup");
+	tok = newformat;
+	for (tok = newformat; *tok != '\0'; tok++) {
+		switch (*tok) {
+		case '%':
+			/*
+			 * If the previous token was a percent sign,
+			 * then there are two percent tokens in a row.
+			 */
+			if (seen_percent) {
+				seen_percent = false;
+			} else {
+				seen_percent = true;
+				seen_dash = seen_width = false;
+				prefixlen = tok - newformat;
+				width = 0;
+			}
+			break;
+		case 'N':
+			if (!seen_percent)
+				break;
+			oldformat = newformat;
+			prefix = oldformat;
+			suffix = tok + 1;
+			/*
+			 * Prepare the number we are about to print.  If
+			 * the requested width is less than 9, we need to
+			 * cut off the least significant digits.  If it is
+			 * more than 9, we will have to append zeroes.
+			 */
+			if (seen_dash) {
+				/*
+				 * Calculate number of singificant digits
+				 * based on res which is the clock's
+				 * resolution in nanoseconds.
+				 */
+				for (width = 9, number = res;
+				     width > 0 && number > 0;
+				     width--, number /= 10)
+					/* nothing */;
+			}
+			number = nsec;
+			zeroes = 0;
+			if (width == 0) {
+				width = 9;
+			} else if (width > 9) {
+				zeroes = width - 9;
+				width = 9;
+			} else {
+				for (i = 0; i < 9 - width; i++)
+					number /= 10;
+			}
+			/*
+			 * Construct a new format string from the prefix
+			 * (i.e., the part of the old format from its
+			 * beginning to the currently handled "%N"
+			 * conversion specification), the nanoseconds, and
+			 * the suffix (i.e., the part of the old format
+			 * from the next token to the end).
+			 */
+			asprintf(&newformat, "%.*s%.*ld%.*d%n%s", prefixlen,
+			    prefix, width, number, zeroes, 0, &len, suffix);
+			if (newformat == NULL)
+				err(1, "asprintf");
+			free(oldformat);
+			tok = newformat + len - 1;
+			seen_percent = false;
+			break;
+		case '-':
+			if (seen_percent) {
+				if (seen_dash || seen_width) {
+					seen_percent = false;
+					break;
+				}
+				seen_dash = true;
+			}
+			break;
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9':
+			if (seen_percent) {
+				if (seen_dash) {
+					seen_percent = false;
+					break;
+				}
+				width = width * 10 + *tok - '0';
+				seen_width = true;
+			}
+			break;
+		default:
+			seen_percent = false;
+			break;
+		}
+	}
+
+	ret = strftime(s, maxsize, newformat, t);
+	free(newformat);
+	return (ret);
 }
