@@ -14,7 +14,6 @@
 #define LLVM_ADT_STRINGSWITCH_H
 
 #include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Compiler.h"
 #include <cassert>
 #include <cstring>
 #include <optional>
@@ -67,9 +66,7 @@ public:
 
   // Case-sensitive case matchers
   StringSwitch &Case(StringLiteral S, T Value) {
-    if (!Result && Str == S) {
-      Result = std::move(Value);
-    }
+    CaseImpl(Value, S);
     return *this;
   }
 
@@ -88,61 +85,59 @@ public:
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, T Value) {
-    return Case(tmp_S0, Value).Case(tmp_S1, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       StringLiteral tmp_S3, T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       StringLiteral tmp_S3, StringLiteral tmp_S4, T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3, tmp_S4);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
                       T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
                       StringLiteral tmp_S6, T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
                       StringLiteral tmp_S6, StringLiteral tmp_S7, T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
                       StringLiteral tmp_S6, StringLiteral tmp_S7, StringLiteral tmp_S8,
                       T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, tmp_S8, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, tmp_S8);
   }
 
   StringSwitch &Cases(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                       StringLiteral tmp_S3, StringLiteral tmp_S4, StringLiteral tmp_S5,
                       StringLiteral tmp_S6, StringLiteral tmp_S7, StringLiteral tmp_S8,
                       StringLiteral tmp_S9, T Value) {
-    return Case(tmp_S0, Value).Cases(tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, tmp_S8, tmp_S9, Value);
+    return CasesImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3, tmp_S4, tmp_S5, tmp_S6, tmp_S7, tmp_S8, tmp_S9);
   }
 
   // Case-insensitive case matchers.
   StringSwitch &CaseLower(StringLiteral S, T Value) {
-    if (!Result && Str.equals_insensitive(S))
-      Result = std::move(Value);
-
+    CaseLowerImpl(Value, S);
     return *this;
   }
 
@@ -161,22 +156,22 @@ public:
   }
 
   StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, T Value) {
-    return CaseLower(tmp_S0, Value).CaseLower(tmp_S1, Value);
+    return CasesLowerImpl(Value, tmp_S0, tmp_S1);
   }
 
   StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                            T Value) {
-    return CaseLower(tmp_S0, Value).CasesLower(tmp_S1, tmp_S2, Value);
+    return CasesLowerImpl(Value, tmp_S0, tmp_S1, tmp_S2);
   }
 
   StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                            StringLiteral tmp_S3, T Value) {
-    return CaseLower(tmp_S0, Value).CasesLower(tmp_S1, tmp_S2, tmp_S3, Value);
+    return CasesLowerImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3);
   }
 
   StringSwitch &CasesLower(StringLiteral tmp_S0, StringLiteral tmp_S1, StringLiteral tmp_S2,
                            StringLiteral tmp_S3, StringLiteral tmp_S4, T Value) {
-    return CaseLower(tmp_S0, Value).CasesLower(tmp_S1, tmp_S2, tmp_S3, tmp_S4, Value);
+    return CasesLowerImpl(Value, tmp_S0, tmp_S1, tmp_S2, tmp_S3, tmp_S4);
   }
 
   [[nodiscard]] R Default(T Value) {
@@ -188,6 +183,39 @@ public:
   [[nodiscard]] operator R() {
     assert(Result && "Fell off the end of a string-switch");
     return std::move(*Result);
+  }
+
+private:
+  // Returns true when `Str` matches the `S` argument, and stores the result.
+  bool CaseImpl(T &Value, StringLiteral S) {
+    if (!Result && Str == S) {
+      Result = std::move(Value);
+      return true;
+    }
+    return false;
+  }
+
+  // Returns true when `Str` matches the `S` argument (case-insensitive), and
+  // stores the result.
+  bool CaseLowerImpl(T &Value, StringLiteral S) {
+    if (!Result && Str.equals_insensitive(S)) {
+      Result = std::move(Value);
+      return true;
+    }
+    return false;
+  }
+
+  template <typename... Args> StringSwitch &CasesImpl(T &Value, Args... Cases) {
+    // Stop matching after the string is found.
+    (... || CaseImpl(Value, Cases));
+    return *this;
+  }
+
+  template <typename... Args>
+  StringSwitch &CasesLowerImpl(T &Value, Args... Cases) {
+    // Stop matching after the string is found.
+    (... || CaseLowerImpl(Value, Cases));
+    return *this;
   }
 };
 

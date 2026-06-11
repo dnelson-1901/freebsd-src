@@ -89,6 +89,11 @@ esac
 
 leds blink
 
+if ! [ -c /dev/null ]; then
+	echo "/dev is not populated" >&2
+	exit 1
+fi
+
 if [ "$1" = autoboot ]; then
 	autoboot=yes
 	_boot="faststart"

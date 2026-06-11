@@ -91,6 +91,8 @@ CWARNFLAGS.clang+=	-Wno-error=unused-but-set-parameter
 .if ${COMPILER_TYPE} == "clang" && ${COMPILER_VERSION} >= 190000
 # Similar to gcc >= 8.1 -Wno-error=cast-function-type below
 CWARNFLAGS.clang+=	-Wno-error=cast-function-type-mismatch
+CXXWARNFLAGS.clang+=	-Wno-c++14-extensions
+CXXWARNFLAGS.clang+=	-Wno-c++17-extensions
 CXXWARNFLAGS.clang+=	-Wno-c++20-extensions
 CXXWARNFLAGS.clang+=	-Wno-c++23-lambda-attributes
 CXXWARNFLAGS.clang+=	-Wno-nullability-completeness
@@ -239,6 +241,8 @@ CWARNFLAGS+=	-Wno-error=overflow
 # These warnings are raised by headers in libc++ so are disabled
 # globally for all C++
 CXXWARNFLAGS+=	-Wno-literal-suffix			\
+		-Wno-c++14-extensions			\
+		-Wno-c++17-extensions			\
 		-Wno-c++20-extensions			\
 		-Wno-error=unknown-pragmas
 .endif
