@@ -199,6 +199,7 @@ clean_dep   cddl/lib/libzpool abd_os c "linux/zfs/abd_os\.c"
 clean_dep   cddl/lib/libzpool arc_os c "linux/zfs/arc_os\.c"
 clean_dep   cddl/lib/libzpool zfs_debug c "linux/zfs/zfs_debug\.c"
 
+if false ; then # WITH_LLVM_LINK_STATIC_LIBRARIES needs these files
 # 20250425  2e47f35be5dc    libllvm, libclang and liblldb became shared libraries
 if [ -f "$OBJTOP"/lib/clang/libllvm/libllvm.a ]; then
 	echo "Removing old static libllvm library"
@@ -211,6 +212,7 @@ fi
 if [ -f "$OBJTOP"/lib/clang/liblldb/liblldb.a ]; then
 	echo "Removing old static liblldb library"
         run rm -f "$OBJTOP"/lib/clang/liblldb/liblldb.a
+fi
 fi
 
 # 20250402  839d0755fea8    ctld converted to C++
