@@ -318,14 +318,14 @@ retry_nlist:
 				goto nlist_ok;
 
 			for (c = 0; c < (int)(nitems(namelist)); c++)
-				if (namelist[c].n_type == 0)
+				if (namelist[c].n_type == 0 && namelist[c].n_name != NULL)
 					bufsize += strlen(namelist[c].n_name)
 					    + 1;
 			bufsize += len + 1;
 			buf = bp = alloca(bufsize);
 
 			for (c = 0; c < (int)(nitems(namelist)); c++)
-				if (namelist[c].n_type == 0) {
+				if (namelist[c].n_type == 0 && namelist[c].n_name != NULL) {
 					xo_error(" %s",
 					    namelist[c].n_name);
 					len = strlen(namelist[c].n_name);
