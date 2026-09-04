@@ -325,6 +325,7 @@ exit1(struct thread *td, int rval, int signo)
 	while (p->p_lock > 0)
 		msleep(&p->p_lock, &p->p_mtx, PWAIT, "exithold", 0);
 
+	MPASS(p->p_execblock == 0);
 	PROC_UNLOCK(p);
 	/* Drain the limit callout while we don't have the proc locked */
 	callout_drain(&p->p_limco);
@@ -986,6 +987,7 @@ proc_reap(struct thread *td, struct proc *p, int *status, int options)
 	proc_id_clear(PROC_ID_PID, p->p_pid);
 
 	PROC_LOCK(p);
+	KNOTE_LOCKED(p->p_klist, NOTE_REAP);
 	knlist_detach(p->p_klist);
 	p->p_klist = NULL;
 	PROC_UNLOCK(p);

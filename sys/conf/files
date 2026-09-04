@@ -2270,6 +2270,8 @@ dev/ixgbe/ixgbe_api.c		optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
 dev/ixgbe/ixgbe_common.c	optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
+dev/ixgbe/ixgbe_fw_logging.c	optional ix inet | ixv inet \
+	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
 dev/ixgbe/ixgbe_mbx.c		optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
 dev/ixgbe/ixgbe_vf.c		optional ix inet | ixv inet \
@@ -3955,6 +3957,7 @@ kern/vfs_export.c		standard
 kern/vfs_extattr.c		standard
 kern/vfs_hash.c			standard
 kern/vfs_init.c			standard
+kern/vfs_inotify.c		standard
 kern/vfs_lookup.c		standard
 kern/vfs_mount.c		standard
 kern/vfs_mountroot.c		standard
@@ -4294,6 +4297,7 @@ netgraph/ng_vlan_rotate.c	optional netgraph_vlan_rotate
 netinet/accf_data.c		optional accept_filter_data inet
 netinet/accf_dns.c		optional accept_filter_dns inet
 netinet/accf_http.c		optional accept_filter_http inet
+netinet/accf_tls.c		optional accept_filter_tls inet
 netinet/if_ether.c		optional inet ether
 netinet/igmp.c			optional inet
 netinet/in.c			optional inet

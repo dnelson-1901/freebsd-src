@@ -22,6 +22,7 @@ ATF_TESTS_C+=	kern_descrip_test
 TEST_METADATA.kern_descrip_test+= is_exclusive="true"
 ATF_TESTS_C+=	fdgrowtable_test
 ATF_TESTS_C+=	jail_lookup_root
+ATF_TESTS_C+=	inotify_test
 ATF_TESTS_C+=	kill_zombie
 .if ${MK_OPENSSL} != "no"
 ATF_TESTS_C+=	ktls_test
@@ -32,6 +33,7 @@ ATF_TESTS_C+=	procdesc
 ATF_TESTS_C+=	ptrace_test
 TEST_METADATA.ptrace_test+=		timeout="15"
 ATF_TESTS_C+=	reaper
+ATF_TESTS_C+=	resolve_beneath_test
 ATF_TESTS_C+=	sched_affinity
 ATF_TESTS_C+=	sigaltstack
 ATF_TESTS_C+=	sigwait
@@ -80,6 +82,7 @@ PROGS+=		coredump_phnum_helper
 PROGS+=		pdeathsig_helper
 PROGS+=		sendfile_helper
 
+CFLAGS.aslr+=				-I${SRCTOP}/tests
 LIBADD.aslr+=				util
 LIBADD.copy_file_range+=		md
 LIBADD.jail_lookup_root+=		jail util

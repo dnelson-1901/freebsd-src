@@ -520,7 +520,6 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 			    ND_OPT_PI_FLAG_ONLINK) ? 1 : 0;
 			pr.ndpr_raf_auto = (pi->nd_opt_pi_flags_reserved &
 			    ND_OPT_PI_FLAG_AUTO) ? 1 : 0;
-			pr.ndpr_raf_ra_derived = 1;
 			pr.ndpr_plen = pi->nd_opt_pi_prefix_len;
 			pr.ndpr_vltime = ntohl(pi->nd_opt_pi_valid_time);
 			pr.ndpr_pltime = ntohl(pi->nd_opt_pi_preferred_time);
@@ -1889,6 +1888,7 @@ restart:
 		flags = pr->ndpr_stateflags & (NDPRF_DETACHED | NDPRF_ONLINK);
 		if (flags == 0 || flags == (NDPRF_DETACHED | NDPRF_ONLINK)) {
 			genid = V_nd6_list_genid;
+			nd6_prefix_ref(pr);
 			ND6_RUNLOCK();
 			if ((flags & NDPRF_ONLINK) != 0 &&
 			    (e = nd6_prefix_offlink(pr)) != 0) {
@@ -1907,6 +1907,7 @@ restart:
 					    &pr->ndpr_prefix.sin6_addr),
 					    pr->ndpr_plen, e));
 			}
+			nd6_prefix_rele(pr);
 			ND6_RLOCK();
 			if (genid != V_nd6_list_genid)
 				goto restart;
@@ -2169,6 +2170,7 @@ restart:
 				int e;
 
 				genid = V_nd6_list_genid;
+				nd6_prefix_ref(opr);
 				ND6_RUNLOCK();
 				if ((e = nd6_prefix_onlink(opr)) != 0) {
 					nd6log((LOG_ERR,
@@ -2180,6 +2182,7 @@ restart:
 					    if_name(opr->ndpr_ifp), e));
 				} else
 					a_failure = 0;
+				nd6_prefix_rele(opr);
 				ND6_RLOCK();
 				if (genid != V_nd6_list_genid)
 					goto restart;

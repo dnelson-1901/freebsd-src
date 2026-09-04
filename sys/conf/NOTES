@@ -1064,6 +1064,7 @@ options 	MBUF_PROFILING
 options 	ACCEPT_FILTER_DATA
 options 	ACCEPT_FILTER_DNS
 options 	ACCEPT_FILTER_HTTP
+options		ACCEPT_FILTER_TLS
 
 # TCP_SIGNATURE adds support for RFC 2385 (TCP-MD5) digests. These are
 # carried in TCP option 19. This option is commonly used to protect
@@ -2831,8 +2832,8 @@ options         IMGACT_BINMISC
 options 	GZIO
 
 # zstd support
-# This enables support for Zstd compressed core dumps, GEOM_UZIP images,
-# and is required by zfs if statically linked.
+# This enables support for Zstandard compression for core dumps,
+# kernel dumps, GEOM_UZIP images, and tarfs, and is required by zfs.
 options 	ZSTDIO
 
 # BHND(4) drivers

@@ -184,12 +184,12 @@ struct apic_enumerator {
 inthand_t
 	IDTVEC(apic_isr1), IDTVEC(apic_isr2), IDTVEC(apic_isr3),
 	IDTVEC(apic_isr4), IDTVEC(apic_isr5), IDTVEC(apic_isr6),
-	IDTVEC(apic_isr7), IDTVEC(cmcint), IDTVEC(errorint),
-	IDTVEC(spuriousint), IDTVEC(timerint),
+	IDTVEC(apic_isr7), IDTVEC(cmcint), IDTVEC(thermalint),
+	IDTVEC(errorint), IDTVEC(spuriousint), IDTVEC(timerint),
 	IDTVEC(apic_isr1_pti), IDTVEC(apic_isr2_pti), IDTVEC(apic_isr3_pti),
 	IDTVEC(apic_isr4_pti), IDTVEC(apic_isr5_pti), IDTVEC(apic_isr6_pti),
-	IDTVEC(apic_isr7_pti), IDTVEC(cmcint_pti), IDTVEC(errorint_pti),
-	IDTVEC(spuriousint_pti), IDTVEC(timerint_pti);
+	IDTVEC(apic_isr7_pti), IDTVEC(cmcint_pti), IDTVEC(thermalint_pti),
+	IDTVEC(errorint_pti), IDTVEC(spuriousint_pti), IDTVEC(timerint_pti);
 
 extern vm_paddr_t lapic_paddr;
 extern int *apic_cpuids;
@@ -197,19 +197,24 @@ extern int *apic_cpuids;
 /* Allow to replace the lapic_ipi_vectored implementation. */
 extern void (*ipi_vectored)(u_int, int);
 
+typedef struct ioapic *ioapic_drv_t;
+
 void	apic_register_enumerator(struct apic_enumerator *enumerator);
-void	*ioapic_create(vm_paddr_t addr, int32_t apic_id, int intbase);
-int	ioapic_disable_pin(void *cookie, u_int pin);
-int	ioapic_get_vector(void *cookie, u_int pin);
-void	ioapic_register(void *cookie);
-int	ioapic_remap_vector(void *cookie, u_int pin, int vector);
-int	ioapic_set_bus(void *cookie, u_int pin, int bus_type);
-int	ioapic_set_extint(void *cookie, u_int pin);
-int	ioapic_set_nmi(void *cookie, u_int pin);
-int	ioapic_set_polarity(void *cookie, u_int pin, enum intr_polarity pol);
-int	ioapic_set_triggermode(void *cookie, u_int pin,
+ioapic_drv_t	ioapic_create(vm_paddr_t addr, int32_t apic_id, int intbase);
+int	ioapic_disable_pin(ioapic_drv_t cookie, u_int pin);
+int	ioapic_get_vector(ioapic_drv_t cookie, u_int pin);
+void	ioapic_register(ioapic_drv_t cookie);
+int	ioapic_remap_vector(ioapic_drv_t cookie, u_int pin, int vector);
+int	ioapic_set_bus(ioapic_drv_t cookie, u_int pin, int bus_type);
+int	ioapic_set_extint(ioapic_drv_t cookie, u_int pin);
+int	ioapic_set_nmi(ioapic_drv_t cookie, u_int pin);
+int	ioapic_set_polarity(ioapic_drv_t cookie, u_int pin, enum intr_polarity pol);
+int	ioapic_set_triggermode(ioapic_drv_t cookie, u_int pin,
 	    enum intr_trigger trigger);
-int	ioapic_set_smi(void *cookie, u_int pin);
+int	ioapic_set_smi(ioapic_drv_t cookie, u_int pin);
+
+/* First argument: 'cpuid' from 'struct pcpu', second: Opaque cookie. */
+typedef void lapic_thermal_handler_t(int, void *);
 
 void	lapic_create(u_int apic_id, int boot_cpu);
 void	lapic_init(vm_paddr_t addr);
@@ -230,6 +235,8 @@ void	apic_enable_vector(u_int apic_id, u_int vector);
 void	apic_disable_vector(u_int apic_id, u_int vector);
 void	apic_free_vector(u_int apic_id, u_int vector, u_int irq);
 void	lapic_calibrate_timer(void);
+bool	lapic_enable_thermal(lapic_thermal_handler_t *func, void *func_arg);
+void	lapic_disable_thermal(void);
 int	lapic_enable_pmc(void);
 void	lapic_disable_pmc(void);
 void	lapic_reenable_pmc(void);
@@ -254,6 +261,7 @@ int	lapic_set_lvt_polarity(u_int apic_id, u_int lvt,
 int	lapic_set_lvt_triggermode(u_int apic_id, u_int lvt,
 	    enum intr_trigger trigger);
 void	lapic_handle_cmc(void);
+void	lapic_handle_thermal(void);
 void	lapic_handle_error(void);
 void	lapic_handle_intr(int vector, struct trapframe *frame);
 void	lapic_handle_timer(struct trapframe *frame);

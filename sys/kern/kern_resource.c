@@ -48,6 +48,7 @@
 #include <sys/mutex.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
+#include <sys/ptrace.h>
 #include <sys/refcount.h>
 #include <sys/racct.h>
 #include <sys/resourcevar.h>
@@ -810,11 +811,11 @@ sys_getrlimit(struct thread *td, struct getrlimit_args *uap)
 }
 
 static int
-getrlimitusage_one(struct proc *p, u_int which, int flags, rlim_t *res)
+getrlimitusage_one(struct proc *p, struct vmspace *vm, u_int which, int flags,
+    rlim_t *res)
 {
 	struct thread *td;
 	struct uidinfo *ui;
-	struct vmspace *vm;
 	uid_t uid;
 	int error;
 
@@ -825,7 +826,6 @@ getrlimitusage_one(struct proc *p, u_int which, int flags, rlim_t *res)
 	PROC_UNLOCK(p);
 
 	ui = uifind(uid);
-	vm = vmspace_acquire_ref(p);
 
 	switch (which) {
 	case RLIMIT_CPU:
@@ -903,7 +903,6 @@ getrlimitusage_one(struct proc *p, u_int which, int flags, rlim_t *res)
 		break;
 	}
 
-	vmspace_free(vm);
 	uifree(ui);
 	return (error);
 }
@@ -911,12 +910,15 @@ getrlimitusage_one(struct proc *p, u_int which, int flags, rlim_t *res)
 int
 sys_getrlimitusage(struct thread *td, struct getrlimitusage_args *uap)
 {
+	struct proc *p;
 	rlim_t res;
 	int error;
 
 	if ((uap->flags & ~(GETRLIMITUSAGE_EUID)) != 0)
 		return (EINVAL);
-	error = getrlimitusage_one(curproc, uap->which, uap->flags, &res);
+	p = curproc;
+	error = getrlimitusage_one(p, p->p_vmspace, uap->which, uap->flags,
+	    &res);
 	if (error == 0)
 		error = copyout(&res, uap->res, sizeof(res));
 	return (error);
@@ -1640,6 +1642,12 @@ uifree(struct uidinfo *uip)
 	if (uip->ui_pipecnt != 0)
 		printf("freeing uidinfo: uid = %d, pipecnt = %ld\n",
 		    uip->ui_uid, uip->ui_pipecnt);
+	if (uip->ui_inotifycnt != 0)
+		printf("freeing uidinfo: uid = %d, inotifycnt = %ld\n",
+		    uip->ui_uid, uip->ui_inotifycnt);
+	if (uip->ui_inotifywatchcnt != 0)
+		printf("freeing uidinfo: uid = %d, inotifywatchcnt = %ld\n",
+		    uip->ui_uid, uip->ui_inotifywatchcnt);
 	free(uip, M_UIDINFO);
 }
 
@@ -1745,11 +1753,28 @@ chgpipecnt(struct uidinfo *uip, int diff, rlim_t max)
 	return (chglimit(uip, &uip->ui_pipecnt, diff, max, "pipecnt"));
 }
 
+int
+chginotifycnt(struct uidinfo *uip, int diff, rlim_t max)
+{
+
+	return (chglimit(uip, &uip->ui_inotifycnt, diff, max, "inotifycnt"));
+}
+
+int
+chginotifywatchcnt(struct uidinfo *uip, int diff, rlim_t max)
+{
+
+	return (chglimit(uip, &uip->ui_inotifywatchcnt, diff, max,
+	    "inotifywatchcnt"));
+}
+
 static int
 sysctl_kern_proc_rlimit_usage(SYSCTL_HANDLER_ARGS)
 {
 	rlim_t resval[RLIM_NLIMITS];
 	struct proc *p;
+	struct thread *td;
+	struct vmspace *vm;
 	size_t len;
 	int error, *name, i;
 
@@ -1759,15 +1784,20 @@ sysctl_kern_proc_rlimit_usage(SYSCTL_HANDLER_ARGS)
 	if (req->newptr != NULL)
 		return (EINVAL);
 
-	error = pget((pid_t)name[0], PGET_WANTREAD, &p);
+	td = curthread;
+	error = pget((pid_t)name[0], PGET_HOLD | PGET_NOTWEXIT, &p);
 	if (error != 0)
 		return (error);
+	error = proc_vmspace_ref(td, p, PRVM_BLOCK_EXEC |
+	    PRVM_CHECK_VISIBILITY, &vm);
+	if (error != 0)
+		goto out;
 
 	if ((u_int)arg2 == 1) {
 		len = sizeof(resval);
 		memset(resval, 0, sizeof(resval));
 		for (i = 0; i < RLIM_NLIMITS; i++) {
-			error = getrlimitusage_one(p, (unsigned)i, 0,
+			error = getrlimitusage_one(p, vm, (unsigned)i, 0,
 			    &resval[i]);
 			if (error == ENXIO) {
 				resval[i] = -1;
@@ -1778,7 +1808,7 @@ sysctl_kern_proc_rlimit_usage(SYSCTL_HANDLER_ARGS)
 		}
 	} else {
 		len = sizeof(resval[0]);
-		error = getrlimitusage_one(p, (unsigned)name[1], 0,
+		error = getrlimitusage_one(p, vm, (unsigned)name[1], 0,
 		    &resval[0]);
 		if (error == ENXIO) {
 			resval[0] = -1;
@@ -1787,6 +1817,8 @@ sysctl_kern_proc_rlimit_usage(SYSCTL_HANDLER_ARGS)
 	}
 	if (error == 0)
 		error = SYSCTL_OUT(req, resval, len);
+	proc_vmspace_unref(td, p, PRVM_BLOCK_EXEC | PRVM_CHECK_VISIBILITY, vm);
+out:
 	PRELE(p);
 	return (error);
 }

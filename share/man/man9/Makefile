@@ -5,6 +5,7 @@ MAN=	accept_filter.9 \
 	accf_data.9 \
 	accf_dns.9 \
 	accf_http.9 \
+	accf_tls.9 \
 	acl.9 \
 	alq.9 \
 	altq.9 \
@@ -311,6 +312,7 @@ MAN=	accept_filter.9 \
 	rtentry.9 \
 	runqueue.9 \
 	rwlock.9 \
+	sbintime.9 \
 	sbuf.9 \
 	scheduler.9 \
 	SDT.9 \
@@ -416,7 +418,7 @@ MAN=	accept_filter.9 \
 	vn_deallocate.9 \
 	vn_fullpath.9 \
 	vn_isdisk.9 \
-	vnet.9 \
+	VNET.9 \
 	vnode.9 \
 	vnode_pager_setsize.9 \
 	vnode_pager_purge_range.9 \
@@ -436,6 +438,7 @@ MAN=	accept_filter.9 \
 	VOP_GETEXTATTR.9 \
 	VOP_GETPAGES.9 \
 	VOP_INACTIVE.9 \
+	VOP_INOTIFY.9 \
 	VOP_IOCTL.9 \
 	VOP_LINK.9 \
 	VOP_LISTEXTATTR.9 \
@@ -1333,8 +1336,11 @@ MLINKS+=iflibdi.9 iflib_add_int_delay_sysctl.9 \
 	iflibdi.9 iflib_led_create.9 \
 	iflibdi.9 iflib_irq_alloc.9 \
 	iflibdi.9 iflib_irq_alloc_generic.9 \
+	iflibdi.9 iflib_init_failed.9 \
 	iflibdi.9 iflib_link_intr_deferred.9 \
 	iflibdi.9 iflib_link_state_change.9 \
+	iflibdi.9 iflib_request_reset.9 \
+	iflibdi.9 iflib_request_reset_if_up.9 \
 	iflibdi.9 iflib_rx_intr_deferred.9 \
 	iflibdi.9 iflib_tx_intr_deferred.9
 MLINKS+=iflibtxrx.9 isc_rxd_available.9 \
@@ -1782,7 +1788,8 @@ MLINKS+=osd.9 osd_call.9 \
 	osd.9 osd_set_reserved.9
 MLINKS+=panic.9 vpanic.9 \
 	panic.9 KERNEL_PANICKED.9
-MLINKS+=pci.9 pci_alloc_msi.9 \
+MLINKS+=pci.9 is_pci_device.9 \
+	pci.9 pci_alloc_msi.9 \
 	pci.9 pci_alloc_msix.9 \
 	pci.9 pci_clear_pme.9 \
 	pci.9 pci_disable_busmaster.9 \
@@ -1959,6 +1966,19 @@ MLINKS+=rwlock.9 rw_assert.9 \
 	rwlock.9 rw_wlock.9 \
 	rwlock.9 rw_wowned.9 \
 	rwlock.9 rw_wunlock.9
+MLINKS+=sbintime.9 bttosbt.9 \
+	sbintime.9 mstosbt.9 \
+	sbintime.9 nstosbt.9 \
+	sbintime.9 sbintime_getsec.9 \
+	sbintime.9 sbttobt.9 \
+	sbintime.9 sbttoms.9 \
+	sbintime.9 sbttons.9 \
+	sbintime.9 sbttots.9 \
+	sbintime.9 sbttotv.9 \
+	sbintime.9 sbttous.9 \
+	sbintime.9 tstosbt.9 \
+	sbintime.9 tvtosbt.9 \
+	sbintime.9 ustosbt.9
 MLINKS+=sbuf.9 sbuf_bcat.9 \
 	sbuf.9 sbuf_bcopyin.9 \
 	sbuf.9 sbuf_bcpy.9 \
@@ -2459,6 +2479,7 @@ MLINKS+=VOP_CREATE.9 VOP_MKDIR.9 \
 MLINKS+=VOP_FSYNC.9 VOP_FDATASYNC.9
 MLINKS+=VOP_GETPAGES.9 VOP_PUTPAGES.9
 MLINKS+=VOP_INACTIVE.9 VOP_RECLAIM.9
+MLINKS+=VOP_INOTIFY.9 VOP_INOTIFY_ADD_WATCH.9
 MLINKS+=VOP_LOCK.9 vn_lock.9 \
 	VOP_LOCK.9 VOP_ISLOCKED.9 \
 	VOP_LOCK.9 VOP_UNLOCK.9
@@ -2467,7 +2488,7 @@ MLINKS+=VOP_OPENCLOSE.9 VOP_CLOSE.9 \
 MLINKS+=VOP_RDWR.9 VOP_READ.9 \
 	VOP_RDWR.9 VOP_WRITE.9
 MLINKS+=VOP_REMOVE.9 VOP_RMDIR.9
-MLINKS+=vnet.9 vimage.9
+MLINKS+=VNET.9 VIMAGE.9
 MLINKS+=vref.9 VREF.9 \
 	vref.9 vrefl.9
 MLINKS+=vrele.9 vput.9 \

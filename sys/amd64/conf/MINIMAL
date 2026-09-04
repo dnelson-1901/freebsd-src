@@ -77,6 +77,10 @@ options 	INCLUDE_CONFIG_FILE	# Include this file in kernel
 options 	KDB			# Enable kernel debugger support.
 options 	KDB_TRACE		# Print a stack trace for a panic.
 
+# Compression support
+options 	GZIO			# gzip (dumps)
+options 	ZSTDIO			# zstd (dumps, tarfs, uzip, zfs)
+
 # Make an SMP-capable kernel by default
 options 	SMP			# Symmetric MultiProcessor Kernel
 
@@ -87,6 +91,18 @@ device		cpufreq
 device		acpi
 options 	IOMMU
 device		pci
+
+# ATA controllers
+device		ahci			# AHCI-compatible SATA controllers
+
+# ATA/SCSI peripherals
+device		scbus			# SCSI bus (required for ATA/SCSI)
+device		da			# Direct Access (disks)
+device		cd			# CD
+device		pass			# Passthrough device (direct ATA/SCSI access)
+
+# NVM Express (NVMe) support
+device		nvme			# base NVMe driver
 
 # atkbdc0 controls both the keyboard and the PS/2 mouse
 device		atkbdc			# AT keyboard controller
@@ -128,6 +144,7 @@ device		virtio			# Generic VirtIO bus (required)
 device		virtio_pci		# VirtIO PCI device
 device		vtnet			# VirtIO Ethernet device
 device		virtio_blk		# VirtIO Block device
+device		virtio_scsi		# VirtIO SCSI device
 device		virtio_balloon		# VirtIO Memory Balloon device
 
 # Linux KVM paravirtualization support

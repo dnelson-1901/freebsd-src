@@ -790,6 +790,8 @@
         fs
             fusefs
             ..
+            pjdfstest
+            ..
             tarfs
             ..
             tmpfs
@@ -842,6 +844,8 @@
         mac
             bsdextended
             ..
+            do
+            ..
             ipacl
             ..
             portacl
@@ -853,6 +857,8 @@
             if_ovpn
             ..
             routing
+            ..
+            wg
             ..
         ..
         netgraph
@@ -916,6 +922,8 @@
             ..
             utimensat
             ..
+        ..
+        pmc
         ..
         posixshm
         ..

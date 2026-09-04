@@ -1166,9 +1166,13 @@ solisten_clone(struct socket *head)
 	 * including those completely irrelevant to a new born socket.  For
 	 * compatibility with older versions we will inherit a list of
 	 * meaningful options.
+	 * The crucial bit to inherit is SO_ACCEPTFILTER.  We need it present
+	 * in the child socket for soisconnected() promoting socket from the
+	 * incomplete queue to complete.  It will be cleared before the child
+	 * gets available to accept(2).
 	 */
-	so->so_options = head->so_options & (SO_KEEPALIVE | SO_DONTROUTE |
-	    SO_LINGER | SO_OOBINLINE | SO_NOSIGPIPE);
+	so->so_options = head->so_options & (SO_ACCEPTFILTER | SO_KEEPALIVE |
+	    SO_DONTROUTE | SO_LINGER | SO_OOBINLINE | SO_NOSIGPIPE);
 	so->so_linger = head->so_linger;
 	so->so_state = head->so_state;
 	so->so_fibnum = head->so_fibnum;
@@ -1707,7 +1711,7 @@ so_splice(struct socket *so, struct socket *so2, struct splice *splice)
 		return (error);
 	}
 	SOCK_SENDBUF_LOCK(so2);
-	if (so->so_snd.sb_tls_info != NULL) {
+	if (so2->so_snd.sb_tls_info != NULL) {
 		SOCK_SENDBUF_UNLOCK(so2);
 		SOCK_UNLOCK(so2);
 		so_unsplice(so, false);

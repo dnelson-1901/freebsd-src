@@ -102,6 +102,10 @@ static int  tty_drainwait = 5 * 60;
 SYSCTL_INT(_kern, OID_AUTO, tty_drainwait, CTLFLAG_RWTUN,
     &tty_drainwait, 0, "Default output drain timeout in seconds");
 
+static bool tty_tiocsti = true;
+SYSCTL_BOOL(_security_bsd, OID_AUTO, allow_tiocsti, CTLFLAG_RWTUN,
+    &tty_tiocsti, 0, "Allow TIOCSTI ioctl");
+
 /*
  * Set TTY buffer sizes.
  */
@@ -1650,6 +1654,10 @@ tty_set_winsize(struct tty *tp, const struct winsize *wsz)
 static int
 tty_sti_check(struct tty *tp, int fflag, struct thread *td)
 {
+	/* Check for global disable. */
+	if (!tty_tiocsti)
+		return (EPERM);
+
 	/* Root can bypass all of our constraints. */
 	if (priv_check(td, PRIV_TTY_STI) == 0)
 		return (0);
@@ -1869,7 +1877,12 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 		/* XXX: This looks awful. */
 		tty_unlock(tp);
 		sx_xlock(&proctree_lock);
-		tty_lock(tp);
+		error = ttydev_enter(tp);
+		if (error != 0) {
+			sx_xunlock(&proctree_lock);
+			tty_lock(tp);
+			return (error);
+		}
 
 		if (!SESS_LEADER(p)) {
 			/* Only the session leader may do this. */
@@ -1933,7 +1946,12 @@ tty_generic_ioctl(struct tty *tp, u_long cmd, void *data, int fflag,
 			tty_lock(tp);
 			return (EPERM);
 		}
-		tty_lock(tp);
+		error = ttydev_enter(tp);
+		if (error != 0) {
+			sx_sunlock(&proctree_lock);
+			tty_lock(tp);
+			return (error);
+		}
 
 		/*
 		 * Determine if this TTY is the controlling TTY after

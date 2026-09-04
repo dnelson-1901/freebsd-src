@@ -49,6 +49,7 @@
 #include <sys/filedesc.h>
 #include <sys/filio.h>
 #include <sys/fcntl.h>
+#include <sys/imgact.h>
 #include <sys/kthread.h>
 #include <sys/selinfo.h>
 #include <sys/queue.h>
@@ -420,7 +421,7 @@ filt_procattach(struct knote *kn)
 	bool exiting, immediate;
 
 	exiting = immediate = false;
-	if (kn->kn_sfflags & NOTE_EXIT)
+	if (kn->kn_sfflags & (NOTE_EXIT | NOTE_REAP))
 		p = pfind_any(kn->kn_id);
 	else
 		p = pfind(kn->kn_id);
@@ -445,7 +446,7 @@ filt_procattach(struct knote *kn)
 		kn->kn_flags &= ~EV_FLAG2;
 		kn->kn_data = kn->kn_sdata;		/* ppid */
 		kn->kn_fflags = NOTE_CHILD;
-		kn->kn_sfflags &= ~(NOTE_EXIT | NOTE_EXEC | NOTE_FORK);
+		kn->kn_sfflags &= ~NOTE_PCTRLMASK;
 		immediate = true; /* Force immediate activation of child note. */
 	}
 	/*
@@ -504,15 +505,18 @@ filt_proc(struct knote *kn, long hint)
 	event = (u_int)hint & NOTE_PCTRLMASK;
 
 	/* If the user is interested in this event, record it. */
-	if (kn->kn_sfflags & event)
-		kn->kn_fflags |= event;
+	if ((kn->kn_sfflags & event) != 0)
+		kn->kn_fflags |= kn->kn_sfflags & event;
+
+	/* Report exit status */
+	if ((kn->kn_fflags & NOTE_EXIT) != 0)
+		kn->kn_data = KW_EXITCODE(p->p_xexit, p->p_xsig);
 
 	/* Process is gone, so flag the event as finished. */
-	if (event == NOTE_EXIT) {
+	if ((event & NOTE_REAP) != 0 ||
+	    ((event & NOTE_EXIT) != 0 && (kn->kn_sfflags & NOTE_REAP) == 0)) {
 		kn->kn_flags |= EV_EOF | EV_ONESHOT;
 		kn->kn_ptr.p_proc = NULL;
-		if (kn->kn_fflags & NOTE_EXIT)
-			kn->kn_data = KW_EXITCODE(p->p_xexit, p->p_xsig);
 		if (kn->kn_fflags == 0)
 			kn->kn_flags |= EV_DROP;
 		return (1);
@@ -3070,16 +3074,23 @@ sysctl_kern_proc_kqueue(SYSCTL_HANDLER_ARGS)
 	if ((u_int)arg2 > 2 || (u_int)arg2 == 0)
 		return (EINVAL);
 
-	error = pget((pid_t)name[0], PGET_HOLD | PGET_CANDEBUG, &p);
-	if (error != 0)
-		return (error);
-
 	td = curthread;
 #ifdef COMPAT_FREEBSD32
 	compat32 = SV_CURPROC_FLAG(SV_ILP32);
 #else
 	compat32 = false;
 #endif
+
+	error = pget((pid_t)name[0], PGET_NOTWEXIT, &p);
+	if (error != 0)
+		return (error);
+
+	_PHOLD(p);
+	execve_block_wait(td, p);
+	error = p_candebug(td, p);
+	if (error != 0)
+		goto out1;
+	PROC_UNLOCK(p);
 
 	s = sbuf_new_for_sysctl(&sm, NULL, 0, req);
 	if (s == NULL) {
@@ -3101,7 +3112,11 @@ sysctl_kern_proc_kqueue(SYSCTL_HANDLER_ARGS)
 	sbuf_delete(s);
 
 out:
-	PRELE(p);
+	PROC_LOCK(p);
+out1:
+	execve_unblock(td, p);
+	_PRELE(p);
+	PROC_UNLOCK(p);
 	return (error);
 }
 
