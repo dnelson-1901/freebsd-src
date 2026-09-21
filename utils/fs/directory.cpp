@@ -32,6 +32,7 @@ extern "C" {
 #include <sys/types.h>
 
 #include <dirent.h>
+#include <limits.h>
 }
 
 #include <cerrno>
@@ -127,18 +128,8 @@ struct utils::fs::detail::directory_iterator::impl : utils::noncopyable {
     /// not.  A null pointer means an invalid iterator.
     ::DIR* _dirp;
 
-    /// Raw representation of the system directory entry.
-    ///
-    /// We need to keep this at the class level so that we can use the
-    /// readdir_r(3) function.
-    ::dirent _dirent;
-
     /// Custom representation of the directory entry.
-    ///
-    /// This is separate from _dirent because this is the type we return to the
-    /// user.  We must keep this as a pointer so that we can support the common
-    /// operators (* and ->) over iterators.
-    std::auto_ptr< directory_entry > _entry;
+    std::unique_ptr< directory_entry > _entry;
 
     /// Constructs an iterator pointing to the "end" of the directory.
     impl(void) : _path("invalid-directory-entry"), _dirp(NULL)
@@ -192,22 +183,20 @@ struct utils::fs::detail::directory_iterator::impl : utils::noncopyable {
     /// It is possible to use this function on a new directory_entry object to
     /// initialize the first entry.
     ///
-    /// \throw system_error If the call to readdir_r fails.
+    /// \throw system_error If the call to readdir fails.
     void
     next(void)
     {
         ::dirent* result;
 
-        if (::readdir_r(_dirp, &_dirent, &result) == -1) {
-            const int original_errno = errno;
-            throw fs::system_error(F("readdir_r(%s) failed") % _path,
-                                   original_errno);
-        }
+        // TODO(ngie): use `std::filesystem::directory_iterator` once the
+        // minimum C++ standard is C++20.
+        result = ::readdir(_dirp);
         if (result == NULL) {
-            _entry.reset(NULL);
+            _entry.reset();
             close();
         } else {
-            _entry.reset(new directory_entry(_dirent.d_name));
+            _entry.reset(new directory_entry(result->d_name));
         }
     }
 };

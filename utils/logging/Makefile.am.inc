@@ -26,14 +26,10 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-UTILS_CFLAGS += $(LUTOK_CFLAGS)
-UTILS_LIBS += $(LUTOK_LIBS)
-
-libutils_a_CPPFLAGS += $(LUTOK_CFLAGS)
-libutils_a_SOURCES += utils/logging/macros.hpp
-libutils_a_SOURCES += utils/logging/operations.cpp
-libutils_a_SOURCES += utils/logging/operations.hpp
-libutils_a_SOURCES += utils/logging/operations_fwd.hpp
+libutils_la_SOURCES += utils/logging/macros.hpp
+libutils_la_SOURCES += utils/logging/operations.cpp
+libutils_la_SOURCES += utils/logging/operations.hpp
+libutils_la_SOURCES += utils/logging/operations_fwd.hpp
 
 if WITH_ATF
 tests_utils_loggingdir = $(pkgtestsdir)/utils/logging

@@ -110,7 +110,7 @@ config::detail::inner_node::combine_children_into(
             continue;
         }
 
-        std::auto_ptr< base_node > new_node;
+        std::unique_ptr< base_node > new_node;
 
         children_map::const_iterator iter2 = c2.find(name);
         if (iter2 == c2.end()) {
@@ -153,7 +153,7 @@ config::detail::inner_node::combine_into(const tree_key& key,
     } catch (const std::bad_cast& unused_e) {
         throw config::bad_combination_error(
             key, "'%s' is an inner node in the base tree but a leaf node in "
-            "the overrides treee");
+            "the overrides tree");
     }
 }
 
@@ -227,8 +227,10 @@ config::detail::inner_node::lookup_rw(const tree_key& key,
     if (child_iter == _children.end()) {
         if (_dynamic) {
             base_node* const child = (key_pos == key.size() - 1) ?
-                static_cast< base_node* >(new_node()) :
-                static_cast< base_node* >(new dynamic_inner_node());
+                dynamic_cast< base_node* >(new_node()) :
+                dynamic_cast< base_node* >(new dynamic_inner_node());
+	    // The types for `new_node`
+            INV_MSG(child != nullptr, "check the return type for the function called");
             _children.insert(children_map::value_type(key[key_pos], child));
             child_iter = _children.find(key[key_pos]);
         } else {
@@ -296,7 +298,7 @@ config::detail::static_inner_node::static_inner_node(void) :
 config::detail::base_node*
 config::detail::static_inner_node::deep_copy(void) const
 {
-    std::auto_ptr< inner_node > new_node(new static_inner_node());
+    std::unique_ptr< inner_node > new_node(new static_inner_node());
     copy_into(new_node.get());
     return new_node.release();
 }
@@ -314,7 +316,7 @@ config::detail::base_node*
 config::detail::static_inner_node::combine(const tree_key& key,
                                            const base_node* other) const
 {
-    std::auto_ptr< inner_node > new_node(new static_inner_node());
+    std::unique_ptr< inner_node > new_node(new static_inner_node());
     combine_into(key, other, new_node.get());
     return new_node.release();
 }
@@ -377,7 +379,7 @@ config::detail::dynamic_inner_node::dynamic_inner_node(void) :
 config::detail::base_node*
 config::detail::dynamic_inner_node::deep_copy(void) const
 {
-    std::auto_ptr< inner_node > new_node(new dynamic_inner_node());
+    std::unique_ptr< inner_node > new_node(new dynamic_inner_node());
     copy_into(new_node.get());
     return new_node.release();
 }
@@ -395,7 +397,7 @@ config::detail::base_node*
 config::detail::dynamic_inner_node::combine(const tree_key& key,
                                             const base_node* other) const
 {
-    std::auto_ptr< inner_node > new_node(new dynamic_inner_node());
+    std::unique_ptr< inner_node > new_node(new dynamic_inner_node());
     combine_into(key, other, new_node.get());
     return new_node.release();
 }
@@ -441,7 +443,7 @@ config::leaf_node::combine(const detail::tree_key& key,
 config::detail::base_node*
 config::bool_node::deep_copy(void) const
 {
-    std::auto_ptr< bool_node > new_node(new bool_node());
+    std::unique_ptr< bool_node > new_node(new bool_node());
     new_node->_value = _value;
     return new_node.release();
 }
@@ -480,7 +482,7 @@ config::bool_node::set_lua(lutok::state& state, const int value_index)
 config::detail::base_node*
 config::int_node::deep_copy(void) const
 {
-    std::auto_ptr< int_node > new_node(new int_node());
+    std::unique_ptr< int_node > new_node(new int_node());
     new_node->_value = _value;
     return new_node.release();
 }
@@ -530,9 +532,21 @@ config::positive_int_node::validate(const value_type& new_value) const
 ///
 /// \return A dynamically-allocated node.
 config::detail::base_node*
+config::positive_int_node::deep_copy(void) const
+{
+    std::unique_ptr< positive_int_node > new_node(new positive_int_node());
+    new_node->_value = _value;
+    return new_node.release();
+}
+
+
+/// Copies the node.
+///
+/// \return A dynamically-allocated node.
+config::detail::base_node*
 config::string_node::deep_copy(void) const
 {
-    std::auto_ptr< string_node > new_node(new string_node());
+    std::unique_ptr< string_node > new_node(new string_node());
     new_node->_value = _value;
     return new_node.release();
 }
@@ -571,7 +585,7 @@ config::string_node::set_lua(lutok::state& state, const int value_index)
 config::detail::base_node*
 config::strings_set_node::deep_copy(void) const
 {
-    std::auto_ptr< strings_set_node > new_node(new strings_set_node());
+    std::unique_ptr< strings_set_node > new_node(new strings_set_node());
     new_node->_value = _value;
     return new_node.release();
 }

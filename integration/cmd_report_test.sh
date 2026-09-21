@@ -217,7 +217,7 @@ verbose_body() {
     # Switch to the current directory using its physical location and update
     # HOME accordingly.  Otherwise, the test below where we compare the value
     # of HOME in the output might fail if the path to HOME contains a symlink
-    # (as is the case in OS X when HOME points to the temporary directory.)
+    # (as is the case in macOS when HOME points to the temporary directory.)
     local real_cwd="$(pwd -P)"
     cd "${real_cwd}"
     HOME="${real_cwd}"
@@ -251,11 +251,14 @@ Metadata:
     allowed_architectures is empty
     allowed_platforms is empty
     description is empty
+    execenv is empty
+    execenv_jail_params is empty
     has_cleanup = false
     is_exclusive = false
     required_configs is empty
     required_disk_space = 0
     required_files is empty
+    required_kmods is empty
     required_memory = 0
     required_programs is empty
     required_user is empty

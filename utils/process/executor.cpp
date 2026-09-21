@@ -541,10 +541,10 @@ struct utils::process::executor::executor_handle::impl : utils::noncopyable {
     size_t last_subprocess;
 
     /// Interrupts handler.
-    std::auto_ptr< signals::interrupts_handler > interrupts_handler;
+    std::unique_ptr< signals::interrupts_handler > interrupts_handler;
 
     /// Root work directory for all executed subprocesses.
-    std::auto_ptr< fs::auto_directory > root_work_directory;
+    std::unique_ptr< fs::auto_directory > root_work_directory;
 
     /// Mapping of PIDs to the data required at run time.
     exec_handles_map all_exec_handles;
@@ -633,10 +633,10 @@ struct utils::process::executor::executor_handle::impl : utils::noncopyable {
                 "this could be an internal error or a buggy test") %
                 root_work_directory->directory() % e.what());
         }
-        root_work_directory.reset(NULL);
+        root_work_directory.reset();
 
         interrupts_handler->unprogram();
-        interrupts_handler.reset(NULL);
+        interrupts_handler.reset();
     }
 
     /// Common code to run after any of the wait calls.
@@ -681,6 +681,36 @@ struct utils::process::executor::executor_handle::impl : utils::noncopyable {
                 data.pid(),
                 data._pimpl->timer.fired() ?
                     none : utils::make_optional(status),
+                data._pimpl->unprivileged_user,
+                data._pimpl->start_time, datetime::timestamp::now(),
+                data.control_directory(),
+                data.stdout_file(),
+                data.stderr_file(),
+                data._pimpl->state_owners,
+                all_exec_handles)));
+    }
+
+    executor::exit_handle
+    reap(const pid_t original_pid)
+    {
+        PRE(original_pid > 0);
+
+        const exec_handles_map::iterator iter = all_exec_handles.find(
+            original_pid);
+        exec_handle& data = (*iter).second;
+        data._pimpl->timer.unprogram();
+
+        if (!fs::exists(data.stdout_file())) {
+            std::ofstream new_stdout(data.stdout_file().c_str());
+        }
+        if (!fs::exists(data.stderr_file())) {
+            std::ofstream new_stderr(data.stderr_file().c_str());
+        }
+
+        return exit_handle(std::shared_ptr< exit_handle::impl >(
+            new exit_handle::impl(
+                data.pid(),
+                none,
                 data._pimpl->unprivileged_user,
                 data._pimpl->start_time, datetime::timestamp::now(),
                 data.control_directory(),
@@ -779,7 +809,7 @@ executor::executor_handle::spawn_post(
     const fs::path& stderr_file,
     const datetime::delta& timeout,
     const optional< passwd::user > unprivileged_user,
-    std::auto_ptr< process::child > child)
+    std::unique_ptr< process::child > child)
 {
     const exec_handle handle(std::shared_ptr< exec_handle::impl >(
         new exec_handle::impl(
@@ -825,7 +855,7 @@ executor::exec_handle
 executor::executor_handle::spawn_followup_post(
     const exit_handle& base,
     const datetime::delta& timeout,
-    std::auto_ptr< process::child > child)
+    std::unique_ptr< process::child > child)
 {
     INV(*base.state_owners() > 0);
     const exec_handle handle(std::shared_ptr< exec_handle::impl >(
@@ -876,6 +906,20 @@ executor::executor_handle::wait_any(void)
     signals::check_interrupt();
     const process::status status = process::wait_any();
     return _pimpl->post_wait(status.dead_pid(), status);
+}
+
+
+/// Forms exit_handle for the given PID subprocess.
+///
+/// Can be used in the cases when we want to do cleanup(s) of a killed test
+/// subprocess, but we do not have exit handle as we usually do after normal
+/// wait mechanism.
+///
+/// \return A pointer to an object describing the subprocess.
+executor::exit_handle
+executor::executor_handle::reap(const int pid)
+{
+    return _pimpl->reap(pid);
 }
 
 

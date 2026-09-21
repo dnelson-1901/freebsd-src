@@ -1,5 +1,4 @@
-#! /bin/sh
-# Copyright 2010 The Kyua Authors.
+# Copyright 2024 The Kyua Authors.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,64 +26,5 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Prog_Name=${0##*/}
-
-if [ ! -f ./main.cpp ]; then
-    echo "${Prog_Name}: must be run from the source top directory" 1>&2
-    exit 1
-fi
-
-if [ ! -f configure ]; then
-    echo "${Prog_Name}: configure not found; nothing to clean?" 1>&2
-    exit 1
-fi
-
-[ -f Makefile ] || ./configure
-make distclean
-
-# Top-level directory.
-rm -f Makefile.in
-rm -f aclocal.m4
-rm -rf autom4te.cache
-rm -f config.h.in
-rm -f configure
-rm -f mkinstalldirs
-rm -f kyua-*.tar.gz
-
-# admin directory.
-rm -f admin/ar-lib
-rm -f admin/compile
-rm -f admin/config.guess
-rm -f admin/config.sub
-rm -f admin/depcomp
-rm -f admin/install-sh
-rm -f admin/ltmain.sh
-rm -f admin/mdate-sh
-rm -f admin/missing
-
-# bootstrap directory.
-rm -f bootstrap/package.m4
-rm -f bootstrap/testsuite
-
-# doc directory.
-rm -f doc/*.info
-rm -f doc/stamp-vti
-rm -f doc/version.texi
-
-# m4 directory.
-rm -f m4/libtool.m4
-rm -f m4/lt*.m4
-
-# Files and directories spread all around the tree.
-find . -name '#*' | xargs rm -rf
-find . -name '*~' | xargs rm -rf
-find . -name .deps | xargs rm -rf
-find . -name .gdb_history | xargs rm -rf
-find . -name .libs | xargs rm -rf
-find . -name .tmp | xargs rm -rf
-
-# Show remaining files.
-if [ -n "${GIT}" ]; then
-    echo ">>> untracked and ignored files"
-    "${GIT}" status --porcelain --ignored | grep -E '^(\?\?|!!)' || true
-fi
+libfreebsd_la_SOURCES += os/freebsd/utils/jail.hpp
+libfreebsd_la_SOURCES += os/freebsd/utils/jail.cpp

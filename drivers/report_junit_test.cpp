@@ -63,11 +63,14 @@ static const char* const default_metadata =
     "allowed_architectures is empty\n"
     "allowed_platforms is empty\n"
     "description is empty\n"
+    "execenv is empty\n"
+    "execenv_jail_params is empty\n"
     "has_cleanup = false\n"
     "is_exclusive = false\n"
     "required_configs is empty\n"
     "required_disk_space = 0\n"
     "required_files is empty\n"
+    "required_kmods is empty\n"
     "required_memory = 0\n"
     "required_programs is empty\n"
     "required_user is empty\n"
@@ -80,11 +83,14 @@ static const char* const overriden_metadata =
     "allowed_architectures is empty\n"
     "allowed_platforms is empty\n"
     "description = Textual description\n"
+    "execenv is empty\n"
+    "execenv_jail_params is empty\n"
     "has_cleanup = false\n"
     "is_exclusive = false\n"
     "required_configs is empty\n"
     "required_disk_space = 0\n"
     "required_files is empty\n"
+    "required_kmods is empty\n"
     "required_memory = 0\n"
     "required_programs is empty\n"
     "required_user is empty\n"
@@ -199,6 +205,8 @@ ATF_TEST_CASE_BODY(junit_metadata__overrides)
         .add_allowed_architecture("arch1")
         .add_allowed_platform("platform1")
         .set_description("This is a test")
+        .set_execenv("jail")
+        .set_execenv_jail_params("vnet")
         .set_has_cleanup(true)
         .set_is_exclusive(true)
         .add_required_config("config1")
@@ -215,11 +223,14 @@ ATF_TEST_CASE_BODY(junit_metadata__overrides)
         + "allowed_architectures = arch1\n"
         + "allowed_platforms = platform1\n"
         + "description = This is a test\n"
+        + "execenv = jail\n"
+        + "execenv_jail_params = vnet\n"
         + "has_cleanup = true\n"
         + "is_exclusive = true\n"
         + "required_configs = config1\n"
         + "required_disk_space = 456\n"
         + "required_files = file1\n"
+        + "required_kmods is empty\n"
         + "required_memory = 123\n"
         + "required_programs = prog1\n"
         + "required_user = root\n"

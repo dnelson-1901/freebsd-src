@@ -1,5 +1,4 @@
-#! /bin/sh
-# Copyright 2014 The Kyua Authors.
+# Copyright 2024 The Kyua Authors.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,57 +26,12 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set -e -x
+ENGINE_EXECENV_CFLAGS = $(MODEL_CFLAGS)
+ENGINE_EXECENV_LIBS = libengine_execenv.la $(MODEL_LIBS)
 
-install_deps() {
-    local pkgsuffix=
-    local packages=
-    if [ "${ARCH?}" = i386 ]; then
-         pkgsuffix=:i386
-         packages="${packages} gcc-multilib"
-         packages="${packages} g++-multilib"
-         sudo dpkg --add-architecture i386
-    fi
-    packages="${packages} gdb"
-    packages="${packages} liblua5.2-0${pkgsuffix}"
-    packages="${packages} liblua5.2-dev${pkgsuffix}"
-    packages="${packages} libsqlite3-0${pkgsuffix}"
-    packages="${packages} libsqlite3-dev${pkgsuffix}"
-    packages="${packages} pkg-config${pkgsuffix}"
-    packages="${packages} sqlite3"
-    sudo apt-get update -qq
-    sudo apt-get install -y ${packages}
-}
-
-install_kyua() {
-    local name="20190321-usr-local-kyua-ubuntu-16-04-${ARCH?}-${CC?}.tar.gz"
-    wget -O "${name}" "http://dl.bintray.com/ngie-eign/kyua/${name}" || return 1
-    sudo tar -xzvp -C / -f "${name}"
-    rm -f "${name}"
-}
-
-do_apidocs() {
-    sudo apt-get install -y doxygen
-}
-
-do_distcheck() {
-    :
-}
-
-do_style() {
-    :
-}
-
-main() {
-    if [ -z "${DO}" ]; then
-        echo "DO must be defined" 1>&2
-        exit 1
-    fi
-    install_deps
-    install_kyua
-    for step in ${DO}; do
-        "do_${DO}" || exit 1
-    done
-}
-
-main "${@}"
+noinst_LTLIBRARIES += libengine_execenv.la
+libengine_execenv_la_SOURCES  = engine/execenv/execenv.hpp
+libengine_execenv_la_SOURCES += engine/execenv/execenv.cpp
+libengine_execenv_la_SOURCES +=	engine/execenv/execenv_fwd.hpp
+libengine_execenv_la_SOURCES += engine/execenv/execenv_host.hpp
+libengine_execenv_la_SOURCES += engine/execenv/execenv_host.cpp

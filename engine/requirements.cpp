@@ -28,6 +28,7 @@
 
 #include "engine/requirements.hpp"
 
+#include "engine/execenv/execenv.hpp"
 #include "model/metadata.hpp"
 #include "model/types.hpp"
 #include "utils/config/nodes.ipp"
@@ -96,6 +97,34 @@ check_allowed_architectures(const model::strings_set& allowed_architectures,
             allowed_architectures.end())
             return F("Current architecture '%s' not supported") % architecture;
     }
+    return "";
+}
+
+
+/// Checks if test's execenv matches the user configuration.
+///
+/// \param execenv Execution environment name a test is designed for.
+/// \param user_config Runtime user configuration.
+///
+/// \return Empty if the execenv is in the list or an error message otherwise.
+static std::string
+check_execenv(const std::string& execenv, const config::tree& user_config)
+{
+    std::string name = execenv;
+    if (name.empty())
+        name = DEFAULT_EXECENV_NAME; // if test claims nothing
+
+    std::set< std::string > execenvs;
+    try {
+        execenvs = user_config.lookup< config::strings_set_node >("execenvs");
+    } catch (const config::unknown_key_error&) {
+        // okay, user config does not define it, empty set then
+    }
+
+    if (execenvs.find(name) == execenvs.end())
+        return F("'%s' execenv is not supported or not allowed by "
+            "the runtime user configuration") % name;
+
     return "";
 }
 
@@ -236,7 +265,27 @@ check_required_disk_space(const units::bytes& required_disk_space,
 }
 
 
+/// List of registered extra requirement checkers.
+///
+/// Use register_reqs_checker() to add an entry to this global list.
+static std::vector< std::shared_ptr< engine::reqs_checker > > _reqs_checkers;
+
+
 }  // anonymous namespace
+
+
+std::vector< std::shared_ptr< engine::reqs_checker > >
+engine::reqs_checkers()
+{
+    return _reqs_checkers;
+}
+
+void
+engine::register_reqs_checker(
+    const std::shared_ptr< engine::reqs_checker > checker)
+{
+    _reqs_checkers.push_back(checker);
+}
 
 
 /// Checks if all the requirements specified by the test case are met.
@@ -260,6 +309,10 @@ engine::check_reqs(const model::metadata& md, const config::tree& cfg,
         return reason;
 
     reason = check_allowed_architectures(md.allowed_architectures(), cfg);
+    if (!reason.empty())
+        return reason;
+
+    reason = check_execenv(md.execenv(), cfg);
     if (!reason.empty())
         return reason;
 
@@ -287,6 +340,13 @@ engine::check_reqs(const model::metadata& md, const config::tree& cfg,
                                        work_directory);
     if (!reason.empty())
         return reason;
+
+    // Iterate over extra checkers registered.
+    for (auto& checker : engine::reqs_checkers()) {
+        reason = checker->exec(md, cfg, test_suite, work_directory);
+        if (!reason.empty())
+            return reason;
+    }
 
     INV(reason.empty());
     return reason;

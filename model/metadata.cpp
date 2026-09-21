@@ -30,6 +30,7 @@
 
 #include <memory>
 
+#include "engine/execenv/execenv_fwd.hpp"
 #include "model/exceptions.hpp"
 #include "model/types.hpp"
 #include "utils/config/exceptions.hpp"
@@ -75,7 +76,7 @@ public:
     virtual base_node*
     deep_copy(void) const
     {
-        std::auto_ptr< bytes_node > new_node(new bytes_node());
+        std::unique_ptr< bytes_node > new_node(new bytes_node());
         new_node->_value = _value;
         return new_node.release();
     }
@@ -105,7 +106,7 @@ public:
     virtual base_node*
     deep_copy(void) const
     {
-        std::auto_ptr< delta_node > new_node(new delta_node());
+        std::unique_ptr< delta_node > new_node(new delta_node());
         new_node->_value = _value;
         return new_node.release();
     }
@@ -165,7 +166,7 @@ class user_node : public config::string_node {
     virtual base_node*
     deep_copy(void) const
     {
-        std::auto_ptr< user_node > new_node(new user_node());
+        std::unique_ptr< user_node > new_node(new user_node());
         new_node->_value = _value;
         return new_node.release();
     }
@@ -196,7 +197,7 @@ class paths_set_node : public config::base_set_node< fs::path > {
     virtual base_node*
     deep_copy(void) const
     {
-        std::auto_ptr< paths_set_node > new_node(new paths_set_node());
+        std::unique_ptr< paths_set_node > new_node(new paths_set_node());
         new_node->_value = _value;
         return new_node.release();
     }
@@ -247,12 +248,15 @@ init_tree(config::tree& tree)
     tree.define< config::strings_set_node >("allowed_platforms");
     tree.define_dynamic("custom");
     tree.define< config::string_node >("description");
+    tree.define< config::string_node >("execenv");
+    tree.define< config::string_node >("execenv_jail_params");
     tree.define< config::bool_node >("has_cleanup");
     tree.define< config::bool_node >("is_exclusive");
     tree.define< config::strings_set_node >("required_configs");
     tree.define< bytes_node >("required_disk_space");
     tree.define< paths_set_node >("required_files");
     tree.define< bytes_node >("required_memory");
+    tree.define< config::strings_set_node >("required_kmods");
     tree.define< paths_set_node >("required_programs");
     tree.define< user_node >("required_user");
     tree.define< delta_node >("timeout");
@@ -270,6 +274,8 @@ set_defaults(config::tree& tree)
     tree.set< config::strings_set_node >("allowed_platforms",
                                          model::strings_set());
     tree.set< config::string_node >("description", "");
+    tree.set< config::string_node >("execenv", "");
+    tree.set< config::string_node >("execenv_jail_params", "");
     tree.set< config::bool_node >("has_cleanup", false);
     tree.set< config::bool_node >("is_exclusive", false);
     tree.set< config::strings_set_node >("required_configs",
@@ -277,6 +283,7 @@ set_defaults(config::tree& tree)
     tree.set< bytes_node >("required_disk_space", units::bytes(0));
     tree.set< paths_set_node >("required_files", model::paths_set());
     tree.set< bytes_node >("required_memory", units::bytes(0));
+    tree.set< config::strings_set_node >("required_kmods", model::strings_set());
     tree.set< paths_set_node >("required_programs", model::paths_set());
     tree.set< user_node >("required_user", "");
     // TODO(jmmv): We shouldn't be setting a default timeout like this.  See
@@ -464,6 +471,36 @@ model::metadata::description(void) const
 }
 
 
+/// Returns execution environment name.
+///
+/// \return Name of configured execution environment.
+const std::string&
+model::metadata::execenv(void) const
+{
+    if (_pimpl->props.is_set("execenv")) {
+        return _pimpl->props.lookup< config::string_node >("execenv");
+    } else {
+        return get_defaults().lookup< config::string_node >("execenv");
+    }
+}
+
+
+/// Returns execenv jail(8) parameters string to run a test with.
+///
+/// \return String of jail parameters.
+const std::string&
+model::metadata::execenv_jail_params(void) const
+{
+    if (_pimpl->props.is_set("execenv_jail_params")) {
+        return _pimpl->props.lookup< config::string_node >(
+            "execenv_jail_params");
+    } else {
+        return get_defaults().lookup< config::string_node >(
+            "execenv_jail_params");
+    }
+}
+
+
 /// Returns whether the test has a cleanup part or not.
 ///
 /// \return True if there is a cleanup part; false otherwise.
@@ -475,6 +512,17 @@ model::metadata::has_cleanup(void) const
     } else {
         return get_defaults().lookup< config::bool_node >("has_cleanup");
     }
+}
+
+
+/// Returns whether the test has a specific execenv apart from default one.
+///
+/// \return True if there is a non-host execenv configured; false otherwise.
+bool
+model::metadata::has_execenv(void) const
+{
+    const std::string& name = execenv();
+    return !name.empty() && name != DEFAULT_EXECENV_NAME;
 }
 
 
@@ -547,6 +595,22 @@ model::metadata::required_memory(void) const
         return _pimpl->props.lookup< bytes_node >("required_memory");
     } else {
         return get_defaults().lookup< bytes_node >("required_memory");
+    }
+}
+
+
+/// Returns the list of kernel modules needed by the test.
+///
+/// \return Set of kernel module names.
+const model::strings_set&
+model::metadata::required_kmods(void) const
+{
+    if (_pimpl->props.is_set("required_kmods")) {
+        return _pimpl->props.lookup< config::strings_set_node >(
+            "required_kmods");
+    } else {
+        return get_defaults().lookup< config::strings_set_node >(
+            "required_kmods");
     }
 }
 
@@ -886,6 +950,36 @@ model::metadata_builder&
 model::metadata_builder::set_description(const std::string& description)
 {
     set< config::string_node >(_pimpl->props, "description", description);
+    return *this;
+}
+
+
+/// Sets execution environment name.
+///
+/// \param name Execution environment name.
+///
+/// \return A reference to this builder.
+///
+/// \throw model::error If the value is invalid.
+model::metadata_builder&
+model::metadata_builder::set_execenv(const std::string& name)
+{
+    set< config::string_node >(_pimpl->props, "execenv", name);
+    return *this;
+}
+
+
+/// Sets execenv jail(8) parameters string to run the test with.
+///
+/// \param params String of jail parameters.
+///
+/// \return A reference to this builder.
+///
+/// \throw model::error If the value is invalid.
+model::metadata_builder&
+model::metadata_builder::set_execenv_jail_params(const std::string& params)
+{
+    set< config::string_node >(_pimpl->props, "execenv_jail_params", params);
     return *this;
 }
 

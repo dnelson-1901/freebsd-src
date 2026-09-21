@@ -56,6 +56,7 @@ extern "C" {
 #include "cli/common.ipp"
 #include "cli/config.hpp"
 #include "engine/atf.hpp"
+#include "engine/googletest.hpp"
 #include "engine/plain.hpp"
 #include "engine/scheduler.hpp"
 #include "engine/tap.hpp"
@@ -102,6 +103,9 @@ register_scheduler_interfaces(void)
     scheduler::register_interface(
         "atf", std::shared_ptr< scheduler::interface >(
             new engine::atf_interface()));
+    scheduler::register_interface(
+        "googletest", std::shared_ptr< scheduler::interface >(
+            new engine::googletest_interface()));
     scheduler::register_interface(
         "plain", std::shared_ptr< scheduler::interface >(
             new engine::plain_interface()));
@@ -198,7 +202,7 @@ safe_main(cmdline::ui* ui, int argc, const char* const argv[],
     commands.insert(new cli::cmd_report_junit(), "Reporting");
 
     if (mock_command.get() != NULL)
-        commands.insert(mock_command);
+        commands.insert(std::move(mock_command));
 
     const cmdline::parsed_cmdline cmdline = cmdline::parse(argc, argv, options);
 
@@ -277,7 +281,7 @@ cli::main(cmdline::ui* ui, const int argc, const char* const* const argv,
           cli_command_ptr mock_command)
 {
     try {
-        const int exit_code = safe_main(ui, argc, argv, mock_command);
+        const int exit_code = safe_main(ui, argc, argv, std::move(mock_command));
 
         // Codes above 1 are reserved to report conditions captured as
         // exceptions below.

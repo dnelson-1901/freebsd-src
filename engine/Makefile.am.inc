@@ -26,44 +26,54 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-ENGINE_CFLAGS = $(STORE_CFLAGS) $(MODEL_CFLAGS) $(UTILS_CFLAGS)
-ENGINE_LIBS = libengine.a $(STORE_LIBS) $(MODEL_LIBS) $(UTILS_LIBS)
+CODE_COVERAGE_DIRS+=	engine
 
-noinst_LIBRARIES += libengine.a
-libengine_a_CPPFLAGS  = $(STORE_CFLAGS) $(UTILS_CFLAGS)
-libengine_a_SOURCES  = engine/atf.cpp
-libengine_a_SOURCES += engine/atf.hpp
-libengine_a_SOURCES += engine/atf_list.cpp
-libengine_a_SOURCES += engine/atf_list.hpp
-libengine_a_SOURCES += engine/atf_result.cpp
-libengine_a_SOURCES += engine/atf_result.hpp
-libengine_a_SOURCES += engine/atf_result_fwd.hpp
-libengine_a_SOURCES += engine/config.cpp
-libengine_a_SOURCES += engine/config.hpp
-libengine_a_SOURCES += engine/config_fwd.hpp
-libengine_a_SOURCES += engine/exceptions.cpp
-libengine_a_SOURCES += engine/exceptions.hpp
-libengine_a_SOURCES += engine/filters.cpp
-libengine_a_SOURCES += engine/filters.hpp
-libengine_a_SOURCES += engine/filters_fwd.hpp
-libengine_a_SOURCES += engine/kyuafile.cpp
-libengine_a_SOURCES += engine/kyuafile.hpp
-libengine_a_SOURCES += engine/kyuafile_fwd.hpp
-libengine_a_SOURCES += engine/plain.cpp
-libengine_a_SOURCES += engine/plain.hpp
-libengine_a_SOURCES += engine/requirements.cpp
-libengine_a_SOURCES += engine/requirements.hpp
-libengine_a_SOURCES += engine/scanner.cpp
-libengine_a_SOURCES += engine/scanner.hpp
-libengine_a_SOURCES += engine/scanner_fwd.hpp
-libengine_a_SOURCES += engine/tap.cpp
-libengine_a_SOURCES += engine/tap.hpp
-libengine_a_SOURCES += engine/tap_parser.cpp
-libengine_a_SOURCES += engine/tap_parser.hpp
-libengine_a_SOURCES += engine/tap_parser_fwd.hpp
-libengine_a_SOURCES += engine/scheduler.cpp
-libengine_a_SOURCES += engine/scheduler.hpp
-libengine_a_SOURCES += engine/scheduler_fwd.hpp
+ENGINE_CFLAGS = $(STORE_CFLAGS) $(MODEL_CFLAGS) $(UTILS_CFLAGS) $(ENGINE_EXECENV_CFLAGS)
+ENGINE_LIBS = libengine.la $(STORE_LIBS) $(MODEL_LIBS) $(UTILS_LIBS) $(ENGINE_EXECENV_LIBS)
+
+noinst_LTLIBRARIES += libengine.la
+libengine_la_CPPFLAGS  = $(STORE_CFLAGS) $(UTILS_CFLAGS) $(ENGINE_EXECENV_CFLAGS)
+libengine_la_SOURCES  = engine/atf.cpp
+libengine_la_SOURCES += engine/atf.hpp
+libengine_la_SOURCES += engine/atf_list.cpp
+libengine_la_SOURCES += engine/atf_list.hpp
+libengine_la_SOURCES += engine/atf_result.cpp
+libengine_la_SOURCES += engine/atf_result.hpp
+libengine_la_SOURCES += engine/atf_result_fwd.hpp
+libengine_la_SOURCES += engine/config.cpp
+libengine_la_SOURCES += engine/config.hpp
+libengine_la_SOURCES += engine/config_fwd.hpp
+libengine_la_SOURCES += engine/debugger.hpp
+libengine_la_SOURCES += engine/exceptions.cpp
+libengine_la_SOURCES += engine/exceptions.hpp
+libengine_la_SOURCES += engine/filters.cpp
+libengine_la_SOURCES += engine/filters.hpp
+libengine_la_SOURCES += engine/filters_fwd.hpp
+libengine_la_SOURCES += engine/googletest.cpp
+libengine_la_SOURCES += engine/googletest.hpp
+libengine_la_SOURCES += engine/googletest_list.cpp
+libengine_la_SOURCES += engine/googletest_list.hpp
+libengine_la_SOURCES += engine/googletest_result.cpp
+libengine_la_SOURCES += engine/googletest_result.hpp
+libengine_la_SOURCES += engine/googletest_result_fwd.hpp
+libengine_la_SOURCES += engine/kyuafile.cpp
+libengine_la_SOURCES += engine/kyuafile.hpp
+libengine_la_SOURCES += engine/kyuafile_fwd.hpp
+libengine_la_SOURCES += engine/plain.cpp
+libengine_la_SOURCES += engine/plain.hpp
+libengine_la_SOURCES += engine/requirements.cpp
+libengine_la_SOURCES += engine/requirements.hpp
+libengine_la_SOURCES += engine/scanner.cpp
+libengine_la_SOURCES += engine/scanner.hpp
+libengine_la_SOURCES += engine/scanner_fwd.hpp
+libengine_la_SOURCES += engine/tap.cpp
+libengine_la_SOURCES += engine/tap.hpp
+libengine_la_SOURCES += engine/tap_parser.cpp
+libengine_la_SOURCES += engine/tap_parser.hpp
+libengine_la_SOURCES += engine/tap_parser_fwd.hpp
+libengine_la_SOURCES += engine/scheduler.cpp
+libengine_la_SOURCES += engine/scheduler.hpp
+libengine_la_SOURCES += engine/scheduler_fwd.hpp
 
 if WITH_ATF
 tests_enginedir = $(pkgtestsdir)/engine
@@ -106,6 +116,26 @@ engine_filters_test_SOURCES = engine/filters_test.cpp
 engine_filters_test_CXXFLAGS = $(ENGINE_CFLAGS) $(ATF_CXX_CFLAGS)
 engine_filters_test_LDADD = $(ENGINE_LIBS) $(ATF_CXX_LIBS)
 
+tests_engine_PROGRAMS += engine/googletest_helpers
+engine_googletest_helpers_SOURCES = engine/googletest_helpers.cpp
+engine_googletest_helpers_CXXFLAGS = $(UTILS_CFLAGS) $(ATF_CXX_CFLAGS)
+engine_googletest_helpers_LDADD = $(UTILS_LIBS) $(ATF_CXX_LIBS)
+
+tests_engine_PROGRAMS += engine/googletest_test
+engine_googletest_test_SOURCES = engine/googletest_test.cpp
+engine_googletest_test_CXXFLAGS = $(ENGINE_CFLAGS) $(ATF_CXX_CFLAGS)
+engine_googletest_test_LDADD = $(ENGINE_LIBS) $(ATF_CXX_LIBS)
+
+tests_engine_PROGRAMS += engine/googletest_list_test
+engine_googletest_list_test_SOURCES = engine/googletest_list_test.cpp
+engine_googletest_list_test_CXXFLAGS = $(ENGINE_CFLAGS) $(ATF_CXX_CFLAGS)
+engine_googletest_list_test_LDADD = $(ENGINE_LIBS) $(ATF_CXX_LIBS)
+
+tests_engine_PROGRAMS += engine/googletest_result_test
+engine_googletest_result_test_SOURCES = engine/googletest_result_test.cpp
+engine_googletest_result_test_CXXFLAGS = $(ENGINE_CFLAGS) $(ATF_CXX_CFLAGS)
+engine_googletest_result_test_LDADD = $(ENGINE_LIBS) $(ATF_CXX_LIBS)
+
 tests_engine_PROGRAMS += engine/kyuafile_test
 engine_kyuafile_test_SOURCES = engine/kyuafile_test.cpp
 engine_kyuafile_test_CXXFLAGS = $(ENGINE_CFLAGS) $(ATF_CXX_CFLAGS)
@@ -113,8 +143,8 @@ engine_kyuafile_test_LDADD = $(ENGINE_LIBS) $(ATF_CXX_LIBS)
 
 tests_engine_PROGRAMS += engine/plain_helpers
 engine_plain_helpers_SOURCES = engine/plain_helpers.cpp
-engine_plain_helpers_CXXFLAGS = $(UTILS_CFLAGS)
-engine_plain_helpers_LDADD = $(UTILS_LIBS)
+engine_plain_helpers_CXXFLAGS = $(UTILS_CFLAGS) $(ATF_CXX_CFLAGS)
+engine_plain_helpers_LDADD = $(UTILS_LIBS) $(ATF_CXX_LIBS)
 
 tests_engine_PROGRAMS += engine/plain_test
 engine_plain_test_SOURCES = engine/plain_test.cpp
@@ -135,8 +165,8 @@ engine_scanner_test_LDADD = $(ENGINE_LIBS) $(ATF_CXX_LIBS)
 
 tests_engine_PROGRAMS += engine/tap_helpers
 engine_tap_helpers_SOURCES = engine/tap_helpers.cpp
-engine_tap_helpers_CXXFLAGS = $(UTILS_CFLAGS)
-engine_tap_helpers_LDADD = $(UTILS_LIBS)
+engine_tap_helpers_CXXFLAGS = $(UTILS_CFLAGS) $(ATF_CXX_CFLAGS)
+engine_tap_helpers_LDADD = $(UTILS_LIBS) $(ATF_CXX_LIBS)
 
 tests_engine_PROGRAMS += engine/tap_test
 engine_tap_test_SOURCES = engine/tap_test.cpp
@@ -153,3 +183,5 @@ engine_scheduler_test_SOURCES = engine/scheduler_test.cpp
 engine_scheduler_test_CXXFLAGS = $(ENGINE_CFLAGS) $(ATF_CXX_CFLAGS)
 engine_scheduler_test_LDADD = $(ENGINE_LIBS) $(ATF_CXX_LIBS)
 endif
+
+include engine/execenv/Makefile.am.inc
